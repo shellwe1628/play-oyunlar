@@ -463,9 +463,9 @@ export class GameScene extends OyunScene {
       const k = r.t / 0.6;
       g.lineStyle(4 * (1 - k) + 1, r.color, 0.8 * (1 - k)).strokeCircle(r.x, r.y, r.r * (0.4 + k));
     }
-    this.crosses = this.crosses.filter((c) => (c.t += dt) < 0.7);
+    this.crosses = this.crosses.filter((c) => (c.t += dt) < 0.8);
     for (const c of this.crosses) {
-      const a = 1 - c.t / 0.7;
+      const a = c.t < 0.4 ? 1 : 1 - (c.t - 0.4) / 0.4; // hold, then fade
       g.lineStyle(9, PALETTE.outline, a).lineBetween(c.x - 16, c.y - 16, c.x + 16, c.y + 16).lineBetween(c.x - 16, c.y + 16, c.x + 16, c.y - 16);
       g.lineStyle(5, PALETTE.danger, a).lineBetween(c.x - 15, c.y - 15, c.x + 15, c.y + 15).lineBetween(c.x - 15, c.y + 15, c.x + 15, c.y - 15);
     }

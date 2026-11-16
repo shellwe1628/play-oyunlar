@@ -118,6 +118,6 @@ export const STRINGS = defineStrings({
     'result.streak': 'Günlük seri {n}',
     'result.dailyBest': 'Bugünün rekoru {t}',
     'result.starWin': 'Kazan',
-    'result.starSteady': 'Toprağının yarısını hiç kaybetme',
+    'result.starSteady': 'Yarıdan fazla kaybetme',
   },
 });

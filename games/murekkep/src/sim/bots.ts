@@ -1,11 +1,17 @@
 /**
- * Bot decisions (pure). A bot looks at its border every `reaction` ticks and may launch one wave
- * through the same `sim.attack()` the player uses: no extra ink, no hidden information beyond
- * what the HUD shows (reserves → densities, land shares).
+ * Bot decisions (pure). A bot looks at its border every `reaction` ticks and may launch waves
+ * through the same `sim.attack()` the player uses, under the same rules: no extra ink, no free
+ * cells. Bots DO read numbers the HUD does not print: every colony's reserve, ink density
+ * (reserve ÷ area), capture cost and recent land loss. The player sees the same information in
+ * the fiction instead of as numbers: each colony's ink is drawn paler or deeper with its fill
+ * (reserve ÷ cap), and land shares are on the strip; exact enemy reserves are not shown.
  *
- *   turtle       blank paper only; sits high; retaliates hard against whoever hit it.
- *   rusher       hits the thinnest neighbour early and often.
- *   opportunist  piles onto whoever is losing ground or thinly inked.
+ * Difficulty: 0 passive (blank paper only), 1 defensive (blank paper and a proportionate hit
+ * back; starts closing a stalemate after 4 min), 2–3 the full personalities below.
+ *
+ *   turtle       blank paper first; sits high; retaliates hard against a thinner attacker.
+ *   rusher       hits thin neighbours early and often.
+ *   opportunist  joins attacks on whoever a third colony is already bleeding.
  */
 import type { Rng } from '@oyun/core/pure';
 import type { MatchSim, Personality } from './match';
@@ -127,7 +133,16 @@ export function botDecide(sim: MatchSim, id: number, personality: Personality, d
       }
     }
     if (sim.tickCount - me.lastAttackedTick >= 40) mem.lostSeen = sim.stats[id]!.lost;
-    if (blank) grab(blank, 30, 0.45);
+    if (blank) {
+      grab(blank, 30, 0.45);
+      return;
+    }
+    // After 4 minutes with no blank paper left, it starts closing the match (small waves when
+    // nearly full) instead of sitting in a stalemate until the 8-minute stop.
+    if (sim.tickCount >= 2400 && fill >= 0.9) {
+      const t = thinnest(true);
+      if (t && worth(t, 30)) go(t, 30);
+    }
     return;
   }
 

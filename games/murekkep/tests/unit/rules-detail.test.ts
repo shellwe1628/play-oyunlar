@@ -260,3 +260,40 @@ describe('starts', () => {
     }
   });
 });
+
+describe('difficulty semantics', () => {
+  const sheet = generateMap(21, { width: 32, height: 44 }, 2);
+  /** The idle colony holds 40 % of the paper, so the bot cannot reach 70 % on blank paper alone. */
+  const setup = (personality: 'turtle' | 'rusher' | 'opportunist', difficulty: number): MatchSim => {
+    const sim = new MatchSim(sheet, 5, [idle, { kind: 'bot', personality, difficulty }]);
+    let given = sim.colonies[0]!.area;
+    for (let c = 0; c < sim.owner.length && given < sheet.landCount * 0.4; c++) {
+      if (sheet.land[c] && sim.owner[c] === -1) {
+        sim.setOwner(c, 0);
+        given++;
+      }
+    }
+    sim.colonies[0]!.reserve = 5; // thin: the cheapest possible prey
+    return sim;
+  };
+  for (const personality of ['turtle', 'rusher', 'opportunist'] as const) {
+    it(`a difficulty-0 ${personality} only ever takes blank paper`, () => {
+      const sim = setup(personality, 0);
+      for (let i = 0; i < 3000 && sim.phase === 'playing'; i++) sim.tick();
+      expect(sim.stats[0]!.lost).toBe(0);
+      expect(sim.stats[1]!.captured).toBeGreaterThan(50);
+    });
+
+    it(`a difficulty-1 ${personality} never starts a fight (first 4 minutes)`, () => {
+      const sim = setup(personality, 1);
+      for (let i = 0; i < 2350 && sim.phase === 'playing'; i++) sim.tick();
+      expect(sim.stats[0]!.lost).toBe(0);
+    });
+
+    it(`a difficulty-2 ${personality} does attack a thin neighbour`, () => {
+      const sim = setup(personality, 2);
+      for (let i = 0; i < 3000 && sim.phase === 'playing'; i++) sim.tick();
+      expect(sim.stats[0]!.lost).toBeGreaterThan(0);
+    });
+  }
+});

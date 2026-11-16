@@ -1,4 +1,5 @@
-import { act, collectErrors, expect, openGame, setHidden, shot, state, test, waitForScene, type TestState } from '@oyun/core/e2e';
+import { act, clockRate, collectErrors, colorNear, expect, openGame, pixel, setHidden, shot, state, test, waitForScene, type TestState } from '@oyun/core/e2e';
+import { PALETTE } from '../../src/textures';
 import type { Page } from '@playwright/test';
 
 const gameDir = new URL('../..', import.meta.url).pathname.replace(/\/$/, '');
@@ -95,8 +96,12 @@ test('win a night by reporting everything', async ({ page }) => {
   // Pause button, then resume.
   await act(page, 'pause');
   await waitForScene(page, 'pause', 30_000);
-  await page.waitForTimeout(300);
+  await page.waitForTimeout(500); // card pop-in settles
+  // The menu must be DRAWN over the (opaque) game scene, not only active: the pixel inside the
+  // pause card, left of its buttons, is the theme surface colour (the monitor sits behind it).
+  const inCard = await pixel(page, 360 - 240, 640);
   await shot(page, gameDir, 'pause');
+  expect(colorNear(inCard, PALETTE.panel), `pause card pixel ${JSON.stringify(inCard)}`).toBe(true);
   await act(page, 'resume');
   await waitForScene(page, 'game', 30_000);
 
@@ -116,6 +121,12 @@ test('win a night by reporting everything', async ({ page }) => {
   await waitForScene(page, 'game', 30_000);
   // 1.5 s in the pause menu: only the few frames around the open/close may have counted
   expect(((await state(page)).data.elapsed as number) - t0).toBeLessThan(1.2);
+
+  // The shift clock follows the wall clock (35 real seconds per in-game hour).
+  const r = await clockRate(page, 'elapsed', 3000);
+  const msg = `shift clock ran ${r.game.toFixed(2)} s in ${r.wall.toFixed(2)} s of wall time (${r.frames} frames, ${r.longFrames} over 200 ms)`;
+  expect(r.rate, msg).toBeGreaterThan(0.85);
+  expect(r.rate, msg).toBeLessThan(1.15);
 
   let reported = 0;
   let midShot = false;

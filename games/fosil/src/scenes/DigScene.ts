@@ -287,7 +287,7 @@ export class DigScene extends OyunScene {
     if (layer < 0 || layer >= LAYERS.length) return;
     if (layer > this.sim.unlocked) {
       this.oyun.audio.play('hit', { volume: 0.4 });
-      this.showTip('locked', this.t('dig.locked', { n: big(this, at(LAYERS, layer).unlockPower) }) + ' ' + this.t('tip.power'), true);
+      this.showTip('locked', `${this.t('dig.locked', { n: big(this, at(LAYERS, layer).unlockPower) })}. ${this.t('tip.power')}`, true);
       this.juice.shake(0.12);
       return;
     }
@@ -324,7 +324,7 @@ export class DigScene extends OyunScene {
     const r = await this.oyun.platform.showRewarded('luck_boost');
     if (r === 'granted') {
       this.sim.grantLuckBoost(LUCK_BOOST.seconds);
-      toast(this, this.t('dig.boostOn'));
+      this.note(this.t('dig.boostOn'));
       this.oyun.audio.play('win');
       this.oyun.platform.track('reward_claimed', { placement: 'luck_boost' });
       this.ses.flush();
@@ -341,7 +341,7 @@ export class DigScene extends OyunScene {
     if (find.setCompleted !== null) {
       const name = this.t(`layer.${at(LAYERS, find.setCompleted).id}`);
       this.time.delayedCall(900, () => {
-        toast(this, this.t('dig.setDone', { name }), { duration: 2400, color: at(TIERS, 3).color });
+        this.note(this.t('dig.setDone', { name }), { duration: 2400, color: at(TIERS, 3).color });
         this.oyun.audio.playPreset(SFX.fanfare);
         this.oyun.platform.haptic('success');
       });
@@ -425,11 +425,19 @@ export class DigScene extends OyunScene {
     const finds = this.ses.pendingFinds.splice(0);
     const quiet = this.ses.pendingQuiet;
     this.ses.pendingQuiet = 0;
-    if (finds.length + quiet > 0) toast(this, this.t('dig.awayFinds', { n: finds.length + quiet }));
+    if (finds.length + quiet > 0) this.note(this.t('dig.awayFinds', { n: finds.length + quiet }));
     finds.forEach((f, i) => this.time.delayedCall(i * 350, () => this.onFind(f)));
   }
 
-  // ------------------------------------------------------------------ tips
+  /**
+   * Short messages sit in the empty band between the HP bar and the last-find strip: core's centre
+   * would cover the block, the top would cover the luck readout, the bottom the main buttons.
+   */
+  private note(text: string, opts: { duration?: number; color?: number } = {}): void {
+    toast(this, text, { ...opts, position: Math.round((this.hpY + this.strip.y) / 2) });
+  }
+
+    // ------------------------------------------------------------------ tips
 
   /** A one-line tip, shown once per id (forced ones on request, e.g. tapping a HUD chip). */
   private showTip(id: string, text: string, force = false): void {
@@ -518,7 +526,7 @@ export class DigScene extends OyunScene {
     if (r === 'granted' && this.sim.doubleOfflineDust()) {
       p.doubled = true;
       this.oyun.platform.track('reward_claimed', { placement: 'double_offline' });
-      toast(this, this.t('offline.doubled'));
+      this.note(this.t('offline.doubled'));
       this.oyun.audio.play('win');
       this.ses.flush();
       this.closePopup();

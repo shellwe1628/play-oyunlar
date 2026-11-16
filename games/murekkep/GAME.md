@@ -90,80 +90,87 @@ Rewarded: one extra Blot charge per match. Interstitial: between matches only.
 
 Online play, alliances, map editor, more powers, real-world maps.
 
-## Built (vertical slice)
+## Built (vertical slice, after the playtest fix round)
 
-**What exists.** Menu (live bot match bleeding across a sheet behind the title, Play, Daily, mute) →
-Sheets (8 campaign cards: thumbnail, rivals, stars, best time, locks; daily card with today's best and
-streak) → Match → Result (title, three stars each with its reason, land %, best stars, time,
-Replay / Menu / Next sheet). Core pause menu, auto-pause on tab hide. Turkish + English.
-Sim in `src/sim/` (pure, seeded): `mapgen.ts` (`generateMap`), `match.ts` (`MatchSim`: 10 Hz `tick()`,
-`attack()`, waves, growth, capture costs, elimination, win/lose, Blot), `bots.ts`, `policy.ts` (naive
-player policy for `auto-play`), `campaign.ts` (8 sheets, daily, stars), `progress.ts` (save rules).
-Rendering in `src/view/inkmap.ts`: paper baked once (fibres, torn edges, shadow); ink on a canvas
-texture at 8 px per cell where each pixel is a kernel-weighted vote of the 3×3 cells around a
-noise-jittered position. Borders are therefore organic and soft, a narrow winning margin marks a border
-where ink pools darker, freshly taken cells are darker and settle over ~1 s (that dark band is the
-visible wave front). Only changed cells (and their 3×3 neighbourhood) are redrawn and uploaded.
-HUD: land-share strip with the 70 % goal mark, reserve bar with cap and sweet-spot band (turns red
-"Full: growth stopped!" at the cap), commit slider (10–100 %, 5 % detents, drag or tap, shows the ink a
-tap will send) in thumb reach, 1×/2× toggle, Blot button with cooldown ring and rewarded "+" charge.
-Taps snap to the nearest valid border cell within ~34 logical px (finger forgiveness).
-Juice/audio (synthesized): drip on attack (pitch by commit), soak + small feedback + camera pulse when
-a player wave takes ≥ 40 cells, splash + drop burst + grey wash + toast on elimination, hurt blip when
-we lose land (rate-limited), Blot sound + medium feedback, star chimes on the result.
+**What exists.** Menu (live bot match on a dimmed sheet behind the title, Play, Daily, mute) →
+Sheets (8 campaign cards: thumbnail, rivals, stars, best time, lock "Win the previous sheet"; daily
+card with today's best and streak; thumbnails are generated one per frame after the cards are up) →
+Match → Result (title saying how it ended and naming the winner's colour, three stars each with its
+reason, land %, best stars, time, Replay / Menu / Next sheet). Core pause menu (now drawn on top),
+auto-pause on tab hide. Turkish + English.
+
+Sim in `src/sim/` (pure, seeded): `mapgen.ts`, `match.ts` (`MatchSim`: 10 Hz `tick()`, `attack()`,
+waves, growth, capture costs, elimination, end reasons `share | last | time | eliminated`, Blot, fair
+start), `bots.ts`, `policy.ts` (impatient and patient player policies), `campaign.ts`, `progress.ts`.
+Rendering in `src/view/inkmap.ts`: paper baked once per sheet and cached; one ink layer per colony
+(grey shade + alpha, 8 px per cell, kernel-vote ownership over a jittered position → organic soft
+borders, ink pooling at borders, darker fresh ink = visible wave front, a subtle texture per colony),
+tinted every frame by that colony's fill: thin ink is pale and watery, dense ink deep and opaque.
+HUD (`src/view/hud.ts`, redraws only on change): land-share strip with a labelled "70% wins" mark;
+reserve bar (count, current regrowth "+3.2/s" in gold inside the sweet spot, labelled sweet-spot band,
+red "Full: growth stopped!" at the cap); commit slider that starts at 30 % every match; 1×/2× (kept);
+Blot button with cooldown ring and rewarded "+" charge.
+Onboarding: start hint "Tap paper next to your ink" (until the first wave or 12 s of game time),
+"You" ring on the start, and four one-time tips stored in the save: first tap (what a tap sends),
+first time the reserve is drained (ink regrows fastest in the gold band), first time at the cap
+(growth stopped, spend), first time attacked (darker ink is denser and costs more).
+Taps: only paper that is not yours, within a fingertip (~34 px) of your border, attacks. Own ink, a
+hole, the desk, or paper too far away are refused with a red cross and the reason; nothing is spent.
+A wave that cannot pay for its first cell is refused (no sound, no ink).
 Test hook: state `{tick, mapId, phase, shares, alive, reserve, cap, commit, speed, blot, blotReady,
-autoPlay, targets[{cell,x,y}], slider, speedButton, updateMs}`; actions `attack {cell, percent}`,
-`auto-play {ticks}`, `fast-forward ticks`, `commit`, `speed`, `pause`, `blot {cell}`; sheets
-`sheet {index}`, `daily`, `back`; result `next`. Probe scripts in `tests/tools/` (screenshots, perf,
-a full match with real pointer input) are not part of the gate.
+autoPlay, targets[{cell,x,y}], ownCell, lastReject, intro, hint, tip, slider, speedButton, updateMs}`;
+actions `attack {cell, percent}`, `tap {x, y}`, `auto-play {ticks, policy?}` (patient by default),
+`fast-forward ticks`, `commit`, `speed`, `pause`, `blot {cell}`; sheets `sheet {index}`, `daily`,
+`back`; result `next` (state adds `title`, `starsLit`). Probe scripts in `tests/tools/` are not part
+of the gate.
 
 **Deviations from the concept, and why.**
-- Full sheet is **48×66**, not 48×72: it matches the portrait play area between HUD and thumb zone
-  (72 rows left wide side margins). Campaign sizes 32×44 → 48×66.
-- **Attacker absorbs 50 % of the ink the defender loses** (`RULES.absorb`). Without it fighting was pure
-  loss and the most passive bot won ~57 % of bot-vs-bot games; the defender still loses ink as specified.
-- **Hard stop at 8 min of game time** (largest colony wins) so stalemates end; it fires in ~7 % of
-  full-sheet bot matches.
-- **Start positions are shuffled per match seed** (deterministic). Farthest-point sampling puts the first
-  start in an extreme corner, and the player is colony 0, which gave a structural advantage.
-  Thumbnails therefore show starts as neutral dots.
-- Bots target a seeded pick weighted by cheapness (not strictly the thinnest), press a leader only above
-  a share threshold (and only a near-winner once ≤ 3 colonies remain), and finish small colonies in the
-  endgame. Turtle retaliation is limited to once per 6 s and only against a thinner attacker; the
-  opportunist only joins attacks on a colony that a third party is hitting. All use `sim.attack()`.
-- Difficulty also sets **patience** (easy bots fire before the sweet spot, i.e. waste growth like a new
-  player, and spend freely). Easy bots that bank ink turned out *stronger*, not weaker.
-- Blot is available from sheet 4 and on the daily sheet once sheet 3 is won; first charge after 10 s,
-  then a 30 s cooldown; disc radius 2.6 cells, free, takes blank and enemy cells (defender loses ink).
-  Rewarded: one instant recharge per match. Interstitial: every 3rd Replay/Next only.
-- Daily streak counts consecutive days with a daily **win**; best time is the best winning time today.
-- Colonies are told apart by colour only (no hatching pattern); see "not happy with".
+- Full sheet is **48×66**, not 48×72 (fills the portrait play area).
+- **Attacker absorbs 50 % of the ink the defender loses**; enemy cells cost **1.6 + 1.3 × density**
+  (never cheaper than blank paper, 1.0). Without absorption fighting was pure loss; with enemy cells
+  cheaper than blank, any thin player was the cheapest food on the page.
+- **Reserve never exceeds the cap** (refund/absorption overflow spills), so "Ink n / cap" is honest.
+- **8-minute stop**: most land wins, then the larger reserve; an exact tie is never the player's.
+- **Start positions** are shuffled per match seed; on sheets 1–3 the player gets the start with the
+  most room (`fairStart`).
+- **Difficulty levels**: 0 passive (blank only), 1 defensive (blank + proportionate hit back; closes
+  stalemates after 4 min), 2–3 full personalities (sweet-spot discipline, leader pressure; 3 also
+  disciplined in fights and presses a near-winner in small endgames). Sheet 1 has a single rival.
+- Bots read reserves/densities that the HUD does not print as numbers; the ink look shows them.
+- Blot from sheet 4 and on the daily sheet once sheet 3 is won; 30 s cooldown; one rewarded charge.
+- Daily: the date is fixed when the sheet is opened (a match across midnight counts for that day);
+  streak = consecutive days with a daily win.
+- Colony colours (Okabe–Ito-like): every pair ≥ 53 ΔE, ≥ 26 under simulated deuteranopia, ≥ 35
+  under protanopia, plus a per-colony texture.
 
-**Tuning numbers** (`src/sim/rules.ts`, `src/sim/bots.ts`, `src/sim/campaign.ts`): start blot radius 2,
-start reserve 18; cap = 20 + 2.4 × area; growth per tick at the sweet spot = 0.12 + 0.011 × area, scaled
-by a curve 0.3 at empty → 1 at half cap → 0 at cap; blank cell 1 ink; enemy cell 0.8 + 1.3 × defender
-density; defender loses its density per cell, attacker absorbs half of that; wave speed 2 + ink/40
-cells/tick (max 7); win 70 %. Bots: reaction [26, 18, 12, 8] ticks by difficulty (rusher ×0.7),
-commit multiplier [1.2, 0.95, 1, 1.1], patience [0.5, 0.8, 1, 1], leader share [–, 0.42, 0.30, 0.22];
-difficulty ≥ 2 spends only the ink above ~45 % fill on blank paper.
+**Tuning numbers** (`src/sim/rules.ts`, `bots.ts`, `campaign.ts`): start blot radius 2, reserve 18;
+cap = 20 + 2.4 × area; growth/tick at the sweet spot = 0.12 + 0.011 × area, scaled 0.3 (empty) → 1
+(half cap) → 0 (cap); blank cell 1; enemy cell 1.6 + 1.3 × density; defender loses its density per
+cell, attacker absorbs half; waves 2 + ink/40 cells/tick (max 7); win 70 %; stop at 4800 ticks.
+Bots: reaction [26, 18, 12, 8] ticks (rusher ×0.7), commit ×[1.2, 0.95, 1, 1.1], patience
+[0.5, 0.8, 1, 1], leader share [–, –, 0.30, 0.22]. Lineups: c1 T0 · c2 T0 O0 · c3 T0 R0 O0 ·
+c4 R1 O0 T1 · c5 T2 R1 O0 R0 · c6 O2 T2 R1 O2 · c7 O2 T3 R2 T2 O2 · c8 O3 O3 O3 R3 R3.
 
-**Balance evidence** (`tests/unit/balance.test.ts`, seeded, asserted in the gate):
-- 150 bot-vs-bot matches on full sheets (3–5 colonies, difficulty 2, personalities rotated):
-  wins turtle 42, rusher 48, opportunist 60 (28 / 32 / 40 %); game time p10 113 s, median 210 s,
-  p90 443 s; 11 of 150 (7 %) hit the 8-min stop.
-- Naive policy (taps 30 % whenever ≥ 35 % full) per campaign sheet, 24 match seeds each:
-  c1 19, c2 12, c3 2, c4 1, c5 0, c6 0, c7 1, c8 1 wins. A hard bot in the player's seat wins c8
-  2–4 of 24 (fair share 4), so the last sheet is beatable by good play (and the player has Blot).
-- Campaign matches with the naive player run 75–130 s on the small early sheets (shorter than 2 min);
-  full-sheet matches sit in the 2–4 min band.
+**Balance evidence** (60 match seeds per cell; the gate's balance test asserts the targets on 40):
 
-**Performance** (headless Chromium, SwiftShader software GL, 4 shared cores at load 6–9 from other
-builders, 390×844 @2×): full-size sheet mid-match (tick 660, 4 colonies) median frame 66.7 ms, p95 83 ms;
-the untouched template menu measures 50 ms median in the same session, so the environment's software
-rasterizer dominates. Game JS: `update()` p95 3.3–5.2 ms; script time 2.7–4.7 ms per frame. Not
-measured on a real phone.
+| sheet | rivals | impatient (never waits, 30–45 %) | patient (sweet spot, blank first) |
+|---|---|---|---|
+| 1 | T0 | 100 % (median 110 s) | 100 % (69 s) |
+| 2 | T0 O0 | 100 % (143 s) | 100 % (81 s) |
+| 3 | T0 R0 O0 | 100 % (163 s) | 100 % (89 s) |
+| 4 | R1 O0 T1 | 0 % (317 s) | 98 % (112 s) |
+| 5 | T2 R1 O0 R0 | 0 % (85 s) | 65 % (123 s) |
+| 6 | O2 T2 R1 O2 | 0 % (99 s) | 53 % (173 s) |
+| 7 | O2 T3 R2 T2 O2 | 0 % (69 s) | 52 % (204 s) |
+| 8 | O3 O3 O3 R3 R3 | 0 % (66 s) | 42 % (228 s) |
 
-**Candidates for core:** `cpuCanvasTexture` (a canvas texture whose 2D context is CPU-backed;
-`textures.createCanvas` takes pool canvases opened with `willReadFrequently: false`, so every WebGL
-upload is a GPU readback); a slider widget; the result shell's toast slot collides with a title above
-the card (games need to know the toast sits at safe top + 90).
+Bot-vs-bot, 150 full-sheet matches (3–5 colonies, difficulty 2): turtle 41, rusher 61, opportunist 48
+wins; p10 131 s, median 219 s, p90 480 s; 15 (10 %) end at the 8-minute stop.
+A real-pointer run (touch taps + slider drags, `tests/tools/real-play.mjs`) wins sheet 1 with 3 stars.
+
+**Performance.** Not measurable on a phone here. Cheap wins taken: HUD widgets redraw only on change;
+paper, jitter and grain cached per sheet (menu demo cycles 3 fixed sheets); ink density is a tint
+(no redraw); thumbnails are generated one per frame; canvases are CPU-backed (`cpuCanvasTexture`).
+Earlier measurement (software GL, loaded machine): `update()` p95 3–5 ms on the full sheet.
+
+**Candidates for core:** `cpuCanvasTexture`; a slider widget; a one-time-tips helper.

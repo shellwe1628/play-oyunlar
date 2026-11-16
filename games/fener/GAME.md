@@ -134,8 +134,15 @@ in-game HH:MM with a colon blinking once per second, blinking REC dot, static (t
 Intruders fade with the night (opacity 0.95 on night 1 → 0.6 on night 7).
 
 **Shift clock.** The sim is stepped with Phaser's unsmoothed wall-clock frame delta
-(`game.loop.rawDelta`), at most 250 ms per frame, frozen by hit-stop and while the
-second-wind ad is showing. (Before the fix a 100 ms per-frame clamp made the clock run slow on
+(`game.loop.rawDelta`) through core's `realTimeDelta()` (at most `MAX_FRAME_MS` = 200 ms per
+frame), frozen by hit-stop and while the second-wind ad is showing. Why not core's pattern (the
+`delta` Phaser passes to `update`): core makes that follow the wall clock only under automation
+and `?test=1`; for real players it keeps Phaser's smoothing, which clamps every frame to 16.7 ms
+while the window is unfocused and for 120 frames after start/focus/tab-visible. The shift is a
+wall-clock contract (35 real seconds per in-game hour; the night is 3.5 min), so the game keeps
+its own raw-delta stepping for everyone and only borrows core's cap. The tab-hidden case is
+still covered: the shift scene auto-pauses. The sim needs no `splitStep` slicing: `tick(dt)`
+handles any dt (hour events, spawns in a loop). (Before the fix a 100 ms per-frame clamp made the clock run slow on
 any device under 10 fps: 0.435× wall time measured in this container, i.e. a ~8 min night.)
 Measured after the fix, no fast-forward, in this container under load average 10–19 on 4
 cores at 5–8 fps: a full night (00:00 → 06:00, 210 s of shift) took 229 s of wall time; a 20 s
@@ -178,13 +185,25 @@ night 1 100 % and night 7 ~5 %; 4 s / 2 s wins night 7 100 %; doing nothing alwa
   the right type earns +50 and a logbook entry; the screen says "right spot, wrong kind: no
   bonus".
 - **Messages** (new logbook entry, wrong kind, too early) appear in the hint row under the camera
-  tabs, never over the clock or pips.
+  tabs, never over the clock or pips. The game calls no core `toast` itself; the only core toast
+  left is the result shell's "New best!", which now sits mid-screen on the result card (no
+  monitor there; checked in the result screenshot).
 - **Blind (static) does not stop the clock or spawns**, and switching cameras still works.
 - **Brink / second wind:** at 4 active the clock freezes and a modal offers "Second wind"
   (rewarded ad, once per shift, clears the two oldest). It auto-declines after 8 s, so doing
   nothing loses; the countdown is held from the tap until the ad resolves. After second wind is
   used, the next 4th anomaly loses at once.
-- **Pause** is ignored once the shift has ended (during the hand-off to the result screen).
+- **Pause** is ignored once the shift has ended (during the hand-off to the result screen). The
+  smoke test checks that the pause menu is really drawn over the game (rendered pixel inside the
+  pause card is the theme surface colour) and that the shift clock runs at 0.85–1.15× wall time
+  (core `clockRate`).
+- **Daily shift, deliberate consequences of the pre-rolled schedule:** (1) a scheduled change on
+  the camera on screen waits until the player looks away, so a player who never leaves one camera
+  never gets that camera's changes that day (they still get every other camera's); (2) the
+  generator never pairs an intruder with a change to an object the intruder would stand in front
+  of (8 such intruder/object pairs across the station), because the object's change would be
+  hidden behind the intruder and unreportable; the generator skips such combinations in both
+  campaign and daily shifts.
 - **Chooser layout** is anchored to the safe bottom edge with a 32 px margin (checked at
   360×640, 390×844, 430×932).
 - **Concept said 10–14 objects per camera**: built 13 / 12 / 12 / 12.
@@ -196,9 +215,6 @@ night 1 100 % and night 7 ~5 %; 4 s / 2 s wins night 7 100 %; doing nothing alwa
 
 ### Local workarounds that are candidates for core
 
-- `GameScene.openPauseMenu()` brings the pause scene to the top: core registers `PauseScene`
-  before the game's scenes, so in any scene with an opaque background the pause menu renders
-  underneath it (invisible but still taking input).
 - `scenes/widgets.ts` `Chip`: a toggleable button with a code-drawn glyph (row or column
   layout); core's `button` only takes text.
 - `fillPoints` typing wants `Vector2[]`; a cast helper `pts()` is used in `art.ts`/`Background.ts`.

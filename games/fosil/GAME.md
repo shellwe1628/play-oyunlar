@@ -137,6 +137,11 @@ exposes for display immediately before the action):
 | assistant | `assistantLuck` = base luck, no combo; finds are marked "Assistant · luck ×N" |
 | offline | `offlineLuck` = upgrades × set bonus, no combo, no rewarded boost; shown in the popup |
 The rewarded boost is wall-clock: time away uses it up. Every find carries the luck it was rolled at.
+One offline haul is rolled entirely at the luck captured when it starts (a set it completes counts
+after it); the popup lists the distinct lucks its finds actually used, and merged hauls list all of
+them. Inside one large tick each assistant find shows its own recorded luck; nothing aggregates.
+Dig-screen toasts sit between the HP bar and the last-find strip (not over the block, the luck
+readout or the main buttons).
 
 **Loot tables (exact)**, integer weights summing to 12,000,000 per layer (1.2 M-roll empirical test):
 - Topsoil: 4 5 6 8 10 15 30 40 50 100 400 1,200

@@ -1,4 +1,4 @@
-import { button, iconButton, label, OyunScene, PAUSE_SCENE, panel, type Button, type IconButton } from '@oyun/core';
+import { button, iconButton, label, OyunScene, panel, realTimeDelta, type Button, type IconButton } from '@oyun/core';
 import Phaser from 'phaser';
 import { Ambience, sfx } from '../audio';
 import { gameSave } from '../save';
@@ -169,23 +169,20 @@ export class GameScene extends OyunScene {
   override update(): void {
     if (this.finished) return;
     if (!this.adPending) {
-      // Wall-clock time (unsmoothed, so a slow device does not stretch the shift), frozen by
-      // hit-stop. A single frame counts at most 250 ms: that keeps 4+ fps devices on real time
-      // and stops the frame after an app switch from carrying the time spent away.
-      const dt = Math.min(this.juice.scaledDelta(this.game.loop.rawDelta), 250) / 1000;
+      // The shift is a wall-clock contract (35 s per in-game hour), for real players too: use the
+      // unsmoothed frame time with core's per-frame cap (realTimeDelta, 200 ms) rather than
+      // Phaser's smoothed delta, which for real players still clamps frames to 16.7 ms in an
+      // unfocused window and for 120 frames after focus. Frozen by hit-stop.
+      const dt = this.juice.scaledDelta(realTimeDelta(this.game.loop.rawDelta)) / 1000;
       this.handle(this.sim.tick(dt));
     }
     this.refresh();
   }
 
-  /**
-   * Core registers its pause scene before the game's scenes, so it would render underneath this
-   * (opaque) scene. Bring it to the top after core launches it. Candidate fix for core.
-   */
+  /** No pause once the shift is over (during the hand-off to the result screen). */
   override openPauseMenu(): void {
-    if (this.finished) return; // the shift is over: no pause during the hand-off to the result
+    if (this.finished) return;
     super.openPauseMenu();
-    this.scene.bringToTop(PAUSE_SCENE);
   }
 
   // ------------------------------------------------------------------ input handlers

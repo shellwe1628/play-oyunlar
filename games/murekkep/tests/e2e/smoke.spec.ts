@@ -1,5 +1,5 @@
 import { act, collectErrors, colorNear, expect, openGame, pixel, setHidden, shot, state, test, waitForScene } from '@oyun/core/e2e';
-import { PALETTE } from '../../src/textures';
+import { PALETTE } from '../../src/palette';
 import type { Page } from '@playwright/test';
 
 const gameDir = new URL('../..', import.meta.url).pathname.replace(/\/$/, '');
@@ -52,7 +52,7 @@ test('menu → sheets → match → result, stars saved', async ({ page }) => {
   const g0 = await game(page);
   expect(g0.mapId).toBe('c1');
   expect(g0.phase).toBe('playing');
-  expect(g0.shares).toHaveLength(3);
+  expect(g0.shares).toHaveLength(2); // sheet 1: the player and one passive rival
 
   // The slider starts at 30 % every match (it is never carried over).
   expect(g0.commit).toBe(30);

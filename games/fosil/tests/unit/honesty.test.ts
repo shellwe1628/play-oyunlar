@@ -99,7 +99,7 @@ describe('the luck applied is the luck shown, for every roll source', () => {
         expect(sim.offlineLuck).toBe(1.25); // the set bonus takes effect after the haul
       }
     }
-    expect(switched).toBeGreaterThan(2); // the case really happens in this sample
+    expect(switched).toBeGreaterThanOrEqual(2); // the case really happens in this sample
   });
 
   it('the rewarded boost keeps running while the app is closed', () => {

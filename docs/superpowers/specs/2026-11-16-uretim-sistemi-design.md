@@ -26,7 +26,8 @@ ve ucuz üretmek, tek oyuna büyük bahis yapmaktan daha güvenli.
 **Hedef olmayanlar (şimdilik)**
 - Mağazaya yükleme (hesap, imza anahtarı ve iOS için Mac gerekir; kullanıcıya ait).
 - Çevrimiçi çok oyunculu, sunucu, hesap sistemi.
-- Gerçek reklam/satın alma entegrasyonu (arayüzü hazır, sağlayıcı bağlanmadı).
+- Gerçek reklam entegrasyonu (reklam arayüzü hazır, sağlayıcı bağlanmadı) ve
+  uygulama içi satın alma (arayüzü de henüz yok).
 
 **Başarısızlık sayılacaklar**
 - Var olan belirli bir oyunun kopyası (isim, karakter, görsel, seviye). Yalnızca
@@ -91,6 +92,7 @@ görüntüsü alınır).
 |---|---|---|
 | Yönetici: yön, seçim, tasarım, son doğrulama | Fable | En pahalı muhakeme; kod yazmaz |
 | Analist: veri + mağaza doğrulama | Opus | Yargı gerektirir, yanlış "boşluk" pahalı |
+| Tasarımcı: konsept (`GAME.md`) ve puan kartı | Fable (devredilirse Opus) | Seçim ve yön kararı |
 | Mimar: ortak çekirdek | Opus | Hata tüm oyunlara yayılır |
 | Yapımcı: oyun dikey kesiti | Opus | Tasarım yorumu + his ayarı |
 | İnceleyici / oynanış testçisi | Sonnet | Belirli denetim listesi, bağımsız göz |

@@ -80,7 +80,26 @@ describe('the luck applied is the luck shown, for every roll source', () => {
     expect(shown).toBeCloseTo(2, 12);
     const haul = sim.claimOffline(600);
     expect(haul.blocks).toBeGreaterThan(0);
-    expect(haul.luck).toBeCloseTo(shown, 12);
+    expect(haul.lucks).toEqual([shown]);
+  });
+
+  it('an offline haul that completes a set is rolled entirely at the luck it shows; the bonus applies after', () => {
+    let switched = 0;
+    for (let seed = 1; seed <= 12; seed++) {
+      const sim = new DigSim(seed, saveWith((s) => {
+        for (const f of L1.slice(0, 11)) s.counts[f.id] = [1, 0, 0, 0]; // all but topsoil-12
+        s.levels.assistant = 25;
+      }));
+      const shown = sim.offlineLuck;
+      expect(shown).toBe(1);
+      const haul = sim.claimOffline(7200);
+      expect(haul.lucks).toEqual([shown]); // the lucks the haul's finds actually used
+      if (sim.setComplete(0)) {
+        switched++;
+        expect(sim.offlineLuck).toBe(1.25); // the set bonus takes effect after the haul
+      }
+    }
+    expect(switched).toBeGreaterThan(2); // the case really happens in this sample
   });
 
   it('the rewarded boost keeps running while the app is closed', () => {

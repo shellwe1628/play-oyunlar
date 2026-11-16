@@ -482,7 +482,7 @@ export class DigScene extends OyunScene {
       [this.t('offline.body', { blocks: big(this, haul.blocks), min: Math.round(haul.seconds / 60) }), 32, 0xffffff],
       [this.t('offline.dust', { n: big(this, haul.dust) }), 50, PALETTE.dust],
       [this.t('offline.found', { n: big(this, haul.blocks), k: haul.newSpecies.length }), 32, PALETTE.sand],
-      [this.t('offline.luck', { n: mult(this, haul.luck) }), 26, PALETTE.sand],
+      [this.t('offline.luck', { n: haul.lucks.map((l) => mult(this, l)).join(' / ×') }), 26, PALETTE.sand],
     ];
     if (haul.best) lines.push([this.t('offline.best', { name: fossilName(this, haul.best), odds: oddsText(this, haul.best.odds) }), 30, at(TIERS, haul.best.tier).color]);
     if (haul.seconds >= this.sim.offlineCap - 1) lines.push([this.t('offline.cap', { min: Math.round(this.sim.offlineCap / 60) }), 26, PALETTE.sand]);

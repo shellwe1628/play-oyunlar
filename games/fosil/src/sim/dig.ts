@@ -134,8 +134,11 @@ export interface OfflineHaul {
   fusions: number;
   best: Fossil | null;
   unlocked: number | null;
-  /** Luck every offline roll used (no combo, no rewarded boost). */
-  luck: number;
+  /**
+   * Distinct lucks this haul's rolls used (no combo, no boost). One claim rolls everything at the
+   * luck it captured at the start, so a set completed during the haul only counts after it.
+   */
+  lucks: number[];
   /** Finds at 1 in 1,000 or rarer, to be revealed properly when the player is back. */
   notable: Find[];
 }
@@ -469,21 +472,23 @@ export class DigSim {
    * luck (no combo), current layer. Applied immediately so closing the popup loses nothing.
    */
   claimOffline(elapsedSeconds: number): OfflineHaul {
-    const haul: OfflineHaul = { seconds: 0, hits: 0, blocks: 0, dust: 0, found: {}, newSpecies: [], fusions: 0, best: null, unlocked: null, luck: this.offlineLuck, notable: [] };
+    const haul: OfflineHaul = { seconds: 0, hits: 0, blocks: 0, dust: 0, found: {}, newSpecies: [], fusions: 0, best: null, unlocked: null, lucks: [], notable: [] };
     // The rewarded boost is a wall-clock 60 s: time away uses it up, and offline rolls never get it.
     if (elapsedSeconds > 0) this.s.boost = Math.max(0, this.s.boost - elapsedSeconds);
     const rate = this.assistantRate;
     if (!(elapsedSeconds > 0) || rate <= 0) return haul;
     haul.seconds = Math.min(elapsedSeconds, this.offlineCap);
     haul.hits = Math.floor(haul.seconds * rate * OFFLINE.efficiency);
+    const haulLuck = this.luckNoBoost; // fixed for the whole haul
     for (let i = 0; i < haul.hits; i++) {
-      const r = this.hit('offline', this.luckNoBoost);
+      const r = this.hit('offline', haulLuck);
       const f = r.find;
       if (!f) continue;
       haul.blocks += 1;
       haul.dust += f.dust;
       haul.fusions += f.fusions;
       haul.found[f.fossil.id] = (haul.found[f.fossil.id] ?? 0) + 1;
+      if (!haul.lucks.includes(f.luck)) haul.lucks.push(f.luck);
       if (f.isNew) haul.newSpecies.push(f.fossil.id);
       if (f.fossil.odds >= 1000) haul.notable.push(f);
       if (!haul.best || f.fossil.odds > haul.best.odds) haul.best = f.fossil;

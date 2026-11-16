@@ -28,7 +28,7 @@ function mergeHauls(a: OfflineHaul, b: OfflineHaul): OfflineHaul {
     fusions: a.fusions + b.fusions,
     best,
     unlocked: b.unlocked ?? a.unlocked,
-    luck: b.luck,
+    lucks: [...new Set([...a.lucks, ...b.lucks])].sort((x, y) => x - y), // never one luck some rolls did not use
     notable: [...a.notable, ...b.notable],
   };
 }

@@ -10,7 +10,7 @@ import type { GameMap } from '../sim/mapgen';
 import { PALETTE } from '../textures';
 
 /** Ink canvas pixels per cell. */
-const INK_RES = 4;
+const INK_RES = 8;
 /** Ticks a fresh cell stays darker, in steps. */
 const FRESH_STEPS = 5;
 
@@ -246,7 +246,7 @@ export class InkMap {
       list.push(c);
     };
     for (const c of src.dirty) {
-      this.fresh.set(c, -1);
+      if (this.freshStep(src, c) > 0) this.fresh.set(c, this.freshStep(src, c));
       const x = c % w;
       const y = (c - x) / w;
       for (let dy = -1; dy <= 1; dy++) {
@@ -258,19 +258,20 @@ export class InkMap {
       }
     }
     src.dirty.length = 0;
-    // Fresh cells whose darkness step changed since they were drawn.
+    // Fresh cells whose darkness step changed: redraw them and their 3×3 neighbourhood, since
+    // jittered pixels of neighbours (diagonals included) sample this cell too.
     for (const [c, drawn] of this.fresh) {
       const step = this.freshStep(src, c);
-      if (step !== drawn) {
-        add(c);
-        if (step === 0) {
-          // Last step: neighbours' pixels may sample this cell; settle them too.
-          const x = c % w;
-          const y = (c - x) / w;
-          if (x > 0) add(c - 1);
-          if (x < w - 1) add(c + 1);
-          if (y > 0) add(c - w);
-          if (y < h - 1) add(c + w);
+      if (step === drawn) continue;
+      this.fresh.set(c, step);
+      if (step === 0) this.fresh.delete(c);
+      const x = c % w;
+      const y = (c - x) / w;
+      for (let dy = -1; dy <= 1; dy++) {
+        for (let dx = -1; dx <= 1; dx++) {
+          const nx = x + dx;
+          const ny = y + dy;
+          if (nx >= 0 && ny >= 0 && nx < w && ny < h) add(ny * w + nx);
         }
       }
     }
@@ -297,9 +298,6 @@ export class InkMap {
     for (const c of cells) {
       const cx = c % w;
       const cy = (c - cx) / w;
-      const step = this.freshStep(src, c);
-      if (step === 0) this.fresh.delete(c);
-      else if (this.fresh.has(c)) this.fresh.set(c, step);
       const x0 = cx * INK_RES;
       const y0 = cy * INK_RES;
       if (x0 < minX) minX = x0;

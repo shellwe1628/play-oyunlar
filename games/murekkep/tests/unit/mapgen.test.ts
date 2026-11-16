@@ -81,4 +81,23 @@ describe('generateMap', () => {
     expect(a.starts).toEqual(b.starts);
     expect(Array.from(a.land)).not.toEqual(Array.from(c.land));
   });
+
+  it('never places two starts closer than the minimum gap, even when crowded', () => {
+    for (let seed = 1; seed <= 20; seed++) {
+      let m;
+      try {
+        m = generateMap(seed, { width: 18, height: 22 }, 6);
+      } catch {
+        continue; // refusing a crowded sheet is fine; cramming starts is not
+      }
+      for (let a = 0; a < m.starts.length; a++) {
+        for (let b = a + 1; b < m.starts.length; b++) {
+          const pa = m.starts[a]!;
+          const pb = m.starts[b]!;
+          const d = Math.abs((pa % m.width) - (pb % m.width)) + Math.abs(Math.floor(pa / m.width) - Math.floor(pb / m.width));
+          expect(d).toBeGreaterThanOrEqual(10);
+        }
+      }
+    }
+  });
 });

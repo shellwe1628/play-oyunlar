@@ -1,6 +1,5 @@
 /** Persistent progress rules (pure). The shape is stored by src/save.ts. */
 import { BLOT_UNLOCK_AFTER, CAMPAIGN, matchSeconds, starsFor, type MatchOutcome } from './campaign';
-import { RULES } from './rules';
 
 export interface SaveData {
   /** Best stars per campaign sheet (0..3). */
@@ -15,9 +14,10 @@ export interface SaveData {
   /** Consecutive days with a daily win, and the last such day. */
   streak: number;
   lastDailyWin: string;
-  /** Player preferences kept between matches. */
-  commit: number;
+  /** Speed toggle kept between matches (the commit slider resets every match). */
   speed: number;
+  /** One-time tips already shown. */
+  tips: string[];
 }
 
 export function freshSave(): SaveData {
@@ -30,9 +30,17 @@ export function freshSave(): SaveData {
     dailyBest: 0,
     streak: 0,
     lastDailyWin: '',
-    commit: RULES.defaultCommit,
     speed: 1,
+    tips: [],
   };
+}
+
+/** Pad/truncate per-sheet arrays to the current campaign and clamp stars to 0..3. Mutates d. */
+export function normalizeSave(d: SaveData): void {
+  const fit = (a: number[], f: (v: number) => number): number[] => CAMPAIGN.map((_, i) => f(a[i] ?? 0));
+  d.stars = fit(d.stars, (v) => Math.max(0, Math.min(3, Math.floor(v))));
+  d.bestSeconds = fit(d.bestSeconds, (v) => Math.max(0, v));
+  d.tips = d.tips.filter((t) => typeof t === 'string');
 }
 
 export function isUnlocked(d: SaveData, index: number): boolean {

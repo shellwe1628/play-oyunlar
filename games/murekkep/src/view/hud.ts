@@ -1,15 +1,17 @@
 /**
- * Match HUD widgets. They draw what they are told; GameScene feeds them sim state.
+ * Match HUD widgets. They draw what they are told and redraw only when what they show changed
+ * (the sim ticks at 10 Hz; frames run at 60).
  */
-import { getContext, label, touchHitSize } from '@oyun/core';
+import { cssColor, getContext, label, touchHitSize } from '@oyun/core';
 import Phaser from 'phaser';
 import { RULES } from '../sim/rules';
 import { SFX } from '../sounds';
 import { PALETTE } from '../textures';
+import { inkTint } from './inkmap';
 
-const css = (c: number): string => `#${c.toString(16).padStart(6, '0')}`;
+type T = (key: string, p?: Record<string, number | string>) => string;
 
-/** Stacked strip of every colony's land share; the player's goal (70 %) is marked. */
+/** Stacked strip of every colony's land share; the 70 % goal is marked and labelled. */
 export class ShareStrip {
   private readonly g: Phaser.GameObjects.Graphics;
   private last = '';
@@ -20,13 +22,17 @@ export class ShareStrip {
     private readonly y: number,
     private readonly w: number,
     private readonly h: number,
+    t: T,
   ) {
     this.g = scene.add.graphics().setDepth(20);
+    const gx = x + w * RULES.winShare;
+    label(scene, gx, y + h + 22, t('game.goalMark'), { size: 24, color: PALETTE.text }).setDepth(21);
   }
 
   /** shares[i] in 0..1 for colony i; the player (0) is drawn first from the left. */
   set(shares: readonly number[]): void {
-    const key = shares.map((s) => Math.round(s * 400)).join(',');
+    let key = '';
+    for (const s of shares) key += `${Math.round(s * 400)},`;
     if (key === this.last) return;
     this.last = key;
     const { g, x, y, w, h } = this;
@@ -37,71 +43,76 @@ export class ShareStrip {
     shares.forEach((s, i) => {
       const sw = s * w;
       if (sw <= 0.5) return;
-      g.fillStyle(PALETTE.inks[i % PALETTE.inks.length]!, 1);
-      // Rounded ends only at the strip ends.
+      g.fillStyle(inkTint(i, 0.7), 1);
       if (at === x) g.fillRoundedRect(at, y, Math.max(sw, h), h, { tl: h / 2, bl: h / 2, tr: 0, br: 0 });
       else g.fillRect(at, y, sw, h);
       at += sw;
     });
-    // Goal marker at 70 %.
     const gx = x + w * RULES.winShare;
     g.fillStyle(PALETTE.text, 1).fillRect(gx - 2, y - 8, 4, h + 16);
     g.fillTriangle(gx - 9, y - 12, gx + 9, y - 12, gx, y - 2);
   }
 }
 
-/** Reserve bar: fill = reserve ÷ cap, the sweet spot band marked, the cap at the right end. */
+/**
+ * Reserve bar: fill = reserve ÷ cap with the sweet-spot band marked; above it the count and the
+ * current regrowth rate (gold while inside the band, so waiting visibly pays).
+ */
 export class ReserveBar {
   private readonly g: Phaser.GameObjects.Graphics;
   private readonly text: Phaser.GameObjects.Text;
+  private readonly rate: Phaser.GameObjects.Text;
   private readonly sweet: Phaser.GameObjects.Text;
   private shown = 0;
+  private drawn = -1;
 
   constructor(
-    private readonly scene: Phaser.Scene,
+    scene: Phaser.Scene,
     private readonly x: number,
     private readonly y: number,
     private readonly w: number,
     private readonly h: number,
-    private readonly t: (key: string, p?: Record<string, number | string>) => string,
+    private readonly t: T,
   ) {
     this.g = scene.add.graphics().setDepth(20);
-    // Count above the bar (left), band label inside the sweet-spot band: nothing overlaps.
-    this.text = label(scene, x + 4, y - 22, '', { size: 28, color: PALETTE.text }).setOrigin(0, 0.5).setDepth(21);
-    this.sweet = label(scene, x + w * 0.5, y + h / 2, t('game.sweet'), { size: 19, color: PALETTE.sweet }).setDepth(21);
+    this.text = label(scene, x + 4, y - 24, '', { size: 30, color: PALETTE.text }).setOrigin(0, 0.5).setDepth(21);
+    this.rate = label(scene, x + w - 4, y - 24, '', { size: 30, color: PALETTE.textDim }).setOrigin(1, 0.5).setDepth(21);
+    this.sweet = label(scene, x + w * 0.5, y + h / 2, t('game.sweet'), { size: 24, color: PALETTE.sweet }).setDepth(21);
   }
 
-  set(reserve: number, cap: number, dt: number): void {
+  /** reserve/cap in ink, perSecond = current growth, dt = frame seconds (for easing). */
+  set(reserve: number, cap: number, perSecond: number, dt: number): void {
     const target = cap > 0 ? Math.min(1, reserve / cap) : 0;
-    // Ease toward the real value so ticks at 10 Hz still look smooth.
     this.shown += (target - this.shown) * Math.min(1, dt * 12);
-    const { g, x, y, w, h } = this;
+    if (Math.abs(this.shown - target) < 0.002) this.shown = target;
     const f = this.shown;
+    const inSweet = target >= 0.4 && target <= 0.6;
+    const full = target >= 0.97;
+    // Reserve never exceeds the cap (sim rule), so "n / cap" is always honest.
+    this.text.setText(full ? this.t('game.full') : this.t('game.ink', { n: Math.floor(reserve), cap: Math.floor(cap) }));
+    this.text.setColor(cssColor(full ? PALETTE.danger : PALETTE.text));
+    this.rate.setText(this.t('game.rate', { n: perSecond.toFixed(1) }));
+    this.rate.setColor(cssColor(inSweet ? PALETTE.sweet : PALETTE.textDim));
+    if (Math.abs(f - this.drawn) < 0.001) return;
+    this.drawn = f;
+    const { g, x, y, w, h } = this;
     g.clear();
     g.fillStyle(PALETTE.paperShadow, 0.7).fillRoundedRect(x - 4, y - 4, w + 8, h + 8, 14);
-    g.fillStyle(0x1a1512, 1).fillRoundedRect(x, y, w, h, 10);
-    // Sweet spot band 40–60 %.
+    g.fillStyle(PALETTE.well, 1).fillRoundedRect(x, y, w, h, 10);
     g.fillStyle(PALETTE.sweet, 0.18).fillRect(x + w * 0.4, y, w * 0.2, h);
-    const inSweet = f >= 0.4 && f <= 0.6;
-    const full = f >= 0.97;
-    const fillCol = full ? PALETTE.danger : PALETTE.inks[0]!;
-    if (f > 0.005) g.fillStyle(fillCol, 1).fillRoundedRect(x, y, Math.max(20, w * f), h, 10);
-    if (inSweet) g.fillStyle(0xffffff, 0.16).fillRoundedRect(x, y, w * f, h * 0.45, 8);
+    if (f > 0.005) g.fillStyle(full ? PALETTE.danger : PALETTE.inks[0]!, 1).fillRoundedRect(x, y, Math.max(20, w * f), h, 10);
+    if (inSweet) g.fillStyle(PALETTE.shine, 0.16).fillRoundedRect(x, y, w * f, h * 0.45, 8);
     g.lineStyle(3, PALETTE.sweet, 1).strokeRect(x + w * 0.4, y - 2, w * 0.2, h + 4);
     // Peak marker (50 %) as notches above and below, so it never crosses the label.
     g.fillStyle(PALETTE.sweet, 1).fillRect(x + w * 0.5 - 1.5, y - 8, 3, 7).fillRect(x + w * 0.5 - 1.5, y + h + 1, 3, 7);
-    // Cap end.
     g.fillStyle(PALETTE.text, 1).fillRect(x + w - 4, y - 6, 4, h + 12);
-    this.text.setText(full ? this.t('game.full') : this.t('game.ink', { n: Math.floor(reserve), cap: Math.floor(cap) }));
-    this.text.setColor(css(full ? PALETTE.danger : PALETTE.text));
-    this.sweet.setColor(css(f >= 0.45 ? PALETTE.text : PALETTE.sweet));
-    this.sweet.setAlpha(inSweet ? 1 : 0.7);
+    this.sweet.setColor(cssColor(f >= 0.45 ? PALETTE.text : PALETTE.sweet));
   }
 }
 
 /**
  * Commit slider 10–100 % in 5 % detents. Drag anywhere on the (tall) track or tap to jump.
- * `onChange` gets the new value; `set()` moves it programmatically (test hook, saved value).
+ * `onChange` gets the new value; `set()` moves it programmatically (test hook, match start).
  */
 export class CommitSlider {
   readonly zone: Phaser.GameObjects.Zone;
@@ -111,6 +122,7 @@ export class CommitSlider {
   private readonly caption: Phaser.GameObjects.Text;
   private value: number = RULES.defaultCommit;
   private dragging = false;
+  private drawnKey = '';
 
   constructor(
     private readonly scene: Phaser.Scene,
@@ -118,14 +130,14 @@ export class CommitSlider {
     private readonly y: number,
     private readonly w: number,
     private readonly onChange: (v: number) => void,
-    private readonly t: (key: string, p?: Record<string, number | string>) => string,
+    private readonly t: T,
   ) {
     this.g = scene.add.graphics().setDepth(20);
     const thumbG = scene.add.graphics();
     thumbG.fillStyle(PALETTE.paperShadow, 0.5).fillCircle(0, 6, 46);
     thumbG.fillStyle(PALETTE.paper, 1).fillCircle(0, 0, 46);
     thumbG.lineStyle(6, PALETTE.inks[0]!, 1).strokeCircle(0, 0, 40);
-    this.thumbText = label(scene, 0, 0, '', { size: 30, color: 0x1f2a6e });
+    this.thumbText = label(scene, 0, 0, '', { size: 30, color: PALETTE.inkText });
     this.thumb = scene.add.container(x, y, [thumbG, this.thumbText]).setDepth(22);
     this.caption = label(scene, x + w / 2, y - 70, '', { size: 30, color: PALETTE.text }).setDepth(21);
     const hit = touchHitSize(w + 100, 150);
@@ -149,10 +161,6 @@ export class CommitSlider {
     return this.value;
   }
 
-  get isDragging(): boolean {
-    return this.dragging;
-  }
-
   /** Thumb x for a value (for real-pointer tests). */
   xFor(v: number): number {
     return this.x + ((v - RULES.minCommit) / (RULES.maxCommit - RULES.minCommit)) * this.w;
@@ -168,23 +176,23 @@ export class CommitSlider {
   /** Set the value; `user` plays the detent click and notifies onChange. */
   set(v: number, user = false): void {
     const clamped = Phaser.Math.Clamp(Math.round(v), RULES.minCommit, RULES.maxCommit);
-    if (clamped === this.value && !user) return;
-    const changed = clamped !== this.value;
+    if (clamped === this.value) return;
     this.value = clamped;
-    if (changed) {
-      if (user) getContext(this.scene.game).audio.playPreset(SFX.click, { jitter: 0, pitch: (clamped - 50) / 10 });
-      this.onChange(clamped);
-    }
-    this.redraw(0);
+    if (user) getContext(this.scene.game).audio.playPreset(SFX.click, { jitter: 0, pitch: (clamped - 50) / 10 });
+    this.onChange(clamped);
   }
 
-  /** Redraw; `reserve` previews how much ink a tap will send. */
+  /** Redraw if the value or the ink a tap would send changed. */
   redraw(reserve: number): void {
+    const ink = Math.floor((reserve * this.value) / 100);
+    const key = `${this.value}|${ink}`;
+    if (key === this.drawnKey) return;
+    this.drawnKey = key;
     const { g, x, y, w } = this;
     const tx = this.xFor(this.value);
     g.clear();
     g.fillStyle(PALETTE.paperShadow, 0.7).fillRoundedRect(x - 14, y - 16, w + 28, 32, 16);
-    g.fillStyle(0x1a1512, 1).fillRoundedRect(x - 10, y - 12, w + 20, 24, 12);
+    g.fillStyle(PALETTE.well, 1).fillRoundedRect(x - 10, y - 12, w + 20, 24, 12);
     g.fillStyle(PALETTE.inks[0]!, 1).fillRoundedRect(x - 10, y - 12, tx - x + 20, 24, 12);
     for (let v = 10; v <= 100; v += 10) {
       const px = this.xFor(v);
@@ -192,7 +200,6 @@ export class CommitSlider {
     }
     this.thumb.x = tx;
     this.thumbText.setText(`${this.value}`);
-    const ink = Math.floor((reserve * this.value) / 100);
     this.caption.setText(`${this.t('game.commit', { n: this.value })}   ${this.t('game.commitInk', { n: ink })}`);
   }
 }
@@ -217,8 +224,8 @@ export class BlotButton {
   ) {
     this.face = scene.add.graphics();
     this.ring = scene.add.graphics();
-    this.icon = scene.add.image(0, -8, 'drop-big').setTint(PALETTE.inks[0]).setScale(0.95);
-    const text = label(scene, 0, radius * 0.5, caption, { size: 24, color: 0x1f2a6e });
+    this.icon = scene.add.image(0, -10, 'drop-big').setTint(PALETTE.inks[0]).setScale(0.9);
+    const text = label(scene, 0, radius * 0.5, caption, { size: 28, color: PALETTE.inkText });
     this.badge = label(scene, radius * 0.72, -radius * 0.72, '+', { size: 34, color: PALETTE.text });
     this.container = scene.add.container(x, y, [this.face, this.ring, this.icon, text, this.badge]).setDepth(22);
     const hit = touchHitSize(radius * 2, radius * 2);

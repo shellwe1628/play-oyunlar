@@ -79,7 +79,7 @@ export function botDecide(sim: MatchSim, id: number, personality: Personality, d
     const ls = sim.share(leader.owner);
     // With three or fewer left, balancing only stalls the match: press only a near-winner.
     const few = sim.colonies.filter((c) => c.alive).length <= 3;
-    if (ls < (few ? Math.max(0.5, LEADER_SHARE[d]!) : LEADER_SHARE[d]!) || ls < sim.share(id) * 1.1 || sim.density(leader.owner) > sim.density(id) * 1.5 || !worth(leader, 55)) return false;
+    if (ls < (few ? (d >= 3 ? 0.38 : Math.max(0.5, LEADER_SHARE[d]!)) : LEADER_SHARE[d]!) || ls < sim.share(id) * 1.1 || sim.density(leader.owner) > sim.density(id) * (d >= 3 ? 2.5 : 1.5) || !worth(leader, 55)) return false;
     return go(leader, 55);
   };
   // Sweet-spot discipline (difficulty ≥ 2): on blank paper spend only the ink above ~45 % fill,
@@ -94,7 +94,15 @@ export function botDecide(sim: MatchSim, id: number, personality: Personality, d
   // Shared endgame: once nothing else applies, spend down from 60 % fill on the thinnest neighbour.
   const endgame = (): void => {
     const t = thinnest(true);
-    if (t && x >= 0.6 && worth(t, 55)) go(t, 55);
+    if (!t) return;
+    if (d >= 3) {
+      // Hard bots keep the sweet spot in fights too: spend only the ink above 40 %.
+      if (fill < 0.55) return;
+      const pct = Math.round((100 * (fill - 0.4)) / fill);
+      if (worth(t, pct / mul)) sim.attack(id, mem.rng.pick(t.cells), pct);
+      return;
+    }
+    if (x >= 0.6 && worth(t, 55)) go(t, 55);
   };
   const cheap = (t: Target | undefined): boolean => !!t && sim.captureCost(id, t.cells[0]!) <= 1.9;
 

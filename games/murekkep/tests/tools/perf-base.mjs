@@ -1,4 +1,5 @@
 /* global window, performance, requestAnimationFrame */
+// Scratch: frame times of any page with the test hook. node tests/tools/perf-base.mjs <url> [seconds]
 import { chromium } from '@playwright/test';
 const [url, secs = '5'] = process.argv.slice(2);
 const browser = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium' });

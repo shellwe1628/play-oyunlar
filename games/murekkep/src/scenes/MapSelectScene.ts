@@ -41,6 +41,8 @@ export class MapSelectScene extends OyunScene {
   private taps: (() => void)[] = [];
   private dailyTap: () => void = () => undefined;
   private backButton!: ReturnType<typeof iconButton>;
+  /** Thumbnail jobs, one per frame after the cards are up (generating sheets takes time). */
+  private jobs: (() => void)[] = [];
 
   constructor() {
     super(SCENES.maps);
@@ -54,6 +56,7 @@ export class MapSelectScene extends OyunScene {
     label(this, L.cx, L.top + 64, this.t('maps.title'), { size: 60 });
 
     this.taps = [];
+    this.jobs = [];
     const cw = 324;
     const ch = 196;
     const gapY = 16;
@@ -86,33 +89,33 @@ export class MapSelectScene extends OyunScene {
     const dh = 150;
     this.dailyTap = () => {
       this.oyun.audio.play('tap');
-      this.goTo(SCENES.game, { level: 'daily' });
+      this.goTo(SCENES.game, { level: 'daily', date: today });
     };
     const dc = card(this, L.cx, Math.min(dy, L.bottom - dh / 2 - 16), dw, dh, this.dailyTap);
     const g = this.add.graphics();
     g.fillStyle(PALETTE.paperShadow, 0.5).fillRoundedRect(-dw / 2, -dh / 2 + 8, dw, dh, 22);
     g.fillStyle(PALETTE.inks[3]!, 1).fillRoundedRect(-dw / 2, -dh / 2, dw, dh, 22);
-    g.fillStyle(0xffffff, 0.14).fillRoundedRect(-dw / 2 + 10, -dh / 2 + 8, dw - 20, dh * 0.35, 16);
+    g.fillStyle(PALETTE.shine, 0.14).fillRoundedRect(-dw / 2 + 10, -dh / 2 + 8, dw - 20, dh * 0.35, 16);
     dc.add(g);
-    dc.add(this.thumbnail(levelMap(daily), -dw / 2 + 70, 0, 96, 126, true));
+    this.jobs.push(() => dc.addAt(this.thumbnail(levelMap(daily), -dw / 2 + 70, 0, 96, 126, true), 1));
     const best = save.dailyDate === today && save.dailyBest > 0 ? this.t('maps.dailyBest', { t: formatTime(save.dailyBest) }) : this.t('maps.dailyNone');
-    dc.add(label(this, -dw / 2 + 140, -36, this.t('maps.daily', { date: today }), { size: 36, color: 0x2a1e08 }).setOrigin(0, 0.5));
-    dc.add(label(this, -dw / 2 + 140, 8, best, { size: 30, color: 0x3a2a0c }).setOrigin(0, 0.5));
-    dc.add(label(this, -dw / 2 + 140, 46, this.t('maps.streak', { n: liveStreak(save, today) }), { size: 30, color: 0x3a2a0c }).setOrigin(0, 0.5));
+    dc.add(label(this, -dw / 2 + 140, -36, this.t('maps.daily', { date: today }), { size: 36, color: PALETTE.dailyInk }).setOrigin(0, 0.5));
+    dc.add(label(this, -dw / 2 + 140, 8, best, { size: 30, color: PALETTE.dailyInkSoft }).setOrigin(0, 0.5));
+    dc.add(label(this, -dw / 2 + 140, 46, this.t('maps.streak', { n: liveStreak(save, today) }), { size: 30, color: PALETTE.dailyInkSoft }).setOrigin(0, 0.5));
   }
 
   private drawSheetCard(c: Phaser.GameObjects.Container, def: LevelDef, i: number, w: number, h: number, open: boolean, stars: number, best: number): void {
     const g = this.add.graphics();
     g.fillStyle(PALETTE.paperShadow, 0.5).fillRoundedRect(-w / 2, -h / 2 + 8, w, h, 22);
-    g.fillStyle(open ? PALETTE.deskLight : 0x2e2723, 1).fillRoundedRect(-w / 2, -h / 2, w, h, 22);
-    g.lineStyle(3, open ? 0x5a4d42 : 0x3a322c, 1).strokeRoundedRect(-w / 2, -h / 2, w, h, 22);
+    g.fillStyle(open ? PALETTE.deskLight : PALETTE.cardLocked, 1).fillRoundedRect(-w / 2, -h / 2, w, h, 22);
+    g.lineStyle(3, open ? PALETTE.cardEdge : PALETTE.cardEdgeLocked, 1).strokeRoundedRect(-w / 2, -h / 2, w, h, 22);
     c.add(g);
-    c.add(this.thumbnail(levelMap(def), -w / 2 + 66, 0, 100, 150, open));
+    this.jobs.push(() => c.addAt(this.thumbnail(levelMap(def), -w / 2 + 66, 0, 100, 150, open), 1));
     const tx = -w / 2 + 132;
     c.add(label(this, tx, -h / 2 + 40, this.t('maps.sheet', { n: i + 1 }), { size: 38, color: open ? PALETTE.text : PALETTE.textDim }).setOrigin(0, 0.5));
     if (!open) {
-      c.add(this.add.image(tx + 40, 10, 'lock').setTint(PALETTE.textDim).setScale(0.8));
-      c.add(label(this, tx, 66, this.t('maps.locked'), { size: 22, color: PALETTE.textDim, wrap: w - 140 }).setOrigin(0, 0.5));
+      c.add(this.add.image(tx + 34, -4, 'lock').setTint(PALETTE.textDim).setScale(0.7));
+      c.add(label(this, tx, 58, this.t('maps.locked'), { size: 27, color: PALETTE.textDim, wrap: w - 140, align: 'left' }).setOrigin(0, 0.5));
       return;
     }
     c.add(label(this, tx, -h / 2 + 82, this.t('maps.rivals', { n: def.bots.length }), { size: 26, color: PALETTE.textDim }).setOrigin(0, 0.5));
@@ -125,6 +128,10 @@ export class MapSelectScene extends OyunScene {
       );
     }
     if (best > 0) c.add(label(this, tx, 72, this.t('maps.best', { t: formatTime(best) }), { size: 26, color: PALETTE.textDim }).setOrigin(0, 0.5));
+  }
+
+  override update(): void {
+    this.jobs.shift()?.();
   }
 
   /** Small silhouette of a sheet with its start spots (as a canvas texture). */

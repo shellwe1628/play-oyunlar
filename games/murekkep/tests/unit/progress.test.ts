@@ -7,9 +7,11 @@ import {
   blotUnlocked,
   freshSave,
   isUnlocked,
+  liveStreak,
+  normalizeSave,
   totalStars,
 } from '../../src/sim/progress';
-import { saveOptions } from '../../src/save';
+import { loadGameSave, saveOptions } from '../../src/save';
 
 describe('stars', () => {
   it('one for the win, one under par, one for never dropping below half the peak', () => {
@@ -99,5 +101,56 @@ describe('game save', () => {
     const storage = memoryStorage({ 'oyun:test:save': JSON.stringify({ v: 1, data: { ...freshSave(), streak: undefined } }) });
     const s = createSaveStore(saveOptions(storage, 'test'));
     expect(s.data.streak).toBe(0);
+  });
+});
+
+describe('progress details', () => {
+  it('a loss lights no star at all', () => {
+    expect(starFlags({ won: false, ticks: 10, droppedBelowHalfPeak: false }, 60)).toEqual([false, false, false]);
+  });
+
+  it('a one-star win is enough to unlock the next sheet', () => {
+    const d = freshSave();
+    const r = applyCampaignResult(d, 0, { won: true, ticks: 1e6, droppedBelowHalfPeak: true });
+    expect(r.stars).toBe(1);
+    expect(isUnlocked(d, 1)).toBe(true);
+    expect(isUnlocked(d, 2)).toBe(false);
+  });
+
+  it('Blot unlocks with sheet 3 exactly, not with any other sheet', () => {
+    const d = freshSave();
+    for (const i of [0, 1, 3, 4, 5, 6, 7]) d.stars[i] = 3;
+    expect(blotUnlocked(d)).toBe(false);
+    d.stars[2] = 1;
+    expect(blotUnlocked(d)).toBe(true);
+  });
+
+  it('the shown streak is broken once a day is skipped', () => {
+    const d = freshSave();
+    d.streak = 4;
+    d.lastDailyWin = '2026-11-14';
+    expect(liveStreak(d, '2026-11-14')).toBe(4);
+    expect(liveStreak(d, '2026-11-15')).toBe(4);
+    expect(liveStreak(d, '2026-11-16')).toBe(0);
+  });
+
+  it('normalizes saves from a build with a different number of sheets', () => {
+    const d = { ...freshSave(), stars: [3, 9, -1, 2.5], bestSeconds: [100, 0] };
+    normalizeSave(d);
+    expect(d.stars).toHaveLength(CAMPAIGN.length);
+    expect(d.stars.slice(0, 4)).toEqual([3, 3, 0, 2]);
+    expect(d.bestSeconds).toHaveLength(CAMPAIGN.length);
+    expect(d.bestSeconds[0]).toBe(100);
+    const long = { ...freshSave(), stars: new Array(20).fill(1) as number[] };
+    normalizeSave(long);
+    expect(long.stars).toHaveLength(CAMPAIGN.length);
+  });
+
+  it('a save with a different sheet count is kept, not wiped', () => {
+    const storage = memoryStorage({ 'oyun:test:save': JSON.stringify({ v: 1, data: { ...freshSave(), stars: [2, 1, 3] } }) });
+    const s = loadGameSave(storage, 'test');
+    expect(s.status).not.toBe('reset');
+    expect(s.data.stars.slice(0, 3)).toEqual([2, 1, 3]);
+    expect(s.data.stars).toHaveLength(CAMPAIGN.length);
   });
 });

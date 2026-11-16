@@ -1,4 +1,5 @@
-import { act, collectErrors, expect, openGame, setHidden, shot, state, test, waitForScene } from '@oyun/core/e2e';
+import { act, collectErrors, colorNear, expect, openGame, pixel, setHidden, shot, state, test, waitForScene } from '@oyun/core/e2e';
+import { PALETTE } from '../../src/textures';
 import type { Page } from '@playwright/test';
 
 const gameDir = new URL('../..', import.meta.url).pathname.replace(/\/$/, '');
@@ -13,6 +14,8 @@ interface GameData {
   speed: number;
   mapId: string;
   targets: { cell: number; x: number; y: number }[];
+  ownCell: { x: number; y: number };
+  lastReject: string;
   slider: { x0: number; x1: number; y: number };
   speedButton: { x: number; y: number };
 }
@@ -51,6 +54,16 @@ test('menu → sheets → match → result, stars saved', async ({ page }) => {
   expect(g0.phase).toBe('playing');
   expect(g0.shares).toHaveLength(3);
 
+  // The slider starts at 30 % every match (it is never carried over).
+  expect(g0.commit).toBe(30);
+
+  // A tap on our own ink is refused with a reason and spends nothing.
+  const own = await game(page);
+  await act(page, 'tap', { x: own.ownCell.x, y: own.ownCell.y });
+  const refused = await game(page);
+  expect(refused.lastReject).toBe('game.ownInk');
+  expect(refused.reserve).toBeGreaterThanOrEqual(own.reserve);
+
   // An attack through the same handler a tap uses: commits 40 % of the reserve.
   const before = await game(page);
   await act(page, 'attack', { cell: before.targets[0]!.cell, percent: 40 });
@@ -59,19 +72,25 @@ test('menu → sheets → match → result, stars saved', async ({ page }) => {
   expect(after.reserve).toBeLessThan(before.reserve);
   await shot(page, gameDir, 'game');
 
-  // Pause button, then resume; tab hidden → auto-pause and the sim does not advance.
+  // Pause button: the pause card is really drawn over the match (rendered pixel, not just state).
   await act(page, 'pause');
   await waitForScene(page, 'pause');
+  await page.waitForTimeout(500);
+  const inCard = await pixel(page, 720 / 2 - 240, 1280 / 2);
+  await shot(page, gameDir, 'pause');
+  expect(colorNear(inCard, PALETTE.deskLight, 10), `pause card pixel ${JSON.stringify(inCard)}`).toBe(true);
   await act(page, 'resume');
   await waitForScene(page, 'game');
+
+  // Tab hidden → auto-pause; the sim does not advance while paused.
+  const tickBefore = (await game(page)).tick;
   await setHidden(page, true);
   await setHidden(page, false);
   await waitForScene(page, 'pause');
-  const frozen = (await state(page)).scenes;
-  expect(frozen).toContain('game');
-  await page.waitForTimeout(800);
+  await page.waitForTimeout(1500); // 15 ticks of wall time while paused
   await act(page, 'resume');
   await waitForScene(page, 'game');
+  expect((await game(page)).tick - tickBefore).toBeLessThan(10);
 
   // Built-in player policy plays; fast-forward to the end.
   await act(page, 'auto-play', { ticks: 100_000 });
@@ -80,7 +99,9 @@ test('menu → sheets → match → result, stars saved', async ({ page }) => {
   await shot(page, gameDir, 'game-mid');
   await act(page, 'fast-forward', 6000);
   await waitForScene(page, 'result', 20_000);
-  const end = (await state(page)).data as { won: boolean; stars: number; level: string; score: number; canNext: boolean };
+  const end = (await state(page)).data as { won: boolean; stars: number; starsLit: number; level: string; score: number; canNext: boolean; title: string };
+  expect(end.title.length).toBeGreaterThan(0);
+  expect(end.starsLit).toBe(end.stars);
   expect(end.level).toBe('c1');
   expect(end.score).toBeGreaterThanOrEqual(0);
   if (end.won) {

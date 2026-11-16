@@ -1,5 +1,5 @@
 /* global window, document, localStorage, performance, requestAnimationFrame */
-// Scratch perf probe (not part of the gate). node tests/perf.mjs <port> <outdir> [level]
+// Scratch perf probe (not part of the gate). node tests/tools/perf.mjs <port> <outdir> [level] [fast-forward ticks]
 import { chromium } from '@playwright/test';
 const [port, out, level = 'c8'] = process.argv.slice(2);
 const browser = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium', args: ['--enable-gpu-rasterization', '--ignore-gpu-blocklist'] });

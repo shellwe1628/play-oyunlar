@@ -122,9 +122,9 @@ export class GameScene extends OyunScene {
     const cw = (FEED - 16) / 2;
     const ch = 82;
     const step = 90;
-    const lastRow = L.bottom - 40 - ch / 2;
+    const lastRow = L.bottom - 32 - ch / 2;
     const chipY = (row: number): number => lastRow - (3 - row) * step;
-    this.askText = label(this, L.cx, Math.max(fy + FEED + 44, chipY(0) - 70), this.t('game.ask'), { size: 40, color: PALETTE.lamp }).setVisible(false);
+    this.askText = label(this, L.cx, Math.max(fy + FEED + 36, chipY(0) - 62), this.t('game.ask'), { size: 36, color: PALETTE.lamp }).setVisible(false);
     const kinds = [...ANOMALY_TYPES];
     kinds.forEach((type, i) => {
       const col = i % 2;

@@ -42,7 +42,7 @@ export class BriefingScene extends OyunScene {
     rows.forEach(([key, icon], i) => {
       const y = -240 + i * 240;
       icon(-250, y);
-      card.add(label(this, 40, y, this.t(key), { size: 36, wrap: 470, align: 'left' }));
+      card.add(label(this, -195, y, this.t(key), { size: 36, wrap: 480, align: 'left' }).setOrigin(0, 0.5));
     });
     this.juice.pop(card, 1.05, 260);
     this.ok = button(this, L.cx, L.bottom - 150, this.t(this.next ? 'brief.go' : 'brief.ok'), () => this.dismiss(), { width: 460, hotkey: 'ENTER' });

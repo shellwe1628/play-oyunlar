@@ -23,7 +23,7 @@ describe('hit test: intruders and anomaly evidence win over what is behind them'
           expect(sim.hitTest(a.camera, g.x, g.y), `${STATION[a.camera]!.id}/${a.objectId}`).toBe(a.objectId);
           seen.add(`${a.camera}:${a.objectId}`);
         }
-        if (sim.phase === 'brink') sim.useSecondWind() || sim.declineSecondWind();
+        if (sim.phase === 'brink') if (!sim.useSecondWind()) sim.declineSecondWind();
         clearAll(sim);
       }
     }
@@ -48,7 +48,7 @@ describe('hit test: intruders and anomaly evidence win over what is behind them'
           // every spawn: the new anomaly and everything else still on screen must be reportable
           if (ev.some((e) => e.kind === 'spawn')) for (const a of sim.active) check(sim, a, `n${night}s${seed}`);
           if (sim.phase === 'brink') {
-            sim.useSecondWind() || sim.declineSecondWind();
+            if (!sim.useSecondWind()) sim.declineSecondWind();
           }
           // a lazy player: clears only every 12 s, so anomalies overlap in time
           if (Math.floor(t * 10) % 120 === 0) clearAll(sim);

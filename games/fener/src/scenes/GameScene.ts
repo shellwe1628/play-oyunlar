@@ -1,4 +1,4 @@
-import { button, iconButton, label, OyunScene, PAUSE_SCENE, panel, toast, type Button, type IconButton } from '@oyun/core';
+import { button, iconButton, label, OyunScene, PAUSE_SCENE, panel, type Button, type IconButton } from '@oyun/core';
 import Phaser from 'phaser';
 import { Ambience, sfx } from '../audio';
 import { gameSave } from '../save';
@@ -169,9 +169,10 @@ export class GameScene extends OyunScene {
   override update(): void {
     if (this.finished) return;
     if (!this.adPending) {
-      // Wall-clock time (unsmoothed, so slow devices do not stretch the shift), frozen by
-      // hit-stop; a hitch longer than a second is not counted.
-      const dt = Math.min(this.juice.scaledDelta(this.game.loop.rawDelta), 1000) / 1000;
+      // Wall-clock time (unsmoothed, so a slow device does not stretch the shift), frozen by
+      // hit-stop. A single frame counts at most 250 ms: that keeps 4+ fps devices on real time
+      // and stops the frame after an app switch from carrying the time spent away.
+      const dt = Math.min(this.juice.scaledDelta(this.game.loop.rawDelta), 250) / 1000;
       this.handle(this.sim.tick(dt));
     }
     this.refresh();

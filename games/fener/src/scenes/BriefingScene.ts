@@ -47,11 +47,12 @@ export class BriefingScene extends OyunScene {
     this.juice.pop(card, 1.05, 260);
     this.ok = button(this, L.cx, L.bottom - 150, this.t(this.next ? 'brief.go' : 'brief.ok'), () => this.dismiss(), { width: 460, hotkey: 'ENTER' });
     // One tap anywhere dismisses (after a short beat so the opening tap does not count).
-    this.time.delayedCall(350, () =>
-      this.input.once(Phaser.Input.Events.POINTER_UP, (_p: Phaser.Input.Pointer, over: Phaser.GameObjects.GameObject[]) => {
-        if (over.length === 0) this.ok.fire();
-      }),
-    );
+    const shownAt = this.time.now;
+    this.input.on(Phaser.Input.Events.POINTER_DOWN, (_p: Phaser.Input.Pointer, over: Phaser.GameObjects.GameObject[]) => {
+      // Touch-down is delivered inside the DOM event, outside the game step; a scene change
+      // started there stalls its fade until the next input, so fire on the next step instead.
+      if (over.length === 0 && this.time.now - shownAt > 350) this.time.delayedCall(0, () => this.ok.fire());
+    });
   }
 
   private dismiss(): void {

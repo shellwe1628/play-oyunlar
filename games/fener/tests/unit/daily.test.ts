@@ -13,7 +13,7 @@ function play(day: string, style: Style): { list: string[]; spawns: Anomaly[] } 
   while (!sim.over) {
     for (const e of sim.tick(0.1)) if (e.kind === 'spawn') spawns.push(e.anomaly);
     t += 0.1;
-    if (sim.phase === 'brink') sim.useSecondWind() || sim.declineSecondWind();
+    if (sim.phase === 'brink') if (!sim.useSecondWind()) sim.declineSecondWind();
     style(sim, t);
   }
   const list = spawns.map((a) => `${a.id}:${a.camera}:${a.objectId}:${a.type}`).sort();

@@ -372,28 +372,24 @@ export class DigScene extends OyunScene {
     const L = this.layout;
     const box = this.add.container(0, 0).setDepth(950);
     const shade = this.add.rectangle(L.cx, L.height / 2, L.width + 40, L.height + 40, 0x000000, 0.7).setInteractive();
-    const card = panel(this, L.cx, L.cy - 40, 620, 640, { color: PALETTE.dirtLight });
+    const card = panel(this, L.cx, L.cy, 640, 720, { color: PALETTE.dirtLight });
     box.add([shade, card]);
     const lines: [string, number, number][] = [
-      [this.t('offline.title'), 52, PALETTE.ochreLight],
+      [this.t('offline.title'), 50, PALETTE.ochreLight],
       [this.t('offline.body', { blocks: big(this, haul.blocks), min: Math.round(haul.seconds / 60) }), 32, 0xffffff],
-      [this.t('offline.dust', { n: big(this, haul.dust) }), 48, PALETTE.dust],
+      [this.t('offline.dust', { n: big(this, haul.dust) }), 52, PALETTE.dust],
       [this.t('offline.found', { n: big(this, haul.blocks), k: haul.newSpecies.length }), 32, PALETTE.sand],
     ];
     if (haul.best) lines.push([this.t('offline.best', { name: fossilName(this, haul.best), odds: oddsText(this, haul.best.odds) }), 30, at(TIERS, haul.best.tier).color]);
     if (haul.seconds >= this.sim.offlineCap - 1) lines.push([this.t('offline.cap', { min: Math.round(this.sim.offlineCap / 60) }), 26, PALETTE.sand]);
-    let y = -250;
+    let y = -310;
     for (const [text, size, color] of lines) {
-      const t = label(this, 0, y, text, { size, color, wrap: 540 });
+      const t = label(this, 0, y, text, { size, color, wrap: 560 }).setOrigin(0.5, 0);
       card.add(t);
-      y += t.height + 22;
+      y += t.height + 18;
     }
-    if (haul.best) {
-      const img = this.add.image(0, y + 50, fossilKey(haul.best.id)).setScale(0.7);
-      card.add(img);
-    }
-    const claim = button(this, L.cx, L.cy + 190, this.t('offline.claim'), () => this.closePopup(), { width: 420, height: 100 });
-    const double = button(this, L.cx, L.cy + 300, this.t('offline.double'), () => void this.doubleOffline(), { width: 460, height: 92, fontSize: 34, variant: 'secondary' });
+    const claim = button(this, L.cx, L.cy + 170, this.t('offline.claim'), () => this.closePopup(), { width: 440, height: 100 });
+    const double = button(this, L.cx, L.cy + 286, this.t('offline.double'), () => void this.doubleOffline(), { width: 500, height: 92, fontSize: 34, variant: 'secondary' });
     box.add([claim, double]);
     this.juice.pop(card, 0.5, 320);
     this.oyun.audio.play('coin');
@@ -589,6 +585,7 @@ export class DigScene extends OyunScene {
       lastReveal: this.reveal.lastKind,
       drawerOpen: this.drawer.open,
       levels: { pick: s.level('pick'), luck: s.level('luck'), assistant: s.level('assistant'), offline: s.level('offline') },
+      costs: { pick: s.upgradeCost('pick'), luck: s.upgradeCost('luck'), assistant: s.upgradeCost('assistant'), offline: s.upgradeCost('offline') },
       boost: Math.ceil(s.boostSeconds),
       offline: this.popup ? { blocks: this.popup.haul.blocks, dust: this.popup.haul.dust } : null,
     };

@@ -4,6 +4,7 @@ import { gameSave } from '../save';
 import { CAMPAIGN, dailyLevel, dateKey, levelMap, type LevelDef } from '../sim/campaign';
 import { isUnlocked, liveStreak } from '../sim/progress';
 import { PALETTE } from '../textures';
+import { cpuCanvasTexture } from '../view/inkmap';
 import { drawDesk } from './Background';
 import { formatTime } from './GameScene';
 import { SCENES } from './keys';
@@ -130,7 +131,7 @@ export class MapSelectScene extends OyunScene {
   private thumbnail(map: ReturnType<typeof levelMap>, x: number, y: number, maxW: number, maxH: number, open: boolean): Phaser.GameObjects.Image {
     const key = `thumb-${map.id}`;
     if (!this.textures.exists(key)) {
-      const tex = this.textures.createCanvas(key, map.width, map.height)!;
+      const tex = cpuCanvasTexture(this, key, map.width, map.height);
       const ctx = tex.getContext();
       const img = ctx.createImageData(map.width, map.height);
       for (let i = 0; i < map.land.length; i++) {

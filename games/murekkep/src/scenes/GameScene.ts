@@ -360,12 +360,6 @@ export class GameScene extends OyunScene {
       const k = r.t / 0.6;
       g.lineStyle(4 * (1 - k) + 1, r.color, 0.8 * (1 - k)).strokeCircle(r.x, r.y, r.r * (0.4 + k));
     }
-    // Wave fronts: a faint dark halo on the newest cell of each player wave.
-    for (const w of this.sim.waves) {
-      if (w.owner !== 0 || w.head >= w.queue.length) continue;
-      const c = this.view.cellCenter(w.queue[Math.min(w.queue.length - 1, w.head)]!);
-      g.fillStyle(PALETTE.inks[0]!, 0.18).fillCircle(c.x, c.y, this.view.cellSize * 1.6);
-    }
   }
 
   private updateHud(dt: number): void {

@@ -316,7 +316,7 @@ export class Reveal {
       fitText(luckLine, L.width - 60);
       objects.push(luckLine);
       if (find.isNew) {
-        const tag = outlined(s, pos.x + CARD_H / 2 - 70, pos.y - CARD_H / 2 + 6, s.t('reveal.new'), 40, PALETTE.ochreLight, 8).setDepth(870).setAngle(-10);
+        const tag = outlined(s, pos.x + CARD_W / 2 - 56, pos.y - CARD_H / 2 + 4, s.t('reveal.new'), 40, PALETTE.ochreLight, 8).setDepth(870).setAngle(-10);
         objects.push(tag);
         s.juice.pop(tag, 0.3, 320);
       }

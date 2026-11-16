@@ -181,7 +181,7 @@ export class MuseumScene extends OyunScene {
     const L = this.layout;
     const found = this.sim.discovered(f.id);
     const box = this.add.container(0, 0).setDepth(900);
-    const shade = this.add.rectangle(L.cx, L.height / 2, L.width + 40, L.height + 40, PALETTE.ink, 0.78).setInteractive();
+    const shade = this.add.rectangle(L.cx, L.height / 2, L.width + 40, L.height + 40, PALETTE.ink, 0.93).setInteractive();
     shade.on(Phaser.Input.Events.GAMEOBJECT_POINTER_UP, () => this.closeDetail());
     box.add(shade);
     const card = rarityCard(this, f, 420, 560).setPosition(L.cx, L.cy - 120);

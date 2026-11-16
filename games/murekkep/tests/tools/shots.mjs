@@ -1,3 +1,4 @@
+/* global window */
 // Scratch screenshot driver (not part of the gate). Usage: node tests/shots.mjs <port> <outdir>
 import { chromium } from '@playwright/test';
 const [port, out] = process.argv.slice(2);

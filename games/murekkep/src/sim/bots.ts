@@ -126,13 +126,13 @@ export function botDecide(sim: MatchSim, id: number, personality: Personality, d
         const loss = was > 0 ? (was - now) / was : 0;
         const thin = sim.density(t.owner) < myDens * 0.6 ? 0.1 : 0;
         const score = loss + thin;
-        if (score >= 0.08 && score > bestScore) {
+        if (score >= 0.12 && score > bestScore) {
           bestScore = score;
           prey = t;
         }
       }
       if (pressLeader()) return;
-      if (prey && x >= 0.45 && worth(prey, 45)) {
+      if (prey && x >= 0.5 && worth(prey, 45)) {
         go(prey, 45);
         return;
       }

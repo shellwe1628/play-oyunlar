@@ -163,7 +163,8 @@ export function sanitizeSave(raw: Partial<DigSave> | undefined): DigSave {
   d.boost = num(raw.boost);
   d.assistantAcc = Math.min(1, num(raw.assistantAcc));
   d.rng = typeof raw.rng === 'number' && Number.isInteger(raw.rng) ? raw.rng >>> 0 : 0;
-  d.sets = Array.isArray(raw.sets) ? [...new Set(raw.sets.filter((x) => Number.isInteger(x) && x >= 0 && x < LAYERS.length))] : [];
+  // Set bonuses follow from the collection itself, so a hand-edited or older save stays consistent.
+  d.sets = LAYERS.map((_, l) => l).filter((l) => layerFossils(l).every((f) => d.counts[f.id] !== undefined));
   const s = raw.stats;
   d.stats = {
     taps: int(s?.taps),

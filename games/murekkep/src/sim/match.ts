@@ -74,6 +74,8 @@ export interface MatchOptions {
   growth?: boolean;
   /** Whether the player may use Blot this match. */
   blot?: boolean;
+  /** Shuffle which colony gets which start (default true; exact-maths tests turn it off). */
+  shuffleStarts?: boolean;
 }
 
 const MAX_WAVES = 8;
@@ -137,7 +139,8 @@ export class MatchSim {
     this.bots = specs.map((s, id) => (s.kind === 'bot' ? { rng: botRng.fork(`bot-${id}`), lastDecision: -1000 } : null));
     // Which colony gets which start is shuffled per match seed: farthest-point sampling puts the
     // first start in an extreme corner, and colony 0 (the player) must not always get it.
-    this.startCells = this.rng.fork('starts').shuffle(map.starts).slice(0, specs.length);
+    const startRng = this.rng.fork('starts');
+    this.startCells = (opts.shuffleStarts ?? true ? startRng.shuffle(map.starts) : map.starts.slice()).slice(0, specs.length);
     // Start blots: land within startRadius (BFS) of each start; nearest start wins ties.
     specs.forEach((_, id) => {
       const dist = landDistance(map.land, map.width, map.height, [this.startCells[id]!]);

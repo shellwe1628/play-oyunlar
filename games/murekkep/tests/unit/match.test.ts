@@ -11,6 +11,7 @@ function stripMap(width: number, starts: number[]): GameMap {
 }
 
 const idle: ColonySpec = { kind: 'idle' };
+const FIXED = { growth: false, shuffleStarts: false };
 const player: ColonySpec = { kind: 'player' };
 
 describe('growth curve', () => {
@@ -43,7 +44,7 @@ describe('growth curve', () => {
   });
 
   it('a colony left alone grows its reserve toward, but never past, its cap', () => {
-    const sim = new MatchSim(stripMap(40, [2, 37]), 1, [idle, idle]);
+    const sim = new MatchSim(stripMap(40, [2, 37]), 1, [idle, idle], { shuffleStarts: false });
     for (let i = 0; i < 2000; i++) sim.tick();
     const c = sim.colonies[0]!;
     expect(c.reserve).toBeLessThanOrEqual(sim.cap(0) + 1e-9);
@@ -53,7 +54,7 @@ describe('growth curve', () => {
 
 describe('attack', () => {
   it('only targets land touching the attacker border, not own land', () => {
-    const sim = new MatchSim(stripMap(40, [2, 37]), 1, [player, idle]);
+    const sim = new MatchSim(stripMap(40, [2, 37]), 1, [player, idle], { shuffleStarts: false });
     // Start blot is cells within START_RADIUS of the start: in a strip that is x 0..2+r.
     const edge = 2 + RULES.startRadius;
     expect(sim.attack(0, sim.map.width + edge + 1, 30).ok).toBe(true);
@@ -75,7 +76,7 @@ describe('attack', () => {
   });
 
   it('clamps the commit to 10..100 %', () => {
-    const sim = new MatchSim(stripMap(40, [2, 37]), 1, [player, idle]);
+    const sim = new MatchSim(stripMap(40, [2, 37]), 1, [player, idle], { shuffleStarts: false });
     sim.colonies[0]!.reserve = 100;
     const edge = 2 + RULES.startRadius;
     sim.attack(0, sim.map.width + edge + 1, 2);
@@ -85,7 +86,7 @@ describe('attack', () => {
 
 describe('capture costs', () => {
   it('blank paper costs the flat blank cost', () => {
-    const sim = new MatchSim(stripMap(200, [2, 197]), 1, [player, idle], { growth: false });
+    const sim = new MatchSim(stripMap(200, [2, 197]), 1, [player, idle], FIXED);
     sim.colonies[0]!.reserve = 100;
     const edge = 2 + RULES.startRadius;
     sim.attack(0, sim.map.width + edge + 1, 100); // 100 ink into blank paper
@@ -97,7 +98,7 @@ describe('capture costs', () => {
   it('enemy cells cost by defender density, and the defender loses ink too', () => {
     // Two colonies meet in the middle of a strip; all paper between them is taken.
     const m = stripMap(20, [2, 17]);
-    const sim = new MatchSim(m, 1, [player, idle], { growth: false });
+    const sim = new MatchSim(m, 1, [player, idle], FIXED);
     for (let x = 0; x < 20; x++) sim.setOwner(m.width + x, x < 10 ? 0 : 1);
     sim.colonies[1]!.reserve = 50; // area 10 → density 5
     sim.colonies[0]!.reserve = 100;
@@ -126,7 +127,7 @@ describe('capture costs', () => {
 
   it('a wave stops when it runs out of ink', () => {
     const m = stripMap(60, [2, 57]);
-    const sim = new MatchSim(m, 1, [player, idle], { growth: false });
+    const sim = new MatchSim(m, 1, [player, idle], FIXED);
     sim.colonies[0]!.reserve = 10;
     const edge = 2 + RULES.startRadius;
     sim.attack(0, m.width + edge + 1, 100);
@@ -139,7 +140,7 @@ describe('capture costs', () => {
 
   it('a wave advances a few cells per tick, not all at once', () => {
     const m = stripMap(60, [2, 57]);
-    const sim = new MatchSim(m, 1, [player, idle], { growth: false });
+    const sim = new MatchSim(m, 1, [player, idle], FIXED);
     sim.colonies[0]!.reserve = 40;
     const edge = 2 + RULES.startRadius;
     sim.attack(0, m.width + edge + 1, 100);
@@ -153,7 +154,7 @@ describe('capture costs', () => {
 describe('elimination and win', () => {
   it('a colony with no cells is eliminated and the player loses', () => {
     const m = stripMap(20, [2, 17]);
-    const sim = new MatchSim(m, 1, [player, idle], { growth: false });
+    const sim = new MatchSim(m, 1, [player, idle], FIXED);
     for (let x = 0; x < 20; x++) sim.setOwner(m.width + x, x < 1 ? 0 : 1);
     sim.colonies[1]!.reserve = 500;
     sim.attack(1, m.width + 0, 100);
@@ -165,7 +166,7 @@ describe('elimination and win', () => {
 
   it('the last colony standing wins', () => {
     const m = stripMap(20, [2, 10, 17]);
-    const sim = new MatchSim(m, 1, [player, idle, idle], { growth: false });
+    const sim = new MatchSim(m, 1, [player, idle, idle], FIXED);
     expect(sim.phase).toBe('playing');
     for (let x = 0; x < 20; x++) sim.setOwner(m.width + x, x < 19 ? 0 : 1);
     sim.colonies[0]!.reserve = 500;
@@ -177,7 +178,7 @@ describe('elimination and win', () => {
 
   it('holding 70 % of the land wins', () => {
     const m = stripMap(100, [2, 97]);
-    const sim = new MatchSim(m, 1, [player, idle], { growth: false });
+    const sim = new MatchSim(m, 1, [player, idle], FIXED);
     for (let x = 0; x < 69; x++) sim.setOwner(m.width + x, 0);
     sim.tick();
     expect(sim.phase).toBe('playing');
@@ -190,7 +191,7 @@ describe('elimination and win', () => {
 
   it('ignores attacks and ticks once the match has ended', () => {
     const m = stripMap(100, [2, 97]);
-    const sim = new MatchSim(m, 1, [player, idle], { growth: false });
+    const sim = new MatchSim(m, 1, [player, idle], FIXED);
     for (let x = 0; x < 75; x++) sim.setOwner(m.width + x, 0);
     sim.tick();
     expect(sim.phase).toBe('won');

@@ -18,7 +18,7 @@ export function basePlatform(name: PlatformName, opts: AdapterOptions): {
     get paused() {
       return lifecycle.paused;
     },
-    onLifecycle: lifecycle.on,
+    onLifecycle: (listener: Parameters<Lifecycle['on']>[0]) => lifecycle.on(listener),
     dispose() {
       unbind();
       lifecycle.clear();

@@ -48,7 +48,7 @@ describe('createI18n', () => {
   it('merges extra dictionaries (core shell strings) under the game strings', () => {
     const core = defineStrings({ en: { play: 'Play', hello: 'core hello' }, tr: { play: 'Oyna', hello: 'x' } });
     const i18n = createI18n(strings, 'tr', { base: core });
-    expect(i18n.t('play')).toBe('Oyna');
+    expect(i18n.t('play' as 'hello')).toBe('Oyna');
     expect(i18n.t('hello')).toBe('Merhaba');
     expect(i18n.lang).toBe('tr');
   });

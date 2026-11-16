@@ -17,7 +17,7 @@ export function defineStrings<const E extends Readonly<Record<string, string>>>(
   en: E;
   tr: { readonly [K in keyof E]: string };
 }): StringTable<Extract<keyof E, string>> {
-  return table as StringTable<Extract<keyof E, string>>;
+  return table;
 }
 
 function isLang(value: string): value is Lang {

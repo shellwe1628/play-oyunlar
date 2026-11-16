@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { MIN_TOUCH, logicalSize, safeInsetsToLogical, toastY, touchHitSize } from '../src/ui/layout';
+import { MIN_TOUCH, findOverlaps, logicalSize, safeInsetsToLogical, stackRows, toastY, touchHitSize } from '../src/ui/layout';
 
 describe('logicalSize', () => {
   it('is 720x1280 portrait and 1280x720 landscape', () => {
@@ -73,5 +73,47 @@ describe('toastY', () => {
 
   it('works in landscape', () => {
     expect(toastY('center', { top: 0, bottom: 720 }, h)).toBe(360);
+  });
+});
+
+describe('stackRows', () => {
+  const overlaps = (c: number[], h: number[]): boolean =>
+    c.some((y, i) => i > 0 && y - h[i]! / 2 < c[i - 1]! + h[i - 1]! / 2);
+
+  it('centres a stack that fits, rows in order with the gap between them', () => {
+    const r = stackRows([60, 200, 50], { top: -250, bottom: 250, gap: 10 });
+    expect(r.flexScale).toBe(1);
+    expect(r.scale).toBe(1);
+    // total 330 → starts at -165
+    expect(r.centers).toEqual([-135, 5, 140]);
+  });
+
+  it('shrinks the flex row (the big number) when the rows do not fit, and nothing overlaps', () => {
+    const heights = [56, 66, 205, 55, 47, 47, 47];
+    const r = stackRows(heights, { top: -252, bottom: 252, gap: 8, flex: 2 });
+    expect(r.scale).toBe(1);
+    expect(r.flexScale).toBeLessThan(1);
+    const shown = heights.map((h, i) => (i === 2 ? h * r.flexScale : h));
+    expect(overlaps(r.centers, shown)).toBe(false);
+    expect(r.centers[0]! - shown[0]! / 2).toBeGreaterThanOrEqual(-252 - 1e-9);
+    expect(r.centers[6]! + shown[6]! / 2).toBeLessThanOrEqual(252 + 1e-9);
+  });
+
+  it('never shrinks the flex row below minFlexScale; then scales every row so the stack still fits', () => {
+    const r = stackRows([100, 300, 100], { top: -100, bottom: 100, gap: 10, flex: 1, minFlexScale: 0.5 });
+    expect(r.flexScale).toBe(0.5);
+    expect(r.scale).toBeCloseTo(180 / 350, 10);
+    expect(overlaps(r.centers, r.heights)).toBe(false);
+    expect(r.centers[0]! - r.heights[0]! / 2).toBeCloseTo(-100, 9);
+    expect(r.centers[2]! + r.heights[2]! / 2).toBeCloseTo(100, 9);
+  });
+});
+
+describe('findOverlaps', () => {
+  it('lists every pair of [x, y, w, h] rects that intersect (touching edges do not count)', () => {
+    expect(
+      findOverlaps({ a: [0, 0, 10, 10], b: [10, 0, 10, 10], c: [5, 5, 10, 10], d: [100, 100, 1, 1] }),
+    ).toEqual([['a', 'c'], ['b', 'c']]);
+    expect(findOverlaps({})).toEqual([]);
   });
 });

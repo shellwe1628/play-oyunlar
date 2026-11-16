@@ -194,10 +194,18 @@ export class MyResult extends ResultShell {
 - `MenuScene` hooks: `title()`, `subtitle()`, `drawBackground()`, `decorate()`, `playData()`.
   Test action `play`.
 - `ResultScene` receives `ResultData` `{ score, best, newBest, won?, lines? }` through
-  `goTo('result', data)`; shows a count-up, best line, new-best toast + star burst, win/lose
-  jingle, Replay and Menu buttons. Hooks: `drawBackground()`, `onReplay()`, `onMenu()`,
+  `goTo('result', data)`; shows a count-up, best line, a **"New best!" badge** + star burst,
+  win/lose jingle, Replay and Menu buttons. Hooks: `drawBackground()`, `onReplay()`, `onMenu()`,
   `buttonPosition(i)` (slot 2+ for your own buttons), `cardPosition()`. Test actions `replay`,
-  `menu`; test state `{ score, best, newBest }`.
+  `menu`; test state `{ score, best, newBest, rects }`.
+- The score card is always 580×560 around `cardPosition()` (place your own things outside it).
+  Inside, its rows are `[badge] · caption (core.score) · score · best · ...lines`, top to bottom.
+  Texts wrap at 520 px; then the rows are measured and stacked with `stackRows()` (`pure`), so
+  they cannot overlap: a stack too tall for the card first shrinks the score number (down to
+  half size), then every row evenly. The badge is the card's top row, hidden until the
+  count-up ends, then pops in. `rects` lists each row's and button's screen rectangle
+  `[x, y, w, h]` (logical px, at rest scale); the template's smoke test asserts
+  `findOverlaps(rects)` is empty.
 - `PauseScene` (key `pause`, registered by core) — Resume (ESC), Quit (→ `menu`), mute. It calls
   `platform.gameplayStop()` on open and `gameplayStart()` on resume. Test actions `resume`, `quit`.
   Phaser draws scenes in scene-list order and `launch()` does not reorder, so core registers it
@@ -404,8 +412,8 @@ export class UiDemo extends OyunScene {
   (sliders, drawers, button rows) in the bottom band. `position: 'top'` is the old slot (safe top
   + 90, over a top HUD), `'bottom'` the same distance above the safe bottom, a number is a centre
   y in logical px. Every position is clamped so the whole box stays inside the safe area
-  (`toastY()` in `pure` does the maths). The result shell's new-best toast sits over the card's
-  "Score" caption, below a title you put above the card.
+  (`toastY()` in `pure` does the maths). The result shell does not use a toast for a new best
+  (see its badge above).
 - Icons: `pause`, `play`, `sound-on`, `sound-off`, `home`, `replay`, `close`.
 - Theme colours: `DEFAULT_THEME` / `createGame({ theme })`; `cssColor(0xRRGGBB)` for text styles.
 - Text renders into a 720 px-wide canvas scaled to the screen, so it is slightly soft on 3×
@@ -602,6 +610,7 @@ the budget needs a recorded reason.
 | Web rewarded ads resolve `'granted'`, interstitials `'unavailable'` | Reward flows are playable and testable without a provider; no fake interstitial delay. |
 | Test mode forces the web platform | Smoke tests are deterministic and never hit an SDK. |
 | PauseScene registered last + `bringToTop` on open | Phaser draws in scene-list order and `launch()` does not reorder; registered before the game's scenes, the menu was drawn under any opaque game scene while its invisible buttons still took input (seen in two games). Registering last covers the common case; `bringToTop` covers scenes a game launches or reorders itself. |
+| New best on the result screen is a badge row inside the score card, not a toast | A toast floats over whatever is at its position: over the card's caption it hid "Score" / "Tutulan toprak (%)" in every game, and every other spot collides with something a game draws (a title or stars above the card, the stats lines, the buttons). A badge that is one of the card's measured rows cannot collide with the caption, number, stats or buttons, stays on screen (a toast vanishes after 1.6 s), and needs no space outside the card that games already use. The API is unchanged (`newBest` in `ResultData`). |
 | Toasts default to the middle of the safe area; `position` option | At the top they covered every game's HUD (clock and danger pips, title bar and resource readouts, a result title) exactly when it mattered; the bottom band holds sliders, drawers and button rows. The middle is the one band every layout keeps for content, and a toast is short. `'top'` stays available. |
 | Game time follows the wall clock under automation / `?test=1` (`realTimeDelta`, cap 200 ms); real players keep Phaser's smoothing | Phaser clamps frames to 16.7 ms when the window is unfocused, which headless always is: on a loaded machine timers ran 3–5× slow and playtests/smoke tests measured the wrong game. 200 ms is Phaser's own per-frame ceiling (`fps.min` 5), so no scene sees a bigger step than before; real players' feel is unchanged. |
 | Pause menu on tab hide waits for the player | Returning to a running game is unfair; the round clock stops (Phaser also sleeps its loop while hidden). |

@@ -1,5 +1,5 @@
 import { act, clockRate, collectErrors, colorNear, expect, openGame, pixel, setHidden, shot, state, test, waitForScene } from '@oyun/core/e2e';
-import { DEFAULT_THEME, logicalSize, type Orientation } from '@oyun/core/pure';
+import { DEFAULT_THEME, findOverlaps, logicalSize, type Orientation } from '@oyun/core/pure';
 
 const gameDir = new URL('../..', import.meta.url).pathname.replace(/\/$/, '');
 
@@ -52,8 +52,12 @@ test('menu → game → result without errors', async ({ page }) => {
   const end = await state(page);
   expect(end.data.score).toBeGreaterThanOrEqual(5);
   expect(end.data.newBest).toBe(true);
-  await page.waitForTimeout(1200); // count-up + toast finish before the screenshot
+  await page.waitForTimeout(1200); // count-up + new-best badge finish before the screenshot
   await shot(page, gameDir, 'result');
+  // The new-best badge is a row of the score card: nothing on the result screen may overlap.
+  const rects = (await state(page)).data.rects as Record<string, number[]>;
+  expect(Object.keys(rects)).toContain('badge');
+  expect(findOverlaps(rects), JSON.stringify(rects)).toEqual([]);
 
   // Rewarded flow: the web adapter grants, so the score doubles.
   await act(page, 'double');

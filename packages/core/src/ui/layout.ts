@@ -77,3 +77,60 @@ export function toastY(position: ToastPosition | undefined, safe: { top: number;
   if (min > max) return (safe.top + safe.bottom) / 2;
   return Math.min(max, Math.max(min, y));
 }
+
+export interface StackOptions {
+  /** Top and bottom edge of the space (any unit, e.g. card-local px). */
+  top: number;
+  bottom: number;
+  /** Space between rows. */
+  gap: number;
+  /** Index of the row that may shrink when the stack is too tall (e.g. a big score number). */
+  flex?: number;
+  /** Smallest scale for the flex row. Default 0.5. */
+  minFlexScale?: number;
+}
+
+/**
+ * Vertical stack of rows with measured heights, centred between top and bottom with `gap`
+ * between rows, so rows can never overlap. If it is too tall, the `flex` row is scaled down
+ * first (not below `minFlexScale`); if that is not enough, every row is scaled by `scale`
+ * (the flex row by `flexScale * scale`) so the stack always fits.
+ */
+export function stackRows(
+  heights: readonly number[],
+  o: StackOptions,
+): { centers: number[]; flexScale: number; scale: number; heights: number[] } {
+  const avail = o.bottom - o.top;
+  const gaps = o.gap * Math.max(0, heights.length - 1);
+  const sum = (hs: readonly number[]): number => hs.reduce((a, h) => a + h, 0);
+  let flexScale = 1;
+  const fh = o.flex !== undefined ? heights[o.flex] : undefined;
+  if (sum(heights) + gaps > avail && fh !== undefined && fh > 0) {
+    flexScale = Math.max(o.minFlexScale ?? 0.5, (fh - (sum(heights) + gaps - avail)) / fh);
+  }
+  let shown = heights.map((h, i) => (i === o.flex ? h * flexScale : h));
+  const rows = sum(shown);
+  const scale = rows + gaps > avail && rows > 0 ? Math.max(0, (avail - gaps) / rows) : 1;
+  shown = shown.map((h) => h * scale);
+  let y = o.top + (avail - (sum(shown) + gaps)) / 2;
+  const centers = shown.map((h) => {
+    const c = y + h / 2;
+    y += h + o.gap;
+    return c;
+  });
+  return { centers, flexScale, scale, heights: shown };
+}
+
+/** Pairs of named `[x, y, width, height]` rects that intersect (shared edges do not count). */
+export function findOverlaps(rects: Readonly<Record<string, readonly number[]>>): [string, string][] {
+  const names = Object.keys(rects);
+  const out: [string, string][] = [];
+  for (let i = 0; i < names.length; i++) {
+    for (let j = i + 1; j < names.length; j++) {
+      const [ax = 0, ay = 0, aw = 0, ah = 0] = rects[names[i]!]!;
+      const [bx = 0, by = 0, bw = 0, bh = 0] = rects[names[j]!]!;
+      if (ax < bx + bw && bx < ax + aw && ay < by + bh && by < ay + ah) out.push([names[i]!, names[j]!]);
+    }
+  }
+  return out;
+}

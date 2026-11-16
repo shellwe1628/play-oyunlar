@@ -37,6 +37,7 @@ Kapının tarayıcı adımı Chromium ister. Bu ortamda hazır geliyor; başka m
 
 ## Nerede ne var
 
+- İlk partinin güncel durumu ve bilinen açıklar: `docs/production/durum.md`
 - Üretim hattının aşamaları ve komutları: `docs/production/hat.md`
 - Tasarım belgesi: `docs/superpowers/specs/2026-11-16-uretim-sistemi-design.md`
 - Araştırma raporu: `docs/research/2026-11-16-crazygames-bosluk-raporu.md`

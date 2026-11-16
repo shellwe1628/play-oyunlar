@@ -111,7 +111,7 @@ export class GameScene extends OyunScene {
       height: 88,
       fontSize: 40,
     });
-    this.bar = new ReserveBar(this, L.left + 24, L.top + 112, L.right - L.left - 48, 44, (k, p) => this.t(k, p));
+    this.bar = new ReserveBar(this, L.left + 24, L.top + 130, L.right - L.left - 48, 34, (k, p) => this.t(k, p));
 
     // Thumb zone: commit slider (+ Blot).
     const sliderRight = blot ? L.right - 210 : L.right - 70;
@@ -479,10 +479,13 @@ export class GameScene extends OyunScene {
       },
       pause: () => this.pauseButton.fire(),
       speed: () => this.speedButton.fire(),
+      /** Same sequence as a player: tap the Blot button (arms it, or offers the rewarded charge on
+       * cooldown), then, if armed, tap the cell. */
       blot: (p: unknown) => {
         if (!this.blotBtn) return;
         if (!this.blotArmed) this.blotBtn.fire();
-        this.tryCell((p as { cell: number }).cell);
+        const cell = (p as { cell?: number } | undefined)?.cell;
+        if (this.blotArmed && cell !== undefined) this.tryCell(cell);
       },
     };
   }

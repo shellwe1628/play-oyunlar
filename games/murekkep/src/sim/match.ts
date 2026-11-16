@@ -174,8 +174,7 @@ export class MatchSim {
   }
 
   /** Ink colony `by` pays to take cell. */
-  captureCost(by: number, cell: number): number {
-    void by;
+  captureCost(_by: number, cell: number): number {
     const o = this.owner[cell]!;
     if (o < 0) return RULES.blankCost;
     return RULES.enemyBaseCost + RULES.densityCost * this.density(o);

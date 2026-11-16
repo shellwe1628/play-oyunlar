@@ -32,12 +32,13 @@ export class ResultScene extends ResultShell {
   }
 
   protected override cardPosition(): { x: number; y: number } {
-    return { x: this.layout.cx, y: this.layout.cy - 70 };
+    return { x: this.layout.cx, y: this.layout.cy - 20 };
   }
 
   protected override buttonPosition(index: number): { x: number; y: number } {
-    const { cx, cy } = this.layout;
-    return { x: cx, y: cy + 290 + index * 124 };
+    const { cx, cy, bottom } = this.layout;
+    // Three stacked buttons; keep the lowest clear of the home indicator.
+    return { x: cx, y: Math.min(cy + 330, bottom - 66 - 2 * 118) + index * 118 };
   }
 
   override create(): void {
@@ -47,7 +48,8 @@ export class ResultScene extends ResultShell {
     if (!p) return;
     const L = this.layout;
     const cardTop = this.cardPosition().y - 280;
-    const title = label(this, L.cx, Math.max(L.top + 70, cardTop - 170), this.t(p.won ? 'result.won' : 'result.lost'), {
+    // Below core's new-best toast slot (safe top + 90).
+    const title = label(this, L.cx, Math.max(L.top + 175, cardTop - 160), this.t(p.won ? 'result.won' : 'result.lost'), {
       size: 60,
       color: p.won ? PALETTE.sweet : PALETTE.text,
       wrap: L.width - 80,

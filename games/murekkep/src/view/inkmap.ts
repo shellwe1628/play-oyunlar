@@ -98,8 +98,6 @@ export class InkMap {
   /** Cells currently drawn darker (fresh), and their drawn step. */
   private readonly fresh = new Map<number, number>();
   private readonly mark: Uint8Array;
-  private dimmed: Set<number> = new Set();
-  private readonly washedRgb = rgb(PALETTE.grey);
 
   constructor(
     private readonly scene: Phaser.Scene,
@@ -251,11 +249,6 @@ export class InkMap {
     return { x: this.rect.x + (cx + 0.5) * this.cellSize, y: this.rect.y + (cy + 0.5) * this.cellSize };
   }
 
-  /** Grey out these colonies' ink (eliminated colonies leave no land, but the HUD may use it). */
-  setDimmed(ids: Iterable<number>): void {
-    this.dimmed = new Set(ids);
-  }
-
   /** Redraw everything (start of a match). */
   fullRedraw(src: InkSource): void {
     const all: number[] = [];
@@ -388,7 +381,7 @@ export class InkMap {
           const edge = margin < 0.45 ? 1 - margin / 0.45 : 0;
           const f = Math.min(1, freshW / best / FRESH_STEPS);
           const g = this.grain[i]! / 255;
-          const col = this.dimmed.has(own) ? this.washedRgb : this.inkRgb[own % this.inkRgb.length]!;
+          const col = this.inkRgb[own % this.inkRgb.length]!;
           const dark = 1 - Math.min(0.55, edge * 0.3 + f * 0.4) - g * 0.07;
           d[o] = col[0] * dark;
           d[o + 1] = col[1] * dark;

@@ -127,7 +127,7 @@ export class MapSelectScene extends OyunScene {
     if (best > 0) c.add(label(this, tx, 72, this.t('maps.best', { t: formatTime(best) }), { size: 26, color: PALETTE.textDim }).setOrigin(0, 0.5));
   }
 
-  /** Small silhouette of a sheet with its start blots (as a canvas texture). */
+  /** Small silhouette of a sheet with its start spots (as a canvas texture). */
   private thumbnail(map: ReturnType<typeof levelMap>, x: number, y: number, maxW: number, maxH: number, open: boolean): Phaser.GameObjects.Image {
     const key = `thumb-${map.id}`;
     if (!this.textures.exists(key)) {
@@ -141,8 +141,9 @@ export class MapSelectScene extends OyunScene {
         img.data[i * 4 + 2] = 0xdd;
         img.data[i * 4 + 3] = 255;
       }
-      map.starts.forEach((s, k) => {
-        const col = PALETTE.inks[k % PALETTE.inks.length]!;
+      // Starts are shuffled per match, so they are shown as neutral ink dots.
+      map.starts.forEach((s) => {
+        const col = PALETTE.grey;
         const sx = s % map.width;
         const sy = Math.floor(s / map.width);
         for (let dy = -1; dy <= 1; dy++) {

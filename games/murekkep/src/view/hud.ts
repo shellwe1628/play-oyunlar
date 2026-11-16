@@ -66,8 +66,9 @@ export class ReserveBar {
     private readonly t: (key: string, p?: Record<string, number | string>) => string,
   ) {
     this.g = scene.add.graphics().setDepth(20);
-    this.text = label(scene, x + 18, y + h / 2, '', { size: 30, color: PALETTE.text }).setOrigin(0, 0.5).setDepth(21);
-    this.sweet = label(scene, x + w * 0.5, y - 20, t('game.sweet'), { size: 22, color: PALETTE.sweet }).setDepth(21);
+    // Count above the bar (left), band label inside the sweet-spot band: nothing overlaps.
+    this.text = label(scene, x + 4, y - 22, '', { size: 28, color: PALETTE.text }).setOrigin(0, 0.5).setDepth(21);
+    this.sweet = label(scene, x + w * 0.5, y + h / 2, t('game.sweet'), { size: 19, color: PALETTE.sweet }).setDepth(21);
   }
 
   set(reserve: number, cap: number, dt: number): void {
@@ -87,12 +88,14 @@ export class ReserveBar {
     if (f > 0.005) g.fillStyle(fillCol, 1).fillRoundedRect(x, y, Math.max(20, w * f), h, 10);
     if (inSweet) g.fillStyle(0xffffff, 0.16).fillRoundedRect(x, y, w * f, h * 0.45, 8);
     g.lineStyle(3, PALETTE.sweet, 1).strokeRect(x + w * 0.4, y - 2, w * 0.2, h + 4);
-    g.fillStyle(PALETTE.sweet, 1).fillRect(x + w * 0.5 - 1.5, y - 6, 3, h + 12);
+    // Peak marker (50 %) as notches above and below, so it never crosses the label.
+    g.fillStyle(PALETTE.sweet, 1).fillRect(x + w * 0.5 - 1.5, y - 8, 3, 7).fillRect(x + w * 0.5 - 1.5, y + h + 1, 3, 7);
     // Cap end.
     g.fillStyle(PALETTE.text, 1).fillRect(x + w - 4, y - 6, 4, h + 12);
     this.text.setText(full ? this.t('game.full') : this.t('game.ink', { n: Math.floor(reserve), cap: Math.floor(cap) }));
-    this.text.setColor(css(full ? PALETTE.text : PALETTE.text));
-    this.sweet.setAlpha(inSweet ? 1 : 0.55);
+    this.text.setColor(css(full ? PALETTE.danger : PALETTE.text));
+    this.sweet.setColor(css(f >= 0.45 ? PALETTE.text : PALETTE.sweet));
+    this.sweet.setAlpha(inSweet ? 1 : 0.7);
   }
 }
 

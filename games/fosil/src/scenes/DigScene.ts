@@ -63,6 +63,8 @@ export class DigScene extends OyunScene {
   private slowmo = 1;
   private hudKey = '';
   private stripCount = 0;
+  private lastBaseLuck = 0;
+  private comboShown = -1;
 
   constructor() {
     super(SCENES.dig);
@@ -77,7 +79,8 @@ export class DigScene extends OyunScene {
     this.slowmo = 1;
     this.hudKey = '';
     this.stripKey = '';
-    this.input.addPointer(2); // three fingers drumming still count
+    this.lastBaseLuck = this.sim.baseLuck;
+    this.comboShown = -1;
     const L = this.layout;
     // header (title, chips, combo) | dig site (block, HP bar, glints) | footer (last find, buttons)
     this.site = { top: L.top + HEADER, bottom: Math.max(L.top + HEADER + 420, L.bottom - FOOTER) };
@@ -489,24 +492,30 @@ export class DigScene extends OyunScene {
     const s = this.sim;
     const luck = s.luck;
     const boost = Math.ceil(s.boostSeconds);
-    const key = `${s.layer}|${s.unlocked}|${Math.round(s.digPower)}|${Math.floor(s.dust)}|${luck.toFixed(2)}|${s.combo.toFixed(2)}|${boost}|${s.blockHp}|${Math.round(s.blockDamage)}`;
+    const key = `${s.layer}|${s.unlocked}|${Math.round(s.digPower)}|${Math.floor(s.dust)}|${luck.toFixed(2)}|${s.comboMult.toFixed(1)}|${boost}|${s.blockHp}|${Math.round(s.blockDamage)}`;
+    if (Math.abs(this.comboShown - s.combo) > 0.004) {
+      this.comboShown = s.combo;
+      this.comboBar.setValue(s.combo);
+    }
     if (!force && key === this.hudKey) return;
     this.hudKey = key;
-    const setChip = (c: Chip, text: string): void => {
+    const setChip = (c: Chip, text: string, pop: boolean): void => {
       if (c.last === text) return;
       c.last = text;
       c.value.setText(text);
       fitText(c.value, 140);
-      this.juice.pop(c.value, 1.12, 160);
+      if (pop) this.juice.pop(c.value, 1.12, 160);
     };
-    setChip(this.chips.power, big(this, s.digPower));
-    setChip(this.chips.dust, big(this, s.dust));
-    setChip(this.chips.luck, this.t('hud.mult', { n: mult(this, luck) }));
+    setChip(this.chips.power, big(this, s.digPower), true);
+    setChip(this.chips.dust, big(this, s.dust), true);
+    // luck moves every frame while the combo drains: update quietly, pop only when base luck rises
+    const baseUp = s.baseLuck > this.lastBaseLuck;
+    this.lastBaseLuck = s.baseLuck;
+    setChip(this.chips.luck, this.t('hud.mult', { n: mult(this, luck) }), baseUp);
     this.chips.luck.caption.setText(boost > 0 ? this.t('hud.boost', { s: boost }) : this.t('hud.luck'));
     fitText(this.chips.luck.caption, 150);
     this.chips.luck.caption.setColor(cssColor(boost > 0 ? PALETTE.glint : PALETTE.sand));
-    this.comboBar.setValue(s.combo);
-    this.comboText.setText(this.t('hud.combo', { n: mult(this, s.comboMult) }));
+    this.comboText.setText(this.t('hud.combo', { n: mult(this, Math.round(s.comboMult * 10) / 10) }));
     this.layerTitle.setText(this.t(`layer.${at(LAYERS, s.layer).id}`));
     fitText(this.layerTitle, 360);
     this.arrows.left.setVisible(s.layer > 0);

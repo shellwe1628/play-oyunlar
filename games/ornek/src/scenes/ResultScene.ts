@@ -33,7 +33,8 @@ export class ResultScene extends ResultShell {
   override create(): void {
     super.create();
     this.doubleButton = null;
-    if (this.doubled) toast(this, this.t('result.doubled'));
+    // Where the "double" button was: clear of the score card and the Replay/Menu buttons.
+    if (this.doubled) toast(this, this.t('result.doubled'), { position: this.buttonPosition(2).y });
     if (this.result.score > 0 && !this.doubled) {
       const at = this.buttonPosition(2);
       this.doubleButton = button(this, at.x, at.y, this.t('result.double'), () => void this.double(), {

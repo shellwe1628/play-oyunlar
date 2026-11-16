@@ -2,7 +2,7 @@ import Phaser from 'phaser';
 import type { SfxName } from '../audio/presets';
 import { getContext } from '../context';
 import type { HapticKind } from '../platform';
-import { MIN_TOUCH, touchHitSize } from './layout';
+import { MIN_TOUCH, toastY, touchHitSize, type ToastPosition } from './layout';
 import { cssColor, type Theme } from './theme';
 
 const theme = (scene: Phaser.Scene): Theme => getContext(scene.game).theme;
@@ -359,27 +359,34 @@ export interface ToastOptions {
   /** ms on screen. Default 1600. */
   duration?: number;
   color?: number;
+  /**
+   * Where the toast sits. Default `'center'` (middle of the safe area), clear of the top HUD band
+   * and of bottom controls. `'top'` = just under the safe top edge (the old default), `'bottom'`,
+   * or a centre y in logical px. Always clamped inside the safe area.
+   */
+  position?: ToastPosition;
 }
 
 const toasts = new WeakMap<Phaser.Scene, Phaser.GameObjects.Container>();
 
-/** Short message that slides in below the top safe edge. A new toast replaces the old one. */
+/** Short message that fades in (default: mid-screen, see `position`). A new toast replaces the old one. */
 export function toast(scene: Phaser.Scene, text: string, opts: ToastOptions = {}): Phaser.GameObjects.Container {
   const ctx = getContext(scene.game);
   toasts.get(scene)?.destroy();
-  const { width } = ctx.info;
-  const top = ctx.safeArea().top + 90;
+  const { width, height } = ctx.info;
+  const safe = ctx.safeArea();
   const t = label(scene, 0, 0, text, { size: 36, color: ctx.theme.colors.text, wrap: width - 160 });
   const w = Math.min(width - 80, t.width + 80);
   const h = Math.max(MIN_TOUCH * 0.9, t.height + 40);
-  const box = panel(scene, width / 2, top - 160, w, h, { color: opts.color ?? ctx.theme.colors.surface });
-  box.add(t).setDepth(2000);
+  const y = toastY(opts.position, { top: safe.top, bottom: height - safe.bottom }, h);
+  const box = panel(scene, width / 2, y + 24, w, h, { color: opts.color ?? ctx.theme.colors.surface });
+  box.add(t).setDepth(2000).setAlpha(0);
   toasts.set(scene, box);
-  scene.tweens.add({ targets: box, y: top, duration: 260, ease: 'Back.easeOut' });
+  scene.tweens.add({ targets: box, y, alpha: 1, duration: 220, ease: 'Back.easeOut' });
   scene.tweens.add({
     targets: box,
     alpha: 0,
-    y: top - 40,
+    y: y - 24,
     delay: opts.duration ?? 1600,
     duration: 240,
     onComplete: () => box.destroy(),

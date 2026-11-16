@@ -1,11 +1,11 @@
-import { button, iconButton, label, type Button, type IconButton, type OyunScene } from '@oyun/core';
+import { button, cssColor, iconButton, label, type Button, type IconButton, type OyunScene } from '@oyun/core';
 import Phaser from 'phaser';
 import { UPGRADES, UPGRADE_ORDER, type UpgradeId } from '../sim/data';
 import type { DigSim } from '../sim/dig';
 import { PALETTE } from '../textures';
 import { big, fitText, mult } from './ui';
 
-const ROW_H = 94;
+const ROW_H = 92;
 
 interface Row {
   id: UpgradeId;
@@ -41,16 +41,20 @@ export class Drawer extends Phaser.GameObjects.Container {
     // swallow taps on the panel so they never count as digs
     const blocker = scene0.add.zone(L.cx, this.panelH / 2, L.width, this.panelH).setInteractive();
     this.add([blocker, g]);
-    this.add(label(scene0, L.left + 40, 50, scene0.t('dig.upgrades'), { size: 42, color: PALETTE.sand }).setOrigin(0, 0.5));
-    this.close = iconButton(scene0, L.right - 70, 50, 'close', () => this.toggle(false));
+    this.add(label(scene0, L.left + 40, 48, scene0.t('dig.upgrades'), { size: 42, color: PALETTE.sand }).setOrigin(0, 0.5));
+    this.close = iconButton(scene0, L.right - 66, 44, 'close', () => this.toggle(false));
     this.add(this.close);
     UPGRADE_ORDER.forEach((id, i) => {
-      const y = 116 + i * ROW_H;
+      const y = 138 + i * ROW_H;
       const rowBg = scene0.add.graphics();
       rowBg.fillStyle(PALETTE.dirt, 0.8).fillRoundedRect(L.left + 24, y - ROW_H / 2 + 6, L.right - L.left - 48, ROW_H - 12, 20);
       const title = label(scene0, L.left + 48, y - 18, '', { size: 34, color: 0xffffff }).setOrigin(0, 0.5);
       const fx = label(scene0, L.left + 48, y + 20, '', { size: 28, color: PALETTE.sand }).setOrigin(0, 0.5);
       const buy = button(scene0, L.right - 146, y - 2, '', () => this.onBuy(id), { width: 210, height: 80, fontSize: 36, sfx: null });
+      // unaffordable look: a dark veil over the face and light text (core's 45 % fade is unreadable)
+      const veil = scene0.add.graphics();
+      veil.fillStyle(PALETTE.dirtDark, 0.72).fillRoundedRect(-105, -40, 210, 80, 28);
+      buy.addAt(veil, 1);
       const ico = scene0.add.image(-74, -2, 'ico-dust').setScale(0.8);
       buy.add(ico);
       this.add([rowBg, title, fx, buy]);
@@ -105,6 +109,11 @@ export class Drawer extends Phaser.GameObjects.Container {
       fitText(r.fx, 400);
       r.buy.setLabel(cost === null ? s.t('up.max') : `   ${big(s, cost)}`);
       r.buy.setEnabled(afford);
+      r.buy.setAlpha(1);
+      const veil = r.buy.list[1] as Phaser.GameObjects.Graphics;
+      veil.setVisible(!afford);
+      const text = r.buy.list.find((o): o is Phaser.GameObjects.Text => o instanceof Phaser.GameObjects.Text);
+      text?.setColor(cssColor(afford ? PALETTE.ink : PALETTE.sand));
       const ico = r.buy.list[r.buy.list.length - 1] as Phaser.GameObjects.Image;
       ico.setVisible(cost !== null);
     }

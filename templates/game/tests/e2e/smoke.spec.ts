@@ -1,4 +1,5 @@
-import { act, collectErrors, expect, openGame, setHidden, shot, state, test, waitForScene } from '@oyun/core/e2e';
+import { act, clockRate, collectErrors, colorNear, expect, openGame, pixel, setHidden, shot, state, test, waitForScene } from '@oyun/core/e2e';
+import { DEFAULT_THEME, logicalSize, type Orientation } from '@oyun/core/pure';
 
 const gameDir = new URL('../..', import.meta.url).pathname.replace(/\/$/, '');
 
@@ -24,9 +25,15 @@ test('menu → game → result without errors', async ({ page }) => {
   expect(mid.data.score).toBeGreaterThanOrEqual(5);
   await shot(page, gameDir, 'game');
 
-  // Pause button, then resume.
+  // Pause button, then resume. The menu must be DRAWN above the (opaque) game scene, not only
+  // active: read the rendered pixel inside the pause card, left of the buttons.
   await act(page, 'pause');
   await waitForScene(page, 'pause');
+  await page.waitForTimeout(500); // card pop-in settles
+  const size = logicalSize((await state(page)).meta.orientation as Orientation);
+  const inCard = await pixel(page, size.width / 2 - 240, size.height / 2);
+  await shot(page, gameDir, 'pause');
+  expect(colorNear(inCard, DEFAULT_THEME.colors.surface), `pause card pixel ${JSON.stringify(inCard)}`).toBe(true);
   await act(page, 'resume');
   await waitForScene(page, 'game');
 
@@ -57,5 +64,22 @@ test('menu → game → result without errors', async ({ page }) => {
   await waitForScene(page, 'menu');
   expect((await state(page)).data.best).toBe((end.data.score as number) * 2);
 
+  expect(errors).toEqual([]);
+});
+
+/**
+ * Game time must follow the wall clock under automation: headless Chromium is never a focused
+ * window and runs at a low frame rate on a loaded machine, where Phaser's default smoothing
+ * clamps every frame to 16.7 ms (core turns that off with ?test=1 / navigator.webdriver).
+ */
+test('round clock follows the wall clock in headless mode', async ({ page }) => {
+  const errors = collectErrors(page);
+  await openGame(page, { seed: 1 });
+  await act(page, 'play');
+  await waitForScene(page, 'game');
+  const r = await clockRate(page, 'timeLeft', 3000);
+  const msg = `round clock ran ${r.game.toFixed(2)} s in ${r.wall.toFixed(2)} s of wall time (${r.frames} frames, ${r.longFrames} over 200 ms)`;
+  expect(r.rate, msg).toBeGreaterThan(0.85);
+  expect(r.rate, msg).toBeLessThan(1.15);
   expect(errors).toEqual([]);
 });

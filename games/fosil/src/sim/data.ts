@@ -74,7 +74,7 @@ export const LAYERS: readonly Layer[] = [
   {
     id: 'topsoil',
     hp: 4,
-    hpRamp: 0.25,
+    hpRamp: 0.28,
     powerScale: 1,
     dust: 1,
     dustCurve: 0.5,
@@ -90,7 +90,7 @@ export const LAYERS: readonly Layer[] = [
     powerScale: 6,
     dust: 30,
     dustCurve: 0.5,
-    unlockPower: 450,
+    unlockPower: 300,
     setBonus: { kind: 'assistant', value: 1.5 },
     bands: [0x9fb4bd, 0x7f97a3, 0xb7c6cc, 0x6e8591, 0x8ea4ae],
     sky: 0x22303a,
@@ -102,7 +102,7 @@ export const LAYERS: readonly Layer[] = [
     powerScale: 40,
     dust: 1000,
     dustCurve: 0.5,
-    unlockPower: 40000,
+    unlockPower: 20000,
     setBonus: { kind: 'offlineCap', value: 30 * 60 },
     bands: [0xc0703a, 0xa85c2e, 0xd08a4f, 0x924d25, 0xb86a37],
     sky: 0x3b1f14,
@@ -155,12 +155,12 @@ const TABLE: readonly (readonly Row[])[] = [
     [8, 'tooth', 0xefe6d0, 0xb7a684, 'rim', 1],
     [10, 'footprint', 0x6f5a49, 0x3f3128, 'plain', 0],
     [15, 'claw', 0x5b4b40, 0xc8b8a0, 'stripes', 0],
-    [25, 'trilobite', 0x7b8690, 0x4b555e, 'bands', 0],
-    [50, 'skull', 0xd9a066, 0x8c5a2b, 'rim', 0],
-    [60, 'leaf', 0x5f8f4a, 0x2f5a2a, 'veins', 2],
+    [30, 'trilobite', 0x7b8690, 0x4b555e, 'bands', 0],
+    [40, 'skull', 0xd9a066, 0x8c5a2b, 'rim', 0],
+    [50, 'leaf', 0x5f8f4a, 0x2f5a2a, 'veins', 2],
     [100, 'shell', 0xe3a33c, 0xa8641c, 'glow', 2],
-    [250, 'footprint', 0x9b6b43, 0xe8c79a, 'dots', 2],
-    [1_000, 'skull', 0xf1ede4, 0x6b5d50, 'speckle', 2],
+    [400, 'footprint', 0x9b6b43, 0xe8c79a, 'dots', 2],
+    [1_200, 'skull', 0xf1ede4, 0x6b5d50, 'speckle', 2],
   ],
   // Ice Age: frost blues, ivory and bone
   [
@@ -243,7 +243,7 @@ export const UPGRADES: Readonly<Record<UpgradeId, Upgrade>> = {
   pick: { id: 'pick', baseCost: 15, costGrowth: 1.6, maxLevel: 80, effect: (l) => 1 + 0.25 * l },
   luck: { id: 'luck', baseCost: 60, costGrowth: 2.4, maxLevel: 12, effect: (l) => 1 + 0.25 * l },
   assistant: { id: 'assistant', baseCost: 30, costGrowth: 1.8, maxLevel: 25, effect: (l) => 0.1 * l },
-  offline: { id: 'offline', baseCost: 150, costGrowth: 3, maxLevel: 4, effect: (l) => 30 * 60 + 15 * 60 * l },
+  offline: { id: 'offline', baseCost: 150, costGrowth: 3, maxLevel: 6, effect: (l) => 30 * 60 + 15 * 60 * l },
 };
 
 export const UPGRADE_ORDER: readonly UpgradeId[] = ['pick', 'luck', 'assistant', 'offline'];
@@ -266,6 +266,8 @@ export const COMBO = {
 } as const;
 
 export const GLINT = {
+  /** Seconds until the first glint of a brand-new dig. */
+  first: 8,
   minGap: 20,
   maxGap: 40,
   /** Seconds a glint stays tappable. */

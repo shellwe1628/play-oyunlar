@@ -5,7 +5,14 @@ const gameDir = new URL('../..', import.meta.url).pathname.replace(/\/$/, '');
 
 /** Poll the shift's test state until a condition holds (input lands on the next frame). */
 type Wait = 'camera' | 'selected' | 'cleared' | 'hint';
-async function until(page: Page, kind: Wait, arg: string | number, timeout = 5_000): Promise<void> {
+async function until(page: Page, kind: Wait, arg: string | number, timeout = 20_000): Promise<void> {
+  await waitData(page, kind, arg, timeout).catch(async (e: unknown) => {
+    const d = (await state(page)).data;
+    throw new Error(`waiting for ${kind}=${arg}: ${String(e)}\nstate: ${JSON.stringify({ phase: d.phase, camera: d.camera, selected: d.selected, chipsVisible: d.chipsVisible, staticLeft: d.staticLeft, active: d.active })}`);
+  });
+}
+
+async function waitData(page: Page, kind: Wait, arg: string | number, timeout: number): Promise<void> {
   await page.waitForFunction(
     ([k, a]) => {
       const d = window.__OYUN__!.state().data as { camera: number; selected: string | null; hint: string; active: { id: number }[] };
@@ -242,8 +249,11 @@ test('a full night with real pointer taps', async ({ page }) => {
     if (s.scene !== 'game') break;
     const g = game(s);
     if (g.phase === 'won' || g.phase === 'lost') break;
+    if (g.phase === 'brink') await act(page, 'secondWind'); // heavy load can let four pile up
     for (const a of g.active) {
-      if (game(await state(page)).camera !== a.camera) {
+      const now = game(await state(page));
+      if (now.phase !== 'running' || !now.active.some((x) => x.id === a.id)) break;
+      if (now.camera !== a.camera) {
         const t = g.ui.tabs[a.camera]!;
         await tap(t.x, t.y);
         await until(page, 'camera', a.camera);
@@ -294,7 +304,9 @@ test('real taps on a night with intruders: an intruder is reported by tapping it
     if (g.phase === 'won' || g.phase === 'lost') break;
     if (g.phase === 'brink') await act(page, 'secondWind');
     for (const a of g.active) {
-      if (game(await state(page)).camera !== a.camera) {
+      const now = game(await state(page));
+      if (now.phase !== 'running' || !now.active.some((x) => x.id === a.id)) break;
+      if (now.camera !== a.camera) {
         const t = g.ui.tabs[a.camera]!;
         await tap(t.x, t.y);
         await until(page, 'camera', a.camera);

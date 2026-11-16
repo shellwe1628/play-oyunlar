@@ -91,7 +91,7 @@ export class GameScene extends OyunScene {
     label(this, fx + 4, top + 136, sub, { size: 34, color: PALETTE.textDim }).setOrigin(0, 0.5);
     this.scoreText = label(this, fx + FEED - 4, top + 136, this.t('game.score', { n: 0 }), { size: 34 }).setOrigin(1, 0.5);
     this.pips = this.add.graphics();
-    this.pipLabel = label(this, L.right - 112, top + 96, this.t('game.limit'), { size: 26, color: PALETTE.textDim });
+    this.pipLabel = label(this, L.right - 118, top + 96, this.t('game.limit'), { size: 24, color: PALETTE.textDim });
     this.drawPips(0);
 
     // --- monitor frame + feed camera

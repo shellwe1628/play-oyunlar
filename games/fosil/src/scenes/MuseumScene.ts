@@ -1,11 +1,12 @@
 import { button, cssColor, label, OyunScene, panel, progressBar, type Button, type ProgressBar } from '@oyun/core';
 import Phaser from 'phaser';
-import { session } from '../session';
+import { backgroundAware, session } from '../session';
 import { SFX } from '../sfx';
 import { GRADE_COLORS, GRADE_COUNT, LAYERS, TIERS, fossilPower, type Fossil, at } from '../sim/data';
 import type { DigSim } from '../sim/dig';
 import { layerFossils } from '../sim/loot';
 import { fossilKey, PALETTE } from '../textures';
+import type { PauseReason } from '@oyun/core/pure';
 import { SCENES } from './keys';
 import { big, fitText, fossilName, hitZone, mult, oddsText, rarityCard } from './ui';
 
@@ -17,6 +18,7 @@ const CARD_W = 322;
  * close, back.
  */
 export class MuseumScene extends OyunScene {
+  protected override autoPause = true;
   private sim!: DigSim;
   private tab = 0;
   private grid!: Phaser.GameObjects.Container;
@@ -69,13 +71,26 @@ export class MuseumScene extends OyunScene {
   }
 
   override update(_t: number, delta: number): void {
-    // The assistant keeps digging while you browse (quietly; finds land in the grid).
+      // Every find is saved at once and its reveal waits for the dig screen (nothing arrives silently).
+    const ses = session(this.oyun);
     const r = this.sim.tick(Math.min(delta, 250) / 1000);
     if (r.finds.length) {
-      session(this.oyun).markDirty();
+      for (const f of r.finds) ses.queueFind(f);
       this.drawGrid();
     }
-    session(this.oyun).autosave();
+    ses.autosave();
+  }
+
+  protected override onPlatformPause(reason: PauseReason): void {
+    if (backgroundAware(reason)) session(this.oyun).background();
+    else session(this.oyun).flush();
+    super.onPlatformPause(reason);
+  }
+
+  protected override onPlatformResume(reason: PauseReason): void {
+    if (backgroundAware(reason)) session(this.oyun).foreground();
+    this.drawGrid();
+    super.onPlatformResume(reason);
   }
 
   private selectTab(i: number): void {
@@ -117,8 +132,8 @@ export class MuseumScene extends OyunScene {
     this.bonusText.setColor(cssColor(done ? 0x2f8a3c : PALETTE.inkSoft));
 
     const locked = this.tab > this.sim.unlocked;
-    const top = L.top + 350;
-    const avail = L.bottom - 140 - top;
+    const top = L.top + 336;
+    const avail = L.bottom - 128 - top;
     const step = Math.min(150, avail / 6);
     const cardH = step - 12;
     fs.forEach((f, i) => {
@@ -143,29 +158,33 @@ export class MuseumScene extends OyunScene {
     g.fillStyle(PALETTE.shadow, 0.18).fillRoundedRect(-CARD_W / 2, -h / 2 + 6, CARD_W, h, 22);
     g.fillStyle(found ? PALETTE.cardFace : PALETTE.creamDark, 1).fillRoundedRect(-CARD_W / 2, -h / 2, CARD_W, h, 22);
     g.lineStyle(found ? 6 : 3, found ? tier.color : PALETTE.inkSoft, found ? 1 : 0.4).strokeRoundedRect(-CARD_W / 2, -h / 2, CARD_W, h, 22);
-    g.fillStyle(tier.color, found ? 0.18 : 0.08).fillRoundedRect(-CARD_W / 2 + 8, -h / 2 + 8, 112, h - 16, 16);
+    g.fillStyle(tier.color, found ? 0.18 : 0.08).fillRoundedRect(-CARD_W / 2 + 8, -h / 2 + 8, 104, h - 16, 16);
     c.add(g);
-    const img = this.add.image(-CARD_W / 2 + 64, 0, fossilKey(f.id)).setScale(Math.min(0.7, (h - 20) / 160));
+    // icon column: fossil, copies badge, grade pips | text column: name (up to 2 lines), odds
+    const img = this.add.image(-CARD_W / 2 + 60, -12, fossilKey(f.id)).setScale(Math.min(0.58, (h - 44) / 160));
     if (!found) img.setTint(PALETTE.silhouette).setTintMode(Phaser.TintModes.FILL).setAlpha(locked ? 0.25 : 0.55);
     c.add(img);
-    const tx = -CARD_W / 2 + 132;
-    const name = label(this, tx, -h / 2 + 30, found ? fossilName(this, f) : this.t('museum.unknown'), { size: 28, color: PALETTE.ink }).setOrigin(0, 0.5);
-    fitText(name, CARD_W - 146, 0.7);
-    const odds = label(this, tx, 2, oddsText(this, f.odds), { size: 28, color: f.tier === 0 ? PALETTE.inkSoft : tier.color }).setOrigin(0, 0.5);
+    const tx = -CARD_W / 2 + 120;
+    const textW = CARD_W - 132;
+    const name = label(this, tx, -h / 2 + 10, found ? fossilName(this, f) : this.t('museum.unknown'), { size: 28, color: PALETTE.ink, wrap: textW, align: 'left' }).setOrigin(0, 0);
+    name.setLineSpacing(-8);
+    const nameMax = h - 66; // leave the bottom row to the odds
+    if (name.height > nameMax) name.setScale(nameMax / name.height);
+    const odds = label(this, tx, h / 2 - 28, oddsText(this, f.odds), { size: 31, color: f.tier === 0 ? PALETTE.inkSoft : tier.color }).setOrigin(0, 0.5);
     odds.setStroke(cssColor(PALETTE.ink), f.tier >= 2 ? 2 : 0);
-    fitText(odds, CARD_W - 146, 0.6);
+    fitText(odds, textW, 0.7);
     c.add([name, odds]);
     if (found) {
       const n = this.sim.count(f.id);
-      const cnt = label(this, tx, h / 2 - 28, this.t('museum.copies', { n: big(this, n) }), { size: 24, color: PALETTE.inkSoft }).setOrigin(0, 0.5);
-      fitText(cnt, 96, 0.7);
+      const cnt = label(this, -CARD_W / 2 + 108, -h / 2 + 22, `×${big(this, n)}`, { size: 27, color: PALETTE.ink }).setOrigin(1, 0.5);
+      cnt.setStroke(cssColor(PALETTE.cardFace), 6);
       c.add(cnt);
       const grades = this.sim.grades(f.id);
       for (let gi = 0; gi < GRADE_COUNT; gi++) {
-        const px = CARD_W / 2 - 78 + gi * 20;
+        const px = -CARD_W / 2 + 24 + gi * 25;
         const on = (grades[gi] ?? 0) > 0;
-        const pip = this.add.circle(px, h / 2 - 28, on ? 8 : 6, at(GRADE_COLORS, gi), on ? 1 : 0.25);
-        if (on) pip.setStrokeStyle(2, PALETTE.ink, 0.5);
+        const pip = this.add.circle(px, h / 2 - 17, on ? 10 : 8, at(GRADE_COLORS, gi), on ? 1 : 0.3);
+        pip.setStrokeStyle(2, PALETTE.ink, on ? 0.7 : 0.25);
         c.add(pip);
       }
     }
@@ -229,6 +248,10 @@ export class MuseumScene extends OyunScene {
       found: fs.filter((f) => this.sim.discovered(f.id)).length,
       cards: fs.map((f) => ({ id: f.id, odds: f.odds, found: this.sim.discovered(f.id), count: this.sim.count(f.id), grade: this.sim.topGrade(f.id) })),
       detail: this.detail !== null,
+      ui: {
+        cards: this.grid.list.filter((o): o is Phaser.GameObjects.Container => o instanceof Phaser.GameObjects.Container).map((c) => ({ x: Math.round(c.x), y: Math.round(c.y) })),
+        back: { x: Math.round(this.backButton.x), y: Math.round(this.backButton.y) },
+      },
     };
   }
 

@@ -1,6 +1,7 @@
 import { cssColor, label, touchHitSize, type OyunScene } from '@oyun/core';
 import Phaser from 'phaser';
 import { TIERS, type Fossil, at } from '../sim/data';
+import type { FindSource } from '../sim/dig';
 import { formatBig, formatOddsNumber, type Lang } from '../sim/format';
 import { fossilKey, PALETTE } from '../textures';
 
@@ -95,3 +96,13 @@ export function hitZone(scene: Phaser.Scene, x: number, y: number, w: number, h:
   z.on(Phaser.Input.Events.GAMEOBJECT_POINTER_DOWN, onDown);
   return z;
 }
+
+/** Text that says which luck a find was rolled at, and by whom. */
+export function luckLine(scene: OyunScene, source: FindSource, luck: number): string {
+  const n = mult(scene, luck);
+  if (source === 'assistant') return scene.t('reveal.assistant', { n });
+  if (source === 'offline') return scene.t('reveal.offline', { n });
+  if (source === 'glint') return scene.t('reveal.glintLuck', { n });
+  return scene.t('reveal.luckShort', { n });
+}
+

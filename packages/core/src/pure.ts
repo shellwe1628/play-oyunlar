@@ -9,6 +9,7 @@ export * from './platform';
 export * from './testhook';
 export * from './juice/math';
 export * from './ui/layout';
+export * from './time';
 export * from './ui/theme';
 export { SFX_PRESETS, presetDuration, sliderToGain, type SfxName, type SfxPreset, type Voice, type Wave } from './audio/presets';
 export { createAudio, type Audio, type AudioOptions, type Bus, type PlayOptions } from './audio/synth';

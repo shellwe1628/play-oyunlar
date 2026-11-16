@@ -20,6 +20,7 @@ import { PauseScene } from './scenes/PauseScene';
 import { webStorage, type StorageAdapter } from './storage';
 import { CORE_STRINGS } from './strings';
 import { createTestHook, installTestHook, parseTestParams, type JsonValue } from './testhook';
+import { followsRealTime, realTimeDelta } from './time';
 import type { TextureRecipe } from './textures';
 import { logicalSize, safeInsetsToLogical, type Insets, type Orientation } from './ui/layout';
 import { cssColor, resolveTheme, type ThemeOverrides } from './ui/theme';
@@ -32,7 +33,7 @@ export interface OyunGameConfig {
   orientation: Orientation;
   /** Game string table (tr + en). Core shell strings are merged underneath. */
   strings: StringTable;
-  /** Scene classes. Core adds BootScene first and PauseScene itself. */
+  /** Scene classes. Core adds BootScene first and PauseScene last (drawn above every game scene). */
   scenes: Phaser.Types.Scenes.SceneType[];
   /** Key of the first scene after boot. */
   start: string;
@@ -152,8 +153,17 @@ export async function createGame(config: OyunGameConfig): Promise<OyunGame> {
     audio: { noAudio: true },
     input: { activePointers: 3 },
     scale: { mode: Phaser.Scale.FIT, autoCenter: Phaser.Scale.CENTER_BOTH },
-    scene: [new BootScene(config.textures ?? []), PauseScene, ...config.scenes],
+    // Phaser draws scenes in list order and launch() does not reorder, so the pause menu goes
+    // LAST: listed before the game's scenes, an opaque game scene covered it.
+    scene: [new BootScene(config.textures ?? []), ...config.scenes, PauseScene],
   });
+
+  // Under automation (or ?test=1) game time follows the wall clock: Phaser's smoothDelta clamps
+  // each frame to 16.7 ms while the window is unfocused (always, headless) and for 120 frames
+  // after start/focus/visible, so a 12 fps headless run played at 1/5 speed. Real players keep
+  // Phaser's smoothing. Scenes still never get more than MAX_FRAME_MS (200) in one frame.
+  const realTime = followsRealTime({ webdriver: navigator.webdriver, test: test.enabled });
+  if (realTime) game.loop.smoothDelta = (delta: number): number => realTimeDelta(delta);
 
   let insets: Insets = { top: 0, right: 0, bottom: 0, left: 0 };
   const updateInsets = (): void => {
@@ -203,12 +213,25 @@ export async function createGame(config: OyunGameConfig): Promise<OyunGame> {
       muted: audio.muted,
       orientation: info.orientation,
       paused: platform.paused,
+      realTime,
     };
     if (platform.name === 'web' && 'history' in platform) {
       meta.platformCalls = (platform as WebPlatform).history.map((h) => h.call);
     }
     return meta;
   });
+  if (test.enabled) {
+    // Reads what the renderer really drew at logical (x, y) on the next frame.
+    hook.setPixelReader(
+      (x, y) =>
+        new Promise((resolve) => {
+          game.renderer.snapshotPixel(x, y, (c) => {
+            const color = c as Phaser.Display.Color;
+            resolve({ r: color.red, g: color.green, b: color.blue, a: color.alpha });
+          });
+        }),
+    );
+  }
   installTestHook(window, hook, test.enabled);
   return { game, ctx };
 }

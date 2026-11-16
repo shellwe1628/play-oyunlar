@@ -69,6 +69,22 @@ describe('test hook', () => {
     hook.setMeta(() => ({ seed: 1, lang: 'en' }));
     expect(hook.api.state().meta).toEqual({ seed: 1, lang: 'en' });
   });
+
+  it('pixel() rejects until the game installs a pixel reader', async () => {
+    const hook = createTestHook();
+    await expect(hook.api.pixel(10, 20)).rejects.toThrow(/no pixel reader/);
+  });
+
+  it('pixel() returns the rendered colour from the installed reader', async () => {
+    const hook = createTestHook();
+    const asked: number[][] = [];
+    hook.setPixelReader((x, y) => {
+      asked.push([x, y]);
+      return Promise.resolve({ r: 43, g: 49, b: 96, a: 255 });
+    });
+    await expect(hook.api.pixel(360.4, 640.6)).resolves.toEqual({ r: 43, g: 49, b: 96, a: 255 });
+    expect(asked).toEqual([[360, 641]]);
+  });
 });
 
 describe('installTestHook', () => {

@@ -1,6 +1,7 @@
 import { label, MenuScene as MenuShell } from '@oyun/core';
 import Phaser from 'phaser';
-import { session } from '../session';
+import type { PauseReason } from '@oyun/core/pure';
+import { backgroundAware, session } from '../session';
 import { FOSSIL_BY_ID, FOSSILS } from '../sim/data';
 import { fossilKey, PALETTE } from '../textures';
 import { SCENES } from './keys';
@@ -39,6 +40,7 @@ export class MenuScene extends MenuShell {
   }
 
   protected override decorate(): void {
+    session(this.oyun).boot(); // away time since the last save, shown on the dig screen
     const { width, height, cx } = this.layout;
     // a few fossils half-buried in the strata
     const picks = ['topsoil-01', 'iceage-09', 'cretaceous-02', 'deepsea-02', 'cretaceous-06', 'topsoil-02'];
@@ -57,6 +59,16 @@ export class MenuScene extends MenuShell {
         wrap: width - 100,
       });
     }
+  }
+
+  protected override onPlatformPause(reason: PauseReason): void {
+    if (backgroundAware(reason)) session(this.oyun).background();
+    super.onPlatformPause(reason);
+  }
+
+  protected override onPlatformResume(reason: PauseReason): void {
+    if (backgroundAware(reason)) session(this.oyun).foreground();
+    super.onPlatformResume(reason);
   }
 
   protected override testState() {

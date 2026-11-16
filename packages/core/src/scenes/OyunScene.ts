@@ -98,11 +98,14 @@ export abstract class OyunScene extends Phaser.Scene {
     /* the pause menu waits for the player to tap Resume */
   }
 
-  /** Pause this scene and show core's pause menu over it. */
+  /** Pause this scene and show core's pause menu over it (moved to the top of the draw order). */
   openPauseMenu(): void {
     if (!this.scene.isActive() || this.scene.isActive(PAUSE_SCENE)) return;
     this.scene.pause();
     this.scene.launch(PAUSE_SCENE, { from: this.scene.key });
+    // A game may have launched or reordered its own scenes (HUD, overlays) above the end of the
+    // list; the menu must still be drawn on top of everything.
+    this.scene.bringToTop(PAUSE_SCENE);
   }
 
   /** Fade out, then start another scene. Ignores repeated calls during the fade. */

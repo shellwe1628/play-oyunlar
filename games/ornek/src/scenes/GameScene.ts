@@ -1,4 +1,4 @@
-import { createRng, iconButton, label, OyunScene, progressBar, type IconButton, type ProgressBar } from '@oyun/core';
+import { createRng, iconButton, label, OyunScene, progressBar, splitStep, type IconButton, type ProgressBar } from '@oyun/core';
 import Phaser from 'phaser';
 import { gameSave } from '../save';
 import { applyRoundResult } from '../sim/progress';
@@ -61,9 +61,15 @@ export class GameScene extends OyunScene {
 
   override update(_time: number, delta: number): void {
     if (this.finished) return;
-    // Hit-stop aware, clamped so a long frame cannot tunnel the target.
-    const dt = Math.min(this.juice.scaledDelta(delta), 50) / 1000;
-    const { ended } = step(this.round, dt);
+    // Hit-stop aware. A long frame (≤ 200 ms from core) is stepped in ≤ 50 ms slices: the target
+    // cannot tunnel and the round clock still keeps up with real time.
+    let ended = false;
+    for (const dt of splitStep(this.juice.scaledDelta(delta) / 1000, 0.05)) {
+      if (step(this.round, dt).ended) {
+        ended = true;
+        break;
+      }
+    }
     this.syncTarget();
     this.timer.setValue(this.round.timeLeft / this.round.rules.duration);
     if (ended) this.finish();

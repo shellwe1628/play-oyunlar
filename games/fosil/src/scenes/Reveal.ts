@@ -4,7 +4,7 @@ import { SFX } from '../sfx';
 import { LAYERS, TIERS, at } from '../sim/data';
 import type { Find } from '../sim/dig';
 import { fossilKey, PALETTE } from '../textures';
-import { cardBack, fitText, fossilName, mult, oddsText, outlined, rarityCard } from './ui';
+import { cardBack, fitText, fossilName, luckLine, oddsText, outlined, rarityCard } from './ui';
 
 /** Odds at which the ceremony escalates (GAME.md "Feel"). */
 export const CARD_AT = 100;
@@ -29,8 +29,8 @@ interface Host {
 }
 
 const MAX_POPS = 6;
-const CARD_W = 340;
-const CARD_H = 440;
+const CARD_W = 320;
+const CARD_H = 400;
 
 /**
  * Plays the reveal for every find, scaled by rarity:
@@ -87,7 +87,13 @@ export class Reveal {
     const slot = this.host.slot();
     this.grand = null;
     const card = g.objects.find((o) => o.getData('card') === true) as Phaser.GameObjects.Container | undefined;
-    for (const o of g.objects) if (o !== card) s.tweens.add({ targets: o, alpha: 0, duration: 220, onComplete: () => o.destroy() });
+    for (const o of g.objects) {
+      if (o === card) continue;
+      // stop the endless spin / blink tweens before the objects go away (no leak per find)
+      s.tweens.killTweensOf(o);
+      if (o instanceof Phaser.GameObjects.Container) for (const c of o.list) s.tweens.killTweensOf(c);
+      s.tweens.add({ targets: o, alpha: 0, duration: 220, onComplete: () => o.destroy() });
+    }
     s.tweens.add({ targets: g.overlay, alpha: 0, duration: 260, onComplete: () => g.overlay.destroy() });
     if (card) {
       s.tweens.add({
@@ -105,7 +111,9 @@ export class Reveal {
       });
     } else this.host.landed(g.find);
     if (this.grandQueue.length) s.time.delayedCall(300, () => this.nextGrand());
-    else if (this.cardQueue.length) s.time.delayedCall(300, () => this.nextCard());
+    else if (this.cardQueue.length) s.time.delayedCall(300, () => {
+      if (!this.cardBusy && !this.grand) this.nextCard();
+    });
     return true;
   }
 
@@ -125,11 +133,13 @@ export class Reveal {
     const tierColor = at(TIERS, find.fossil.tier).color;
     const ring = s.add.circle(o.x, o.y, 58, tierColor, 0.35).setDepth(599).setScale(0.2);
     const odds = outlined(s, o.x, o.y + 70, oddsText(s, find.fossil.odds), 34, find.fossil.tier === 0 ? 0xffffff : tierColor, 7).setDepth(601).setAlpha(0);
+    const luck = outlined(s, o.x, o.y + 110, luckLine(s, find.source, find.luck), 24, find.source === 'assistant' ? PALETTE.sand : PALETTE.luck, 5).setDepth(601).setAlpha(0);
     // alternate sides so back-to-back finds never print their odds on top of each other
     this.side = -this.side;
     const dx = this.side * (70 + Math.random() * 70);
     s.tweens.add({ targets: [img, ring], scale: 0.62, y: o.y - 120, x: o.x + dx, duration: 230, ease: 'Back.easeOut' });
     s.tweens.add({ targets: odds, alpha: 1, y: o.y - 30, x: o.x + dx, duration: 230, ease: 'Cubic.easeOut' });
+    s.tweens.add({ targets: luck, alpha: 1, y: o.y + 2, x: o.x + dx, duration: 230, ease: 'Cubic.easeOut' });
     if (find.isNew) {
       const tag = outlined(s, o.x + dx, o.y - 200, s.t('reveal.new'), 34, PALETTE.ochreLight, 7).setDepth(602);
       s.juice.pop(tag, 0.4, 260);
@@ -151,7 +161,10 @@ export class Reveal {
         this.host.landed(find);
       },
     });
-    s.tweens.add({ targets: odds, alpha: 0, delay: find.isNew ? 520 : 330, duration: 200, onComplete: () => odds.destroy() });
+    s.tweens.add({ targets: [odds, luck], alpha: 0, delay: find.isNew ? 520 : 330, duration: 200, onComplete: () => {
+      odds.destroy();
+      luck.destroy();
+    } });
   }
 
   // ------------------------------------------------------------------ 1 in 100+
@@ -172,7 +185,8 @@ export class Reveal {
     const big = find.fossil.odds >= 1000;
 
     const rays = s.add.container(pos.x, pos.y).setDepth(700).setAlpha(0);
-    for (let i = 0; i < 10; i++) rays.add(s.add.image(0, 0, 'ray').setOrigin(0.5, 0).setAngle(i * 36).setTint(tierColor).setAlpha(0.7));
+    // short rays: they stay inside the dig site, clear of the HUD and the combo bar
+    for (let i = 0; i < 10; i++) rays.add(s.add.image(0, 0, 'ray').setOrigin(0.5, 0).setAngle(i * 36).setTint(tierColor).setAlpha(0.7).setScale(1, 0.62));
     const back = cardBack(s, CARD_W, CARD_H, at(at(LAYERS, find.fossil.layer).bands, 1)).setDepth(710).setPosition(o.x, o.y).setScale(0.2);
     const front = rarityCard(s, find.fossil, CARD_W, CARD_H).setDepth(710).setPosition(pos.x, pos.y).setVisible(false);
 
@@ -181,8 +195,11 @@ export class Reveal {
     s.tweens.add({ targets: back, scaleX: 0, delay: 300, duration: 110, ease: 'Quad.easeIn' });
     s.time.delayedCall(410, () => {
       back.destroy();
-      front.setVisible(true).setScale(0, 1);
-      s.tweens.add({ targets: front, scaleX: 1, duration: 170, ease: 'Back.easeOut' });
+      // the front pops in whole (never squashed mid-flip, so the odds are never half drawn)
+      front.setVisible(true).setScale(0.7);
+      s.tweens.add({ targets: front, scale: 1, duration: 170, ease: 'Back.easeOut' });
+      const cap = outlined(s, pos.x, pos.y - CARD_H / 2 - 22, luckLine(s, find.source, find.luck), 26, find.source === 'assistant' ? PALETTE.sand : PALETTE.luck, 6).setDepth(720);
+      s.tweens.add({ targets: cap, alpha: 0, delay: hold, duration: 200, onComplete: () => cap.destroy() });
       s.tweens.add({ targets: rays, alpha: 0.55, duration: 200 });
       s.tweens.add({ targets: rays, angle: 90, duration: 3000 });
       s.oyun.audio.playPreset(SFX.chime, { pitch: Math.min(6, find.fossil.tier * 2 - 4) });
@@ -191,7 +208,8 @@ export class Reveal {
       s.juice.burst(pos.x, pos.y, { count: 8, color: 0xffffff, texture: 'spark', distance: 200 });
       if (find.isNew) this.badge(pos.x + CARD_W / 2 - 40, pos.y - CARD_H / 2 + 10, s.t('reveal.new'));
       if (find.fusions > 0) this.badge(pos.x - CARD_W / 2 + 60, pos.y - CARD_H / 2 + 10, s.t(`grade.${find.grade}`));
-      if (find.source === 'glint') this.subline(pos.x, pos.y + CARD_H / 2 + 44, s.t('reveal.glint'));
+      if (find.source === 'glint') this.badge(pos.x - CARD_W / 2 + 70, pos.y + CARD_H / 2 - 14, s.t('reveal.glint'));
+      if (find.source === 'assistant') this.badge(pos.x - CARD_W / 2 + 80, pos.y + CARD_H / 2 - 14, s.t('reveal.assistantFind'));
     });
     const hold = big ? 1900 : 1450;
     s.time.delayedCall(410 + hold, () => {
@@ -219,12 +237,6 @@ export class Reveal {
     const s = this.host.scene;
     const t = outlined(s, x, y, text, 34, PALETTE.ochreLight, 7).setDepth(720).setAngle(-8);
     s.juice.pop(t, 0.3, 300);
-    s.tweens.add({ targets: t, alpha: 0, delay: 1400, duration: 300, onComplete: () => t.destroy() });
-  }
-
-  private subline(x: number, y: number, text: string): void {
-    const s = this.host.scene;
-    const t = outlined(s, x, y, text, 34, PALETTE.glint, 7).setDepth(720);
     s.tweens.add({ targets: t, alpha: 0, delay: 1400, duration: 300, onComplete: () => t.destroy() });
   }
 
@@ -261,7 +273,7 @@ export class Reveal {
     }
     const pos = { x: L.cx, y: L.top + 520 };
     const rays = s.add.container(pos.x, pos.y).setDepth(810).setAlpha(0);
-    for (let i = 0; i < 14; i++) rays.add(s.add.image(0, 0, 'ray').setOrigin(0.5, 0).setAngle(i * (360 / 14)).setTint(tier.color).setScale(1.3, 1.6));
+    for (let i = 0; i < 14; i++) rays.add(s.add.image(0, 0, 'ray').setOrigin(0.5, 0).setAngle(i * (360 / 14)).setTint(tier.color).setScale(1.2, 0.95));
     objects.push(rays);
     s.tweens.add({ targets: rays, alpha: 0.9, duration: 900 });
     s.tweens.add({ targets: rays, angle: 360, duration: 14000, repeat: -1 });
@@ -300,21 +312,30 @@ export class Reveal {
       const rest = oddsBig.scaleX;
       oddsBig.setScale(rest * 3.2).setAlpha(0);
       objects.push(oddsBig);
-      s.tweens.add({ targets: oddsBig, scale: rest, alpha: 1, duration: 200, ease: 'Quad.easeIn' });
-      s.time.delayedCall(200, () => {
-        s.oyun.audio.playPreset(SFX.slam);
-        s.juice.shake(0.6);
-        s.oyun.platform.haptic('heavy');
-        s.juice.burst(oddsBig.x, oddsBig.y, { count: 14, color: 0xffffff, texture: 'chip', distance: 220 });
-        s.tweens.add({ targets: oddsBig, scaleY: rest * 0.85, scaleX: rest * 1.08, duration: 70, yoyo: true });
+      // chain on completion (not a timer): under a slow clock a timer can fire mid-tween and the
+      // squash would yoyo back to an oversized scale
+      s.tweens.add({
+        targets: oddsBig,
+        scale: rest,
+        alpha: 1,
+        duration: 200,
+        ease: 'Quad.easeIn',
+        onComplete: () => {
+          oddsBig.setScale(rest);
+          s.oyun.audio.playPreset(SFX.slam);
+          s.juice.shake(0.6);
+          s.oyun.platform.haptic('heavy');
+          s.juice.burst(oddsBig.x, oddsBig.y, { count: 14, color: 0xffffff, texture: 'chip', distance: 220 });
+          s.tweens.add({ targets: oddsBig, scaleY: rest * 0.85, scaleX: rest * 1.08, duration: 70, yoyo: true, onComplete: () => oddsBig.setScale(rest) });
+        },
       });
       const title = outlined(s, pos.x, pos.y - CARD_H / 2 - 64, fossilName(s, find.fossil), 56, 0xffffff, 10).setDepth(860);
       fitText(title, L.width - 60);
       objects.push(title);
       s.juice.pop(title, 0.4, 360);
-      const luckLine = outlined(s, pos.x, pos.y + CARD_H / 2 + 156, find.source === 'glint' ? `${s.t('reveal.glint')} · ${s.t('reveal.luck', { n: mult(s, find.luck) })}` : s.t('reveal.luck', { n: mult(s, find.luck) }), 32, PALETTE.sand, 6).setDepth(860);
-      fitText(luckLine, L.width - 60);
-      objects.push(luckLine);
+      const luckText = outlined(s, pos.x, pos.y + CARD_H / 2 + 156, luckLine(s, find.source, find.luck), 32, PALETTE.sand, 6).setDepth(860);
+      fitText(luckText, L.width - 60);
+      objects.push(luckText);
       if (find.isNew) {
         const tag = outlined(s, pos.x + CARD_W / 2 - 56, pos.y - CARD_H / 2 + 4, s.t('reveal.new'), 40, PALETTE.ochreLight, 8).setDepth(870).setAngle(-10);
         objects.push(tag);

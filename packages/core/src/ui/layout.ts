@@ -44,3 +44,36 @@ export function safeInsetsToLogical(insets: Insets, canvas: Rect, viewport: Size
     right: over(insets.right, viewport.width - (canvas.x + canvas.width)) * sx,
   };
 }
+
+/**
+ * Where a toast sits. Default `'center'`: the middle of the safe area, because games put their
+ * HUD in the top band and their controls (sliders, drawers, button rows) in the bottom band.
+ * `'top'` = just under the safe top edge (the pre-2026-11 default), `'bottom'` = the same
+ * distance above the safe bottom edge, a number = centre y in logical px.
+ */
+export type ToastPosition = 'top' | 'center' | 'bottom' | number;
+
+/** Distance of the `'top'`/`'bottom'` slots from the safe edge (box centre), logical px. */
+export const TOAST_EDGE_OFFSET = 90;
+/** Gap kept between a toast box and the safe edges, logical px. */
+export const TOAST_MARGIN = 16;
+
+/**
+ * Centre y of a toast box of `boxHeight` for `position`, inside the safe band `top..bottom`.
+ * The result is clamped so the whole box (plus TOAST_MARGIN) stays inside the safe area.
+ */
+export function toastY(position: ToastPosition | undefined, safe: { top: number; bottom: number }, boxHeight: number): number {
+  const p = position ?? 'center';
+  const y =
+    p === 'top'
+      ? safe.top + TOAST_EDGE_OFFSET
+      : p === 'bottom'
+        ? safe.bottom - TOAST_EDGE_OFFSET
+        : p === 'center'
+          ? (safe.top + safe.bottom) / 2
+          : p;
+  const min = safe.top + TOAST_MARGIN + boxHeight / 2;
+  const max = safe.bottom - TOAST_MARGIN - boxHeight / 2;
+  if (min > max) return (safe.top + safe.bottom) / 2;
+  return Math.min(max, Math.max(min, y));
+}

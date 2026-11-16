@@ -28,7 +28,23 @@ export interface OyunTestApi {
   act(name: string, payload?: unknown): void;
   /** Names of every action currently available. */
   actions(): string[];
+  /**
+   * Colour of the pixel the renderer actually drew at logical (x, y), read from the next frame.
+   * Use it to prove something is visible (e.g. the pause menu is above an opaque game scene),
+   * which `state()` cannot tell.
+   */
+  pixel(x: number, y: number): Promise<Rgba>;
 }
+
+/** 0..255 per channel. */
+export interface Rgba {
+  r: number;
+  g: number;
+  b: number;
+  a: number;
+}
+
+export type PixelReader = (x: number, y: number) => Promise<Rgba>;
 
 export interface TestProvider {
   state?: () => JsonObject;
@@ -41,6 +57,8 @@ export interface TestHook {
   register(sceneKey: string, provider: TestProvider): () => void;
   setMeta(meta: () => JsonObject): void;
   setReady(): void;
+  /** Core installs a reader backed by the renderer; `api.pixel()` rejects until then. */
+  setPixelReader(reader: PixelReader): void;
 }
 
 export interface TestParams {
@@ -60,6 +78,7 @@ export function createTestHook(): TestHook {
   const stack: { key: string; provider: TestProvider }[] = [];
   let ready = false;
   let meta: () => JsonObject = () => ({});
+  let pixelReader: PixelReader | null = null;
 
   const api: OyunTestApi = {
     get ready() {
@@ -90,6 +109,10 @@ export function createTestHook(): TestHook {
       for (const s of stack) for (const n of Object.keys(s.provider.actions ?? {})) names.add(n);
       return [...names];
     },
+    pixel(x, y) {
+      if (!pixelReader) return Promise.reject(new Error('__OYUN__.pixel: no pixel reader installed'));
+      return pixelReader(Math.round(x), Math.round(y));
+    },
   };
 
   return {
@@ -109,6 +132,9 @@ export function createTestHook(): TestHook {
     },
     setReady() {
       ready = true;
+    },
+    setPixelReader(reader) {
+      pixelReader = reader;
     },
   };
 }

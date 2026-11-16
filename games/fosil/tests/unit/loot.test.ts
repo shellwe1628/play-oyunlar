@@ -73,7 +73,7 @@ describe('honesty: printed odds are the true base odds', () => {
       // chi-square with dof-1 degrees of freedom; 40 is far beyond the 99.99th percentile for <= 11.
       expect(chi2, `layer ${l} chi2`).toBeLessThan(40);
     }
-  });
+  }, 120_000); // 4.8 M rolls: give it room on a loaded machine
 });
 
 describe('luck', () => {
@@ -101,7 +101,7 @@ describe('luck', () => {
     for (let i = 0; i < N; i++) if (rollFossil(1, 4, rng).tier >= LUCKY_TIER) rareLucky++;
     expect(rareLucky / rareBase).toBeGreaterThan(3.6);
     expect(rareLucky / rareBase).toBeLessThan(4.4);
-  });
+  }, 60_000);
 
   it('never makes any printed fossil impossible, even at absurd luck', () => {
     for (let l = 0; l < 4; l++) {

@@ -45,7 +45,7 @@ games/<slug>/
 
 | Import | Contains | Use from |
 |---|---|---|
-| `@oyun/core/pure` | rng, save, storage, i18n, platform, testhook, juice maths, layout maths, theme, audio presets/synth, core strings | `src/sim`, unit tests, anything that must run in node |
+| `@oyun/core/pure` | rng, save, storage, i18n, platform, testhook, juice maths, layout maths, game-time maths, theme, audio presets/synth, core strings | `src/sim`, unit tests, anything that must run in node |
 | `@oyun/core` | everything in `pure` **plus** Phaser parts: `createGame`, scenes, `Juice`, widgets, texture helpers | `src/main.ts`, `src/scenes` |
 | `@oyun/core/e2e` | Playwright helpers and `smokeConfig` | `tests/e2e`, `playwright.config.ts` only |
 
@@ -74,7 +74,7 @@ void createGame({
   orientation: 'portrait', // 720×1280; 'landscape' = 1280×720
   strings: STRINGS,
   textures: [circleTexture('ball', 40, 0xffc93c)],
-  scenes: [PlayScene], // core adds BootScene first and PauseScene itself
+  scenes: [PlayScene], // core adds BootScene first and PauseScene last (drawn on top)
   start: 'game', // first scene after boot
   menu: 'game', // where Quit in the pause menu goes (default: start)
   theme: { colors: { primary: 0x7cf29c } }, // optional overrides of DEFAULT_THEME
@@ -83,7 +83,8 @@ void createGame({
 
 Boot order: platform `init()` → language pick → audio (context created lazily on first
 gesture) → font load (≤ 2 s) → `new Phaser.Game` (`Scale.FIT`, `CENTER_BOTH`, Phaser audio
-disabled) → `window.__OYUN__` installed (test mode) → `BootScene` bakes `CORE_TEXTURES` + your
+disabled; real-time game clock under automation, see [Game time](#game-time)) →
+`window.__OYUN__` installed (test mode) → `BootScene` bakes `CORE_TEXTURES` + your
 `textures` → `start` scene. Wrap the call in `.catch(e => console.error(...))` as the template
 does: a logged boot error fails the smoke test.
 
@@ -106,7 +107,7 @@ fade the camera in. Declare `create` as a method, not an arrow property.
 | `this.layout` | `{ width, height, cx, cy, safe, top, bottom, left, right }` in logical px; `top`…`right` are the safe-area edges |
 | `this.juice` | per-scene juice (below) |
 | `autoPause` | set `protected override autoPause = true` on gameplay scenes: tab/app hidden or an ad starts → pause menu |
-| `openPauseMenu()` | pause this scene and launch core's pause menu (Resume / Quit / mute) |
+| `openPauseMenu()` | pause this scene, launch core's pause menu (Resume / Quit / mute) and bring it to the top of the draw order |
 | `goTo(key, data?)` | fade out, then `scene.start`; repeated calls during the fade are ignored |
 | `testState()` / `testActions()` | override to expose JSON state and named actions to `window.__OYUN__` |
 | `onPlatformPause(reason)` / `onPlatformResume(reason)` | override for custom lifecycle handling |
@@ -199,6 +200,11 @@ export class MyResult extends ResultShell {
   `menu`; test state `{ score, best, newBest }`.
 - `PauseScene` (key `pause`, registered by core) — Resume (ESC), Quit (→ `menu`), mute. It calls
   `platform.gameplayStop()` on open and `gameplayStart()` on resume. Test actions `resume`, `quit`.
+  Phaser draws scenes in scene-list order and `launch()` does not reorder, so core registers it
+  **after** your scenes and `openPauseMenu()` also calls `scene.bringToTop('pause')`: the menu is
+  drawn above an opaque game scene and above any scene you launched or moved to the top
+  yourself. Do not override `openPauseMenu()` to fix the order; if you override it for another
+  reason, call `super.openPauseMenu()`.
 
 ## Textures (code-drawn art)
 
@@ -380,7 +386,8 @@ export class UiDemo extends OyunScene {
     muteButton(this, L.right - 70, L.top + 70);
     const bar = progressBar(this, L.cx, L.top + 220, L.width - 80, 30);
     bar.setValue(0.5, true);
-    toast(this, this.t('core.newBest'));
+    toast(this, this.t('core.newBest')); // default: middle of the safe area
+    toast(this, this.t('core.newBest'), { position: 'top', duration: 2400 }); // or 'center' | 'bottom' | y
     play.setEnabled(true);
     void title;
   }
@@ -391,10 +398,56 @@ export class UiDemo extends OyunScene {
   Options: `width` (380), `height` (112), `variant`, `fontSize`, `sfx` (`null` = silent),
   `haptic`, `hotkey` (Phaser key name). `button.fire()` runs the same path as a tap — use it in
   `testActions()`.
+- `toast(scene, text, { duration?, color?, position? })`: one at a time per scene (a new one
+  replaces the old), depth 2000, fades in with a small rise. **Default position is the middle of
+  the safe area** (`'center'`), because every game puts its HUD in the top band and its controls
+  (sliders, drawers, button rows) in the bottom band. `position: 'top'` is the old slot (safe top
+  + 90, over a top HUD), `'bottom'` the same distance above the safe bottom, a number is a centre
+  y in logical px. Every position is clamped so the whole box stays inside the safe area
+  (`toastY()` in `pure` does the maths). The result shell's new-best toast sits over the card's
+  "Score" caption, below a title you put above the card.
 - Icons: `pause`, `play`, `sound-on`, `sound-off`, `home`, `replay`, `close`.
 - Theme colours: `DEFAULT_THEME` / `createGame({ theme })`; `cssColor(0xRRGGBB)` for text styles.
 - Text renders into a 720 px-wide canvas scaled to the screen, so it is slightly soft on 3×
   phones. Keep body text ≥ 34 px and titles ≥ 56 px.
+
+## Game time
+
+What `update(time, delta)`, `this.time` timers and `delta`-driven code receive per frame:
+
+| Where | Delta per frame |
+|---|---|
+| Real player (no `?test=1`, not automated) | Phaser 4.2.1 default, unchanged: clamped to 16.7 ms while the window is unfocused and for 120 frames after start, focus or tab-visible; any frame over 200 ms is replaced by an earlier delta; then averaged over the last 10 frames. On a 60 Hz focused window this is the real frame time. |
+| Automated (`navigator.webdriver`) or `?test=1` | The real frame time, capped at **`MAX_FRAME_MS` = 200 ms** (`realTimeDelta()`). Game time follows the wall clock as long as frames are ≤ 200 ms (≥ 5 fps); a longer frame advances the game by 200 ms only. `__OYUN__.state().meta.realTime` is `true`. |
+
+Tweens are not affected either way: Phaser's tween manager runs on `Date.now()` (with its own
+lag smoothing: a gap over 500 ms counts as 33 ms). Hit-stop still applies through
+`this.juice.scaledDelta(delta)`.
+
+So **one frame can hand a scene up to 200 ms**. A sim that must not tunnel or overshoot on a
+long frame steps in slices instead of clamping (clamping throws time away and slows the game
+under load):
+
+```ts
+import { splitStep } from '@oyun/core/pure';
+
+interface Sim {
+  t: number;
+  step(dt: number): boolean;
+}
+
+/** Call from update(): never more than 50 ms per sim step, never loses time. */
+export function advance(sim: Sim, deltaMs: number): boolean {
+  for (const dt of splitStep(deltaMs / 1000, 0.05)) if (sim.step(dt)) return true; // ended
+  return false;
+}
+```
+
+Why: Phaser's smoothing assumes a focused 60 Hz window. Headless Chromium is never focused and
+on a loaded machine renders at ~12 fps, so every 80 ms frame counted as 16.7 ms and game time
+ran at about a fifth of real time (a 3.5-minute round took ~6 minutes; a slowed reveal looked
+like a hang). The template's smoke spec checks the round clock against the wall clock
+(`clockRate()`).
 
 ## Strings (i18n)
 
@@ -470,7 +523,12 @@ __OYUN__.state()               { ready, scene, scenes, meta, data }
                                  data   = top scene's testState()
 __OYUN__.act(name, payload?)   runs the top-most scene's action `name`; throws on unknown names
 __OYUN__.actions()             available action names
+__OYUN__.pixel(x, y)           Promise<{ r, g, b, a }>: colour the renderer drew at logical (x, y)
+                                 on the next frame. Proves something is VISIBLE (e.g. the pause
+                                 menu over an opaque game scene), which state() cannot.
 ```
+
+`meta` also has `realTime` (see [Game time](#game-time)).
 
 Contract for game builders:
 
@@ -488,7 +546,11 @@ Contract for game builders:
 E2E helpers (`@oyun/core/e2e`): `openGame(page, { seed, lang })`, `state(page)`,
 `act(page, name, payload)`, `waitForScene(page, key)`, `setHidden(page, bool)` (real
 `visibilitychange`), `shot(page, gameDir, name)` → `tests/artifacts/<name>.png`,
-`collectErrors(page)`, `smokeConfig({ orientation, gameDir })`.
+`collectErrors(page)`, `smokeConfig({ orientation, gameDir })`, `pixel(page, x, y)` +
+`colorNear(rgba, 0xRRGGBB, tolerance = 6)`, `clockRate(page, key, ms = 3000)` (game seconds of
+the `data[key]` timer per wall second, frames counted at most 200 ms; `rate` ≈ 1 when game
+time follows real time). The template smoke spec asserts both: the pause card pixel is the
+theme's `surface` colour, and the round clock runs at 0.85–1.15× real time.
 
 ## Rules for game builders
 
@@ -539,6 +601,9 @@ the budget needs a recorded reason.
 | Newer-version saves become read-only | Never overwrite progress from a newer build after a downgrade. |
 | Web rewarded ads resolve `'granted'`, interstitials `'unavailable'` | Reward flows are playable and testable without a provider; no fake interstitial delay. |
 | Test mode forces the web platform | Smoke tests are deterministic and never hit an SDK. |
+| PauseScene registered last + `bringToTop` on open | Phaser draws in scene-list order and `launch()` does not reorder; registered before the game's scenes, the menu was drawn under any opaque game scene while its invisible buttons still took input (seen in two games). Registering last covers the common case; `bringToTop` covers scenes a game launches or reorders itself. |
+| Toasts default to the middle of the safe area; `position` option | At the top they covered every game's HUD (clock and danger pips, title bar and resource readouts, a result title) exactly when it mattered; the bottom band holds sliders, drawers and button rows. The middle is the one band every layout keeps for content, and a toast is short. `'top'` stays available. |
+| Game time follows the wall clock under automation / `?test=1` (`realTimeDelta`, cap 200 ms); real players keep Phaser's smoothing | Phaser clamps frames to 16.7 ms when the window is unfocused, which headless always is: on a loaded machine timers ran 3–5× slow and playtests/smoke tests measured the wrong game. 200 ms is Phaser's own per-frame ceiling (`fps.min` 5), so no scene sees a bigger step than before; real players' feel is unchanged. |
 | Pause menu on tab hide waits for the player | Returning to a running game is unfair; the round clock stops (Phaser also sleeps its loop while hidden). |
 | Buttons fire on release; gameplay taps on press | Release lets players cancel menu taps; press keeps gameplay responsive. |
 | Mulberry32 RNG with `fork(label)` | Tiny, fast, good enough for games; forks keep streams independent. |

@@ -76,7 +76,9 @@ export abstract class ResultScene extends OyunScene {
         scoreText.setText(String(r.score));
         this.juice.pop(scoreText, 1.3);
         if (r.newBest) {
-          toast(this, this.t('core.newBest'), { color: th.colors.accent });
+          // Over the card's "Score" caption: keeps the score, best line and buttons readable and
+          // stays clear of a title a game puts above the card.
+          toast(this, this.t('core.newBest'), { color: th.colors.accent, position: at.y - 190 });
           this.juice.burst(at.x, at.y - 60, { count: 24, color: th.colors.primary, texture: 'oyun-star', distance: 260 });
         }
       },

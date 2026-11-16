@@ -174,7 +174,7 @@ describe('combo and luck', () => {
 
 describe('glint', () => {
   it('appears 20-40 s apart for 3 s, and tapping it rolls once at 10x luck', () => {
-    const sim = new DigSim(9);
+    const sim = new DigSim(9, saveWith((s) => (s.stats.taps = 1))); // not a brand-new dig
     expect(sim.glint).toBeNull();
     expect(sim.tapGlint()).toBeNull();
     let t = 0;
@@ -190,7 +190,7 @@ describe('glint', () => {
     const find = sim.tapGlint();
     expect(find).not.toBeNull();
     expect(find!.source).toBe('glint');
-    expect(find!.luck).toBeCloseTo(sim.luck * GLINT.luck, 9);
+    expect(find!.luck).toBeCloseTo(sim.luck * 10, 9); // combo unchanged since spawn: 10x the tap luck
     expect(sim.glint).toBeNull();
   });
 

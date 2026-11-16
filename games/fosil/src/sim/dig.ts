@@ -28,6 +28,8 @@ export interface GlintState {
   y: number;
   /** Seconds left. */
   life: number;
+  /** Luck of the glint roll, fixed when it appears (before the layer cap). Shown on its label. */
+  luck: number;
 }
 
 /** Everything that persists. Plain JSON. */
@@ -58,7 +60,9 @@ export interface DigSave {
   /** Layer indices whose set bonus has been granted. */
   sets: number[];
   stats: { taps: number; rolls: number; bestOdds: number; bestId: string; playSeconds: number };
-  lastFind: { id: string; grade: number } | null;
+  /** One-time tips already shown. */
+  tips: string[];
+  lastFind: { id: string; grade: number; luck: number; source: FindSource } | null;
   /** Wall-clock ms of the last save (written by the scene, read for the offline haul). */
   lastSeen: number;
 }
@@ -81,6 +85,7 @@ export function defaultSave(): DigSave {
     rng: 0,
     sets: [],
     stats: { taps: 0, rolls: 0, bestOdds: 0, bestId: '', playSeconds: 0 },
+    tips: [],
     lastFind: null,
     lastSeen: 0,
   };
@@ -102,6 +107,8 @@ export interface Find {
   setCompleted: number | null;
   /** Layer this find unlocked (dig power crossed its threshold), or null. */
   unlocked: number | null;
+  /** Dig power added by this find (including any fusion it triggered). */
+  powerGain: number;
 }
 
 export interface TapResult {
@@ -127,6 +134,10 @@ export interface OfflineHaul {
   fusions: number;
   best: Fossil | null;
   unlocked: number | null;
+  /** Luck every offline roll used (no combo, no rewarded boost). */
+  luck: number;
+  /** Finds at 1 in 1,000 or rarer, to be revealed properly when the player is back. */
+  notable: Find[];
 }
 
 export interface CollectResult {
@@ -158,7 +169,7 @@ export function sanitizeSave(raw: Partial<DigSave> | undefined): DigSave {
   d.idle = num(raw.idle);
   d.glintIn = typeof raw.glintIn === 'number' && Number.isFinite(raw.glintIn) ? raw.glintIn : -1;
   const g = raw.glint;
-  d.glint = g && typeof g === 'object' && Number.isFinite(g.x) && Number.isFinite(g.y) && num(g.life) > 0 ? { x: g.x, y: g.y, life: num(g.life) } : null;
+  d.glint = g && typeof g === 'object' && Number.isFinite(g.x) && Number.isFinite(g.y) && num(g.life) > 0 ? { x: g.x, y: g.y, life: num(g.life), luck: Math.max(1, num(g.luck, 1)) } : null;
   d.boost = num(raw.boost);
   d.assistantAcc = Math.min(1, num(raw.assistantAcc));
   d.rng = typeof raw.rng === 'number' && Number.isInteger(raw.rng) ? raw.rng >>> 0 : 0;
@@ -172,8 +183,13 @@ export function sanitizeSave(raw: Partial<DigSave> | undefined): DigSave {
     bestId: typeof s?.bestId === 'string' && FOSSIL_BY_ID.has(s.bestId) ? s.bestId : '',
     playSeconds: num(s?.playSeconds),
   };
+  d.tips = Array.isArray(raw.tips) ? raw.tips.filter((t): t is string => typeof t === 'string') : [];
   const lf = raw.lastFind;
-  d.lastFind = lf && FOSSIL_BY_ID.has(lf.id) ? { id: lf.id, grade: int(lf.grade, 0, GRADE_COUNT - 1) } : null;
+  const sources: readonly FindSource[] = ['tap', 'assistant', 'glint', 'offline'];
+  d.lastFind =
+    lf && FOSSIL_BY_ID.has(lf.id)
+      ? { id: lf.id, grade: int(lf.grade, 0, GRADE_COUNT - 1), luck: Math.max(1, num(lf.luck, 1)), source: sources.includes(lf.source) ? lf.source : 'tap' }
+      : null;
   d.lastSeen = num(raw.lastSeen);
   return d;
 }
@@ -187,7 +203,8 @@ export class DigSim {
     this.s = sanitizeSave(save);
     this.rng = createRng(seed);
     if (this.s.rng !== 0) this.rng.setState(this.s.rng);
-    if (this.s.glintIn < 0 && !this.s.glint) this.s.glintIn = this.nextGlintGap();
+    // A brand-new dig shows its first glint early so players meet it; later ones come every 20-40 s.
+    if (this.s.glintIn < 0 && !this.s.glint) this.s.glintIn = this.s.stats.rolls === 0 && this.s.stats.taps === 0 ? GLINT.first : this.nextGlintGap();
     this.checkUnlocks();
   }
 
@@ -211,7 +228,7 @@ export class DigSim {
   get boostSeconds(): number {
     return this.s.boost;
   }
-  get lastFind(): Readonly<{ id: string; grade: number }> | null {
+  get lastFind(): Readonly<{ id: string; grade: number; luck: number; source: FindSource }> | null {
     return this.s.lastFind;
   }
   get stats(): Readonly<DigSave['stats']> {
@@ -288,21 +305,35 @@ export class DigSim {
 
   /** Luck before combo: upgrade × set bonuses × rewarded boost. */
   get baseLuck(): number {
-    return UPGRADES.luck.effect(this.s.levels.luck) * this.bonus('luck') * (this.s.boost > 0 ? LUCK_BOOST.mult : 1);
+    return this.luckNoBoost * (this.s.boost > 0 ? LUCK_BOOST.mult : 1);
+  }
+
+  private get luckNoBoost(): number {
+    return UPGRADES.luck.effect(this.s.levels.luck) * this.bonus('luck');
   }
 
   get comboMult(): number {
     return 1 + (COMBO.maxMult - 1) * this.s.combo;
   }
 
-  /** Luck of the next tap roll (base × combo), capped for the current layer. */
+  /** Luck your next tap rolls at (base × combo, layer-capped). This is the HUD luck chip. */
   get luck(): number {
     return effectiveLuck(this.s.layer, this.baseLuck * this.comboMult);
   }
 
-  /** Luck a glint roll would get right now. */
+  /** Luck the assistant's digs roll at: base luck, no combo (it does not tap in rhythm). */
+  get assistantLuck(): number {
+    return effectiveLuck(this.s.layer, this.baseLuck);
+  }
+
+  /** Luck of rolls made while the app is closed: no combo and no rewarded boost. */
+  get offlineLuck(): number {
+    return effectiveLuck(this.s.layer, this.luckNoBoost);
+  }
+
+  /** Luck of the glint showing now (fixed at spawn), or what a glint would get right now. */
   get glintLuck(): number {
-    return effectiveLuck(this.s.layer, this.baseLuck * this.comboMult * GLINT.luck);
+    return effectiveLuck(this.s.layer, this.s.glint ? this.s.glint.luck : this.baseLuck * this.comboMult * GLINT.luck);
   }
 
   get assistantRate(): number {
@@ -355,17 +386,20 @@ export class DigSim {
   /** A tap on the dig site. */
   tap(): TapResult {
     this.s.stats.taps += 1;
+    // Roll with the luck that was on screen, then let this tap raise the combo.
+    const r = this.hit('tap', this.baseLuck * this.comboMult);
     this.s.combo = Math.min(1, this.s.combo + COMBO.perTap);
     this.s.idle = 0;
-    return this.hit('tap', this.baseLuck * this.comboMult);
+    return r;
   }
 
   /** A tap on the glint: one extra roll at 10x luck. Null when no glint is showing. */
   tapGlint(): Find | null {
-    if (!this.s.glint) return null;
+    const g = this.s.glint;
+    if (!g) return null;
     this.s.glint = null;
     this.s.glintIn = this.nextGlintGap();
-    return this.roll('glint', this.baseLuck * this.comboMult * GLINT.luck);
+    return this.roll('glint', g.luck);
   }
 
   /** Advance time: combo drain, glint timer, boost timer, assistant digging. */
@@ -391,7 +425,7 @@ export class DigSim {
     } else {
       this.s.glintIn -= dt;
       if (this.s.glintIn <= 0) {
-        this.s.glint = { x: this.rng.range(0.15, 0.85), y: this.rng.range(0.15, 0.85), life: GLINT.life };
+        this.s.glint = { x: this.rng.range(0.15, 0.85), y: this.rng.range(0.15, 0.85), life: GLINT.life, luck: this.baseLuck * this.comboMult * GLINT.luck };
         out.glintAppeared = true;
       }
     }
@@ -435,14 +469,15 @@ export class DigSim {
    * luck (no combo), current layer. Applied immediately so closing the popup loses nothing.
    */
   claimOffline(elapsedSeconds: number): OfflineHaul {
-    const haul: OfflineHaul = { seconds: 0, hits: 0, blocks: 0, dust: 0, found: {}, newSpecies: [], fusions: 0, best: null, unlocked: null };
-    this.pendingOfflineDust = 0;
+    const haul: OfflineHaul = { seconds: 0, hits: 0, blocks: 0, dust: 0, found: {}, newSpecies: [], fusions: 0, best: null, unlocked: null, luck: this.offlineLuck, notable: [] };
+    // The rewarded boost is a wall-clock 60 s: time away uses it up, and offline rolls never get it.
+    if (elapsedSeconds > 0) this.s.boost = Math.max(0, this.s.boost - elapsedSeconds);
     const rate = this.assistantRate;
     if (!(elapsedSeconds > 0) || rate <= 0) return haul;
     haul.seconds = Math.min(elapsedSeconds, this.offlineCap);
     haul.hits = Math.floor(haul.seconds * rate * OFFLINE.efficiency);
     for (let i = 0; i < haul.hits; i++) {
-      const r = this.hit('offline', this.baseLuck);
+      const r = this.hit('offline', this.luckNoBoost);
       const f = r.find;
       if (!f) continue;
       haul.blocks += 1;
@@ -450,12 +485,19 @@ export class DigSim {
       haul.fusions += f.fusions;
       haul.found[f.fossil.id] = (haul.found[f.fossil.id] ?? 0) + 1;
       if (f.isNew) haul.newSpecies.push(f.fossil.id);
+      if (f.fossil.odds >= 1000) haul.notable.push(f);
       if (!haul.best || f.fossil.odds > haul.best.odds) haul.best = f.fossil;
       if (f.unlocked !== null) haul.unlocked = f.unlocked;
     }
-    this.pendingOfflineDust = haul.dust;
+    // Hauls not yet shown add up; the rewarded double covers everything the popup shows.
+    this.pendingOfflineDust += haul.dust;
     this.saveRng();
     return haul;
+  }
+
+  /** The offline popup closed without the rewarded double: the offer is gone. */
+  clearOfflineBonus(): void {
+    this.pendingOfflineDust = 0;
   }
 
   /** Rewarded ad on the offline popup: the haul's dust once more. Only once per haul. */
@@ -464,6 +506,17 @@ export class DigSim {
     this.s.dust += this.pendingOfflineDust;
     this.pendingOfflineDust = 0;
     return true;
+  }
+
+  /** Mark a one-time tip as shown. True the first time only. */
+  markTip(id: string): boolean {
+    if (this.s.tips.includes(id)) return false;
+    this.s.tips.push(id);
+    return true;
+  }
+
+  tipSeen(id: string): boolean {
+    return this.s.tips.includes(id);
   }
 
   /** Add one plain copy and fuse automatically on the third. */
@@ -523,15 +576,16 @@ export class DigSim {
       this.s.dust += dust;
     }
     this.s.stats.rolls += 1;
+    const powerBefore = this.digPower;
     const c = this.collect(fossil.id);
     if (fossil.odds > this.s.stats.bestOdds) {
       this.s.stats.bestOdds = fossil.odds;
       this.s.stats.bestId = fossil.id;
     }
-    this.s.lastFind = { id: fossil.id, grade: c.grade };
+    this.s.lastFind = { id: fossil.id, grade: c.grade, luck: applied, source };
     const unlocked = this.checkUnlocks();
     this.saveRng();
-    return { fossil, grade: c.grade, fusions: c.fusions, isNew: c.isNew, source, luck: applied, dust, setCompleted: c.setCompleted, unlocked };
+    return { fossil, grade: c.grade, fusions: c.fusions, isNew: c.isNew, source, luck: applied, dust, setCompleted: c.setCompleted, unlocked, powerGain: this.digPower - powerBefore };
   }
 
   /** Unlock every layer whose threshold dig power has reached. Returns the deepest newly unlocked. */

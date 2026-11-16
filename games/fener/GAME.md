@@ -137,6 +137,15 @@ Intruders fade with the night (opacity 0.95 on night 1 → 0.6 on night 7).
 (`game.loop.rawDelta`), at most 250 ms per frame, frozen by hit-stop and while the
 second-wind ad is showing. (Before the fix a 100 ms per-frame clamp made the clock run slow on
 any device under 10 fps: 0.435× wall time measured in this container, i.e. a ~8 min night.)
+Measured after the fix, no fast-forward, in this container under load average 10–19 on 4
+cores at 5–8 fps: a full night (00:00 → 06:00, 210 s of shift) took 229 s of wall time; a 20 s
+sample ran at 0.97× wall time. On a device rendering at 4 fps or more a night is 210 s ≈ 3.5 min.
+
+**Tests:** 59 unit tests in 7 files; 4 Playwright smoke tests (win night 1 via the test hook with
+pause / tab-hide; lose by doing nothing + daily start; a full night 1 with real touch taps incl.
+briefing dismiss and the grace-tap rule; a full night 5 with real touch taps that taps an
+intruder). Under heavy machine load the real-tap tests poll for each state change (20 s) instead
+of fixed sleeps.
 
 ### Tuning (chosen)
 

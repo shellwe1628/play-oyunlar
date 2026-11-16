@@ -19,7 +19,7 @@ export const RULES = {
   /** Ink per blank cell. */
   blankCost: 1,
   /** Ink per enemy cell = enemyBaseCost + densityCost × defender density (reserve ÷ area). */
-  enemyBaseCost: 0.8,
+  enemyBaseCost: 1.6,
   densityCost: 1.3,
   /** Defender loses defenderLoss × its density for every cell it loses. */
   defenderLoss: 1,

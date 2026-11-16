@@ -14,6 +14,8 @@ export interface BotMemory {
   readonly rng: Rng;
   lastDecision: number;
   lastRetaliation: number;
+  /** Cells lost already answered (difficulty 1). */
+  lostSeen: number;
 }
 
 /** Ticks between decisions per difficulty 0..3 (10 ticks = 1 s). */
@@ -26,7 +28,7 @@ export const BOT_COMMIT = [1.2, 0.95, 1, 1.1] as const;
  */
 export const BOT_PATIENCE = [0.5, 0.8, 1, 1] as const;
 /** A neighbour holding at least this share (per difficulty) is a leader to be checked. */
-export const LEADER_SHARE = [1, 0.42, 0.3, 0.22] as const;
+export const LEADER_SHARE = [1, 1, 0.3, 0.22] as const;
 /** A wave against a colony must be worth at least this many cells. */
 const MIN_CELLS = 6;
 
@@ -95,6 +97,31 @@ export function botDecide(sim: MatchSim, id: number, personality: Personality, d
     if (t && x >= 0.6 && worth(t, 55)) go(t, 55);
   };
   const cheap = (t: Target | undefined): boolean => !!t && sim.captureCost(id, t.cells[0]!) <= 1.9;
+
+  // Difficulty 0 is a passive rival for first sheets: it only ever inks blank paper.
+  if (d === 0) {
+    if (blank) grab(blank, 30, 0.45);
+    return;
+  }
+  // Difficulty 1 is defensive: blank paper, and a small hit back at whoever just hit it; it never
+  // starts a fight.
+  if (d === 1) {
+    // Proportionate: send about twice the cells it just lost, never a share of a big reserve.
+    const lost = sim.stats[id]!.lost - mem.lostSeen;
+    const hitBy = enemies.find((t) => t.owner === me.lastAttackedBy);
+    if (hitBy && lost > 0 && sim.tickCount - me.lastAttackedTick < 40 && sim.tickCount - mem.lastRetaliation >= 60) {
+      const ink = 2 * lost * sim.captureCost(id, hitBy.cells[0]!);
+      const pct = Math.round((100 * ink) / Math.max(1, me.reserve));
+      if (pct >= 10 && pct <= 100 && sim.attack(id, mem.rng.pick(hitBy.cells), pct).ok) {
+        mem.lastRetaliation = sim.tickCount;
+        mem.lostSeen = sim.stats[id]!.lost;
+        return;
+      }
+    }
+    if (sim.tickCount - me.lastAttackedTick >= 40) mem.lostSeen = sim.stats[id]!.lost;
+    if (blank) grab(blank, 30, 0.45);
+    return;
+  }
 
   switch (personality) {
     case 'turtle': {

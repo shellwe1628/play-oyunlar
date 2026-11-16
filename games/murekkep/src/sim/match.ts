@@ -6,7 +6,7 @@
 import { createRng, type Rng } from '@oyun/core/pure';
 import { botDecide, type BotMemory } from './bots';
 import { landDistance, neighbours4, type GameMap } from './mapgen';
-import { naivePolicy } from './policy';
+import { impatientPolicy, patientPolicy } from './policy';
 import { RULES, clampCommit, growthPerTick, inkCap } from './rules';
 
 export type Personality = 'turtle' | 'rusher' | 'opportunist';
@@ -65,6 +65,13 @@ export type MatchEvent =
 
 export type Phase = 'playing' | 'won' | 'lost' | 'ended';
 
+/** Why the match ended: someone reached the win share, was last standing, the time stop, or the
+ * player was washed out. */
+export type EndReason = 'share' | 'last' | 'time' | 'eliminated';
+
+/** Built-in player policies (tests, `auto-play`). */
+export type PlayerPolicy = 'patient' | 'impatient';
+
 export type AttackResult =
   | { ok: true; wave: number; ink: number }
   | { ok: false; reason: 'ended' | 'dead' | 'gap' | 'own' | 'not-touching' | 'no-ink' | 'busy' };
@@ -76,6 +83,8 @@ export interface MatchOptions {
   blot?: boolean;
   /** Shuffle which colony gets which start (default true; exact-maths tests turn it off). */
   shuffleStarts?: boolean;
+  /** Give the player the start with the most room (early campaign sheets). */
+  fairStart?: boolean;
 }
 
 const MAX_WAVES = 8;
@@ -98,6 +107,9 @@ export class MatchSim {
   tickCount = 0;
   phase: Phase = 'playing';
   winner: number | null = null;
+  endReason: EndReason | null = null;
+  /** Policy `autoPlayTicks` plays with. */
+  autoPolicy: PlayerPolicy = 'patient';
   readonly playerId: number | null;
   /** Start cell per colony this match. */
   readonly startCells: number[];
@@ -136,11 +148,22 @@ export class MatchSim {
     }));
     this.stats = specs.map(() => ({ inkSpent: 0, captured: 0, lost: 0, peakArea: 0, droppedBelowHalfPeak: false }));
     const botRng = this.rng.fork('bots');
-    this.bots = specs.map((s, id) => (s.kind === 'bot' ? { rng: botRng.fork(`bot-${id}`), lastDecision: -1000, lastRetaliation: -1000 } : null));
+    this.bots = specs.map((s, id) => (s.kind === 'bot' ? { rng: botRng.fork(`bot-${id}`), lastDecision: -1000, lastRetaliation: -1000, lostSeen: 0 } : null));
     // Which colony gets which start is shuffled per match seed: farthest-point sampling puts the
     // first start in an extreme corner, and colony 0 (the player) must not always get it.
     const startRng = this.rng.fork('starts');
-    this.startCells = (opts.shuffleStarts ?? true ? startRng.shuffle(map.starts) : map.starts.slice()).slice(0, specs.length);
+    let starts = (opts.shuffleStarts ?? true ? startRng.shuffle(map.starts) : map.starts.slice()).slice(0, specs.length);
+    if (opts.fairStart && this.playerId !== null) {
+      // The player takes the start with the most room (largest area closer to it than to any other).
+      const room = startRooms(map, starts);
+      let best = 0;
+      for (let i = 1; i < starts.length; i++) if (room[i]! > room[best]!) best = i;
+      const swap = starts[best]!;
+      starts = starts.slice();
+      starts[best] = starts[this.playerId]!;
+      starts[this.playerId] = swap;
+    }
+    this.startCells = starts;
     // Start blots: land within startRadius (BFS) of each start; nearest start wins ties.
     specs.forEach((_, id) => {
       const dist = landDistance(map.land, map.width, map.height, [this.startCells[id]!]);
@@ -152,6 +175,11 @@ export class MatchSim {
   }
 
   // ---------------------------------------------------------------- queries
+
+  /** Room per colony's start: land cells strictly closer to it than to any other start. */
+  startRoom(): number[] {
+    return startRooms(this.map, this.startCells);
+  }
 
   cap(id: number): number {
     return inkCap(this.colonies[id]!.area);
@@ -233,7 +261,8 @@ export class MatchSim {
     if (!this.touches(id, cell)) return { ok: false, reason: 'not-touching' };
     if (this.activeWaves(id) >= MAX_WAVES) return { ok: false, reason: 'busy' };
     const ink = (c.reserve * clampCommit(percent)) / 100;
-    if (ink < Math.min(RULES.blankCost, 0.5)) return { ok: false, reason: 'no-ink' };
+    // A wave that cannot pay for its first cell is refused (nothing is spent).
+    if (ink < this.captureCost(id, cell)) return { ok: false, reason: 'no-ink' };
     c.reserve -= ink;
     const wave: Wave = {
       id: this.nextWaveId++,
@@ -328,7 +357,7 @@ export class MatchSim {
     }
     if (this.playerId !== null && this.autoPlayTicks > 0) {
       this.autoPlayTicks--;
-      if (this.tickCount % 8 === 0) naivePolicy(this, this.playerId);
+      if (this.tickCount % 8 === 0) (this.autoPolicy === 'patient' ? patientPolicy : impatientPolicy)(this, this.playerId);
     }
     if (this.tickCount >= RULES.maxTicks) this.finishByTime();
   }
@@ -413,34 +442,62 @@ export class MatchSim {
         this.events.push({ type: 'eliminated', colony: c.id, by: c.lastAttackedBy, cell });
       }
     }
+    // Rule: a reserve never exceeds the cap; ink above it (refunds, absorption, a shrinking
+    // territory) spills and is lost. The HUD can therefore always show "n / cap" honestly.
+    for (const c of this.colonies) if (c.alive) c.reserve = Math.min(c.reserve, inkCap(c.area));
     const alive = this.colonies.filter((c) => c.alive);
     if (this.playerId !== null && !this.colonies[this.playerId]!.alive) {
-      this.end(alive.length === 1 ? alive[0]!.id : null);
+      this.end(alive.length === 1 ? alive[0]!.id : null, 'eliminated');
       return;
     }
     if (alive.length <= 1) {
-      this.end(alive[0]?.id ?? null);
+      this.end(alive[0]?.id ?? null, 'last');
       return;
     }
     for (const c of alive) {
       if (this.share(c.id) >= RULES.winShare) {
-        this.end(c.id);
+        this.end(c.id, 'share');
         return;
       }
     }
   }
 
+  /** Time stop: most land wins; a tie goes to the larger reserve; an exact tie is never the player's. */
   private finishByTime(): void {
-    let best = -1;
-    for (const c of this.colonies) if (c.alive && (best < 0 || c.area > this.colonies[best]!.area)) best = c.id;
-    this.end(best >= 0 ? best : null);
+    const alive = this.colonies.filter((c) => c.alive);
+    alive.sort((a, b) => b.area - a.area || b.reserve - a.reserve || (a.id === this.playerId ? 1 : 0) - (b.id === this.playerId ? 1 : 0));
+    this.end(alive[0]?.id ?? null, 'time');
   }
 
-  private end(winner: number | null): void {
+  private end(winner: number | null, reason: EndReason): void {
     if (this.phase !== 'playing') return;
     this.winner = winner;
+    this.endReason = reason;
     if (this.playerId === null) this.phase = 'ended';
     else this.phase = winner === this.playerId ? 'won' : 'lost';
     this.events.push({ type: 'end', winner });
   }
+}
+
+/** Land cells strictly closer (BFS) to each start than to any other start. */
+export function startRooms(map: GameMap, starts: readonly number[]): number[] {
+  const dists = starts.map((s) => landDistance(map.land, map.width, map.height, [s]));
+  const room = starts.map(() => 0);
+  for (let i = 0; i < map.land.length; i++) {
+    if (!map.land[i]) continue;
+    let best = -1;
+    let bestD = Infinity;
+    let tie = false;
+    dists.forEach((d, k) => {
+      const v = d[i]!;
+      if (v < 0) return;
+      if (v < bestD) {
+        bestD = v;
+        best = k;
+        tie = false;
+      } else if (v === bestD) tie = true;
+    });
+    if (best >= 0 && !tie) room[best]!++;
+  }
+  return room;
 }

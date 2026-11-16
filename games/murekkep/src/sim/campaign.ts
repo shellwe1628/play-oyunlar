@@ -21,6 +21,8 @@ export interface LevelDef {
   bots: BotDef[];
   /** Par time for the second star, game seconds. */
   parSeconds: number;
+  /** The player gets the start with the most room (early sheets: no worst-corner starts). */
+  fairStart?: boolean;
 }
 
 const T = (difficulty: number): BotDef => ({ personality: 'turtle', difficulty });
@@ -31,14 +33,14 @@ const O = (difficulty: number): BotDef => ({ personality: 'opportunist', difficu
 export const FULL_SIZE: MapSize = { width: 48, height: 66 };
 
 export const CAMPAIGN: readonly LevelDef[] = [
-  { id: 'c1', index: 0, seed: 1101, size: { width: 32, height: 44 }, bots: [T(0), O(0)], parSeconds: 120 },
-  { id: 'c2', index: 1, seed: 2203, size: { width: 34, height: 46 }, bots: [O(0), R(0), T(0)], parSeconds: 140 },
-  { id: 'c3', index: 2, seed: 3301, size: { width: 36, height: 50 }, bots: [T(1), R(0), O(1)], parSeconds: 150 },
-  { id: 'c4', index: 3, seed: 4409, size: { width: 38, height: 52 }, bots: [R(1), O(1), T(1)], parSeconds: 160 },
-  { id: 'c5', index: 4, seed: 5501, size: { width: 40, height: 55 }, bots: [T(2), R(1), O(1), R(1)], parSeconds: 180 },
-  { id: 'c6', index: 5, seed: 6607, size: { width: 44, height: 60 }, bots: [O(2), T(2), R(2), O(2)], parSeconds: 190 },
-  { id: 'c7', index: 6, seed: 7703, size: { width: 46, height: 63 }, bots: [O(3), T(2), R(2), T(3), O(2)], parSeconds: 210 },
-  { id: 'c8', index: 7, seed: 8807, size: FULL_SIZE, bots: [T(3), O(3), R(3), T(3), O(3)], parSeconds: 220 },
+  { id: 'c1', index: 0, seed: 1101, size: { width: 30, height: 41 }, bots: [T(0)], parSeconds: 150, fairStart: true },
+  { id: 'c2', index: 1, seed: 2203, size: { width: 32, height: 44 }, bots: [T(0), O(0)], parSeconds: 150, fairStart: true },
+  { id: 'c3', index: 2, seed: 3301, size: { width: 36, height: 50 }, bots: [T(0), O(0), T(1)], parSeconds: 170, fairStart: true },
+  { id: 'c4', index: 3, seed: 4409, size: { width: 38, height: 52 }, bots: [R(1), O(0), T(1)], parSeconds: 180 },
+  { id: 'c5', index: 4, seed: 5501, size: { width: 40, height: 55 }, bots: [T(1), R(1), O(0), R(0)], parSeconds: 190 },
+  { id: 'c6', index: 5, seed: 6607, size: { width: 44, height: 60 }, bots: [O(1), T(1), R(1), O(2)], parSeconds: 200 },
+  { id: 'c7', index: 6, seed: 7703, size: { width: 46, height: 63 }, bots: [O(2), T(2), R(2), T(1), O(1)], parSeconds: 210 },
+  { id: 'c8', index: 7, seed: 8807, size: FULL_SIZE, bots: [T(3), O(3), R(2), T(3), O(2)], parSeconds: 220 },
 ];
 
 /** Campaign map index from which the Blot power is available (unlocked by winning map 3). */
@@ -71,6 +73,11 @@ export function levelMap(def: LevelDef): GameMap {
     maps.set(def.id, m);
   }
   return m;
+}
+
+/** Match options for a sheet (Blot is decided by the scene from the save). */
+export function levelOptions(def: LevelDef, blot = false): { fairStart: boolean; blot: boolean } {
+  return { fairStart: def.fairStart ?? false, blot };
 }
 
 /** Colony specs: the player is colony 0, bots follow. */

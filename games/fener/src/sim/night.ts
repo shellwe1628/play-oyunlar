@@ -47,6 +47,8 @@ export interface NightParams {
   audioCue: boolean;
   /** Intruders allowed. */
   intruders: boolean;
+  /** Opacity of intruder drawings: they fade into the room on later nights. */
+  intruderAlpha: number;
 }
 
 const lerp = (a: number, b: number, t: number): number => a + (b - a) * t;
@@ -63,5 +65,6 @@ export function nightParams(night: number): NightParams {
     scaleMin: lerp(0.45, 0.22, t),
     audioCue: n === 1,
     intruders: n >= 3,
+    intruderAlpha: lerp(0.95, 0.6, t),
   };
 }

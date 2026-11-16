@@ -166,7 +166,8 @@ describe('reporting', () => {
     expect(r.kind).toBe('correct');
     if (r.kind !== 'correct') return;
     expect(r.typeCorrect).toBe(true);
-    expect(r.points).toBeGreaterThanOrEqual(SHIFT.points.object + SHIFT.points.type);
+    // reported on the tick it appeared: full speed bonus
+    expect(r.points).toBe(SHIFT.points.object + SHIFT.points.type + SHIFT.points.speed);
     expect(sim.active).toEqual([]);
     expect(sim.score).toBe(r.points);
     expect(anomalyMagnitude(sim, a)).toBe(0);
@@ -181,8 +182,10 @@ describe('reporting', () => {
     expect(r.kind).toBe('correct');
     if (r.kind !== 'correct') return;
     expect(r.typeCorrect).toBe(false);
-    expect(r.points).toBeLessThanOrEqual(SHIFT.points.object + SHIFT.points.speed);
+    expect(r.points).toBe(SHIFT.points.object + SHIFT.points.speed);
     expect(sim.active).toEqual([]);
+    expect(sim.logged).toEqual([]);
+    expect(sim.stats).toMatchObject({ correct: 1, typed: 0 });
   });
 
   it('wrong object is a false report: 8 s of static, reports ignored while blind', () => {
@@ -213,6 +216,91 @@ describe('reporting', () => {
     sim.switchCamera(a.camera);
     sim.report(a.camera, a.objectId, a.type);
     expect(sim.logged).toEqual([`${STATION[a.camera]!.id}:${a.objectId}:${a.type}`]);
+  });
+});
+
+describe('scoring details', () => {
+  it('the speed bonus falls off linearly and is gone after the speed window', () => {
+    for (const wait of [5, 10, SHIFT.points.speedWindow + 1]) {
+      const sim = new ShiftSim(7, 1);
+      const a = firstSpawn(sim);
+      sim.switchCamera(a.camera);
+      for (let t = 0; t < wait - 1e-9; t += 0.1) sim.tick(0.1);
+      // nothing else may have spawned on this camera for a clean read
+      const r = sim.report(a.camera, a.objectId, a.type);
+      if (r.kind !== 'correct') throw new Error(r.kind);
+      const expected = SHIFT.points.object + SHIFT.points.type + Math.round(SHIFT.points.speed * Math.max(0, 1 - (sim.elapsed - a.at) / SHIFT.points.speedWindow));
+      expect(r.points).toBe(expected);
+      if (wait > SHIFT.points.speedWindow) expect(r.points).toBe(SHIFT.points.object + SHIFT.points.type);
+      else expect(r.points).toBeGreaterThan(SHIFT.points.object + SHIFT.points.type);
+    }
+  });
+
+  it('spawn gaps stay inside [spawnMin, spawnMax] and use the whole range', () => {
+    for (const night of [1, 7]) {
+      const p = nightParams(night);
+      const gaps: number[] = [];
+      for (let seed = 1; seed <= 40; seed++) {
+        const sim = new ShiftSim(seed, night);
+        let last = -1;
+        runUntil(sim, (ev) => {
+          for (const e of ev) {
+            if (e.kind !== 'spawn') continue;
+            if (last >= 0) gaps.push(e.anomaly.at - last);
+            last = e.anomaly.at;
+          }
+          for (const a of [...sim.active]) {
+            sim.switchCamera((a.camera + 1) % 4 === sim.camera ? a.camera : a.camera);
+            sim.report(a.camera, a.objectId, a.type);
+          }
+          return false;
+        });
+      }
+      expect(Math.min(...gaps)).toBeGreaterThanOrEqual(p.spawnMin - 0.11);
+      expect(Math.max(...gaps)).toBeLessThanOrEqual(p.spawnMax + 0.11);
+      expect(Math.max(...gaps)).toBeGreaterThan(p.spawnMin + 0.8 * (p.spawnMax - p.spawnMin));
+      const mean = gaps.reduce((a, b) => a + b, 0) / gaps.length;
+      expect(Math.abs(mean - (p.spawnMin + p.spawnMax) / 2)).toBeLessThan(1);
+    }
+  });
+
+  it('resizes both grow and shrink', () => {
+    let grow = 0;
+    let shrink = 0;
+    for (let seed = 1; seed <= 300 && !(grow && shrink); seed++) {
+      const sim = new ShiftSim(seed, 3);
+      runUntil(sim, (ev) => {
+        for (const e of ev) {
+          if (e.kind !== 'spawn' || e.anomaly.type !== 'resized') continue;
+          const o = sim.objects(e.anomaly.camera).find((s) => s.id === e.anomaly.objectId)!;
+          if (o.scale > 1) grow++;
+          else shrink++;
+        }
+        for (const a of [...sim.active]) {
+          sim.switchCamera(a.camera);
+          sim.report(a.camera, a.objectId, a.type);
+        }
+        return false;
+      });
+    }
+    expect(grow).toBeGreaterThan(0);
+    expect(shrink).toBeGreaterThan(0);
+  });
+
+  it('never more than one intruder visible per camera', () => {
+    for (let seed = 1; seed <= 60; seed++) {
+      const sim = new ShiftSim(seed, 7);
+      runUntil(sim, () => {
+        for (let c = 0; c < 4; c++) expect(sim.intruders(c).filter((g) => g.visible).length).toBeLessThanOrEqual(1);
+        if (sim.phase === 'brink') sim.useSecondWind();
+        return false;
+      });
+    }
+  });
+
+  it('intruders get fainter on later nights', () => {
+    expect(nightParams(3).intruderAlpha).toBeGreaterThan(nightParams(7).intruderAlpha);
+    expect(nightParams(7).intruderAlpha).toBeGreaterThanOrEqual(0.5);
   });
 });
 
@@ -268,14 +356,19 @@ describe('hit testing', () => {
 describe('win and lose', () => {
   it('wins at 06:00 when anomalies are kept down', () => {
     const sim = new ShiftSim(11, 1);
+    let reportPoints = 0;
     const ev = runUntil(sim, (e) => {
       for (const a of [...sim.active]) {
         sim.switchCamera(a.camera);
-        sim.report(a.camera, a.objectId, a.type);
+        const r = sim.report(a.camera, a.objectId, a.type);
+        if (r.kind === 'correct') reportPoints += r.points;
       }
       return e.some((x) => x.kind === 'won');
     });
     expect(sim.phase).toBe('won');
+    const won = ev.find((e) => e.kind === 'won');
+    expect(won).toEqual({ kind: 'won', bonus: SHIFT.points.dawn });
+    expect(sim.score).toBe(reportPoints + SHIFT.points.dawn);
     expect(sim.elapsed).toBeGreaterThanOrEqual(SHIFT.hours * SHIFT.hourSeconds);
     expect(sim.clock()).toEqual({ hour: 6, minute: 0 });
     expect(ev.filter((e) => e.kind === 'hour')).toHaveLength(6);

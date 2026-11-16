@@ -1,4 +1,4 @@
-import { button, cssColor, label, OyunScene, progressBar, type Button, type ProgressBar } from '@oyun/core';
+import { button, cssColor, label, OyunScene, panel, progressBar, type Button, type ProgressBar } from '@oyun/core';
 import Phaser from 'phaser';
 import { session } from '../session';
 import { SFX } from '../sfx';
@@ -181,9 +181,11 @@ export class MuseumScene extends OyunScene {
     const L = this.layout;
     const found = this.sim.discovered(f.id);
     const box = this.add.container(0, 0).setDepth(900);
-    const shade = this.add.rectangle(L.cx, L.height / 2, L.width + 40, L.height + 40, PALETTE.ink, 0.93).setInteractive();
-    shade.on(Phaser.Input.Events.GAMEOBJECT_POINTER_UP, () => this.closeDetail());
-    box.add(shade);
+    const shade = this.add.graphics();
+    shade.fillStyle(PALETTE.ink, 0.93).fillRect(-20, -20, L.width + 40, L.height + 40);
+    const closer = this.add.zone(L.cx, L.height / 2, L.width + 40, L.height + 40).setInteractive();
+    closer.on(Phaser.Input.Events.GAMEOBJECT_POINTER_UP, () => this.closeDetail());
+    box.add([shade, closer]);
     const card = rarityCard(this, f, 420, 560).setPosition(L.cx, L.cy - 120);
     if (!found) {
       const art = card.getData('art') as Phaser.GameObjects.Image;
@@ -199,11 +201,13 @@ export class MuseumScene extends OyunScene {
       this.t('museum.fuseRule'),
       this.t('dig.luckRule'),
     ].filter(Boolean);
-    let y = L.cy + 200;
+    const info = panel(this, L.cx, L.cy + 310, L.width - 60, 290, { color: PALETTE.dirtLight });
+    box.add(info);
+    let y = -122;
     for (const text of lines) {
-      const t = label(this, L.cx, y, text, { size: 30, color: 0xffffff, wrap: L.width - 100 });
-      box.add(t);
-      y += t.height + 16;
+      const t = label(this, 0, y, text, { size: 30, color: 0xffffff, wrap: L.width - 110 }).setOrigin(0.5, 0);
+      info.add(t);
+      y += t.height + 14;
     }
     this.juice.pop(card, 0.6, 260);
     this.oyun.audio.playPreset(SFX.flip);

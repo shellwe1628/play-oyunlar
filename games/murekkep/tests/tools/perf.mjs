@@ -17,6 +17,7 @@ await page.waitForFunction(() => window.__OYUN__.state().scene === 'maps');
 await act(level === 'daily' ? 'daily' : 'sheet', { index: Number(level.slice(1)) - 1 });
 await page.waitForFunction(() => window.__OYUN__.state().scene === 'game');
 await act('auto-play', { ticks: 99999 });
+if (process.argv[5]) { await act('fast-forward', Number(process.argv[5])); await page.waitForTimeout(500); }
 const gl = await page.evaluate(() => { const c = document.querySelector('canvas'); const g = c.getContext('webgl2') || c.getContext('webgl'); const d = g && g.getExtension('WEBGL_debug_renderer_info'); return d ? g.getParameter(d.UNMASKED_RENDERER_WEBGL) : 'unknown'; });
 const cdp = await page.context().newCDPSession(page);
 await cdp.send('Performance.enable');

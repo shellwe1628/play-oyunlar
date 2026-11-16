@@ -177,6 +177,10 @@ deeper 4 min after the next layer opens):
 - Museum card labels are 24–28 px (below core's 34 px guideline) to fit 12 cards per layer;
   the tap-for-detail view repeats everything at 30–56 px.
 
+**Unresolved**: in this headless renderer full-screen dimming overlays (e.g. alpha 0.93) come out
+visibly lighter than their alpha; text that must be read over an overlay therefore sits on an
+opaque panel. Not checked on a real device.
+
 **Candidates for core** (built locally): a checked `at(arr, i)` accessor for
 `noUncheckedIndexedAccess`; Turkish locative suffix + grouped/short number formatting
 (`src/sim/format.ts`); a session save cadence (throttle + flush on pagehide/pause); an invisible

@@ -106,11 +106,11 @@ export function botDecide(sim: MatchSim, id: number, personality: Personality, d
   // Difficulty 1 is defensive: blank paper, and a small hit back at whoever just hit it; it never
   // starts a fight.
   if (d === 1) {
-    // Proportionate: send about twice the cells it just lost, never a share of a big reserve.
+    // Proportionate: send back about the cells it just lost, never a share of a big reserve.
     const lost = sim.stats[id]!.lost - mem.lostSeen;
     const hitBy = enemies.find((t) => t.owner === me.lastAttackedBy);
     if (hitBy && lost > 0 && sim.tickCount - me.lastAttackedTick < 40 && sim.tickCount - mem.lastRetaliation >= 60) {
-      const ink = 2 * lost * sim.captureCost(id, hitBy.cells[0]!);
+      const ink = 1.2 * lost * sim.captureCost(id, hitBy.cells[0]!);
       const pct = Math.round((100 * ink) / Math.max(1, me.reserve));
       if (pct >= 10 && pct <= 100 && sim.attack(id, mem.rng.pick(hitBy.cells), pct).ok) {
         mem.lastRetaliation = sim.tickCount;

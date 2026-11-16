@@ -19,8 +19,7 @@ import {
   upgradeCost,
   type Fossil,
   type SetBonusKind,
-  type UpgradeId,
-} from './data';
+  type UpgradeId, at } from './data';
 import { effectiveLuck, layerFossils, rollFossil } from './loot';
 
 export interface GlintState {
@@ -240,12 +239,12 @@ export class DigSim {
   topGrade(id: string): number {
     const g = this.s.counts[id];
     if (!g) return -1;
-    for (let i = GRADE_COUNT - 1; i >= 0; i--) if (g[i] > 0) return i;
+    for (let i = GRADE_COUNT - 1; i >= 0; i--) if ((g[i] ?? 0) > 0) return i;
     return -1;
   }
 
   blocksBroken(layer: number): number {
-    return this.s.broken[layer];
+    return this.s.broken[layer] ?? 0;
   }
 
   setProgress(layer: number): { found: number; total: number } {
@@ -260,7 +259,7 @@ export class DigSim {
   private bonus(kind: SetBonusKind): number {
     let v = kind === 'offlineCap' ? 0 : 1;
     for (const l of this.s.sets) {
-      const b = LAYERS[l].setBonus;
+      const b = at(LAYERS, l).setBonus;
       if (b.kind !== kind) continue;
       v = kind === 'offlineCap' ? v + b.value : v * b.value;
     }
@@ -271,7 +270,9 @@ export class DigSim {
     let sum = 0;
     for (const [id, grades] of Object.entries(this.s.counts)) {
       const f = FOSSIL_BY_ID.get(id)!;
-      for (let g = 0; g < GRADE_COUNT; g++) if (grades[g]) sum += grades[g] * fossilPower(f, g);
+      grades.forEach((n, g) => {
+        if (n) sum += n * fossilPower(f, g);
+      });
     }
     return sum;
   }
@@ -305,16 +306,26 @@ export class DigSim {
   }
 
   get assistantRate(): number {
-    return UPGRADES.assistant.effect(this.s.levels.assistant) * this.bonus('assistant');
+    return UPGRADES.assistant.effect(this.s.levels.assistant) * this.assistantBonus;
   }
 
   get offlineCap(): number {
-    return Math.min(OFFLINE.maxCap, UPGRADES.offline.effect(this.s.levels.offline) + this.bonus('offlineCap'));
+    return this.offlineCapWith(UPGRADES.offline.effect(this.s.levels.offline));
+  }
+
+  /** Offline cap for a given upgrade base (seconds), with set bonuses and the 2 h hard cap. */
+  offlineCapWith(base: number): number {
+    return Math.min(OFFLINE.maxCap, base + this.bonus('offlineCap'));
+  }
+
+  /** Set-bonus multiplier on the assistant's speed. */
+  get assistantBonus(): number {
+    return this.bonus('assistant');
   }
 
   hpOf(layer: number): number {
-    const L = LAYERS[layer];
-    return Math.ceil(L.hp * L.hpGrowth ** this.s.broken[layer]);
+    const L = at(LAYERS, layer);
+    return Math.ceil(L.hp * (1 + L.hpRamp * this.blocksBroken(layer)) ** 2);
   }
 
   get blockHp(): number {
@@ -326,7 +337,7 @@ export class DigSim {
   }
 
   blockDust(layer: number): number {
-    const L = LAYERS[layer];
+    const L = at(LAYERS, layer);
     return Math.ceil(L.dust * (this.hpOf(layer) / L.hp) ** L.dustCurve);
   }
 
@@ -461,12 +472,13 @@ export class DigSim {
     if (!f) throw new Error(`unknown fossil ${id}`);
     const isNew = !this.discovered(id);
     const g = (this.s.counts[id] ??= [0, 0, 0, 0]);
-    g[0] += 1;
+    const get = (i: number): number => g[i] ?? 0;
+    g[0] = get(0) + 1;
     let grade = 0;
     let fusions = 0;
-    while (grade < GRADE_COUNT - 1 && g[grade] >= FUSE_AT) {
-      g[grade] -= FUSE_AT;
-      g[grade + 1] += 1;
+    while (grade < GRADE_COUNT - 1 && get(grade) >= FUSE_AT) {
+      g[grade] = get(grade) - FUSE_AT;
+      g[grade + 1] = get(grade + 1) + 1;
       grade += 1;
       fusions += 1;
     }
@@ -495,7 +507,7 @@ export class DigSim {
     // Break: at most one block per hit, overkill is discarded.
     const layer = this.s.layer;
     const dust = this.blockDust(layer);
-    this.s.broken[layer] += 1;
+    this.s.broken[layer] = this.blocksBroken(layer) + 1;
     this.s.damage = 0;
     this.s.dust += dust;
     const find = this.roll(source, luck, dust);
@@ -526,7 +538,7 @@ export class DigSim {
   private checkUnlocks(): number | null {
     let newly: number | null = null;
     const p = this.digPower;
-    while (this.s.unlocked < LAYERS.length - 1 && p >= LAYERS[this.s.unlocked + 1].unlockPower) {
+    while (this.s.unlocked < LAYERS.length - 1 && p >= at(LAYERS, this.s.unlocked + 1).unlockPower) {
       this.s.unlocked += 1;
       newly = this.s.unlocked;
     }

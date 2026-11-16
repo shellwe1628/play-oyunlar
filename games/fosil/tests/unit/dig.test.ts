@@ -7,8 +7,7 @@ import {
   LAYERS,
   OFFLINE,
   UPGRADES,
-  fossilPower,
-} from '../../src/sim/data';
+  fossilPower, at } from '../../src/sim/data';
 import { DigSim, defaultSave, type DigSave } from '../../src/sim/dig';
 import { layerFossils } from '../../src/sim/loot';
 
@@ -57,7 +56,7 @@ describe('a fresh dig', () => {
   });
 
   it('breaks at most one block per tap, whatever the overkill', () => {
-    const sim = new DigSim(1, saveWith((s) => (s.counts[L1[0].id] = [0, 0, 0, 500])));
+    const sim = new DigSim(1, saveWith((s) => (s.counts[at(L1, 0).id] = [0, 0, 0, 500])));
     expect(sim.digPower).toBeGreaterThan(sim.blockHp * 10);
     const before = sim.blocksBroken(0);
     sim.tap();
@@ -74,17 +73,17 @@ describe('a fresh dig', () => {
 describe('dig power is the sum of the collection', () => {
   it('equals (1 + sum of fossil power by grade) times the pick multiplier', () => {
     const save = saveWith((s) => {
-      s.counts[L1[0].id] = [2, 1, 0, 0];
-      s.counts[L1[11].id] = [1, 0, 0, 0];
-      s.counts[layerFossils(1)[3].id] = [0, 0, 1, 2];
+      s.counts[at(L1, 0).id] = [2, 1, 0, 0];
+      s.counts[at(L1, 11).id] = [1, 0, 0, 0];
+      s.counts[at(layerFossils(1), 3).id] = [0, 0, 1, 2];
       s.levels.pick = 3;
     });
     const sim = new DigSim(1, save);
-    const f2 = layerFossils(1)[3];
+    const f2 = at(layerFossils(1), 3);
     const sum =
-      2 * fossilPower(L1[0], 0) +
-      fossilPower(L1[0], 1) +
-      fossilPower(L1[11], 0) +
+      2 * fossilPower(at(L1, 0), 0) +
+      fossilPower(at(L1, 0), 1) +
+      fossilPower(at(L1, 11), 0) +
       fossilPower(f2, 2) +
       2 * fossilPower(f2, 3);
     expect(sim.collectionPower).toBeCloseTo(sum, 9);
@@ -105,7 +104,7 @@ describe('dig power is the sum of the collection', () => {
 describe('fusion', () => {
   it('three copies fuse into one of the next grade, cascading up to gold', () => {
     const sim = new DigSim(1);
-    const id = L1[0].id;
+    const id = at(L1, 0).id;
     expect(sim.collect(id).fusions).toBe(0);
     expect(sim.collect(id).fusions).toBe(0);
     const third = sim.collect(id);
@@ -126,14 +125,14 @@ describe('fusion', () => {
   });
 
   it('a fused grade is worth more than the copies that made it', () => {
-    for (let g = 0; g < 3; g++) expect(GRADE_MULT[g + 1]).toBeGreaterThan(3 * GRADE_MULT[g]);
+    for (let g = 0; g < 3; g++) expect(at(GRADE_MULT, g + 1)).toBeGreaterThan(3 * at(GRADE_MULT, g));
     const sim = new DigSim(1);
-    const id = L1[2].id;
+    const id = at(L1, 2).id;
     sim.collect(id);
     sim.collect(id);
     const before = sim.digPower;
     sim.collect(id);
-    expect(sim.digPower - before).toBeGreaterThan(fossilPower(L1[2], 0));
+    expect(sim.digPower - before).toBeGreaterThan(fossilPower(at(L1, 2), 0));
   });
 });
 
@@ -236,8 +235,8 @@ describe('layers', () => {
   it('unlocks the next layer when dig power reaches its threshold, and only then can you travel', () => {
     const sim = new DigSim(1);
     expect(sim.travel(1)).toBe(false);
-    const need = LAYERS[1].unlockPower;
-    const s = saveWith((d) => (d.counts[L1[0].id] = [0, 0, 0, Math.ceil(need / fossilPower(L1[0], 3))]));
+    const need = at(LAYERS, 1).unlockPower;
+    const s = saveWith((d) => (d.counts[at(L1, 0).id] = [0, 0, 0, Math.ceil(need / fossilPower(at(L1, 0), 3))]));
     const rich = new DigSim(1, s);
     expect(rich.digPower).toBeGreaterThanOrEqual(need);
     expect(rich.unlocked).toBeGreaterThanOrEqual(1); // a loaded save past the threshold is unlocked at once
@@ -259,11 +258,11 @@ describe('layers', () => {
     const sim = new DigSim(1, s);
     expect(sim.setComplete(0)).toBe(false);
     const luck = sim.baseLuck;
-    const r = sim.collect(L1[0].id);
+    const r = sim.collect(at(L1, 0).id);
     expect(r.setCompleted).toBe(0);
     expect(sim.setComplete(0)).toBe(true);
     expect(sim.baseLuck).toBeGreaterThan(luck);
-    expect(sim.collect(L1[0].id).setCompleted).toBeNull();
+    expect(sim.collect(at(L1, 0).id).setCompleted).toBeNull();
   });
 });
 
@@ -331,10 +330,10 @@ describe('save', () => {
   });
 
   it('repairs junk on load instead of crashing', () => {
-    const junk = { ...defaultSave(), dust: -5, counts: { nope: [1, 2, 3, 4], [FOSSILS[0].id]: [Number.NaN, 1, 0, 0] } } as unknown as DigSave;
+    const junk = { ...defaultSave(), dust: -5, counts: { nope: [1, 2, 3, 4], [at(FOSSILS, 0).id]: [Number.NaN, 1, 0, 0] } } as unknown as DigSave;
     const sim = new DigSim(1, junk);
     expect(sim.dust).toBe(0);
-    expect(sim.grades(FOSSILS[0].id)).toEqual([0, 1, 0, 0]);
+    expect(sim.grades(at(FOSSILS, 0).id)).toEqual([0, 1, 0, 0]);
     expect(sim.toSave().counts).not.toHaveProperty('nope');
   });
 });

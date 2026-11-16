@@ -136,7 +136,7 @@ export class MatchSim {
     }));
     this.stats = specs.map(() => ({ inkSpent: 0, captured: 0, lost: 0, peakArea: 0, droppedBelowHalfPeak: false }));
     const botRng = this.rng.fork('bots');
-    this.bots = specs.map((s, id) => (s.kind === 'bot' ? { rng: botRng.fork(`bot-${id}`), lastDecision: -1000 } : null));
+    this.bots = specs.map((s, id) => (s.kind === 'bot' ? { rng: botRng.fork(`bot-${id}`), lastDecision: -1000, lastRetaliation: -1000 } : null));
     // Which colony gets which start is shuffled per match seed: farthest-point sampling puts the
     // first start in an extreme corner, and colony 0 (the player) must not always get it.
     const startRng = this.rng.fork('starts');
@@ -339,7 +339,9 @@ export class MatchSim {
     if (prev >= 0) {
       const d = this.density(prev);
       const def = this.colonies[prev]!;
-      def.reserve = Math.max(0, def.reserve - d * RULES.defenderLoss);
+      const loss = Math.min(def.reserve, d * RULES.defenderLoss);
+      def.reserve -= loss;
+      this.colonies[by]!.reserve += loss * RULES.absorb;
       def.lastAttackedBy = by;
       def.lastAttackedTick = this.tickCount;
       this.stats[prev]!.lost++;

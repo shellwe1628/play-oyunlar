@@ -1,11 +1,11 @@
 import { createGame } from '@oyun/core';
 import meta from '../oyun.config.json';
-import { GameScene } from './scenes/GameScene';
+import { DigScene } from './scenes/DigScene';
 import { SCENES } from './scenes/keys';
 import { MenuScene } from './scenes/MenuScene';
-import { ResultScene } from './scenes/ResultScene';
+import { MuseumScene } from './scenes/MuseumScene';
 import { STRINGS } from './strings';
-import { TEXTURES } from './textures';
+import { PALETTE, TEXTURES } from './textures';
 
 void createGame({
   id: meta.id,
@@ -13,9 +13,23 @@ void createGame({
   orientation: meta.orientation === 'landscape' ? 'landscape' : 'portrait',
   strings: STRINGS,
   textures: TEXTURES,
-  scenes: [MenuScene, GameScene, ResultScene],
+  scenes: [MenuScene, DigScene, MuseumScene],
   start: SCENES.menu,
   menu: SCENES.menu,
+  theme: {
+    colors: {
+      background: PALETTE.dirtDark,
+      surface: PALETTE.dirtLight,
+      primary: PALETTE.ochre,
+      primaryText: PALETTE.ink,
+      secondary: 0x6d4a2e,
+      secondaryText: 0xffffff,
+      accent: PALETTE.ochreLight,
+      text: 0xffffff,
+      textDim: PALETTE.sand,
+      shadow: PALETTE.shadow,
+    },
+  },
 }).catch((error: unknown) => {
   console.error('[oyun] boot failed', error);
 });

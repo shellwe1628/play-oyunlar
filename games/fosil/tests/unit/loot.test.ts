@@ -1,6 +1,6 @@
 import { createRng } from '@oyun/core/pure';
 import { describe, expect, it } from 'vitest';
-import { FOSSILS, LAYERS, TIERS, TOTAL_WEIGHT, tierOf } from '../../src/sim/data';
+import { at, FOSSILS, LAYERS, TIERS, TOTAL_WEIGHT, tierOf } from '../../src/sim/data';
 import { effectiveLuck, layerFossils, LUCKY_TIER, rollFossil, rollProbabilities } from '../../src/sim/loot';
 
 describe('loot tables', () => {
@@ -28,7 +28,7 @@ describe('loot tables', () => {
     expect(Math.min(...odds)).toBe(2);
     expect(Math.max(...odds)).toBe(1_000_000);
     expect(new Set(FOSSILS.map((f) => f.tier)).size).toBe(7);
-    expect(Math.max(...layerFossils(0).map((f) => f.tier))).toBeLessThanOrEqual(2);
+    expect(Math.max(...layerFossils(0).map((f) => f.tier))).toBeLessThanOrEqual(3); // legendary+ never in Topsoil
     for (let l = 1; l < 4; l++) expect(Math.max(...layerFossils(l).map((f) => f.tier))).toBeGreaterThanOrEqual(4);
     expect(tierOf(2)).toBe(0);
     expect(tierOf(99)).toBe(1);
@@ -57,7 +57,6 @@ describe('honesty: printed odds are the true base odds', () => {
         counts.set(f.id, (counts.get(f.id) ?? 0) + 1);
       }
       let chi2 = 0;
-      let dof = 0;
       for (const f of fs) {
         const p = 1 / f.odds;
         const exp = N * p;
@@ -66,7 +65,6 @@ describe('honesty: printed odds are the true base odds', () => {
           const sigma = Math.sqrt(N * p * (1 - p));
           expect(Math.abs(obs - exp), `${f.id} 1 in ${f.odds}: ${obs} vs ${exp}`).toBeLessThan(5 * sigma);
           chi2 += (obs - exp) ** 2 / exp;
-          dof += 1;
         } else {
           // Very rare: only check it is not wildly off (Poisson tail).
           expect(obs, f.id).toBeLessThanOrEqual(Math.max(8, exp * 6));
@@ -85,9 +83,9 @@ describe('luck', () => {
       const lucky = rollProbabilities(l, 3);
       expect(lucky.reduce((a, b) => a + b, 0)).toBeCloseTo(1, 12);
       layerFossils(l).forEach((f, i) => {
-        if (f.tier >= LUCKY_TIER) expect(lucky[i]).toBeCloseTo(base[i] * 3, 12);
+        if (f.tier >= LUCKY_TIER) expect(lucky[i]).toBeCloseTo(at(base, i) * 3, 12);
         else {
-          expect(lucky[i]).toBeLessThan(base[i]);
+          expect(lucky[i]).toBeLessThan(at(base, i));
           expect(lucky[i]).toBeGreaterThan(0);
         }
       });
@@ -109,7 +107,7 @@ describe('luck', () => {
     for (let l = 0; l < 4; l++) {
       const p = rollProbabilities(l, 1e9);
       for (const x of p) expect(x).toBeGreaterThan(0);
-      const commonShare = layerFossils(l).reduce((s, f, i) => s + (f.tier < LUCKY_TIER ? p[i] : 0), 0);
+      const commonShare = layerFossils(l).reduce((s, f, i) => s + (f.tier < LUCKY_TIER ? at(p, i) : 0), 0);
       expect(commonShare).toBeGreaterThanOrEqual(0.1 - 1e-12);
       expect(effectiveLuck(l, 1e9)).toBeLessThan(1e9);
       expect(effectiveLuck(l, 2)).toBe(2);

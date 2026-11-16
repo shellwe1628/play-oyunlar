@@ -1,32 +1,55 @@
-import { MenuScene as MenuShell } from '@oyun/core';
+import { button, MenuScene as MenuShell, type Button } from '@oyun/core';
 import { gameSave } from '../save';
+import { dailyStreak, logbookProgress } from '../sim/progress';
 import { drawBackdrop } from './Background';
-import { SCENES } from './keys';
+import { SCENES, today } from './keys';
 
-/** Core menu shell + this game's backdrop, tagline and best score. Test action: play. */
+/** Core menu shell: Start shift → night select; plus Daily shift and Logbook. Test actions: play, daily, logbook. */
 export class MenuScene extends MenuShell {
-  protected readonly playScene = SCENES.game;
+  protected readonly playScene = SCENES.nights;
+  private dailyButton!: Button;
+  private logButton!: Button;
 
   constructor() {
     super(SCENES.menu);
   }
 
+  protected override title(): string {
+    return this.t('menu.title');
+  }
+
   protected override drawBackground(): void {
-    drawBackdrop(this, this.oyun.theme.colors.background);
+    drawBackdrop(this, this.layout.height * 0.5);
   }
 
   protected override subtitle(): string {
-    const best = gameSave(this.oyun).data.best;
-    return best > 0 ? this.t('core.best', { n: best }) : this.t('menu.tagline');
+    const streak = dailyStreak(gameSave(this.oyun).data, today());
+    return streak > 0 ? this.t('menu.streak', { n: streak }) : this.t('menu.tagline');
   }
 
   protected override decorate(): void {
     const { cx, height } = this.layout;
-    const target = this.add.image(cx, height * 0.47, 'target').setScale(0.9);
-    this.tweens.add({ targets: target, angle: 360, duration: 8000, repeat: -1 });
+    const y = height * 0.62;
+    this.dailyButton = button(this, cx, y + 160, this.t('menu.daily'), () => this.openDaily(), { variant: 'secondary', width: 420 });
+    const pct = logbookProgress(gameSave(this.oyun).data).percent;
+    this.logButton = button(this, cx, y + 300, `${this.t('menu.logbook')} · ${pct}%`, () => this.goTo(SCENES.logbook), {
+      variant: 'secondary',
+      width: 420,
+    });
+    this.playButton.setDepth(2);
+  }
+
+  private openDaily(): void {
+    this.oyun.audio.unlock();
+    this.goTo(SCENES.game, { mode: 'daily', night: 0, day: today() });
   }
 
   protected override testState() {
-    return { best: gameSave(this.oyun).data.best };
+    const d = gameSave(this.oyun).data;
+    return { unlocked: d.unlocked, nightBest: d.nightBest, log: d.log.length, daily: { ...d.daily } };
+  }
+
+  protected override testActions() {
+    return { ...super.testActions(), daily: () => this.dailyButton.fire(), logbook: () => this.logButton.fire() };
   }
 }

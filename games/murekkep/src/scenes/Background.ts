@@ -1,15 +1,14 @@
 import type Phaser from 'phaser';
+import { PALETTE } from '../textures';
 
-/** Shared backdrop: theme colour plus a slow drifting dot grid (code-drawn, no assets). */
-export function drawBackdrop(scene: Phaser.Scene, color: number): void {
-  scene.cameras.main.setBackgroundColor(color);
+/** The desk under the sheet: dark warm colour, soft vignette, a few faint old ink rings. */
+export function drawDesk(scene: Phaser.Scene): void {
+  scene.cameras.main.setBackgroundColor(PALETTE.desk);
   const { width, height } = scene.scale.gameSize;
-  const step = 80;
-  const dots = scene.add.container(0, 0).setDepth(-10);
-  for (let y = -step; y < height + step; y += step) {
-    for (let x = (y / step) % 2 === 0 ? 0 : step / 2; x < width + step; x += step) {
-      dots.add(scene.add.image(x, y, 'bg-dot').setAlpha(0.8));
-    }
-  }
-  scene.tweens.add({ targets: dots, y: step, duration: 6000, repeat: -1, ease: 'Linear' });
+  const g = scene.add.graphics().setDepth(-10);
+  g.fillStyle(PALETTE.deskLight, 0.35).fillEllipse(width / 2, height * 0.45, width * 1.3, height * 0.9);
+  g.fillStyle(PALETTE.deskLight, 0.3).fillEllipse(width / 2, height * 0.45, width * 0.9, height * 0.6);
+  // Old coffee/ink rings, fixed positions (decoration only).
+  g.lineStyle(6, 0x1a1512, 0.35).strokeCircle(width * 0.12, height * 0.9, 70);
+  g.lineStyle(3, 0x1a1512, 0.25).strokeCircle(width * 0.9, height * 0.08, 52);
 }

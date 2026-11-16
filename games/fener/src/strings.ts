@@ -7,6 +7,7 @@ import { defineStrings } from '@oyun/core/pure';
 export const STRINGS = defineStrings({
   en: {
     'core.play': 'Start shift',
+    'menu.title': 'Lantern Shift',
     'menu.tagline': 'Keep watch until dawn.',
     'menu.daily': 'Daily shift',
     'menu.logbook': 'Logbook',
@@ -17,7 +18,6 @@ export const STRINGS = defineStrings({
     'nights.best': 'Best {n}',
     'nights.new': 'Not played yet',
     'nights.locked': 'Locked',
-    'nights.back': 'Back',
     'nights.hint': 'Survive a night to unlock the next.',
 
     'daily.title': 'Daily shift',
@@ -63,7 +63,7 @@ export const STRINGS = defineStrings({
     'result.stats': 'Reports {ok} · Exact {typed} · False {bad}',
     'result.next': 'Next night',
     'result.unlocked': 'Night {n} unlocked',
-    'result.newLogs': '+{n} logbook entries',
+    'result.newLogs': 'New logbook entries: {n}',
     'result.streak': 'Daily streak {n}',
     'result.daily': 'Daily best {n}',
 
@@ -124,6 +124,7 @@ export const STRINGS = defineStrings({
   },
   tr: {
     'core.play': 'Nöbete başla',
+    'menu.title': 'Fener Nöbeti',
     'menu.tagline': 'Şafağa kadar nöbet tut.',
     'menu.daily': 'Günün nöbeti',
     'menu.logbook': 'Seyir defteri',
@@ -134,7 +135,6 @@ export const STRINGS = defineStrings({
     'nights.best': 'En iyi {n}',
     'nights.new': 'Henüz oynanmadı',
     'nights.locked': 'Kilitli',
-    'nights.back': 'Geri',
     'nights.hint': 'Sonrakini açmak için bir geceyi atlat.',
 
     'daily.title': 'Günün nöbeti',
@@ -180,7 +180,7 @@ export const STRINGS = defineStrings({
     'result.stats': 'Rapor {ok} · Tam {typed} · Yanlış {bad}',
     'result.next': 'Sonraki gece',
     'result.unlocked': '{n}. gece açıldı',
-    'result.newLogs': '+{n} defter kaydı',
+    'result.newLogs': 'Yeni defter kaydı: {n}',
     'result.streak': 'Günlük seri {n}',
     'result.daily': 'Günün en iyisi {n}',
 

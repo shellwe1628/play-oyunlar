@@ -13,16 +13,18 @@ export const RULES = {
   capPerCell: 2.4,
   /** Growth per tick at the sweet spot = growthBase + growthPerCell × area. */
   growthBase: 0.12,
-  growthPerCell: 0.008,
+  growthPerCell: 0.011,
   /** Growth factor when the reserve is empty (fraction of peak). */
   growthAtEmpty: 0.3,
   /** Ink per blank cell. */
   blankCost: 1,
   /** Ink per enemy cell = enemyBaseCost + densityCost × defender density (reserve ÷ area). */
-  enemyBaseCost: 1.1,
-  densityCost: 1,
+  enemyBaseCost: 0.8,
+  densityCost: 1.3,
   /** Defender loses defenderLoss × its density for every cell it loses. */
   defenderLoss: 1,
+  /** Share of the defender's lost ink that soaks into the attacker's reserve. */
+  absorb: 0.5,
   /** Cells a wave can take per tick: waveSpeedBase + ink / waveSpeedInk, capped. */
   waveSpeedBase: 2,
   waveSpeedInk: 40,

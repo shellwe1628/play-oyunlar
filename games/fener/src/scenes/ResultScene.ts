@@ -1,86 +1,63 @@
-import { button, ResultScene as ResultShell, toast, type Button, type ResultData } from '@oyun/core';
-import { gameSave } from '../save';
-import { applyRoundResult } from '../sim/progress';
+import { button, ResultScene as ResultShell, type Button, type ResultData } from '@oyun/core';
+import { SHIFT } from '../sim/night';
 import { drawBackdrop } from './Background';
-import { SCENES } from './keys';
+import { SCENES, today, type ShiftData } from './keys';
 
-/** Show an interstitial before every Nth replay (natural break; never mid-round). */
-const INTERSTITIAL_EVERY = 3;
-let replays = 0;
+type ShiftResult = Partial<ResultData> & { shift?: ShiftData; unlocked?: boolean };
 
 /**
- * Core result shell + a rewarded "double score" button and interstitial pacing.
- * Test actions: replay, menu, double.
+ * Core result shell + "Next night" after a won campaign night. Interstitials only here,
+ * between nights — never during a shift. Test actions: replay, menu, next.
  */
 export class ResultScene extends ResultShell {
   protected readonly gameScene = SCENES.game;
-  private doubled = false;
-  private doubleButton: Button | null = null;
+  private shift: ShiftData = { mode: 'campaign', night: 1 };
+  private nextButton: Button | null = null;
 
   constructor() {
     super(SCENES.result);
   }
 
-  override init(data: Partial<ResultData> & { doubled?: boolean }): void {
+  override init(data: ShiftResult): void {
     super.init(data);
-    this.doubled = data.doubled ?? false;
+    this.shift = data.shift ?? { mode: 'campaign', night: 1 };
   }
 
   protected override drawBackground(): void {
-    drawBackdrop(this, this.oyun.theme.colors.background);
+    drawBackdrop(this);
   }
 
   override create(): void {
     super.create();
-    this.doubleButton = null;
-    if (this.doubled) toast(this, this.t('result.doubled'));
-    if (this.result.score > 0 && !this.doubled) {
+    this.nextButton = null;
+    const s = this.shift;
+    if (this.result.won && s.mode === 'campaign' && s.night < SHIFT.nights) {
       const at = this.buttonPosition(2);
-      this.doubleButton = button(this, at.x, at.y, this.t('result.double'), () => void this.double(), {
-        variant: 'secondary',
-        width: 440,
-        height: 96,
-        fontSize: 38,
-      });
+      this.nextButton = button(this, at.x, at.y, this.t('result.next'), () => this.onNext(), { width: 440 });
+      // "Next" is the natural forward action after a win: it takes Replay's place and style,
+      // Replay moves below as a secondary button (same handler, so the 'replay' action still works).
+      const b0 = this.buttonPosition(0);
+      this.nextButton.setPosition(b0.x, b0.y);
+      this.replayButton.destroy();
+      this.replayButton = button(this, at.x, at.y, this.t('core.replay'), () => this.onReplay(), { variant: 'secondary', width: 440 });
     }
-  }
-
-  private async double(): Promise<void> {
-    this.doubleButton?.setEnabled(false);
-    const outcome = await this.oyun.platform.showRewarded('double_score');
-    if (outcome !== 'granted') {
-      this.doubleButton?.setEnabled(true);
-      return;
-    }
-    const score = this.result.score * 2;
-    const save = gameSave(this.oyun);
-    let best = save.data.best;
-    let newBest = false;
-    save.update((d) => {
-      d.rounds -= 1; // the round was already counted; only the score changes
-      ({ best, newBest } = applyRoundResult(d, score));
-    });
-    this.oyun.platform.track('reward_claimed', { placement: 'double_score' });
-    this.scene.restart({ ...this.result, score, best, newBest: newBest || this.result.newBest, doubled: true });
   }
 
   protected override onReplay(): void {
-    replays += 1;
-    if (replays % INTERSTITIAL_EVERY !== 0) {
-      this.goTo(this.gameScene);
-      return;
-    }
-    void this.oyun.platform.showInterstitial('between_rounds').then(() => this.goTo(this.gameScene));
+    const s = this.shift.mode === 'daily' ? { ...this.shift, day: today() } : this.shift;
+    this.goTo(this.gameScene, s);
+  }
+
+  private onNext(): void {
+    const next: ShiftData = { mode: 'campaign', night: this.shift.night + 1 };
+    void this.oyun.platform.showInterstitial('between_nights').then(() => this.goTo(this.gameScene, next));
   }
 
   protected override testState() {
-    return { ...super.testState(), doubled: this.doubled, canDouble: this.doubleButton !== null };
+    return { ...super.testState(), won: this.result.won ?? false, canNext: this.nextButton !== null, lines: this.result.lines ?? [] };
   }
 
   protected override testActions() {
-    return {
-      ...super.testActions(),
-      double: () => this.doubleButton?.fire(),
-    };
+    return { ...super.testActions(), next: () => this.nextButton?.fire() };
   }
 }

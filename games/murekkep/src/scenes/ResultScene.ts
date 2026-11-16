@@ -1,86 +1,110 @@
-import { button, ResultScene as ResultShell, toast, type Button, type ResultData } from '@oyun/core';
-import { gameSave } from '../save';
-import { applyRoundResult } from '../sim/progress';
-import { drawBackdrop } from './Background';
+import { button, label, ResultScene as ResultShell, type Button } from '@oyun/core';
+import { CAMPAIGN } from '../sim/campaign';
+import { PALETTE } from '../textures';
+import { drawDesk } from './Background';
+import { formatTime, type ResultPayload } from './GameScene';
 import { SCENES } from './keys';
 
-/** Show an interstitial before every Nth replay (natural break; never mid-round). */
+/** Interstitial before every Nth replay/next (natural break between matches only). */
 const INTERSTITIAL_EVERY = 3;
-let replays = 0;
+let between = 0;
 
 /**
- * Core result shell + a rewarded "double score" button and interstitial pacing.
- * Test actions: replay, menu, double.
+ * Core result shell + win/lose title, three stars with their reasons, and Next sheet.
+ * Test actions: replay, menu, next. Test state adds won, stars, level.
  */
 export class ResultScene extends ResultShell {
   protected readonly gameScene = SCENES.game;
-  private doubled = false;
-  private doubleButton: Button | null = null;
+  private payload: ResultPayload | null = null;
+  private nextButton: Button | null = null;
 
   constructor() {
     super(SCENES.result);
   }
 
-  override init(data: Partial<ResultData> & { doubled?: boolean }): void {
+  override init(data: Partial<ResultPayload>): void {
     super.init(data);
-    this.doubled = data.doubled ?? false;
+    this.payload = data.level ? (data as ResultPayload) : null;
   }
 
   protected override drawBackground(): void {
-    drawBackdrop(this, this.oyun.theme.colors.background);
+    drawDesk(this);
+  }
+
+  protected override cardPosition(): { x: number; y: number } {
+    return { x: this.layout.cx, y: this.layout.cy - 70 };
+  }
+
+  protected override buttonPosition(index: number): { x: number; y: number } {
+    const { cx, cy } = this.layout;
+    return { x: cx, y: cy + 290 + index * 124 };
   }
 
   override create(): void {
     super.create();
-    this.doubleButton = null;
-    if (this.doubled) toast(this, this.t('result.doubled'));
-    if (this.result.score > 0 && !this.doubled) {
+    const p = this.payload;
+    this.nextButton = null;
+    if (!p) return;
+    const L = this.layout;
+    const cardTop = this.cardPosition().y - 280;
+    const title = label(this, L.cx, Math.max(L.top + 70, cardTop - 170), this.t(p.won ? 'result.won' : 'result.lost'), {
+      size: 60,
+      color: p.won ? PALETTE.sweet : PALETTE.text,
+      wrap: L.width - 80,
+    });
+    this.juice.pop(title, 1.2, 380);
+    const def = CAMPAIGN.find((c) => c.id === p.level);
+    p.flags.forEach((on, i) => {
+      const star = this.add.image(L.cx + (i - 1) * 200, cardTop - 70, 'star').setTint(on ? PALETTE.starOn : PALETTE.starOff);
+      if (on) {
+        star.setScale(0);
+        this.tweens.add({ targets: star, scale: 1.25, delay: 350 + i * 220, duration: 260, ease: 'Back.easeOut' });
+        this.time.delayedCall(350 + i * 220, () => this.oyun.audio.play('coin', { pitch: i * 3 }));
+      } else star.setScale(1.05);
+    });
+    // Short reason under each star, so the stars teach the goals.
+    const reasons = [this.t('result.starWin'), this.t('result.par', { t: formatTime(def?.parSeconds ?? 200) }), this.t('result.starSteady')];
+    reasons.forEach((r, i) => {
+      label(this, L.cx + (i - 1) * 200, cardTop - 18, r, { size: 24, color: p.flags[i] ? PALETTE.text : PALETTE.textDim });
+    });
+    if (p.next) {
       const at = this.buttonPosition(2);
-      this.doubleButton = button(this, at.x, at.y, this.t('result.double'), () => void this.double(), {
-        variant: 'secondary',
+      this.nextButton = button(this, at.x, at.y, this.t('result.next'), () => this.go({ level: p.next! }), {
         width: 440,
-        height: 96,
-        fontSize: 38,
+        height: 104,
+        fontSize: 42,
       });
     }
   }
 
-  private async double(): Promise<void> {
-    this.doubleButton?.setEnabled(false);
-    const outcome = await this.oyun.platform.showRewarded('double_score');
-    if (outcome !== 'granted') {
-      this.doubleButton?.setEnabled(true);
+  private go(data: { level: string }): void {
+    between += 1;
+    if (between % INTERSTITIAL_EVERY !== 0) {
+      this.goTo(this.gameScene, data);
       return;
     }
-    const score = this.result.score * 2;
-    const save = gameSave(this.oyun);
-    let best = save.data.best;
-    let newBest = false;
-    save.update((d) => {
-      d.rounds -= 1; // the round was already counted; only the score changes
-      ({ best, newBest } = applyRoundResult(d, score));
-    });
-    this.oyun.platform.track('reward_claimed', { placement: 'double_score' });
-    this.scene.restart({ ...this.result, score, best, newBest: newBest || this.result.newBest, doubled: true });
+    void this.oyun.platform.showInterstitial('between_matches').then(() => this.goTo(this.gameScene, data));
   }
 
   protected override onReplay(): void {
-    replays += 1;
-    if (replays % INTERSTITIAL_EVERY !== 0) {
-      this.goTo(this.gameScene);
-      return;
-    }
-    void this.oyun.platform.showInterstitial('between_rounds').then(() => this.goTo(this.gameScene));
+    this.go({ level: this.payload?.level ?? 'c1' });
+  }
+
+  protected override onMenu(): void {
+    this.goTo(SCENES.maps);
   }
 
   protected override testState() {
-    return { ...super.testState(), doubled: this.doubled, canDouble: this.doubleButton !== null };
+    return {
+      ...super.testState(),
+      won: this.payload?.won ?? false,
+      stars: this.payload?.stars ?? 0,
+      level: this.payload?.level ?? '',
+      canNext: this.nextButton !== null,
+    };
   }
 
   protected override testActions() {
-    return {
-      ...super.testActions(),
-      double: () => this.doubleButton?.fire(),
-    };
+    return { ...super.testActions(), next: () => this.nextButton?.fire() };
   }
 }

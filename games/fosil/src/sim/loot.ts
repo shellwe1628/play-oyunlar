@@ -6,7 +6,7 @@
  * uncommons always keep at least 10 % between them, so no printed fossil ever becomes impossible.
  */
 import type { Rng } from '@oyun/core/pure';
-import { FOSSILS, TOTAL_WEIGHT, type Fossil } from './data';
+import { FOSSILS, TOTAL_WEIGHT, type Fossil, at } from './data';
 
 /** Tiers at or above this index are boosted by luck ("1 in 100 or rarer"). */
 export const LUCKY_TIER = 2;
@@ -17,12 +17,12 @@ const BY_LAYER: readonly (readonly Fossil[])[] = [0, 1, 2, 3].map((l) => FOSSILS
 const RARE_MASS: readonly number[] = BY_LAYER.map((fs) => fs.reduce((s, f) => s + (f.tier >= LUCKY_TIER ? f.weight : 0), 0) / TOTAL_WEIGHT);
 
 export function layerFossils(layer: number): readonly Fossil[] {
-  return BY_LAYER[layer];
+  return at(BY_LAYER, layer);
 }
 
 /** Highest luck that still leaves commons and uncommons MIN_COMMON_SHARE of the table. */
 export function luckCap(layer: number): number {
-  return (1 - MIN_COMMON_SHARE) / RARE_MASS[layer];
+  return (1 - MIN_COMMON_SHARE) / at(RARE_MASS, layer);
 }
 
 /** The luck multiplier that actually applies in this layer (requested luck, capped, never below 1). */
@@ -34,14 +34,14 @@ export function effectiveLuck(layer: number, luck: number): number {
 /** Probability of each fossil of the layer (layer order) at the given luck. Sums to 1. */
 export function rollProbabilities(layer: number, luck: number): number[] {
   const m = effectiveLuck(layer, luck);
-  const rare = RARE_MASS[layer];
+  const rare = at(RARE_MASS, layer);
   const commonScale = (1 - m * rare) / (1 - rare);
-  return BY_LAYER[layer].map((f) => (f.weight / TOTAL_WEIGHT) * (f.tier >= LUCKY_TIER ? m : commonScale));
+  return at(BY_LAYER, layer).map((f) => (f.weight / TOTAL_WEIGHT) * (f.tier >= LUCKY_TIER ? m : commonScale));
 }
 
 /** Roll one fossil. At luck 1 this walks the integer weights, so it is exactly the printed odds. */
 export function rollFossil(layer: number, luck: number, rng: Rng): Fossil {
-  const fs = BY_LAYER[layer];
+  const fs = at(BY_LAYER, layer);
   const u = rng.next();
   if (effectiveLuck(layer, luck) === 1) {
     let r = Math.floor(u * TOTAL_WEIGHT);
@@ -49,13 +49,13 @@ export function rollFossil(layer: number, luck: number, rng: Rng): Fossil {
       if (r < f.weight) return f;
       r -= f.weight;
     }
-    return fs[fs.length - 1];
+    return at(fs, fs.length - 1);
   }
   const p = rollProbabilities(layer, luck);
   let acc = 0;
   for (let i = 0; i < fs.length; i++) {
-    acc += p[i];
-    if (u < acc) return fs[i];
+    acc += at(p, i);
+    if (u < acc) return at(fs, i);
   }
-  return fs[0]; // float rounding at the very top: give the most common one
+  return at(fs, 0); // float rounding at the very top: give the most common one
 }

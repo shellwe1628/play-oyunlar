@@ -1,4 +1,5 @@
 /** Number formatting for display (pure). Never parse these strings back into numbers. */
+import { at } from './data';
 export type Lang = 'en' | 'tr';
 
 function group(n: number, lang: Lang): string {
@@ -16,8 +17,8 @@ const TENS_SFX = ['', 'da', 'de', 'da', 'ta', 'de', 'ta', 'te', 'de', 'da'];
 export function trLocative(n: number): string {
   const v = Math.round(Math.abs(n));
   if (v === 0) return 'da'; // sıfır
-  if (v % 10 !== 0) return UNITS_SFX[v % 10];
-  if (v % 100 !== 0) return TENS_SFX[Math.floor(v / 10) % 10];
+  if (v % 10 !== 0) return at(UNITS_SFX, v % 10);
+  if (v % 100 !== 0) return at(TENS_SFX, Math.floor(v / 10) % 10);
   if (v % 1000 !== 0) return 'de'; // yüz
   if (v % 1_000_000 !== 0) return 'de'; // bin
   if (v % 1_000_000_000 !== 0) return 'da'; // milyon

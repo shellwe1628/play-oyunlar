@@ -6,6 +6,13 @@
  * TOTAL_WEIGHT, so the printed "1 in {odds}" is the exact base probability (weight / total).
  */
 
+/** Checked index into a table: a bad index is a bug, so it throws instead of yielding undefined. */
+export function at<T>(arr: readonly T[], i: number): T {
+  const v = arr[i];
+  if (v === undefined) throw new RangeError(`index ${i} out of range (${arr.length})`);
+  return v;
+}
+
 /** Every layer's weights sum to this. 12,000,000 = 2^7·3·5^6, so 1 in 2…1,000,000 divide it. */
 export const TOTAL_WEIGHT = 12_000_000;
 
@@ -30,7 +37,7 @@ export const TIERS: readonly Tier[] = [
 ];
 
 export function tierOf(odds: number): number {
-  for (let t = TIERS.length - 1; t >= 0; t--) if (odds >= TIERS[t].minOdds) return t;
+  for (let t = TIERS.length - 1; t >= 0; t--) if (odds >= at(TIERS, t).minOdds) return t;
   return 0;
 }
 
@@ -44,9 +51,12 @@ export type SetBonusKind = 'luck' | 'assistant' | 'offlineCap' | 'power';
 
 export interface Layer {
   id: 'topsoil' | 'iceage' | 'cretaceous' | 'deepsea';
-  /** Block HP = hp × hpGrowth^(blocks already broken in this layer). The stratum gets denser. */
+  /**
+   * Block HP = hp × (1 + hpRamp × k)², k = blocks already broken in this layer: the stratum gets
+   * denser as you dig. Quadratic, so taps per block stay roughly level while power grows.
+   */
   hp: number;
-  hpGrowth: number;
+  hpRamp: number;
   /** Multiplier on the power of fossils found here. */
   powerScale: number;
   /** Dust per block = dust × (current hp / base hp)^dustCurve, rounded up. */
@@ -64,10 +74,10 @@ export const LAYERS: readonly Layer[] = [
   {
     id: 'topsoil',
     hp: 4,
-    hpGrowth: 1.022,
+    hpRamp: 0.25,
     powerScale: 1,
-    dust: 2,
-    dustCurve: 0.85,
+    dust: 1,
+    dustCurve: 0.5,
     unlockPower: 0,
     setBonus: { kind: 'luck', value: 1.25 },
     bands: [0x8a5a35, 0x7a4b2a, 0x9b6a3f, 0x6d4123, 0x84552f],
@@ -75,36 +85,36 @@ export const LAYERS: readonly Layer[] = [
   },
   {
     id: 'iceage',
-    hp: 120,
-    hpGrowth: 1.012,
-    powerScale: 12,
+    hp: 6000,
+    hpRamp: 0.009,
+    powerScale: 6,
     dust: 30,
-    dustCurve: 0.85,
-    unlockPower: 60,
+    dustCurve: 0.5,
+    unlockPower: 450,
     setBonus: { kind: 'assistant', value: 1.5 },
     bands: [0x9fb4bd, 0x7f97a3, 0xb7c6cc, 0x6e8591, 0x8ea4ae],
     sky: 0x22303a,
   },
   {
     id: 'cretaceous',
-    hp: 3_000,
-    hpGrowth: 1.009,
-    powerScale: 160,
-    dust: 600,
-    dustCurve: 0.85,
-    unlockPower: 2_500,
+    hp: 150000,
+    hpRamp: 0.004,
+    powerScale: 40,
+    dust: 1000,
+    dustCurve: 0.5,
+    unlockPower: 40000,
     setBonus: { kind: 'offlineCap', value: 30 * 60 },
     bands: [0xc0703a, 0xa85c2e, 0xd08a4f, 0x924d25, 0xb86a37],
     sky: 0x3b1f14,
   },
   {
     id: 'deepsea',
-    hp: 80_000,
-    hpGrowth: 1.007,
-    powerScale: 2_400,
-    dust: 12_000,
-    dustCurve: 0.85,
-    unlockPower: 60_000,
+    hp: 4500000,
+    hpRamp: 0.003,
+    powerScale: 250,
+    dust: 30000,
+    dustCurve: 0.5,
+    unlockPower: 1400000,
     setBonus: { kind: 'power', value: 2 },
     bands: [0x3b5f73, 0x2e4d61, 0x46708a, 0x253f52, 0x355a6e],
     sky: 0x0f1c26,
@@ -149,8 +159,8 @@ const TABLE: readonly (readonly Row[])[] = [
     [50, 'skull', 0xd9a066, 0x8c5a2b, 'rim', 0],
     [60, 'leaf', 0x5f8f4a, 0x2f5a2a, 'veins', 2],
     [100, 'shell', 0xe3a33c, 0xa8641c, 'glow', 2],
-    [300, 'footprint', 0x9b6b43, 0xe8c79a, 'dots', 2],
-    [600, 'skull', 0xf1ede4, 0x6b5d50, 'speckle', 2],
+    [250, 'footprint', 0x9b6b43, 0xe8c79a, 'dots', 2],
+    [1_000, 'skull', 0xf1ede4, 0x6b5d50, 'speckle', 2],
   ],
   // Ice Age: frost blues, ivory and bone
   [
@@ -201,7 +211,7 @@ const TABLE: readonly (readonly Row[])[] = [
 
 export const FOSSILS: readonly Fossil[] = TABLE.flatMap((rows, layer) =>
   rows.map(([odds, arch, body, accent, pattern, variant], index) => ({
-    id: `${LAYERS[layer].id}-${String(index + 1).padStart(2, '0')}`,
+    id: `${at(LAYERS, layer).id}-${String(index + 1).padStart(2, '0')}`,
     layer,
     index,
     odds,
@@ -215,7 +225,7 @@ export const FOSSIL_BY_ID: ReadonlyMap<string, Fossil> = new Map(FOSSILS.map((f)
 
 /** Power of one copy of `fossil` at `grade`. */
 export function fossilPower(fossil: Fossil, grade: number): number {
-  return TIERS[fossil.tier].power * LAYERS[fossil.layer].powerScale * GRADE_MULT[grade];
+  return at(TIERS, fossil.tier).power * at(LAYERS, fossil.layer).powerScale * at(GRADE_MULT, grade);
 }
 
 export type UpgradeId = 'pick' | 'luck' | 'assistant' | 'offline';
@@ -230,9 +240,9 @@ export interface Upgrade {
 }
 
 export const UPGRADES: Readonly<Record<UpgradeId, Upgrade>> = {
-  pick: { id: 'pick', baseCost: 8, costGrowth: 1.55, maxLevel: 60, effect: (l) => 1 + 0.5 * l },
-  luck: { id: 'luck', baseCost: 40, costGrowth: 2.1, maxLevel: 12, effect: (l) => 1 + 0.25 * l },
-  assistant: { id: 'assistant', baseCost: 25, costGrowth: 1.7, maxLevel: 40, effect: (l) => 0.4 * l },
+  pick: { id: 'pick', baseCost: 15, costGrowth: 1.6, maxLevel: 80, effect: (l) => 1 + 0.25 * l },
+  luck: { id: 'luck', baseCost: 60, costGrowth: 2.4, maxLevel: 12, effect: (l) => 1 + 0.25 * l },
+  assistant: { id: 'assistant', baseCost: 30, costGrowth: 1.8, maxLevel: 25, effect: (l) => 0.1 * l },
   offline: { id: 'offline', baseCost: 150, costGrowth: 3, maxLevel: 4, effect: (l) => 30 * 60 + 15 * 60 * l },
 };
 

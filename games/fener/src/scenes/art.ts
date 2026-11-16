@@ -10,6 +10,9 @@ import { PALETTE } from '../textures';
 
 type G = Phaser.GameObjects.Graphics;
 
+/** Point lists for fillPoints (Phaser accepts plain {x, y} at runtime; its typing wants Vector2). */
+const pts = (p: { x: number; y: number }[]): Phaser.Math.Vector2[] => p as Phaser.Math.Vector2[];
+
 /** Multiply a colour's channels (f < 1 darker, f > 1 lighter). */
 export function shade(c: number, f: number): number {
   const ch = (v: number): number => Math.max(0, Math.min(255, Math.round(v * f + (f > 1 ? (f - 1) * 40 : 0))));
@@ -244,8 +247,8 @@ export function drawObject(g: G, kind: ObjectKind, w: number, h: number, c: numb
       g.beginPath();
       g.arc(0, -hh * 0.4, hw * 0.75, Math.PI, 0);
       g.strokePath();
-      g.fillStyle(OUT, 0.9).fillPoints([{ x: -hw - 3, y: -hh * 0.4 - 3 }, { x: hw + 3, y: -hh * 0.4 - 3 }, { x: hw * 0.7 + 3, y: hh + 3 }, { x: -hw * 0.7 - 3, y: hh + 3 }], true);
-      g.fillStyle(c, 1).fillPoints([{ x: -hw, y: -hh * 0.4 }, { x: hw, y: -hh * 0.4 }, { x: hw * 0.7, y: hh }, { x: -hw * 0.7, y: hh }], true);
+      g.fillStyle(OUT, 0.9).fillPoints(pts([{ x: -hw - 3, y: -hh * 0.4 - 3 }, { x: hw + 3, y: -hh * 0.4 - 3 }, { x: hw * 0.7 + 3, y: hh + 3 }, { x: -hw * 0.7 - 3, y: hh + 3 }]), true);
+      g.fillStyle(c, 1).fillPoints(pts([{ x: -hw, y: -hh * 0.4 }, { x: hw, y: -hh * 0.4 }, { x: hw * 0.7, y: hh }, { x: -hw * 0.7, y: hh }]), true);
       g.fillStyle(shade(c, 1.35), 1).fillEllipse(0, -hh * 0.4, w, 12);
       g.fillStyle(shade(c, 0.7), 1).fillRect(-hw * 0.82, 0, w * 0.82, 5);
       break;
@@ -278,8 +281,8 @@ export function drawObject(g: G, kind: ObjectKind, w: number, h: number, c: numb
     }
     case 'coat': {
       g.fillStyle(0x9aa3ad, 1).fillRect(-4, -hh, 8, 12);
-      g.fillStyle(OUT, 0.9).fillPoints([{ x: -hw * 0.55 - 3, y: -hh + 6 }, { x: hw * 0.55 + 3, y: -hh + 6 }, { x: hw + 3, y: hh + 3 }, { x: -hw - 3, y: hh + 3 }], true);
-      g.fillStyle(c, 1).fillPoints([{ x: -hw * 0.55, y: -hh + 10 }, { x: hw * 0.55, y: -hh + 10 }, { x: hw, y: hh }, { x: -hw, y: hh }], true);
+      g.fillStyle(OUT, 0.9).fillPoints(pts([{ x: -hw * 0.55 - 3, y: -hh + 6 }, { x: hw * 0.55 + 3, y: -hh + 6 }, { x: hw + 3, y: hh + 3 }, { x: -hw - 3, y: hh + 3 }]), true);
+      g.fillStyle(c, 1).fillPoints(pts([{ x: -hw * 0.55, y: -hh + 10 }, { x: hw * 0.55, y: -hh + 10 }, { x: hw, y: hh }, { x: -hw, y: hh }]), true);
       g.fillStyle(shade(c, 0.75), 1).fillEllipse(0, -hh + 22, w * 0.5, 30);
       g.lineStyle(3, shade(c, 0.6), 1).lineBetween(0, -hh + 36, 0, hh - 4);
       g.fillStyle(shade(c, 0.6), 1).fillCircle(-6, -hh + 60, 3).fillCircle(-6, -hh + 90, 3).fillCircle(-6, -hh + 120, 3);
@@ -300,7 +303,7 @@ export function drawObject(g: G, kind: ObjectKind, w: number, h: number, c: numb
       if (on) {
         g.fillStyle(0x020205, 1).fillRect(-hw, -hh, w, h);
         g.fillStyle(0x9bb4d6, 0.12).fillTriangle(-hw, hh, -hw + 30, -hh + 30, hw, hh);
-        g.fillStyle(c, 1).fillPoints([{ x: -hw, y: -hh }, { x: -hw + 28, y: -hh + 16 }, { x: -hw + 28, y: hh + 10 }, { x: -hw, y: hh }], true);
+        g.fillStyle(c, 1).fillPoints(pts([{ x: -hw, y: -hh }, { x: -hw + 28, y: -hh + 16 }, { x: -hw + 28, y: hh + 10 }, { x: -hw, y: hh }]), true);
       } else {
         g.fillStyle(c, 1).fillRect(-hw, -hh, w, h);
         g.lineStyle(4, shade(c, 0.7), 1).strokeRect(-hw + 14, -hh + 16, w - 28, h * 0.38).strokeRect(-hw + 14, -hh + h * 0.5, w - 28, h * 0.42);
@@ -322,8 +325,8 @@ export function drawObject(g: G, kind: ObjectKind, w: number, h: number, c: numb
     case 'handlantern': {
       g.lineStyle(4, 0x3b4048, 1).strokeCircle(0, -hh + 8, 9);
       if (on) glow(g, 0, 6, 46, c, 0.34);
-      g.fillStyle(0x3b4048, 1).fillRect(-hw * 0.8, -hh + 14, w * 0.8 * 2, 10).fillRect(-hw * 0.8, hh - 12, w * 0.8 * 2, 12);
-      g.fillStyle(on ? c : 0x3a4052, 1).fillRect(-hw * 0.6, -hh + 24, w * 0.6 * 2, h - 36);
+      g.fillStyle(0x3b4048, 1).fillRect(-hw * 0.8, -hh + 14, hw * 0.8 * 2, 10).fillRect(-hw * 0.8, hh - 12, hw * 0.8 * 2, 12);
+      g.fillStyle(on ? c : 0x3a4052, 1).fillRect(-hw * 0.6, -hh + 24, hw * 0.6 * 2, h - 36);
       g.lineStyle(3, 0x3b4048, 1).lineBetween(-hw * 0.6, -hh + 24, -hw * 0.6, hh - 12).lineBetween(hw * 0.6, -hh + 24, hw * 0.6, hh - 12);
       if (on) g.fillStyle(0xffffff, 0.8).fillEllipse(0, 4, 10, 16);
       break;
@@ -349,7 +352,7 @@ export function drawObject(g: G, kind: ObjectKind, w: number, h: number, c: numb
       break;
     }
     case 'shiplight': {
-      g.fillStyle(0x070d1a, 1).fillPoints([{ x: -hw, y: 2 }, { x: hw, y: 2 }, { x: hw * 0.7, y: hh }, { x: -hw * 0.8, y: hh }], true);
+      g.fillStyle(0x070d1a, 1).fillPoints(pts([{ x: -hw, y: 2 }, { x: hw, y: 2 }, { x: hw * 0.7, y: hh }, { x: -hw * 0.8, y: hh }]), true);
       g.fillStyle(0x070d1a, 1).fillRect(-hw * 0.3, -hh * 0.4, w * 0.35, hh * 0.5 + 2);
       g.lineStyle(2, 0x070d1a, 1).lineBetween(hw * 0.25, 2, hw * 0.25, -hh - 4);
       if (on) {
@@ -372,8 +375,8 @@ export function drawObject(g: G, kind: ObjectKind, w: number, h: number, c: numb
     case 'boat': {
       g.lineStyle(3, 0x1a1a22, 1).lineBetween(-hw * 0.1, -hh - 30, -hw * 0.1, 0);
       g.fillStyle(0xd9d2b8, 0.9).fillTriangle(-hw * 0.1 + 3, -hh - 26, -hw * 0.1 + 3, -4, hw * 0.45, -4);
-      g.fillStyle(OUT, 0.9).fillPoints([{ x: -hw - 3, y: -6 }, { x: hw + 3, y: -6 }, { x: hw * 0.75 + 3, y: hh + 3 }, { x: -hw * 0.8 - 3, y: hh + 3 }], true);
-      g.fillStyle(c, 1).fillPoints([{ x: -hw, y: -3 }, { x: hw, y: -3 }, { x: hw * 0.75, y: hh }, { x: -hw * 0.8, y: hh }], true);
+      g.fillStyle(OUT, 0.9).fillPoints(pts([{ x: -hw - 3, y: -6 }, { x: hw + 3, y: -6 }, { x: hw * 0.75 + 3, y: hh + 3 }, { x: -hw * 0.8 - 3, y: hh + 3 }]), true);
+      g.fillStyle(c, 1).fillPoints(pts([{ x: -hw, y: -3 }, { x: hw, y: -3 }, { x: hw * 0.75, y: hh }, { x: -hw * 0.8, y: hh }]), true);
       g.fillStyle(shade(c, 0.6), 1).fillRect(-hw * 0.85, 6, w * 0.82, 6);
       g.fillStyle(shade(c, 1.3), 1).fillRect(-hw * 0.7, -hh + 6, w * 0.4, hh - 8);
       break;
@@ -393,13 +396,13 @@ export function drawObject(g: G, kind: ObjectKind, w: number, h: number, c: numb
         glow(g, 0, -hh + 18, 40, c, 0.4);
       }
       g.fillStyle(0x2a2e36, 1).fillTriangle(-hw * 0.6, -hh + 6, hw * 0.6, -hh + 6, 0, -hh - 6);
-      g.fillStyle(on ? c : 0x50566a, 1).fillRect(-hw * 0.4, -hh + 6, w * 0.4 * 2, 22);
-      g.fillStyle(0x2a2e36, 1).fillRect(-hw * 0.5, -hh + 28, w * 0.5 * 2, 5);
+      g.fillStyle(on ? c : 0x50566a, 1).fillRect(-hw * 0.4, -hh + 6, hw * 0.4 * 2, 22);
+      g.fillStyle(0x2a2e36, 1).fillRect(-hw * 0.5, -hh + 28, hw * 0.5 * 2, 5);
       break;
     }
     case 'bollard': {
-      g.fillStyle(OUT, 0.9).fillRoundedRect(-hw * 0.6 - 3, -hh * 0.4, w * 0.6 * 2 + 6, h * 0.7 + 3, 4);
-      g.fillStyle(c, 1).fillRoundedRect(-hw * 0.6, -hh * 0.4, w * 0.6 * 2, h * 0.7, 4);
+      g.fillStyle(OUT, 0.9).fillRoundedRect(-hw * 0.6 - 3, -hh * 0.4, hw * 0.6 * 2 + 6, h * 0.7 + 3, 4);
+      g.fillStyle(c, 1).fillRoundedRect(-hw * 0.6, -hh * 0.4, hw * 0.6 * 2, h * 0.7, 4);
       g.fillStyle(OUT, 0.9).fillEllipse(0, -hh * 0.45, w + 6, 22);
       g.fillStyle(shade(c, 1.4), 1).fillEllipse(0, -hh * 0.45, w, 16);
       break;
@@ -448,12 +451,12 @@ export function drawObject(g: G, kind: ObjectKind, w: number, h: number, c: numb
     }
     case 'stove': {
       box(g, -hw, -hh + 20, w, h - 20, c, 6);
-      g.fillStyle(shade(c, 0.6), 1).fillRect(-hw * 0.4, -hh - 40, w * 0.22, 64);
+      g.fillStyle(shade(c, 0.6), 1).fillRect(hw * 0.5, -hh - 40, w * 0.2, 64);
       g.fillStyle(shade(c, 1.35), 1).fillRect(-hw, -hh + 20, w, 12);
-      g.fillStyle(0x1a1c22, 1).fillRoundedRect(-hw * 0.7, -hh + 60, w * 0.7 * 2, h * 0.38, 8);
+      g.fillStyle(0x1a1c22, 1).fillRoundedRect(-hw * 0.7, -hh + 60, hw * 0.7 * 2, h * 0.38, 8);
       if (on) {
         glow(g, 0, -hh + 60 + h * 0.19, 70, 0xff9a3a, 0.34);
-        g.fillStyle(0xff9a3a, 1).fillRoundedRect(-hw * 0.6, -hh + 68, w * 0.6 * 2, h * 0.3, 6);
+        g.fillStyle(0xff9a3a, 1).fillRoundedRect(-hw * 0.6, -hh + 68, hw * 0.6 * 2, h * 0.3, 6);
         g.fillStyle(0xffd36b, 1).fillTriangle(-hw * 0.35, -hh + 68 + h * 0.3, -hw * 0.15, -hh + 78, 0, -hh + 68 + h * 0.3);
         g.fillStyle(0xffd36b, 1).fillTriangle(0, -hh + 68 + h * 0.3, hw * 0.2, -hh + 84, hw * 0.4, -hh + 68 + h * 0.3);
       }
@@ -502,7 +505,7 @@ export function drawObject(g: G, kind: ObjectKind, w: number, h: number, c: numb
         g.fillStyle(0x140e0a, 1).fillRect(-hw + 8, -hh + 8, w / 2 - 8, h - 16);
         g.fillStyle(0xe8e0c8, 1).fillCircle(-hw + 26, -hh + 40, 12).fillCircle(-hw + 50, -hh + 40, 12);
         g.fillStyle(0x6f9a7a, 1).fillRect(-hw + 18, hh - 50, 18, 36).fillRect(-hw + 42, hh - 44, 16, 30);
-        g.fillStyle(shade(c, 1.15), 1).fillPoints([{ x: -hw, y: -hh }, { x: -hw - 34, y: -hh - 10 }, { x: -hw - 34, y: hh + 10 }, { x: -hw, y: hh }], true);
+        g.fillStyle(shade(c, 1.15), 1).fillPoints(pts([{ x: -hw, y: -hh }, { x: -hw - 34, y: -hh - 10 }, { x: -hw - 34, y: hh + 10 }, { x: -hw, y: hh }]), true);
       } else {
         g.lineStyle(4, shade(c, 0.65), 1).lineBetween(0, -hh + 6, 0, hh - 6);
         g.lineStyle(3, shade(c, 0.75), 1).strokeRect(-hw + 12, -hh + 14, w / 2 - 22, h - 28).strokeRect(10, -hh + 14, w / 2 - 22, h - 28);

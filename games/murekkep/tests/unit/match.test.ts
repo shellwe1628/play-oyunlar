@@ -220,3 +220,58 @@ describe('determinism', () => {
     expect(run(42)).not.toBe(run(43));
   });
 });
+
+describe('Blot power', () => {
+  const sheet = (): MatchSim => new MatchSim(generateMap(5, { width: 30, height: 42 }, 2), 3, [player, idle], { blot: true });
+
+  it('inks a free disc touching our territory, then goes on cooldown', () => {
+    const sim = sheet();
+    for (let i = 0; i < RULES.blotCooldown; i++) sim.tick();
+    expect(sim.blotReady(0)).toBe(true);
+    const reserve = sim.colonies[0]!.reserve;
+    const area = sim.colonies[0]!.area;
+    const cell = sim.attackableCells(0)[0]!;
+    const taken = sim.blot(0, cell);
+    expect(taken).toBeGreaterThan(5);
+    expect(sim.colonies[0]!.area).toBe(area + taken);
+    expect(sim.colonies[0]!.reserve).toBe(reserve); // free
+    expect(sim.blotReady(0)).toBe(false);
+    expect(sim.blotCooldownLeft(0)).toBe(RULES.blotCooldown);
+    expect(sim.blot(0, sim.attackableCells(0)[0]!)).toBe(0);
+  });
+
+  it('cannot be placed away from our territory or when not unlocked', () => {
+    const sim = sheet();
+    for (let i = 0; i < RULES.blotCooldown; i++) sim.tick();
+    const far = sim.attackableCells(1)[0]!; // touching the other colony, not us
+    expect(sim.touches(0, far)).toBe(false);
+    expect(sim.blot(0, far)).toBe(0);
+    const locked = new MatchSim(generateMap(5, { width: 30, height: 42 }, 2), 3, [player, idle]);
+    for (let i = 0; i < RULES.blotCooldown; i++) locked.tick();
+    expect(locked.blot(0, locked.attackableCells(0)[0]!)).toBe(0);
+  });
+
+  it('a rewarded charge makes it ready again at once', () => {
+    const sim = sheet();
+    for (let i = 0; i < RULES.blotCooldown; i++) sim.tick();
+    sim.blot(0, sim.attackableCells(0)[0]!);
+    sim.grantBlot(0);
+    expect(sim.blotReady(0)).toBe(true);
+  });
+});
+
+describe('auto-play', () => {
+  it('the built-in policy plays the player while ticks remain', () => {
+    const map = generateMap(5, { width: 30, height: 42 }, 2);
+    const a = new MatchSim(map, 3, [player, idle]);
+    const b = new MatchSim(map, 3, [player, idle]);
+    b.autoPlayTicks = 200;
+    for (let i = 0; i < 300; i++) {
+      a.tick();
+      b.tick();
+    }
+    expect(a.colonies[0]!.area).toBe(a.stats[0]!.peakArea);
+    expect(b.colonies[0]!.area).toBeGreaterThan(a.colonies[0]!.area + 20);
+    expect(b.autoPlayTicks).toBe(0);
+  });
+});

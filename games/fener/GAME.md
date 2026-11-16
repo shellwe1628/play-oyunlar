@@ -83,3 +83,77 @@ Interstitial: between nights, never during a shift.
 ## Out of scope for the slice
 
 More stations, story text, cosmetics, leaderboards.
+
+## Built (vertical slice)
+
+**Screens.** Menu (title, streak or tagline, Start shift → night select, Daily shift, Logbook
+with %), night select (nights 1–7, locked until the previous night is survived, best score per
+night), the shift (HUD clock / night / score / four anomaly pips, 640×640 CCTV monitor, four
+camera tabs, type chips after tapping something, brink modal), result (count-up, best, outcome
+line, report stats, unlock / new-logbook / streak line; "Next night" after a won campaign night),
+logbook (159 entries: per camera, each object's supported types lit when reported with the right
+type, intruder spots as one row; completion % and bar), core pause menu.
+
+**Sim** (`src/sim/`, pure): `station.ts` (4 cameras, 12–13 objects each, 3 intruder spots each,
+all data), `night.ts` (constants + per-night params), `shift.ts` (`ShiftSim`: tick, switchCamera,
+report, hitTest, useSecondWind/declineSecondWind, events), `progress.ts` (campaign unlocks,
+logbook, daily seed/best/streak). 47 unit tests incl. every test GAME.md asks for, a hit-test
+suite, data validity and a balance suite (simulated watcher).
+
+**Rendering.** The monitor is a second Phaser camera whose viewport is the screen rectangle and
+which looks at rooms drawn off-screen (x = 4000), so moved/resized objects are clipped by the
+monitor edge. Every object is a `Graphics` drawn by kind (41 kinds) with its colour and on/off
+state; redrawn only when the sim's `version` changes. Overlay: scanlines, vignette, camera tag,
+running timestamp, blinking REC dot, static (tile sprite).
+
+### Tuning (chosen)
+
+| | night 1 | night 7 | notes |
+|---|---|---|---|
+| spawn gap (s) | 14–22 | 6.5–11 | linear between; first spawn 1–4 s after grace |
+| min move / duplicate offset (px of 640) | 90 | 38 | max move = 1.6 × min; duplicates ≥ 1.05 × object size |
+| min recolour (RGB distance 0–441) | 170 | 80 | at most min + 130 |
+| min resize (max(s,1/s) − 1) | 0.45 | 0.22 | up to 1.5 × min, grow or shrink |
+| audio cue on spawn | yes | no | |
+| intruders | from night 3 | | one intruder per camera at a time |
+
+Shift: 35 s per in-game hour, 6 hours (210 s), 15 s grace, lose at 4 active, 8 s static after a
+false report, 8 s brink countdown. Points: right object 100, right type +50, speed bonus up to
++50 falling to 0 at 20 s, dawn +300. Daily shift uses night-4 difficulty, seed
+`hash("fener-daily-YYYY-MM-DD")`.
+Measured (balance test, 60 seeds): a watcher spending 10 s per camera and 5 s to notice wins
+night 1 100 % and night 7 ~5 %; 4 s / 2 s wins night 7 100 %; doing nothing always loses.
+
+### Decisions where the concept was open, and deviations
+
+- **Report must be on the camera on screen.** `report()` for another camera is ignored (you can
+  only point at what you see). Tapping empty space does nothing (no false report); a false report
+  needs an object or intruder.
+- **Tapping where a missing or moved object used to be selects it** (baseline boxes always hit),
+  so this leaks nothing and lets you report "missing". Hit boxes are at least 88 px; when boxes
+  overlap, the one whose centre is relatively closest wins. Moved objects and duplicates prefer
+  spots that do not overlap other objects.
+- **Wrong type still clears** the anomaly (right object = cleared, as the concept says) but only
+  the right type earns +50 and a logbook entry.
+- **Blind (static) does not stop the clock or spawns**, and switching cameras still works.
+- **Brink / second wind:** at 4 active the clock freezes and a modal offers "Second wind"
+  (rewarded ad, once per shift, clears the two oldest). It auto-declines after 8 s, so doing
+  nothing loses. After second wind is used, the next 4th anomaly loses at once.
+- **Spawn picks a random non-visible camera, then a random (object, type) pair** from objects
+  without an active anomaly; "state" only on objects that declare an initial state.
+- **Concept said 10–14 objects per camera**: built 13 / 12 / 12 / 12.
+- **Interstitial** only on "Next night" from the result screen; never on Replay or in a shift.
+- **Test hook** also exposes `select {x,y}`, `chip type`, `pause`, `secondWind`, `letGo`, and tap
+  positions (`active[].at`, `ui.tabs`, `ui.chips`) so the smoke test can drive a whole night with
+  real pointer taps.
+- **Not built:** hint/tutorial beyond the grace hint line; per-anomaly visual "aging".
+
+### Local workarounds that are candidates for core
+
+- `GameScene.openPauseMenu()` brings the pause scene to the top: core registers `PauseScene`
+  before the game's scenes, so in any scene with an opaque background the pause menu renders
+  underneath it (invisible but still taking input).
+- `scenes/widgets.ts` `Chip`: a toggleable button with a code-drawn glyph (row or column
+  layout); core's `button` only takes text.
+- `fillPoints` typing wants `Vector2[]`; a cast helper `pts()` is used in `art.ts`/`Background.ts`.
+- Ambient bed (`audio.ts` `Ambience`): drone + filtered-noise sea wash on `audio.musicOutput`.

@@ -3,6 +3,7 @@ import { gameSave } from '../save';
 import { SHIFT } from '../sim/night';
 import { PALETTE } from '../textures';
 import { drawBackdrop } from './Background';
+import { startShift } from './flow';
 import { SCENES } from './keys';
 
 /** Campaign night select. Test actions: night n, back. */
@@ -40,8 +41,7 @@ export class NightsScene extends OyunScene {
   }
 
   private play(n: number): void {
-    this.oyun.audio.unlock();
-    this.goTo(SCENES.game, { mode: 'campaign', night: n });
+    startShift(this, { mode: 'campaign', night: n });
   }
 
   protected override testState() {

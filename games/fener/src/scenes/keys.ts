@@ -5,6 +5,7 @@ export const SCENES = {
   game: 'game',
   result: 'result',
   logbook: 'logbook',
+  briefing: 'briefing',
 } as const;
 
 /** What GameScene is asked to play. */

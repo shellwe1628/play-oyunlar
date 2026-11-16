@@ -149,7 +149,7 @@ export class Feed {
           v.copy.setVisible(o.copy !== null);
           if (o.copy) v.copy.setPosition(o.copy.x, o.copy.y);
         });
-        sim.intruders(c).forEach((s, i) => this.ghosts[c]![i]!.setVisible(s.visible));
+        sim.intruders(c).forEach((s, i) => this.ghosts[c]![i]!.setVisible(s.visible).setAlpha(sim.params.intruderAlpha));
         void def;
       });
     }

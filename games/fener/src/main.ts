@@ -1,5 +1,6 @@
 import { createGame } from '@oyun/core';
 import meta from '../oyun.config.json';
+import { BriefingScene } from './scenes/BriefingScene';
 import { GameScene } from './scenes/GameScene';
 import { SCENES } from './scenes/keys';
 import { LogbookScene } from './scenes/LogbookScene';
@@ -15,7 +16,7 @@ void createGame({
   orientation: meta.orientation === 'landscape' ? 'landscape' : 'portrait',
   strings: STRINGS,
   textures: TEXTURES,
-  scenes: [MenuScene, NightsScene, GameScene, ResultScene, LogbookScene],
+  scenes: [MenuScene, NightsScene, BriefingScene, GameScene, ResultScene, LogbookScene],
   start: SCENES.menu,
   menu: SCENES.menu,
   theme: {

@@ -22,6 +22,8 @@ export interface SaveData {
   log: string[];
   shifts: number;
   daily: DailyRecord;
+  /** The first-time briefing has been read. */
+  briefed: boolean;
 }
 
 export function freshSave(): SaveData {
@@ -31,6 +33,7 @@ export function freshSave(): SaveData {
     log: [],
     shifts: 0,
     daily: { date: '', best: 0, streak: 0, last: '' },
+    briefed: false,
   };
 }
 

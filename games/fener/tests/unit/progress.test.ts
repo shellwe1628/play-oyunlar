@@ -116,5 +116,6 @@ describe('game save', () => {
     expect(s.data.unlocked).toBe(3);
     expect(s.data.log).toEqual([]);
     expect(s.data.nightBest).toHaveLength(7);
+    expect(s.data.briefed).toBe(false);
   });
 });

@@ -2,6 +2,7 @@ import { button, MenuScene as MenuShell, type Button } from '@oyun/core';
 import { gameSave } from '../save';
 import { dailyStreak, logbookProgress } from '../sim/progress';
 import { drawBackdrop } from './Background';
+import { startShift } from './flow';
 import { SCENES, today } from './keys';
 
 /** Core menu shell: Start shift → night select; plus Daily shift and Logbook. Test actions: play, daily, logbook. */
@@ -9,6 +10,7 @@ export class MenuScene extends MenuShell {
   protected readonly playScene = SCENES.nights;
   private dailyButton!: Button;
   private logButton!: Button;
+  private howButton!: Button;
 
   constructor() {
     super(SCENES.menu);
@@ -29,27 +31,33 @@ export class MenuScene extends MenuShell {
 
   protected override decorate(): void {
     const { cx, height } = this.layout;
-    const y = height * 0.62;
-    this.dailyButton = button(this, cx, y + 160, this.t('menu.daily'), () => this.openDaily(), { variant: 'secondary', width: 420 });
+    const y = height * 0.59;
+    this.playButton.setY(y);
+    this.dailyButton = button(this, cx, y + 140, this.t('menu.daily'), () => this.openDaily(), { variant: 'secondary', width: 420 });
     const pct = logbookProgress(gameSave(this.oyun).data).percent;
-    this.logButton = button(this, cx, y + 300, `${this.t('menu.logbook')} · ${pct}%`, () => this.goTo(SCENES.logbook), {
+    this.logButton = button(this, cx, y + 270, `${this.t('menu.logbook')} · ${pct}%`, () => this.goTo(SCENES.logbook), {
       variant: 'secondary',
       width: 420,
+    });
+    this.howButton = button(this, cx, y + 390, this.t('menu.howto'), () => this.goTo(SCENES.briefing), {
+      variant: 'secondary',
+      width: 420,
+      height: 96,
+      fontSize: 38,
     });
     this.playButton.setDepth(2);
   }
 
   private openDaily(): void {
-    this.oyun.audio.unlock();
-    this.goTo(SCENES.game, { mode: 'daily', night: 0, day: today() });
+    startShift(this, { mode: 'daily', night: 0, day: today() });
   }
 
   protected override testState() {
     const d = gameSave(this.oyun).data;
-    return { unlocked: d.unlocked, nightBest: d.nightBest, log: d.log.length, daily: { ...d.daily } };
+    return { unlocked: d.unlocked, nightBest: d.nightBest, log: d.log.length, daily: { ...d.daily }, briefed: d.briefed };
   }
 
   protected override testActions() {
-    return { ...super.testActions(), daily: () => this.dailyButton.fire(), logbook: () => this.logButton.fire() };
+    return { ...super.testActions(), daily: () => this.dailyButton.fire(), logbook: () => this.logButton.fire(), howto: () => this.howButton.fire() };
   }
 }

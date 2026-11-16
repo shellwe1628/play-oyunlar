@@ -4,7 +4,7 @@ import { Ambience, sfx } from '../audio';
 import { gameSave } from '../save';
 import { nightParams, SHIFT } from '../sim/night';
 import { applyDailyResult, applyLog, applyNightResult, dailySeed } from '../sim/progress';
-import { ShiftSim, type ReportResult, type ShiftEvent } from '../sim/shift';
+import { evidencePoint, ShiftSim, type ReportResult, type ShiftEvent } from '../sim/shift';
 import { ANOMALY_TYPES, STATION, type AnomalyType } from '../sim/station';
 import { FEED, PALETTE } from '../textures';
 import { drawTypeIcon } from './art';
@@ -44,7 +44,11 @@ export class GameScene extends OyunScene {
   private windButton: Button | null = null;
   private giveButton: Button | null = null;
   private finished = false;
+  /** The rewarded ad is showing: the brink countdown is held until it resolves. */
+  private adPending = false;
   private shownActive = 0;
+  private baseHint = '';
+  private hintTimer: Phaser.Time.TimerEvent | null = null;
   private sessionLogs = new Set<string>();
 
   constructor() {
@@ -63,6 +67,8 @@ export class GameScene extends OyunScene {
     const L = this.layout;
     const d = this.data0;
     this.finished = false;
+    this.adPending = false;
+    this.hintTimer = null;
     this.selected = null;
     this.modal = null;
     this.shownActive = 0;
@@ -73,7 +79,7 @@ export class GameScene extends OyunScene {
 
     const seed = d.mode === 'daily' && d.day ? dailySeed(d.day) : this.oyun.rng.int(0, 2 ** 31 - 1);
     const night = d.mode === 'daily' ? SHIFT.dailyNight : d.night;
-    this.sim = new ShiftSim(seed, night);
+    this.sim = new ShiftSim(seed, night, undefined, { daily: d.mode === 'daily' });
 
     // --- HUD (main camera, inside the safe area)
     const top = L.top;
@@ -85,7 +91,7 @@ export class GameScene extends OyunScene {
     label(this, fx + 4, top + 136, sub, { size: 34, color: PALETTE.textDim }).setOrigin(0, 0.5);
     this.scoreText = label(this, fx + FEED - 4, top + 136, this.t('game.score', { n: 0 }), { size: 34 }).setOrigin(1, 0.5);
     this.pips = this.add.graphics();
-    this.pipLabel = label(this, L.right - 112, top + 96, this.t('game.active'), { size: 26, color: PALETTE.textDim });
+    this.pipLabel = label(this, L.right - 112, top + 96, this.t('game.limit'), { size: 26, color: PALETTE.textDim });
     this.drawPips(0);
 
     // --- monitor frame + feed camera
@@ -108,12 +114,17 @@ export class GameScene extends OyunScene {
       );
       this.tabs.push(chip);
     });
-    this.hintText = label(this, L.cx, rowY + 118, this.t('game.memorise'), { size: 34, color: PALETTE.textDim, wrap: FEED });
+    this.baseHint = this.t('game.memorise');
+    this.hintText = label(this, L.cx, rowY + 118, this.baseHint, { size: 34, color: PALETTE.textDim, wrap: FEED });
 
-    // --- report chips (hidden until something is selected)
-    this.askText = label(this, L.cx, fy + FEED + 48, this.t('game.ask'), { size: 40, color: PALETTE.lamp }).setVisible(false);
+    // --- report chips (hidden until something is selected), laid out up from the safe bottom
+    // edge with a margin, so the last row never touches the screen edge on short phones.
     const cw = (FEED - 16) / 2;
-    const ch = 84;
+    const ch = 82;
+    const step = 90;
+    const lastRow = L.bottom - 40 - ch / 2;
+    const chipY = (row: number): number => lastRow - (3 - row) * step;
+    this.askText = label(this, L.cx, Math.max(fy + FEED + 44, chipY(0) - 70), this.t('game.ask'), { size: 40, color: PALETTE.lamp }).setVisible(false);
     const kinds = [...ANOMALY_TYPES];
     kinds.forEach((type, i) => {
       const col = i % 2;
@@ -121,7 +132,7 @@ export class GameScene extends OyunScene {
       const chip = new Chip(
         this,
         fx + cw / 2 + col * (cw + 16),
-        fy + FEED + 128 + row * 94,
+        chipY(row),
         { width: cw, height: ch, text: this.t(`type.${type}`), fontSize: 34, glyph: (g, x, y, s, c) => drawTypeIcon(g, type, x, y, s, c) },
         () => this.onChip(type),
       );
@@ -131,7 +142,7 @@ export class GameScene extends OyunScene {
     this.cancelChip = new Chip(
       this,
       fx + cw / 2 + (cw + 16),
-      fy + FEED + 128 + 3 * 94,
+      chipY(3),
       { width: cw, height: ch, text: this.t('game.cancel'), fontSize: 34 },
       () => this.deselect(),
     ).setVisible(false);
@@ -155,10 +166,14 @@ export class GameScene extends OyunScene {
     this.oyun.platform.track('shift_start', { mode: d.mode, night });
   }
 
-  override update(_time: number, delta: number): void {
+  override update(): void {
     if (this.finished) return;
-    const dt = Math.min(this.juice.scaledDelta(delta), 100) / 1000;
-    this.handle(this.sim.tick(dt));
+    if (!this.adPending) {
+      // Wall-clock time (unsmoothed, so slow devices do not stretch the shift), frozen by
+      // hit-stop; a hitch longer than a second is not counted.
+      const dt = Math.min(this.juice.scaledDelta(this.game.loop.rawDelta), 1000) / 1000;
+      this.handle(this.sim.tick(dt));
+    }
     this.refresh();
   }
 
@@ -167,6 +182,7 @@ export class GameScene extends OyunScene {
    * (opaque) scene. Bring it to the top after core launches it. Candidate fix for core.
    */
   override openPauseMenu(): void {
+    if (this.finished) return; // the shift is over: no pause during the hand-off to the result
     super.openPauseMenu();
     this.scene.bringToTop(PAUSE_SCENE);
   }
@@ -192,9 +208,17 @@ export class GameScene extends OyunScene {
       this.oyun.audio.play('tap', { volume: 0.4 });
       return;
     }
+    if (this.sim.phase === 'grace') {
+      // Nothing can have changed yet: no chooser, just a nudge to keep memorising.
+      this.ripple(x, y);
+      this.flashHint(this.t('game.tooEarly'), PALETTE.lamp);
+      return;
+    }
     const id = this.sim.hitTest(this.sim.camera, x, y);
     if (!id) {
-      this.deselect();
+      this.ripple(x, y);
+      this.deselect(false);
+      this.oyun.audio.play('tap', { volume: 0.25, jitter: 0 });
       return;
     }
     this.selected = { id, tap: { x, y } };
@@ -237,9 +261,12 @@ export class GameScene extends OyunScene {
         if (r.typeCorrect) this.juice.floatText(w.x, w.y + 30, this.t('game.typeBonus'), { color: PALETTE.lamp, size: 36, rise: 60 });
         this.feed.flicker(90);
         const key = this.sim.logged[this.sim.logged.length - 1];
-        if (r.typeCorrect && key && !this.sessionLogs.has(key)) {
+        if (!r.typeCorrect) {
+          this.juice.floatText(w.x, w.y + 34, this.t('game.wrongKind'), { color: PALETTE.static, size: 30, rise: 50, duration: 1100 });
+          this.flashHint(this.t('game.wrongKind'), PALETTE.static);
+        } else if (key && !this.sessionLogs.has(key)) {
           this.sessionLogs.add(key);
-          toast(this, this.t('game.newLog'), { color: PALETTE.tealDim, duration: 1200 });
+          this.flashHint(this.t('game.newLog'), PALETTE.teal);
         }
         this.scoreText.setText(this.t('game.score', { n: this.sim.score }));
         this.juice.pop(this.scoreText, 1.2);
@@ -263,7 +290,7 @@ export class GameScene extends OyunScene {
   }
 
   private fastForward(seconds: number): void {
-    for (let t = 0; t < seconds && !this.finished; t += FF_STEP) {
+    for (let t = 0; t < seconds && !this.finished && !this.adPending; t += FF_STEP) {
       this.handle(this.sim.tick(FF_STEP));
       if (this.sim.phase === 'brink' && !this.modal) break;
     }
@@ -285,7 +312,8 @@ export class GameScene extends OyunScene {
           }
           break;
         case 'running':
-          this.hintText.setText(this.t('game.tapHint'));
+          this.baseHint = this.t('game.tapHint');
+          if (!this.hintTimer) this.hintText.setText(this.baseHint);
           break;
         case 'brink':
           this.showBrink();
@@ -304,10 +332,30 @@ export class GameScene extends OyunScene {
 
   // ------------------------------------------------------------------ drawing
 
+  /** Monitor timestamp: in-game HH:MM with a colon that blinks once per real second. */
   private stamp(): string {
     const { hour, minute } = this.sim.clock();
-    const sec = Math.floor(((this.sim.elapsed / SHIFT.hourSeconds) * 3600) % 60);
-    return `${pad2(hour)}:${pad2(minute)}:${pad2(sec)}`;
+    const colon = Math.floor(this.time.now / 500) % 2 === 0 ? ':' : ' ';
+    return `${pad2(hour)}${colon}${pad2(minute)}`;
+  }
+
+  /** Neutral ring where the player tapped: the tap registered, nothing is there. */
+  private ripple(x: number, y: number): void {
+    const w = this.feed.world(x, y);
+    const g = this.add.graphics({ x: w.x, y: w.y }).setDepth(4);
+    g.lineStyle(4, PALETTE.static, 0.7).strokeCircle(0, 0, 18);
+    this.tweens.add({ targets: g, scale: 2.4, alpha: 0, duration: 380, ease: 'Cubic.easeOut', onComplete: () => g.destroy() });
+  }
+
+  /** Show a short message in the hint row (below the camera tabs), then go back to the hint. */
+  private flashHint(text: string, color: number, ms = 1600): void {
+    this.hintTimer?.remove();
+    this.hintText.setText(text).setColor(`#${color.toString(16).padStart(6, '0')}`);
+    this.juice.pop(this.hintText, 1.12);
+    this.hintTimer = this.time.delayedCall(ms, () => {
+      this.hintTimer = null;
+      this.hintText.setText(this.baseHint).setColor(`#${PALETTE.textDim.toString(16).padStart(6, '0')}`);
+    });
   }
 
   private refresh(): void {
@@ -410,10 +458,15 @@ export class GameScene extends OyunScene {
   }
 
   private async secondWind(): Promise<void> {
+    if (this.adPending) return;
     this.windButton?.setEnabled(false);
+    this.giveButton?.setEnabled(false);
+    this.adPending = true; // hold the brink countdown while the ad is up
     const outcome = await this.oyun.platform.showRewarded('second_wind');
+    this.adPending = false;
     if (outcome !== 'granted' || !this.sim.useSecondWind()) {
       this.windButton?.setEnabled(true);
+      this.giveButton?.setEnabled(true);
       return;
     }
     this.oyun.platform.track('reward_claimed', { placement: 'second_wind' });
@@ -489,10 +542,7 @@ export class GameScene extends OyunScene {
 
   /** Where on the monitor (view px) a player would tap to point at this anomaly. */
   private tapPoint(camera: number, id: string, type: AnomalyType): { x: number; y: number } {
-    const g = this.sim.intruders(camera).find((s) => s.id === id);
-    if (g) return { x: Math.round(g.x), y: Math.round(g.y) };
-    const o = this.sim.objects(camera).find((s) => s.id === id)!;
-    const p = type === 'extra' && o.copy ? o.copy : type === 'missing' ? this.sim.baseline(camera, id)! : o;
+    const p = evidencePoint(this.sim, { camera, objectId: id, type });
     return { x: Math.round(p.x), y: Math.round(p.y) };
   }
 
@@ -519,6 +569,8 @@ export class GameScene extends OyunScene {
       },
       stats: { ...s.stats },
       audioCue: nightParams(s.night).audioCue,
+      adPending: this.adPending,
+      hint: this.hintText.text,
     };
   }
 

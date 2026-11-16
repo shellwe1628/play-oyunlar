@@ -29,7 +29,8 @@ export function isSaveData(d: unknown): d is SaveData {
     typeof s.daily.date === 'string' &&
     typeof s.daily.last === 'string' &&
     isNum(s.daily.best) &&
-    isNum(s.daily.streak)
+    isNum(s.daily.streak) &&
+    typeof s.briefed === 'boolean'
   );
 }
 

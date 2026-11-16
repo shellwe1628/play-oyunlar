@@ -97,6 +97,8 @@ export class MatchSim {
   phase: Phase = 'playing';
   winner: number | null = null;
   readonly playerId: number | null;
+  /** Start cell per colony this match. */
+  readonly startCells: number[];
   /** Remaining ticks the built-in player policy plays for the player (test hook / demo). */
   autoPlayTicks = 0;
   /** Area per colony, sampled every AREA_SNAPSHOT_EVERY ticks (oldest first, max 5). */
@@ -133,9 +135,12 @@ export class MatchSim {
     this.stats = specs.map(() => ({ inkSpent: 0, captured: 0, lost: 0, peakArea: 0, droppedBelowHalfPeak: false }));
     const botRng = this.rng.fork('bots');
     this.bots = specs.map((s, id) => (s.kind === 'bot' ? { rng: botRng.fork(`bot-${id}`), lastDecision: -1000 } : null));
+    // Which colony gets which start is shuffled per match seed: farthest-point sampling puts the
+    // first start in an extreme corner, and colony 0 (the player) must not always get it.
+    this.startCells = this.rng.fork('starts').shuffle(map.starts).slice(0, specs.length);
     // Start blots: land within startRadius (BFS) of each start; nearest start wins ties.
     specs.forEach((_, id) => {
-      const dist = landDistance(map.land, map.width, map.height, [map.starts[id]!]);
+      const dist = landDistance(map.land, map.width, map.height, [this.startCells[id]!]);
       for (let i = 0; i < n; i++) {
         if (dist[i]! >= 0 && dist[i]! <= RULES.startRadius && this.owner[i] === -1) this.setOwner(i, id);
       }
@@ -400,7 +405,7 @@ export class MatchSim {
         c.reserve = 0;
         this.waves = this.waves.filter((wv) => wv.owner !== c.id);
         // The splash goes where the last cell fell: the newest dirty cell.
-        const cell = this.dirty.length ? this.dirty[this.dirty.length - 1]! : this.map.starts[c.id]!;
+        const cell = this.dirty.length ? this.dirty[this.dirty.length - 1]! : this.startCells[c.id]!;
         this.events.push({ type: 'eliminated', colony: c.id, by: c.lastAttackedBy, cell });
       }
     }

@@ -1,30 +1,44 @@
 import type { OyunContext } from '@oyun/core';
 import { createSaveStore, type SaveOptions, type SaveStore, type StorageAdapter } from '@oyun/core/pure';
-import { SAVE_DEFAULTS, type SaveData } from './sim/progress';
+import { defaultSave, type DigSave } from './sim/dig';
 
 /**
  * Save schema version. Bump it (and add a migration) when a field is renamed, removed or
- * changes type. Adding a field only needs a default in SAVE_DEFAULTS.
+ * changes type. Adding a field only needs a default in defaultSave(). The DigSim constructor
+ * repairs bad values (sanitizeSave), so validation here only rejects the wrong overall shape.
  */
 export const SAVE_VERSION = 1;
 
-export function saveOptions(storage: StorageAdapter, gameId: string): SaveOptions<SaveData> {
+function isSave(d: unknown): d is DigSave {
+  if (typeof d !== 'object' || d === null) return false;
+  const s = d as Partial<DigSave>;
+  return (
+    typeof s.dust === 'number' &&
+    typeof s.counts === 'object' &&
+    s.counts !== null &&
+    !Array.isArray(s.counts) &&
+    typeof s.levels === 'object' &&
+    s.levels !== null &&
+    Array.isArray(s.broken)
+  );
+}
+
+export function saveOptions(storage: StorageAdapter, gameId: string): SaveOptions<DigSave> {
   return {
     key: `oyun:${gameId}:save`,
     version: SAVE_VERSION,
-    defaults: () => ({ ...SAVE_DEFAULTS }),
+    defaults: defaultSave,
     migrations: {},
-    validate: (d): d is SaveData =>
-      typeof d === 'object' && d !== null && Number.isFinite((d as SaveData).best) && Number.isFinite((d as SaveData).rounds),
+    validate: isSave,
     storage,
     onError: (e) => console.warn('[save]', e),
   };
 }
 
-const stores = new WeakMap<StorageAdapter, SaveStore<SaveData>>();
+const stores = new WeakMap<StorageAdapter, SaveStore<DigSave>>();
 
 /** The game's save store (one per storage adapter). */
-export function gameSave(ctx: OyunContext): SaveStore<SaveData> {
+export function gameSave(ctx: OyunContext): SaveStore<DigSave> {
   let store = stores.get(ctx.storage);
   if (!store) {
     store = createSaveStore(saveOptions(ctx.storage, ctx.info.id));

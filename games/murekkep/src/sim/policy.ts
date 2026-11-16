@@ -1,15 +1,19 @@
 /**
  * The naive built-in player policy (pure). Used by the `auto-play` test action and the balance
- * test as "a player who knows the rules but not the tactics": wait until half full, then pour
- * 30 % into blank paper, else into the thinnest-inked neighbour.
+ * test as "a player who knows the rules but not the tactics": it ignores the sweet spot and taps
+ * at the default 30 % commit whenever it holds 35 % of its cap, blank paper first, else the
+ * thinnest-inked neighbour.
  */
 import type { MatchSim } from './match';
 import { RULES } from './rules';
 
+/** Fill (reserve ÷ cap) the naive policy waits for before tapping. */
+export const NAIVE_MIN_FILL = 0.35;
+
 export function naivePolicy(sim: MatchSim, id: number): void {
   const c = sim.colonies[id];
   if (!c || !c.alive || sim.phase !== 'playing') return;
-  if (c.reserve < sim.cap(id) * 0.5) return;
+  if (c.reserve < sim.cap(id) * NAIVE_MIN_FILL) return;
   if (sim.activeWaves(id) >= 2) return;
   const targets = sim.borderTargets(id);
   const blank = targets.find((t) => t.owner === -1);

@@ -13,13 +13,13 @@ export const RULES = {
   capPerCell: 2.4,
   /** Growth per tick at the sweet spot = growthBase + growthPerCell × area. */
   growthBase: 0.12,
-  growthPerCell: 0.0042,
+  growthPerCell: 0.008,
   /** Growth factor when the reserve is empty (fraction of peak). */
   growthAtEmpty: 0.3,
   /** Ink per blank cell. */
   blankCost: 1,
   /** Ink per enemy cell = enemyBaseCost + densityCost × defender density (reserve ÷ area). */
-  enemyBaseCost: 1.6,
+  enemyBaseCost: 1.1,
   densityCost: 1,
   /** Defender loses defenderLoss × its density for every cell it loses. */
   defenderLoss: 1,

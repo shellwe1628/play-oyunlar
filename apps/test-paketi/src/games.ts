@@ -1,5 +1,7 @@
 /** The games in the test APK. `slug` is the folder under dist/ (and under games/ in the repo). */
-export type Lang = 'tr' | 'en';
+import type { Lang } from './lang';
+
+export { pickLang, type Lang } from './lang';
 
 export interface LauncherGame {
   slug: 'kivilcim' | 'okcu' | 'fosil';
@@ -93,13 +95,3 @@ export const UI: Record<Lang, { title: string; choose: string; back: string; foo
     footer: 'Test build · ads are simulated (rewarded ads are granted at once)',
   },
 };
-
-/** `?lang=tr|en` → first tr/en entry of the device languages → English. */
-export function pickLang(languages: readonly string[], override: string | null): Lang {
-  if (override === 'tr' || override === 'en') return override;
-  for (const l of languages) {
-    const base = l.toLowerCase().split('-')[0];
-    if (base === 'tr' || base === 'en') return base;
-  }
-  return 'en';
-}

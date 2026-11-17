@@ -7,7 +7,9 @@
   "scripts": {
     "build": "vite build",
     "typecheck": "tsc -p tsconfig.json",
-    "check-web": "node tests/web-check.mjs"
+    "test": "vitest run",
+    "check-web": "node tests/web-check.mjs",
+    "check-update": "node tests/update-check.mjs"
   },
   "devDependencies": {
     "@capacitor/android": "8.6.2",

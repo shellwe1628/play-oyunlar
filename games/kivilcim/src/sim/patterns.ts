@@ -195,7 +195,7 @@ function emitInner(b: TrackBuilder, seg: Seg, ctx: PatternCtx): void {
       let sd = first;
       for (let k = 0; k < n; k++) {
         const off = sd * lerp(8, 34, q);
-        b.straight(140);
+        b.straight(k === 0 ? 140 : 320);
         const yc = b.y + hl + r;
         b.pills.push({ y: yc, x0: b.c + off, hl, r, amp: 0, period: 1, phase: 0 });
         if (seg.gem && k === n - 1) b.addGem(b.c + off + sd * (r + (H - Math.abs(off) - r) / 2), yc + hl * 0.3);
@@ -323,7 +323,7 @@ function emitInner(b: TrackBuilder, seg: Seg, ctx: PatternCtx): void {
     case 'portal': {
       // Portal pairs: a barrier with two rings; through one ring you come out of the other.
       const H = lerp(300, 280, q);
-      const rt = lerp(54, 46, q);
+      const rt = lerp(74, 66, q);
       const n = 1 + Math.round(q * 1.4);
       b.straight(Math.max(140, Math.abs(b.h - H) / 0.6 + 60), H);
       let sd = first;
@@ -331,7 +331,7 @@ function emitInner(b: TrackBuilder, seg: Seg, ctx: PatternCtx): void {
         b.straight(260);
         const y = Math.ceil(b.y / 128) * 128;
         b.to(y - b.y, b.c);
-        const d = lerp(100, 135, q) + (k % 2) * 15;
+        const d = lerp(132, 150, q) + (k % 2) * 10;
         const xa = b.c - d + sd * lerp(0, 25, q);
         const xb = b.c + d + sd * lerp(0, 25, q);
         b.portals.push({ y, xa, xb, r: rt });

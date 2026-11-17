@@ -163,10 +163,10 @@ export class RanksScene extends OyunScene {
     FEATS.forEach((f, i) => {
       const col = i % 2;
       const r = Math.floor(i / 2);
-      const x = 30 + col * 335;
+      const x = 22 + col * 342;
       const y = top + r * rowH + rowH / 2;
       const on = save.feats.includes(f.id);
-      g.fillStyle(on ? PALETTE.gold : PALETTE.ink, on ? 0.3 : 0.5).fillRoundedRect(x, y - rowH / 2 + 3, 325, rowH - 6, 14);
+      g.fillStyle(on ? PALETTE.gold : PALETTE.ink, on ? 0.3 : 0.5).fillRoundedRect(x, y - rowH / 2 + 3, 334, rowH - 6, 14);
       // a star: gold when earned
       const sx = x + 30;
       g.fillStyle(PALETTE.ink, 1).fillCircle(sx, y, 18);
@@ -176,8 +176,8 @@ export class RanksScene extends OyunScene {
         g.fillTriangle(sx, y, sx + Math.cos(a - 0.35) * 6, y + Math.sin(a - 0.35) * 6, sx + Math.cos(a) * 14, y + Math.sin(a) * 14);
         g.fillTriangle(sx, y, sx + Math.cos(a + 0.35) * 6, y + Math.sin(a + 0.35) * 6, sx + Math.cos(a) * 14, y + Math.sin(a) * 14);
       }
-      this.text(x + 58, y - 13, this.t(`feat.${f.id}.name`), 24, on ? PALETTE.cream : PALETTE.locked, 0, 260);
-      this.text(x + 58, y + 15, `${this.t(`feat.${f.id}.desc`)} · +${f.coins}`, 19, on ? PALETTE.gold : PALETTE.locked, 0, 262);
+      this.text(x + 56, y - 14, this.t(`feat.${f.id}.name`), 27, on ? PALETTE.cream : PALETTE.locked, 0, 268);
+      this.text(x + 56, y + 16, `${this.t(`feat.${f.id}.desc`)} · +${f.coins}`, 22, on ? PALETTE.gold : PALETTE.locked, 0, 268);
     });
   }
 

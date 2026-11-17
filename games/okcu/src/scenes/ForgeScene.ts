@@ -28,6 +28,7 @@ export class ForgeScene extends OyunScene {
   private coinText!: Phaser.GameObjects.Text;
   private resultText!: Phaser.GameObjects.Text;
   private resultSub!: Phaser.GameObjects.Text;
+  private rules!: Phaser.GameObjects.Text;
   private forgeBtn!: Button;
   private backBtn!: Button;
   private busy = false;
@@ -63,7 +64,7 @@ export class ForgeScene extends OyunScene {
     const bg = this.add.graphics();
     // a warm smithy: dark stone walls, a glowing hearth behind the anvil
     for (let i = 0; i < 16; i++) bg.fillStyle(mix(0x1d1020, 0x5a2a1e, i / 15), 1).fillRect(0, (i * 1280) / 16 - 40, 720, 1280 / 16 + 2);
-    for (let r = 0; r < 6; r++) bg.fillStyle(PALETTE.heat, 0.06 + r * 0.025).fillCircle(L.cx, L.cy + 140, 420 - r * 60);
+    for (let r = 0; r < 6; r++) bg.fillStyle(PALETTE.heat, 0.06 + r * 0.025).fillCircle(L.cx, L.cy + 80, 420 - r * 60);
     for (let row = 0; row < 9; row++) {
       for (let col = 0; col < 5; col++) {
         const x = col * 170 + (row % 2) * 85 - 40;
@@ -72,7 +73,7 @@ export class ForgeScene extends OyunScene {
       }
     }
     // the anvil
-    const ay = L.cy + 230;
+    const ay = L.cy + 170;
     bg.fillStyle(PALETTE.ink, 1).fillRoundedRect(L.cx - 190, ay - 40, 380, 90, 24);
     bg.fillStyle(0x5c6378, 1).fillRoundedRect(L.cx - 180, ay - 32, 360, 74, 18);
     bg.fillStyle(0x8a93ab, 1).fillRoundedRect(L.cx - 170, ay - 28, 340, 22, 10);
@@ -87,7 +88,7 @@ export class ForgeScene extends OyunScene {
     this.bowG = this.add.graphics();
     this.fxG = this.add.graphics().setDepth(5);
     // the hammer, raised to the right of the anvil
-    this.hammer = this.add.container(L.cx + 170, ay - 40).setDepth(4);
+    this.hammer = this.add.container(L.cx + 150, ay - 40).setDepth(4);
     const hg = this.add.graphics();
     hg.fillStyle(PALETTE.ink, 1).fillRoundedRect(-9, -180, 18, 190, 8);
     hg.fillStyle(PALETTE.shaft, 1).fillRoundedRect(-5, -176, 10, 182, 5);
@@ -96,14 +97,14 @@ export class ForgeScene extends OyunScene {
     hg.fillStyle(PALETTE.white, 0.4).fillRoundedRect(-40, -214, 50, 12, 6);
     this.hammer.add(hg);
     this.hammer.setAngle(35);
-    this.chanceText = label(this, L.cx, ay + 210, '', { size: 46, color: PALETTE.heal }).setStroke(cssColor(PALETTE.ink), 12).setDepth(6);
+    this.chanceText = label(this, L.cx, ay + 150, '', { size: 46, color: PALETTE.heal }).setStroke(cssColor(PALETTE.ink), 12).setDepth(6);
     this.heatG = this.add.graphics().setDepth(6);
-    this.heatText = label(this, L.cx, ay + 300, '', { size: 30, color: PALETTE.heat }).setStroke(cssColor(PALETTE.ink), 8).setDepth(6);
-    this.resultText = label(this, L.cx, L.cy - 300, '', { size: 76, color: PALETTE.gold }).setStroke(cssColor(PALETTE.ink), 18).setDepth(10).setAlpha(0);
-    this.resultSub = label(this, L.cx, L.cy - 230, '', { size: 34, color: PALETTE.cream, wrap: 620 }).setStroke(cssColor(PALETTE.ink), 8).setDepth(10).setAlpha(0);
-    label(this, L.cx, L.bottom - 270, this.t('forge.rules'), { size: 26, color: PALETTE.cream, wrap: 640 }).setAlpha(0.85);
-    this.forgeBtn = fitButton(button(this, L.cx, L.bottom - 180, '', () => this.forge(), { width: 440, height: 104, fontSize: 42 }), 440);
-    this.backBtn = button(this, L.cx, L.bottom - 70, this.t('forge.back'), () => this.back(), { width: 300, height: 92, variant: 'secondary', hotkey: 'ESC' });
+    this.heatText = label(this, L.cx, ay + 240, '', { size: 28, color: PALETTE.heat }).setStroke(cssColor(PALETTE.ink), 8).setDepth(6);
+    this.resultText = label(this, L.cx, L.top + 330, '', { size: 76, color: PALETTE.gold }).setStroke(cssColor(PALETTE.ink), 18).setDepth(10).setAlpha(0);
+    this.resultSub = label(this, L.cx, L.top + 392, '', { size: 34, color: PALETTE.cream, wrap: 620 }).setStroke(cssColor(PALETTE.ink), 8).setDepth(10).setAlpha(0);
+    this.rules = label(this, L.cx, L.top + 350, this.t('forge.rules'), { size: 24, color: PALETTE.cream, wrap: 640 }).setAlpha(0.85);
+    this.forgeBtn = fitButton(button(this, L.cx, L.bottom - 168, '', () => this.forge(), { width: 440, height: 100, fontSize: 42 }), 440);
+    this.backBtn = button(this, L.cx, L.bottom - 60, this.t('forge.back'), () => this.back(), { width: 300, height: 88, variant: 'secondary', hotkey: 'ESC' });
     this.refresh();
   }
 
@@ -151,7 +152,7 @@ export class ForgeScene extends OyunScene {
     this.backBtn.setEnabled(false);
     this.oyun.platform.track('forge', { level: before, success: r.success, chance: r.chance });
     const L = this.layout;
-    const ay = L.cy + 230;
+    const ay = L.cy + 170;
     // 1. build-up: the bow rises and glows, the hearth hums
     this.oyun.audio.playPreset(SFX.charge);
     this.tweens.add({ targets: this, lift: 1, duration: 450, ease: 'Sine.easeOut' });
@@ -223,6 +224,10 @@ export class ForgeScene extends OyunScene {
     this.tweens.add({ targets: this.resultText, scale: 1, duration: 280, ease: 'Back.easeOut' });
     this.tweens.add({ targets: this.resultSub, alpha: 1, duration: 250, delay: 200 });
     this.tweens.add({ targets: [this.resultText, this.resultSub], alpha: 0, delay: 2200, duration: 400 });
+    // the rules make room for the verdict, then come back
+    this.tweens.killTweensOf(this.rules);
+    this.rules.setAlpha(0);
+    this.tweens.add({ targets: this.rules, alpha: 0.85, delay: 2600, duration: 300 });
   }
 
   private spray(x: number, y: number, n: number, c: number): void {
@@ -243,19 +248,19 @@ export class ForgeScene extends OyunScene {
     g.clear();
     const lv = this.shownLevel;
     const bx = L.cx + (Math.random() - 0.5) * this.shake;
-    const by = L.cy - 10 - this.lift * 40 + Math.sin(this.clock * 1.6) * 8;
+    const by = L.cy - 60 - this.lift * 40 + Math.sin(this.clock * 1.6) * 8;
     // glow under the bow, brighter while it is worked
     const col = auraColor(lv, this.clock);
-    g.fillStyle(lv >= 3 ? col : PALETTE.heat, 0.12 + this.lift * 0.25).fillCircle(bx, by, 150 + this.lift * 40);
-    drawBowItem(g, bx, by, 150, lv, this.clock, this.flash);
-    if (this.dim > 0) g.fillStyle(0x2a1622, 0.45 * this.dim).fillCircle(bx, by, 170);
+    g.fillStyle(lv >= 3 ? col : PALETTE.heat, 0.12 + this.lift * 0.25).fillCircle(bx, by, 140 + this.lift * 40);
+    drawBowItem(g, bx, by, 135, lv, this.clock, this.flash);
+    if (this.dim > 0) g.fillStyle(0x2a1622, 0.45 * this.dim).fillCircle(bx, by, 160);
     // heat meter: a bar of flames, full = sure success
     const h = this.heatG;
     h.clear();
     const save = gameSave(this.oyun).data;
     if (bowCost(save.bow.level) !== null && save.bow.level < BOW_MAX) {
       const hx = L.cx - 200;
-      const hy = L.cy + 480;
+      const hy = L.cy + 365;
       h.fillStyle(PALETTE.ink, 1).fillRoundedRect(hx - 6, hy - 18, 412, 36, 18);
       h.fillStyle(PALETTE.hpBack, 1).fillRoundedRect(hx, hy - 12, 400, 24, 12);
       const k = Math.min(1, this.shownHeat / Math.max(0.01, 1 - forgeChance(save.bow.level, 0) + 0.0001));

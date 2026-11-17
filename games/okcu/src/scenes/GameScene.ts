@@ -2090,6 +2090,15 @@ export class GameScene extends OyunScene {
         this.debugScale = Number(p) || 1;
       },
       toast: () => this.queueToast(this.t('feat.title'), `${this.t('feat.chain3.name')} · +40`, PALETTE.gold),
+      aim: (p: unknown) => {
+        const { angle, power } = p as { angle: number; power: number };
+        aimAt(this.w, angle, power);
+      },
+      'show-result': (p: unknown) => {
+        const save = gameSave(this.oyun).data;
+        const extra = (p ?? {}) as Partial<RunResult>;
+        this.goTo(SCENES.result, { wave: this.w.wave, coins: 42, kos: 9, headshots: 3, best: save.best, newBest: false, daily: false, dailyKey: this.todayKey(), chapter: this.w.chapter, stage: this.w.stage, feats: [], records: [], dailyCoins: 0, dailyStreak: 0, startRank: save.rank, ...extra });
+      },
     };
   }
 }

@@ -83,15 +83,15 @@ export class ShopScene extends OyunScene {
     // ---- looks tab: animated preview on a little ledge + a 4×3 grid
     this.looksUi = this.add.container(0, 0);
     const stand = this.add.graphics();
-    const footY = L.top + 560;
+    const footY = L.top + 480;
     drawThemeLedge(stand, { x: L.cx - 110, y: footY, w: 220, h: 50 }, 3, th);
     this.looksUi.add(stand);
-    this.puppet = new Puppet('player', L.cx, footY, 1, 1.5);
+    this.puppet = new Puppet('player', L.cx, footY, 1, 1.3);
     this.puppet.setMood(0, true);
     this.puppetG = this.add.graphics();
     this.looksUi.add(this.puppetG);
-    this.previewName = label(this, L.cx, footY + 110, '', { size: 44, color: PALETTE.cream }).setStroke(cssColor(PALETTE.ink), 10);
-    this.previewNote = label(this, L.cx, footY + 160, '', { size: 34, color: PALETTE.white }).setStroke(cssColor(PALETTE.ink), 8);
+    this.previewName = label(this, L.cx, footY + 95, '', { size: 44, color: PALETTE.cream }).setStroke(cssColor(PALETTE.ink), 10);
+    this.previewNote = label(this, L.cx, footY + 142, '', { size: 34, color: PALETTE.white }).setStroke(cssColor(PALETTE.ink), 8);
     this.tileG = this.add.graphics();
     this.looksUi.add([this.previewName, this.previewNote, this.tileG]);
     COSMETICS.forEach((_c, i) => {

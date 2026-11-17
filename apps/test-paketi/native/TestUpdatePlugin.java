@@ -133,7 +133,9 @@ public class TestUpdatePlugin extends Plugin {
     @ActivityCallback
     private void settingsReturned(PluginCall call, ActivityResult result) {
         // The settings screen returns no meaningful result code: ask the package manager.
-        if (call != null) canInstall(call);
+        if (call == null) return;
+        canInstall(call);
+        bridge.releaseCall(call); // saved by startActivityForResult
     }
 
     @PluginMethod
@@ -272,6 +274,7 @@ public class TestUpdatePlugin extends Plugin {
         int code = result.getResultCode();
         r.put("result", code == android.app.Activity.RESULT_OK ? "installed" : code == android.app.Activity.RESULT_CANCELED ? "cancelled" : "failed");
         call.resolve(r);
+        bridge.releaseCall(call); // saved by startActivityForResult
     }
 
     // ---------------------------------------------------------------- helpers

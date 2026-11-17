@@ -19,6 +19,8 @@ import { Reveal } from './Reveal';
 import { big, counted, fitText, fossilName, hitZone, luckLine, mult, oddsText, outlined } from './ui';
 
 const BLOCK_W = 460;
+/** `?fx=0` switches the presentation layer off (for on/off comparisons); gameplay is identical. */
+const FX_ON = typeof location === 'undefined' || new URLSearchParams(location.search).get('fx') !== '0';
 const HEADER = 266;
 const FOOTER = 362;
 
@@ -70,6 +72,8 @@ export class DigScene extends OyunScene {
   private travelling = false;
   private blockH = 0;
   private napUntil = 0;
+  /** JS time spent in this scene's own frame update and tap handler (test state). */
+  private perf = { frameMs: 0, frames: 0, tapMs: 0, taps: 0 };
   private hint: Phaser.GameObjects.Text | null = null;
   private popup: { box: Phaser.GameObjects.Container; haul: OfflineHaul; claim: Button; double: Button; doubled: boolean } | null = null;
   private tip: { box: Phaser.GameObjects.Container; id: string; until: number } | null = null;
@@ -91,6 +95,7 @@ export class DigScene extends OyunScene {
     this.travelling = false;
     this.fxClock = 0;
     this.napUntil = 0;
+    this.perf = { frameMs: 0, frames: 0, tapMs: 0, taps: 0 };
     this.popup = null;
     this.tip = null;
     this.tipQueue = [];
@@ -117,8 +122,8 @@ export class DigScene extends OyunScene {
 
     this.block = new StratumBlock(this, L.cx, this.blockY, BLOCK_W, blockH).setLayer(this.sim.layer);
     this.hpY = this.blockY + blockH / 2 + 42;
-    this.hpBar = progressBar(this, L.cx, this.hpY, 400, 30, { color: PALETTE.ochre });
-    this.hpText = outlined(this, L.cx, this.hpY, '', 24, 0xffffff, 5);
+    this.hpBar = progressBar(this, L.cx, this.hpY, 400, 30, { color: PALETTE.ochre }).setDepth(60); // above rubble
+    this.hpText = outlined(this, L.cx, this.hpY, '', 24, 0xffffff, 5).setDepth(61);
 
     this.pick = new Pickaxe(this, 255);
     this.pick.setTier(this.sim.level('pick'));
@@ -247,6 +252,13 @@ export class DigScene extends OyunScene {
 
   /** The one dig handler: pointer taps on the site and the test hook both call it. */
   private onDigTap(x: number, y: number): void {
+    const t0 = performance.now();
+    this.digTap(x, y);
+    this.perf.tapMs += performance.now() - t0;
+    this.perf.taps += 1;
+  }
+
+  private digTap(x: number, y: number): void {
     if (this.reveal.blocking) {
       this.reveal.dismiss();
       return;
@@ -264,10 +276,10 @@ export class DigScene extends OyunScene {
     // the strike lands where you tapped (on the block face): pick swing, chips, dust, cracks from there
     const bx = Phaser.Math.Clamp(x, this.block.x - BLOCK_W / 2 + 20, this.block.x + BLOCK_W / 2 - 20);
     const by = Phaser.Math.Clamp(y, this.block.y - this.blockH / 2 + 20, this.block.y + this.blockH / 2 - 20);
-    this.pick.strike(bx, by);
     this.block.hit(bx - this.block.x, by - this.block.y);
-    this.fx.emit(bx, by, 4, { texture: 'chip', tint: at(layer.bands, 2), speed: [160, 340], angle: -Math.PI / 2, spread: 2.6, gravity: 1500, life: [0.35, 0.6], scale: [0.6, 1.1], endScale: 0.6, spin: 14 });
-    this.fx.emit(bx, by, 2, { tint: PALETTE.sand, speed: [20, 70], life: [0.5, 0.8], scale: [1, 1.8], endScale: 2.2, alpha: 0.3 });
+    if (FX_ON) this.pick.strike(bx, by);
+    if (FX_ON) this.fx.emit(bx, by, 4, { texture: 'chip', tint: at(layer.bands, 2), speed: [160, 340], angle: -Math.PI / 2, spread: 2.6, gravity: 1500, life: [0.35, 0.6], scale: [0.6, 1.1], endScale: 0.6, spin: 14 });
+    if (FX_ON) this.fx.emit(bx, by, 2, { tint: PALETTE.sand, speed: [20, 70], life: [0.5, 0.8], scale: [1, 1.8], endScale: 2.2, alpha: 0.3 });
     if (r.find) this.onBlockBroken(r.find);
     else {
       this.juice.squash(this.block, 0.035, 140);
@@ -396,22 +408,26 @@ export class DigScene extends OyunScene {
    * The block splits into chunks that tumble, bounce and settle at its foot, in a puff of dust,
    * while the next block rises into place. Pooled: rapid breaks reuse the oldest chunks.
    */
-  private breakBlock(c1: number, c2: number, chunks = 10): void {
+  private breakBlock(c1: number, c2: number, chunks = 7): void {
+    if (!FX_ON) {
+      this.block.regenerate();
+      return;
+    }
     const bx = this.block.x;
     const by = this.block.y;
     const floor = by + this.blockH / 2 + 4;
     for (let k = 0; k < 4; k++) {
-      this.rubble.emit(bx + (k - 1.5) * 70, by + 20, Math.ceil(chunks / 4), {
+      this.rubble.emit(bx + (k - 1.5) * 70, by + this.blockH * 0.25, Math.ceil(chunks / 4), {
         texture: `chunk-${k}`,
         tint: shade(k % 2 ? c1 : c2, 0.22),
-        speed: [180, 460],
+        speed: [140, 360],
         angle: -Math.PI / 2 + (k - 1.5) * 0.35,
         spread: 1.6,
         gravity: 1900,
         floor,
         bounce: 0.35,
-        life: [1.2, 1.7],
-        scale: [0.9, 1.7],
+        life: [0.9, 1.3],
+        scale: [0.8, 1.4],
         endScale: 0.8,
         fadeTail: 0.35,
         spin: 9,
@@ -680,14 +696,23 @@ export class DigScene extends OyunScene {
   // ------------------------------------------------------------------ frame
 
   override update(_time: number, delta: number): void {
+    const t0 = performance.now();
+    this.frame(delta);
+    this.perf.frameMs += performance.now() - t0;
+    this.perf.frames += 1;
+  }
+
+  private frame(delta: number): void {
     const real = Math.min(delta, 250) / 1000;
     this.fxClock += real;
-    this.scenery.update(real, this.slowmo);
-    this.fx.update(real * this.slowmo);
-    this.rubble.update(real * this.slowmo);
-    this.pick.update(real);
+    if (FX_ON) {
+      this.scenery.update(real, this.slowmo);
+      this.fx.update(real * this.slowmo);
+      this.rubble.update(real * this.slowmo);
+      this.pick.update(real);
+    }
     // the helper sleeps through the away time, and a little after you come back, then stretches
-    this.helper.update(real, this.sim.level('assistant'), this.popup !== null || this.fxClock < this.napUntil);
+    if (FX_ON) this.helper.update(real, this.sim.level('assistant'), this.popup !== null || this.fxClock < this.napUntil);
     if (this.glint.visible) {
       this.glintSparks.forEach((sp, i) => {
         const tw = Math.max(0, Math.sin(this.fxClock * 7 + i * 1.9));
@@ -702,7 +727,7 @@ export class DigScene extends OyunScene {
     if (this.tip && this.time.now > this.tip.until) this.closeTip();
     this.refreshHud();
     this.drawer.refresh();
-    this.drawer.animate(real, this.fxClock);
+    if (FX_ON) this.drawer.animate(real, this.fxClock);
     this.ses.autosave();
   }
 
@@ -880,6 +905,7 @@ export class DigScene extends OyunScene {
       boost: Math.ceil(s.boostSeconds),
       offline: this.popup ? { blocks: this.popup.haul.blocks, dust: this.popup.haul.dust } : null,
       tip: this.tip?.id ?? null,
+      perf: { frameMs: Math.round(this.perf.frameMs * 100) / 100, frames: this.perf.frames, tapMs: Math.round(this.perf.tapMs * 100) / 100, taps: this.perf.taps },
       fusing: this.fuseBusy,
       ui: {
         block: pos(this.block),

@@ -280,9 +280,9 @@ function drawExtras(g: G, a: Archer, f: AnimOut, X: ArrayLike<number>, Y: ArrayL
   if (f.dizzy > 0.05) {
     for (let i = 0; i < 3; i++) {
       const ang = t * 5 + (i * Math.PI * 2) / 3;
-      const x = hx + Math.cos(ang) * 26 * s;
+      const x = hx + Math.cos(ang) * 32 * s;
       const y = hy - 36 * s + Math.sin(ang) * 7 * s;
-      const k = 6 * s * f.dizzy;
+      const k = 8.5 * s * f.dizzy;
       g.fillStyle(PALETTE.ink, 1).fillTriangle(x - k - 2, y, x + k + 2, y, x, y - k - 3).fillTriangle(x - k - 2, y, x + k + 2, y, x, y + k + 3);
       g.fillStyle(PALETTE.coin, 1).fillTriangle(x - k, y, x + k, y, x, y - k).fillTriangle(x - k, y, x + k, y, x, y + k);
     }

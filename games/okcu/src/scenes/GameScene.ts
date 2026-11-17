@@ -57,6 +57,8 @@ interface Track {
   x: Float64Array;
   y: Float64Array;
   out: AnimOut;
+  /** the archer drawn with this track last frame */
+  archer: Archer | null;
   release: number;
   land: number;
   cheer: number;
@@ -171,6 +173,8 @@ export class GameScene extends OyunScene {
   private tracks = new Map<number, Track>();
   private animIn: AnimInput = { kind: 'player', id: 0, alive: true, t: 0, scale: 1, facing: 1, draw: 0, brain: '', sinceHit: 99, sinceRelease: 99, sinceLand: 99, sinceCheer: 99, sinceTaunt: 99, hp: 1, lookX: 0, lookY: 0, title: false, mood: 0 };
   private animT = 0;
+  /** measurement aid (test action `anim`): draw without the animation layer, ambient and trails */
+  private animOff = false;
   private lastStomp = 0;
   private tmpPt = { x: 0, y: 0 };
   private trails = new Trails(80);
@@ -347,7 +351,7 @@ export class GameScene extends OyunScene {
       g.fillStyle(PALETTE.bubble, 1).fillCircle(x + w + 30 + i * 30, top, 10);
     }
     this.waveText.setText(this.w.phase === 'title' || this.w.phase === 'cards' ? '' : this.t('hud.wave', { n: this.w.wave }));
-    this.waveText.setVisible(this.time.now >= this.bannerUntil);
+    this.waveText.setVisible(performance.now() >= this.bannerUntil);
     this.coinText.setText(String(this.coinShown));
     this.coinText.setScale(1 + this.coinPop * 0.35);
     this.coinIcon.setX(this.coinText.x - this.coinText.width - 30).setScale(1.15 + this.coinPop * 0.3);
@@ -653,8 +657,10 @@ export class GameScene extends OyunScene {
     const multi = w.stats.volleys > 1 || w.stats.splitPairs > 0;
     const halo = this.arena.theme.dark;
     for (const a of w.arrows) if (a.active && a.state === 1) drawArrow(g, a, time, multi, halo);
-    this.trails.update(w.arrows);
-    this.trails.draw(g, w.arrows, time);
+    if (!this.animOff) {
+      this.trails.update(w.arrows);
+      this.trails.draw(g, w.arrows, time);
+    }
     for (let k = 0; k <= w.enemies.length; k++) {
       const a = k < w.enemies.length ? w.enemies[k]! : w.player;
       if (a.gone) continue;
@@ -685,7 +691,7 @@ export class GameScene extends OyunScene {
       if (a.state === 2) {
         // stuck in a body: ride along with that archer's animation (drawn position only)
         const tr = this.tracks.get(a.host);
-        const host = tr ? (a.host === w.player.id ? w.player : w.enemies.find((e) => e.id === a.host)) : undefined;
+        const host = tr?.archer;
         if (tr && host && host.alive) {
           posePoint(host.body.x, host.body.y, tr.out, a.x, a.y, this.tmpPt);
           const ox = a.x;
@@ -728,7 +734,7 @@ export class GameScene extends OyunScene {
   private animate(a: Archer): Track {
     let tr = this.tracks.get(a.id);
     if (!tr) {
-      tr = { vx: new Float64Array(11), vy: new Float64Array(11), x: new Float64Array(0), y: new Float64Array(0), out: newAnimOut(), release: -99, land: -99, cheer: -99, taunt: -99, brain: a.brain };
+      tr = { vx: new Float64Array(11), vy: new Float64Array(11), x: new Float64Array(0), y: new Float64Array(0), out: newAnimOut(), archer: a, release: -99, land: -99, cheer: -99, taunt: -99, brain: a.brain };
       tr.x = tr.vx;
       tr.y = tr.vy;
       this.tracks.set(a.id, tr);
@@ -744,6 +750,7 @@ export class GameScene extends OyunScene {
       }
     }
     tr.brain = a.brain;
+    tr.archer = a;
     const w = this.w;
     const inp = this.animIn;
     inp.kind = a.type;
@@ -763,7 +770,13 @@ export class GameScene extends OyunScene {
     inp.title = w.phase === 'title' && a.type === 'player';
     inp.mood = 0;
     this.lookFor(a, inp);
-    animate(inp, tr.out);
+    if (this.animOff) {
+      // measurement aid: the renderer without the animation layer (identity pose)
+      inp.alive = false;
+      animate(inp, tr.out);
+      tr.out.eyes = 'open';
+      tr.out.mouth = 'smile';
+    } else animate(inp, tr.out);
     posePoints(a.body.x, a.body.y, a.body.n, tr.out, tr.vx, tr.vy);
     if (tr.out.stomp > 0 && this.animT - this.lastStomp > 0.5) {
       this.lastStomp = this.animT;
@@ -776,7 +789,7 @@ export class GameScene extends OyunScene {
   private track(id: number): Track {
     let tr = this.tracks.get(id);
     if (!tr) {
-      tr = { vx: new Float64Array(11), vy: new Float64Array(11), x: new Float64Array(0), y: new Float64Array(0), out: newAnimOut(), release: -99, land: -99, cheer: -99, taunt: -99, brain: '' };
+      tr = { vx: new Float64Array(11), vy: new Float64Array(11), x: new Float64Array(0), y: new Float64Array(0), out: newAnimOut(), archer: null, release: -99, land: -99, cheer: -99, taunt: -99, brain: '' };
       tr.x = tr.vx;
       tr.y = tr.vy;
       this.tracks.set(id, tr);
@@ -1212,7 +1225,7 @@ export class GameScene extends OyunScene {
     c.setScale(2.2).setAlpha(0).setAngle(-8);
     this.tweens.add({ targets: c, scale: 1, alpha: 1, angle: 0, duration: 260, ease: 'Back.easeOut' });
     // the banner stands in for the HUD's wave line while it is up
-    this.bannerUntil = this.time.now + (sub ? 2600 : 1250);
+    this.bannerUntil = performance.now() + (sub ? 2600 : 1250);
     this.tweens.add({ targets: c, alpha: 0, y: c.y - 60, delay: sub ? 2300 : 950, duration: 300, onComplete: () => c.destroy() });
   }
 
@@ -1473,10 +1486,15 @@ export class GameScene extends OyunScene {
         jumpToWave(this.w, Math.max(1, n.wave), n.drop === true);
         this.tracks.clear();
       },
+      anim: (p: unknown) => {
+        this.animOff = p === false;
+        this.arena.ambientOn = !this.animOff;
+      },
       god: () => {
         this.w.player.maxHp = this.w.player.hp = 1e6;
       },
       'give-cards': (p: unknown) => {
+        this.w.cards.length = 0;
         for (const id of p as CardId[]) this.w.cards.push(id);
         this.w.stats = statsFor(this.w.cards, this.w.meta);
       },

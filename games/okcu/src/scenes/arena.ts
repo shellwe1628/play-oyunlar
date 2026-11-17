@@ -26,6 +26,8 @@ export class Arena {
   theme: Theme = THEMES[0]!;
   index = -1;
   private time = 0;
+  /** measurement aid: ambient layer off */
+  ambientOn = true;
 
   constructor(private readonly scene: Phaser.Scene, layer: Phaser.GameObjects.Container) {
     for (let i = 0; i < 2; i++) this.back.push(scene.add.image(0, 0, '__DEFAULT').setOrigin(0).setVisible(false));
@@ -122,6 +124,11 @@ export class Arena {
     for (const c of this.clouds) {
       c.x += (c.getData('v') as number) * real;
       if (c.x > W + 160) c.x = -160;
+    }
+    if (!this.ambientOn) {
+      this.ambientG.clear();
+      this.lantern.clear();
+      return;
     }
     this.ambient.update(real, this.theme);
     this.ambient.draw(this.ambientG, this.theme);

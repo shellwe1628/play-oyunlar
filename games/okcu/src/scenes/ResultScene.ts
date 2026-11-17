@@ -1,9 +1,9 @@
 import { button, iconButton, ResultScene as ResultShell, toast, type Button, type ResultData } from '@oyun/core';
 import { gameSave } from '../save';
 import { PALETTE } from '../textures';
-import { dailyThemeOffset, themeIndex, THEMES } from '../anim/themes';
+import { dailyThemeOffset, themeIndex, THEMES, type Theme } from '../anim/themes';
 import { cosmeticById } from '../sim/meta';
-import { drawThemeBack, drawThemeNear } from './worlds';
+import { drawThemeBack, drawThemeLedge, drawThemeNear } from './worlds';
 import { Puppet } from './puppet';
 import type Phaser from 'phaser';
 import { hasRevive, session, type RunResult } from './GameScene';
@@ -29,6 +29,7 @@ export class ResultScene extends ResultShell {
   private doubleBtn: Button | null = null;
   private shownAt = 0;
   private puppet: Puppet | null = null;
+  private theme: Theme = THEMES[0]!;
   private puppetG: Phaser.GameObjects.Graphics | null = null;
   /** bumped on every create: an ad answer from an earlier visit is ignored */
   private visits = 0;
@@ -65,6 +66,7 @@ export class ResultScene extends ResultShell {
   protected override drawBackground(): void {
     // the arena the run ended in
     const th = THEMES[themeIndex(this.run.wave, this.run.daily ? dailyThemeOffset(this.run.dailyKey) : 0)]!;
+    this.theme = th;
     this.cameras.main.setBackgroundColor(th.skyTop);
     const g = this.add.graphics();
     drawThemeBack(g, th, 720, 1280);
@@ -98,9 +100,11 @@ export class ResultScene extends ResultShell {
     iconButton(this, this.layout.left + 70, this.layout.top + 70, 'home', () => {
       if (!this.adPending) this.goTo(this.gameScene, {});
     }, 96);
-    // the archer stands on the score card and reacts to the run
-    const at = this.cardPosition();
-    this.puppet = new Puppet('player', at.x + 200, at.y - 280, -1, 1);
+    // the archer stands beside the buttons on a little ledge and reacts to the run
+    const footY = this.layout.bottom - 40;
+    const stand = this.add.graphics();
+    drawThemeLedge(stand, { x: 600, y: footY, w: 110, h: 40 }, 1, this.theme);
+    this.puppet = new Puppet('player', 655, footY, -1, 0.85);
     this.puppet.setMood(this.run.newBest ? 1 : this.run.wave <= 2 ? -1 : 0);
     this.puppetG = this.add.graphics().setDepth(5);
     const p2 = this.buttonPosition(2);

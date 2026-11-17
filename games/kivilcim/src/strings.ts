@@ -102,7 +102,7 @@ export const STRINGS = defineStrings({
     'finish.next': 'SONRAKİ BÖLÜM İÇİN DOKUN',
     'finish.again': 'TEKRAR OYNAMAK İÇİN DOKUN',
     'finish.gems': '+{n} elmas',
-    'finish.double': 'Elmasları ikiye katla',
+    'finish.double': 'Elmas ×2',
     'finish.doubled': 'Elmaslar ikiye katlandı!',
     'finish.all': 'TÜM BÖLÜMLER BİTTİ!',
     'levels.title': 'BÖLÜMLER',

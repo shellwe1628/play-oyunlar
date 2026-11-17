@@ -244,7 +244,7 @@ export default {
       // Level 7 (teal), finished for the first time: ring burst, confetti, 100 %, three gems.
       id: 'finish',
       save: 'before7',
-      caption: { 'en-US': 'Ten levels, each in its own colours', 'tr-TR': 'On bölüm, her biri kendi renginde' },
+      caption: { 'en-US': 'Reach 100% to clear the level', 'tr-TR': "%100'e ulaş, bölümü bitir" },
       async run(g) {
         await startMode(g, 'level', 7);
         await fly(g, 'L7', 1e9);
@@ -276,10 +276,10 @@ export default {
   ],
 
   feature: {
-    tagline: { 'en-US': 'Hold to go right, let go to go left', 'tr-TR': 'Bas sağa, bırak sola' },
+    tagline: { 'en-US': 'Hold right, let go left', 'tr-TR': 'Bas sağa, bırak sola' },
     cards: [
-      ['flip', 120, 300, 480, 853],
-      ['mini', 120, 300, 480, 853],
+      ['flip', 40, 280, 480, 853],
+      ['endless', 60, 250, 480, 853],
     ],
   },
 };

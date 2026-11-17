@@ -1,6 +1,7 @@
 import { createRng } from '@oyun/core/pure';
 import { describe, expect, it } from 'vitest';
-import { CARELESS, CAREFUL, SLOW_HUMAN, playRun, solveShot, type Profile } from '../../src/sim/aimbot';
+import { appendFileSync } from 'node:fs';
+import { career, CARELESS, CAREFUL, SLOW_HUMAN, playRun, solveShot, type Profile } from '../../src/sim/aimbot';
 import { addVelocity, maxStickError, velX, velY } from '../../src/sim/body';
 import { CARDS, statsFor, type CardId } from '../../src/sim/cards';
 import { HELMET_HEAD_MUL, PLAYER_DAMAGE } from '../../src/sim/combat';
@@ -78,7 +79,8 @@ describe('event lifetime', () => {
     advance(w, 1 / 60); // the scene steps after handling input
     const first = takeEvents(w);
     expect(of(first, 'shot').length).toBe(1);
-    expect(of(first, 'waveStart')).toEqual([{ t: 'waveStart', wave: 1 }]);
+    expect(of(first, 'waveStart').length).toBe(1);
+    expect(of(first, 'waveStart')[0]).toMatchObject({ t: 'waveStart', wave: 1, chapter: 0, stage: 1 });
     advance(w, 1 / 60);
     expect(of(takeEvents(w), 'shot').length).toBe(0);
   });
@@ -240,11 +242,11 @@ describe('hits and knockouts (through the real hit path)', () => {
     expect(e.hp).toBeCloseTo(500 - 40 * HELMET_HEAD_MUL, 5);
   });
 
-  it('wave-14+ enemies really spawn with helmets', () => {
+  it('late-chapter enemies really spawn with helmets', () => {
     let helmets = 0;
     for (let seed = 1; seed <= 5; seed++) {
       const w = createWorld({ seed });
-      jumpToWave(w, 19);
+      jumpToWave(w, 24);
       helmets += w.enemies.filter((e) => e.helmet).length;
     }
     expect(helmets).toBeGreaterThan(5);
@@ -608,38 +610,100 @@ describe('determinism and stability', () => {
   });
 });
 
-describe('balance (scripted players over many seeds)', () => {
+describe('balance (scripted players over many seeds, fresh save unless noted)', () => {
   const SEEDS = 30;
-  const runs = (p: Profile) => Array.from({ length: SEEDS }, (_, i) => playRun(i + 1, createRng(1000 + i + 1), p));
+  const runs = (p: Profile, bow = 0, n = SEEDS) => Array.from({ length: n }, (_, i) => playRun(i + 1, createRng(1000 + i + 1), p, { meta: { ...NO_META, bow } }));
   const median = (xs: number[]) => [...xs].sort((a, b) => a - b)[Math.floor(xs.length / 2)]!;
-  const firstKoWithin3 = (r: { firstKoShot: number }[]) => r.filter((x) => x.firstKoShot >= 1 && x.firstKoShot <= 3).length / SEEDS;
+  const share = (xs: number[], wave: number) => xs.filter((x) => x >= wave).length / xs.length;
+  const firstKoWithin3 = (r: { firstKoShot: number }[]) => r.filter((x) => x.firstKoShot >= 1 && x.firstKoShot <= 3).length / r.length;
+  // waves that start each chapter: reaching wave 8 means chapter 1 is finished
+  const CH2 = 8;
+  const CH3 = 15;
+  const CH4 = 22;
+  const ENDLESS = 29;
+  const table: Record<string, unknown> = {};
+  const note = (name: string, reached: number[]) => {
+    table[name] = { median: median(reached), ch2: share(reached, CH2), ch3: share(reached, CH3), ch4: share(reached, CH4), endless: share(reached, ENDLESS), min: Math.min(...reached), max: Math.max(...reached) };
+    if (process.env.OKCU_BALANCE) appendFileSync(process.env.OKCU_BALANCE, `${name} ${JSON.stringify(table[name])}\n`);
+  };
 
-  it('slow human (a shot every 2.5–3 s, 0.08 rad error): clears wave 3 in ≥ 90 %, median wave 4–6', () => {
+  it('slow human (a shot every 2.5–3 s, 0.08 rad error) finishes chapter 1 almost always', () => {
     const r = runs(SLOW_HUMAN);
-    const waves = r.map((x) => x.wave);
-    expect(waves.filter((w) => w >= 4).length / SEEDS).toBeGreaterThanOrEqual(0.9);
-    expect(median(waves)).toBeGreaterThanOrEqual(4);
-    expect(median(waves)).toBeLessThanOrEqual(6);
+    const reached = r.map((x) => x.reached);
+    note('slow+0', reached);
+    expect(share(reached, CH2)).toBeGreaterThanOrEqual(0.9);
     expect(firstKoWithin3(r)).toBeGreaterThanOrEqual(0.9);
-  }, 120_000);
+    // … and chapter 2 asks for more
+    expect(share(reached, CH3)).toBeLessThanOrEqual(0.4);
+  }, 300_000);
 
-  it('careless player (rough aim, 25 % power error): clears wave 1 nearly always, reaches about wave 3–5', () => {
+  it('careless player (rough aim, 25 % power error): chapter 2 always, chapter 3 about half the time', () => {
     const r = runs(CARELESS);
-    const waves = r.map((x) => x.wave);
-    expect(waves.filter((x) => x >= 2).length / SEEDS).toBeGreaterThanOrEqual(0.9);
-    expect(median(waves)).toBeGreaterThanOrEqual(3);
-    expect(median(waves)).toBeLessThanOrEqual(6);
+    const reached = r.map((x) => x.reached);
+    note('careless+0', reached);
+    expect(share(reached, CH2)).toBeGreaterThanOrEqual(0.95);
+    expect(share(reached, CH3)).toBeGreaterThanOrEqual(0.35);
+    expect(share(reached, CH3)).toBeLessThanOrEqual(0.85);
+    expect(share(reached, ENDLESS)).toBeLessThanOrEqual(0.5);
     expect(firstKoWithin3(r)).toBeGreaterThanOrEqual(0.9);
-  }, 120_000);
+  }, 300_000);
 
-  it('careful player (solves the arc, small error): reaches about wave 10–15', () => {
+  it('a better bow carries the careless player further (bow +10)', () => {
+    const plain = runs(CARELESS, 0, 20).map((x) => x.reached);
+    const forged = runs(CARELESS, 10, 20).map((x) => x.reached);
+    note('careless+10', forged);
+    expect(median(forged)).toBeGreaterThan(median(plain));
+    expect(share(forged, CH4)).toBeGreaterThan(share(plain, CH4));
+  }, 300_000);
+
+  it('careful player (solves the arc, small error) reaches the last chapter most of the time', () => {
     const r = runs(CAREFUL);
-    const waves = r.map((x) => x.wave);
-    expect(median(waves)).toBeGreaterThanOrEqual(10);
-    expect(median(waves)).toBeLessThanOrEqual(15);
+    const reached = r.map((x) => x.reached);
+    note('careful+0', reached);
+    expect(share(reached, CH3)).toBeGreaterThanOrEqual(0.95);
+    expect(share(reached, CH4)).toBeGreaterThanOrEqual(0.5);
     expect(firstKoWithin3(r)).toBeGreaterThanOrEqual(0.95);
-    expect(Math.max(...waves)).toBeLessThan(40);
-  }, 120_000);
+  }, 300_000);
+
+  it('a careless career: playing and forging, later chapters open up run by run', () => {
+    const steps = career(3, CARELESS, 10);
+    if (process.env.OKCU_BALANCE) appendFileSync(process.env.OKCU_BALANCE, `career ${JSON.stringify(steps)}\n`);
+    expect(steps[0]!.reached).toBeGreaterThanOrEqual(CH2);
+    expect(steps[steps.length - 1]!.bow).toBeGreaterThan(steps[0]!.bow);
+    expect(Math.max(...steps.map((x) => x.reached))).toBeGreaterThanOrEqual(CH4);
+  }, 300_000);
+});
+
+describe('robustness: every chapter, boss and bonus round can be played through', () => {
+  it('a scripted player kept alive clears every stage of every chapter and the first endless laps (no stuck waves, no NaN)', () => {
+    let worst = 0;
+    for (const chapter of [0, 1, 2, 3, 4]) {
+      for (const seed of [11, 12]) {
+        const startWave = chapter * 7 + 1;
+        let waveT0 = 0;
+        let lastWave = startWave;
+        const r = playRun(seed, createRng(seed + 77), CAREFUL, {
+          startChapter: chapter,
+          god: true,
+          untilWave: startWave + 7 + 1,
+          maxTime: 1800,
+          each: (w) => {
+            if (w.wave !== lastWave) {
+              lastWave = w.wave;
+              waveT0 = w.time;
+            }
+            worst = Math.max(worst, w.time - waveT0);
+            for (const a of [w.player, ...w.enemies]) for (let i = 0; i < a.body.n; i++) expect(Number.isFinite(a.body.x[i]!) && Number.isFinite(a.body.y[i]!)).toBe(true);
+            for (const a of w.arrows) if (a.active) expect(Number.isFinite(a.x) && Number.isFinite(a.y)).toBe(true);
+            expect(Number.isFinite(w.player.hp)).toBe(true);
+          },
+        });
+        expect(r.reached, `chapter ${chapter} seed ${seed}`).toBeGreaterThanOrEqual(startWave + 7 + 1);
+      }
+    }
+    // no stage (including bosses, bonus rounds and card picks) takes more than two minutes
+    expect(worst).toBeLessThan(120);
+  }, 600_000);
 });
 
 describe('card pick is calm', () => {

@@ -1,7 +1,7 @@
 import { createRng } from '@oyun/core/pure';
 import { describe, expect, it } from 'vitest';
 import { animate, blinking, newAnimOut, posePoint, posePoints, type AnimInput, type Kind } from '../../src/anim/anim';
-import { dailyThemeOffset, themeIndex, THEMES } from '../../src/anim/themes';
+import { themeIndex, THEMES } from '../../src/anim/themes';
 import { CARELESS, planShot } from '../../src/sim/aimbot';
 import { PT } from '../../src/sim/ragdoll';
 import { advance, canShoot, createWorld, pickCard, shoot, takeEvents, type Archer, type World } from '../../src/sim/world';
@@ -137,17 +137,9 @@ describe('animation layer (pure)', () => {
 });
 
 describe('themes', () => {
-  it('change every five waves and cycle', () => {
-    expect([1, 5, 6, 10, 11, 16, 21].map((w) => themeIndex(w))).toEqual([0, 0, 1, 1, 2, 3, 0]);
+  it('each chapter is its own world; endless changes world every seven waves', () => {
+    expect([1, 7, 8, 14, 15, 22, 28, 29, 36, 43, 50, 57].map((w) => themeIndex(w))).toEqual([0, 0, 1, 1, 2, 3, 3, 0, 1, 2, 3, 0]);
     expect(THEMES.map((t) => t.id)).toEqual(['meadow', 'snow', 'desert', 'night']);
-  });
-  it('the daily run picks its theme from the date', () => {
-    const a = dailyThemeOffset('2026-11-17');
-    expect(dailyThemeOffset('2026-11-17')).toBe(a);
-    const seen = new Set<number>();
-    for (let d = 1; d <= 28; d++) seen.add(dailyThemeOffset(`2026-02-${String(d).padStart(2, '0')}`));
-    expect(seen.size).toBe(THEMES.length);
-    expect(themeIndex(1, 2)).toBe(2);
   });
 });
 
@@ -163,7 +155,7 @@ describe('animations never change the sim', () => {
     let wait = 0;
     const animateAll = (t: number) => {
       const each = (a: Archer) => {
-        animate(input(a.type, t, { id: a.id, alive: a.alive, draw: a.draw, sinceHit: a.hurt, hp: a.hp / a.maxHp, facing: a.facing, scale: a.scale, brain: a.brain }), o);
+        animate(input((a.type === 'player' || a.type === 'archer' || a.type === 'shield' || a.type === 'jumper' || a.type === 'bomber' || a.type === 'boss' ? a.type : 'archer'), t, { id: a.id, alive: a.alive, draw: a.draw, sinceHit: a.hurt, hp: a.hp / a.maxHp, facing: a.facing, scale: a.scale, brain: a.brain }), o);
         posePoints(a.body.x, a.body.y, a.body.n, o, vx, vy);
       };
       each(w.player);

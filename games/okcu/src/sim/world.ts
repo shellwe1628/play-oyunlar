@@ -1248,7 +1248,7 @@ function updateProps(w: World): void {
     const y0 = p.y;
     p.y += p.vy * DT;
     for (const e of w.enemies) {
-      if (!e.alive) continue;
+      if (!e.alive || e.brain === 'spawn') continue;
       const hx = e.body.x[PT.head]! - p.x;
       const hy = e.body.y[PT.head]! - p.y;
       const nx = e.body.x[PT.neck]! - p.x;
@@ -2123,7 +2123,8 @@ function playerArrowHits(w: World, a: Arrow, x0: number, y0: number): void {
   let hx = 0;
   let hy = 0;
   for (const e of w.enemies) {
-    if (e.gone || e.id === a.ignore) continue;
+    // archers dropping in cannot be hit until they land
+    if (e.gone || e.id === a.ignore || (e.alive && e.brain === 'spawn')) continue;
     if (e.shield) {
       const h = hitParts(e.shield, 1, SHIELD_PARTS, x0, y0, a.x, a.y);
       if (h && h.t < bestT) {

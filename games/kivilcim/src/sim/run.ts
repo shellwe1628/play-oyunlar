@@ -8,7 +8,7 @@
  * The vertical motion never depends on input, so the solver can precompute it (kinematics()).
  */
 import { DT, EDGE_WINDOW_S, GEM_R, MINI_R, NEAR_PX, NEAR_RELEASE_PX, SPARK_R, SPEED_MULT } from './constants';
-import { baseSpeed, sdf, type Gate, type GateKind, type HazardKind, type SdfOut, type SpeedProfile, type Track } from './track';
+import { baseSpeed, sdf, windAt, type Gate, type GateKind, type HazardKind, type Portal, type SdfOut, type SpeedProfile, type Track } from './track';
 
 /** Input-independent part of the run state. */
 export interface Kin {
@@ -81,6 +81,18 @@ export interface StepEvents {
   nearMin: number;
   died: boolean;
   finished: boolean;
+  /** Index of the portal pair taken this tick, or -1. */
+  portal: number;
+}
+
+/**
+ * Portal crossing (pure, shared with the solver): x after passing the line of portal p, or x
+ * unchanged when it passes outside both rings.
+ */
+export function teleport(p: Portal, x: number): number {
+  if (Math.abs(x - p.xa) <= p.r) return x - p.xa + p.xb;
+  if (Math.abs(x - p.xb) <= p.r) return x - p.xb + p.xa;
+  return x;
 }
 
 export interface RunOptions {
@@ -108,7 +120,8 @@ export class RunSim {
   private inNear = false;
   private nearLow = Infinity;
   private lastNearT = -Infinity;
-  private readonly ev: StepEvents = { gate: null, gem: -1, nearMiss: false, nearMin: 0, died: false, finished: false };
+  private readonly ev: StepEvents = { gate: null, gem: -1, nearMiss: false, nearMin: 0, died: false, finished: false, portal: -1 };
+  private portalIdx = 0;
   private readonly out: SdfOut = { cause: 'wall' };
 
   constructor(track: Track, opts: RunOptions = {}) {
@@ -191,6 +204,7 @@ export class RunSim {
     c.inNear = this.inNear;
     c.nearLow = this.nearLow;
     c.lastNearT = this.lastNearT;
+    c.portalIdx = this.portalIdx;
     return c;
   }
 
@@ -206,15 +220,26 @@ export class RunSim {
     ev.nearMiss = false;
     ev.died = false;
     ev.finished = false;
+    ev.portal = -1;
     if (!this.alive || this.finished) return ev;
     const track = this.track;
     const k = this.kin;
 
     this.dir = held !== k.flipped ? 1 : -1;
     const v = kinSpeed(track, k);
-    this.x += this.dir * v * DT;
+    const w = track.winds.length ? windAt(track, k.y) : 0;
+    const vd = v * DT;
+    this.x = this.x + this.dir * vd + w * vd;
     ev.gate = kinAdvance(track, k, v);
     const y = k.y;
+    const portals = track.portals;
+    while (this.portalIdx < portals.length && portals[this.portalIdx]!.y <= y) {
+      const p = portals[this.portalIdx]!;
+      const x2 = teleport(p, this.x);
+      if (x2 !== this.x) ev.portal = this.portalIdx;
+      this.x = x2;
+      this.portalIdx += 1;
+    }
     const t = k.tick * DT;
     const r = k.mini ? MINI_R : SPARK_R;
 

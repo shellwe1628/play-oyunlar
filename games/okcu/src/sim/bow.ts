@@ -36,7 +36,7 @@ export function bowDamage(level: number): number {
 /** Coins for one attempt at going from `level` to `level + 1` (null at the top). */
 export function bowCost(level: number): number | null {
   if (level >= BOW_MAX) return null;
-  return Math.round(40 * 1.3 ** level);
+  return Math.round(40 * 1.38 ** level);
 }
 
 /** Base success chance of an attempt from `level` (levels +0 … +5 always succeed). */
@@ -137,6 +137,6 @@ export function bowGlow(level: number): BowGlow {
     case 'crystal':
       return { sheen: 0.9, aura: 0.55 + 0.15 * k, color: AURA.crystal, particles: true, stringTrail: false, cycle: false };
     case 'mythic':
-      return { sheen: 1, aura: Math.min(1, 0.7 + 0.06 * inTier), color: AURA.mythic, particles: true, stringTrail: true, cycle: level >= 18 };
+      return { sheen: 1, aura: Math.min(1, 0.72 + 0.056 * inTier), color: AURA.mythic, particles: true, stringTrail: true, cycle: level >= 18 };
   }
 }

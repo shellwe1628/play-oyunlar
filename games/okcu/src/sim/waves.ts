@@ -61,7 +61,9 @@ export const BASE_HP: Record<EnemyType, number> = {
 export const BOSS_HP: Record<BossKind, number> = { shields: 170, giant: 420, summoner: 380, warden: 520 };
 
 export function enemyHp(type: EnemyType, level: number): number {
-  return Math.round(BASE_HP[type] * (1 + 0.6 * (Math.max(1, level) - 1)) * 1.12 ** Math.max(0, level - 8));
+  // +12 % a level from level 8 to 22 (the chapters), then +8 % a level in endless
+  const L = Math.max(1, level);
+  return Math.round(BASE_HP[type] * (1 + 0.6 * (L - 1)) * 1.12 ** Math.min(14, Math.max(0, L - 8)) * 1.08 ** Math.max(0, L - 22));
 }
 
 export function bossHp(kind: BossKind, lap: number): number {

@@ -5,7 +5,7 @@
  */
 import { BEAT_PX, DT, SHAFT_W, START_X } from './constants';
 import { kinAdvance, kinSpeed, kinStart, type Kin, type KinSource } from './run';
-import type { Bar, Block, Gate, GateKind, Gem, Track } from './track';
+import type { Bar, Block, Gate, GateKind, Gem, Laser, Pill, Portal, Section, Spinner, Track, Wind, Zone } from './track';
 
 export interface BuilderOptions {
   speed: number;
@@ -31,6 +31,14 @@ export class TrackBuilder {
   private readonly barList: Bar[] = [];
   private readonly gates: Gate[] = [];
   private readonly gems: Gem[] = [];
+  readonly pills: Pill[] = [];
+  readonly lasers: Laser[] = [];
+  readonly spinners: Spinner[] = [];
+  readonly winds: Wind[] = [];
+  readonly portals: Portal[] = [];
+  readonly mirrors: Zone[] = [];
+  readonly darks: Zone[] = [];
+  readonly sections: Section[] = [];
 
   private readonly kin: Kin = kinStart();
   private readonly src: KinSource;
@@ -230,6 +238,14 @@ export class TrackBuilder {
       bars: byY(this.barList),
       gates: byY(this.gates),
       gems: byY(this.gems),
+      pills: byY(this.pills),
+      lasers: byY(this.lasers),
+      spinners: byY(this.spinners),
+      winds: [...this.winds].sort((p, q) => p.y0 - q.y0),
+      portals: byY(this.portals),
+      mirrors: [...this.mirrors].sort((p, q) => p.y0 - q.y0),
+      darks: [...this.darks].sort((p, q) => p.y0 - q.y0),
+      sections: byY(this.sections),
       speed: this.profile(),
       startX: START_X,
     };

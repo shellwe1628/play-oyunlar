@@ -221,7 +221,7 @@ describe('chapters and stages', () => {
     }
   });
   it('difficulty level: a gentle first chapter, then steeper chapters and endless', () => {
-    expect([1, 7, 8, 14, 15, 21, 22, 28, 29, 30].map(levelOf)).toEqual([1, 2.2, 3.5, 9.5, 10.5, 16.5, 17, 23, 23.5, 25]);
+    expect([1, 7, 8, 14, 15, 21, 22, 28, 29, 30].map(levelOf)).toEqual([1, 2.2, 3.5, 9.5, 10.5, 16.5, 17, 23, 23.5, 24.5]);
     for (let w = 2; w < 80; w++) expect(levelOf(w)).toBeGreaterThan(levelOf(w - 1));
   });
   it('enemy accuracy tightens and draws quicken as waves go on, with floors', () => {
@@ -277,7 +277,15 @@ describe('exact values (so a changed number fails a test)', () => {
     const one = (id: CardId, n = 1) => statsFor(Array<CardId>(n).fill(id), NO_META);
     expect(Object.fromEntries(CARD_IDS.map((id) => [id, CARDS[id].max]))).toEqual({
       heavy: 5, double: 2, split: 2, fire: 4, bounce: 3, pierce: 3, quick: 4, vitality: 6, magnet: 2, shield: 2, longsight: 2, vampire: 3,
+      seeker: 2, overdraw: 2, chain: 3, keen: 3, zen: 2, boom: 2,
     });
+    expect(one('seeker').seek).toBeCloseTo(2.8);
+    expect(one('overdraw').overdraw).toBeCloseTo(1.55);
+    expect(one('chain').chainShare).toBeCloseTo(0.45);
+    expect(one('keen').crit).toBeCloseTo(0.14);
+    expect(one('keen').critMul).toBe(1.75);
+    expect(one('zen').focusTime).toBe(7);
+    expect(one('boom', 2).boomDmg).toBe(48);
     expect(one('heavy').impulseMul).toBeCloseTo(1.35);
     expect(one('fire').fireDps).toBe(14);
     expect(one('fire', 2).fireDps).toBe(20);

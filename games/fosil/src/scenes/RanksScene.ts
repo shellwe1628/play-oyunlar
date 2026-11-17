@@ -319,8 +319,7 @@ export class RanksScene extends OyunScene {
     const s = this.sim;
     const box = this.add.container(0, 0).setDepth(950);
     const shade = this.add.rectangle(L.cx, L.height / 2, L.width + 40, L.height + 40, 0x000000, 0.8).setInteractive();
-    const cardH = 640;
-    const card = panel(this, L.cx, L.cy - 40, L.width - 60, cardH, { color: PALETTE.dirtLight });
+    const texts: Phaser.GameObjects.Text[] = [];
     const now = s.expeditionMult;
     const after = 1 + EXPEDITION.power * (s.expeditions + 1);
     const lines: [string, number, number][] = [
@@ -330,14 +329,20 @@ export class RanksScene extends OyunScene {
       [this.t('exp.gain', { a: mult(this, now), b: mult(this, after) }), 30, 0xffd23f],
       [this.t('exp.harder', { n: s.expeditions + 2, h: mult(this, 1 + EXPEDITION.hard * (s.expeditions + 1)) }), 28, 0xffffff],
     ];
-    let y = -cardH / 2 + 60;
-    for (const [text, size, color] of lines) {
-      const t = label(this, 0, y, text, { size, color, wrap: L.width - 140 }).setOrigin(0.5, 0);
+    for (const [text, size, color] of lines) texts.push(label(this, 0, 0, text, { size, color, wrap: L.width - 140 }).setOrigin(0.5, 0));
+    // the card grows with its text; the buttons sit under the last line
+    const textH = texts.reduce((a, t) => a + t.height + 22, 0);
+    const cardH = 50 + textH + 230;
+    const cardY = L.cy - 20;
+    const card = panel(this, L.cx, cardY, L.width - 60, cardH, { color: PALETTE.dirtLight });
+    let y = -cardH / 2 + 50;
+    for (const t of texts) {
+      t.setY(y);
       card.add(t);
       y += t.height + 22;
     }
-    const go = button(this, L.cx, L.cy + cardH / 2 - 200, this.t('exp.go'), () => this.startExpedition(), { width: 460, height: 100 });
-    const cancel = button(this, L.cx, L.cy + cardH / 2 - 90, this.t('exp.cancel'), () => this.closeConfirm(), { width: 360, height: 88, fontSize: 34, variant: 'secondary' });
+    const go = button(this, L.cx, cardY + y + 60, this.t('exp.go'), () => this.startExpedition(), { width: 460, height: 100 });
+    const cancel = button(this, L.cx, cardY + y + 170, this.t('exp.cancel'), () => this.closeConfirm(), { width: 360, height: 88, fontSize: 34, variant: 'secondary' });
     box.add([shade, card, go, cancel]);
     this.juice.pop(card, 0.5, 300);
     this.oyun.audio.playPreset(SFX.flip);
@@ -375,6 +380,7 @@ export class RanksScene extends OyunScene {
       duration: 1600,
       ease: 'Cubic.easeIn',
       onComplete: () => {
+        this.add.rectangle(L.cx, L.height / 2, L.width + 40, L.height + 40, 0x120c08, 1).setDepth(999);
         const title = label(this, L.cx, L.cy, this.t('exp.started', { n: s.expeditions, s: s.expeditions + 1 }), { size: 52, color: 0xffd23f, wrap: L.width - 80 }).setDepth(1001);
         title.setStroke(cssColor(PALETTE.shadow), 10);
         this.juice.pop(title, 0.3, 400);

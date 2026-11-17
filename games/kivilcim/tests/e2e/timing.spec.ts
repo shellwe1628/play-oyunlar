@@ -1,5 +1,5 @@
 import { act, collectErrors, expect, openGame, state, test, waitForScene } from '@oyun/core/e2e';
-import type { Page } from '@playwright/test';
+import type { Browser, Page } from '@playwright/test';
 
 type Data = Record<string, unknown> & {
   phase: string;
@@ -207,4 +207,68 @@ test('endless and daily fly on autopilot (planned ahead incrementally)', async (
   expect(d.phase).toBe('playing');
   expect(d.height).toBeGreaterThan(300);
   expect(errors).toEqual([]);
+});
+
+/**
+ * Retry latency on the game's own clock (stepped): independent of machine load. A run nobody
+ * touches dies on the wall; from then on the player taps on every frame. The tap must be taken and
+ * the new run must be advancing within 600 ms of game time after the death, at 30 and 60 fps,
+ * with the presentation on and off (nothing in the presentation may delay it).
+ */
+async function retryOnGameClock(browser: Browser, fx: boolean, frameMs: number): Promise<{ acceptedMs: number; advancingMs: number; cause: string }> {
+  const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true });
+  const page = await ctx.newPage();
+  const errors = collectErrors(page);
+  await page.clock.install({ time: new Date('2026-11-17T10:00:00') });
+  await openGame(page, { seed: 1, lang: 'en', query: fx ? 'fx=1' : 'fx=0' });
+  await page.clock.pauseAt((await page.evaluate(() => Date.now())) + 3000);
+  await act(page, 'start', { mode: 'level', level: 1 });
+  await act(page, 'tap'); // press + release: the run starts and drifts left into the wall
+  let deathAt = -1;
+  let cause = '';
+  for (let k = 0; k < 600 && deathAt < 0; k++) {
+    await page.clock.fastForward(frameMs);
+    const d = await data(page);
+    if (d.phase === 'dead') {
+      deathAt = (await page.evaluate(() => performance.now())) - Number(d.msSinceDeath);
+      cause = d.deathCause as string;
+    }
+  }
+  expect(deathAt, 'the untouched run dies').toBeGreaterThan(0);
+  let acceptedMs = -1;
+  let advancingMs = -1;
+  let tick0 = -1;
+  for (let k = 0; k < 2000 / frameMs && advancingMs < 0; k++) {
+    await page.clock.fastForward(frameMs);
+    const r = await page.evaluate(() => {
+      const api = window.__OYUN__!;
+      if (api.state().data.phase === 'dead') api.act('tap');
+      const d = api.state().data;
+      return { phase: d.phase as string, tick: Number(d.tick), latency: Number(d.retryLatencyMs), now: performance.now() };
+    });
+    if (r.phase === 'playing' && acceptedMs < 0) {
+      acceptedMs = r.latency;
+      tick0 = r.tick;
+    } else if (acceptedMs >= 0 && r.tick > tick0) advancingMs = r.now - deathAt;
+  }
+  expect(errors).toEqual([]);
+  await ctx.close();
+  return { acceptedMs, advancingMs, cause };
+}
+
+test('retry: tap taken and run advancing within 600 ms of game time after death (stepped clock, fx on/off, 30/60 fps)', async ({ browser }) => {
+  test.setTimeout(400_000);
+  for (const [fx, frameMs] of [
+    [true, 33],
+    [false, 33],
+    [true, 17],
+  ] as const) {
+    const r = await retryOnGameClock(browser, fx, frameMs);
+    console.warn(`retry (fx ${fx ? 'on' : 'off'}, ${frameMs} ms frames, game clock): died on ${r.cause}, tap taken at ${r.acceptedMs} ms, run advancing at ${Math.round(r.advancingMs)} ms`);
+    expect(r.cause).toBe('wall');
+    expect(r.acceptedMs).toBeGreaterThan(0);
+    expect(r.acceptedMs).toBeLessThan(600);
+    expect(r.advancingMs).toBeGreaterThan(0);
+    expect(r.advancingMs).toBeLessThan(600);
+  }
 });

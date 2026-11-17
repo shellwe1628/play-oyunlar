@@ -167,7 +167,7 @@ export function chapterStart(chapter: number): number {
 /** Difficulty level at each chapter's first stage, and its rise per stage. */
 export const LEVEL_BASE: readonly number[] = [1, 3.5, 10.5, 17];
 export const LEVEL_STEP: readonly number[] = [0.2, 1, 1, 1];
-/** endless: the level after the last chapter, +1.5 per wave */
+/** endless: the level after the last chapter, +1 per wave */
 export const ENDLESS_LEVEL = 23.5;
 
 /**
@@ -177,7 +177,7 @@ export const ENDLESS_LEVEL = 23.5;
 export function levelOf(wave: number): number {
   const p = stageOf(wave);
   if (!p.endless) return LEVEL_BASE[p.chapter]! + LEVEL_STEP[p.chapter]! * (p.stage - 1);
-  return ENDLESS_LEVEL + 1.5 * (wave - ENDLESS_WAVE);
+  return ENDLESS_LEVEL + (wave - ENDLESS_WAVE);
 }
 
 const ENDLESS_POOL: readonly { type: EnemyType; weight: number }[] = [

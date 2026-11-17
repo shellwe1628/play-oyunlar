@@ -20,8 +20,8 @@
  *               holding every input at least K_REF (100 ms). Smaller = more precise steering.
  */
 import { DT, GEM_R, MINI_R, SHAFT_W, SPARK_R } from './constants';
-import { kinAdvance, kinSpeed, kinStart, RunSim } from './run';
-import { sdf, segmentAt, wallXAt, type Track } from './track';
+import { kinAdvance, kinSpeed, kinStart, RunSim, teleport } from './run';
+import { sdf, segmentAt, wallXAt, windAt, type Track } from './track';
 
 /** Ticks a human can still alternate at: 12 ticks = 100 ms. */
 export const K_REF = 12;
@@ -38,6 +38,10 @@ export interface Timeline {
   /** Radius and flip state at row j. */
   r: Float32Array;
   flipped: Uint8Array;
+  /** Wind drift during tick j (row j → j+1). */
+  w: Float64Array;
+  /** Portal crossed by tick j (row j → j+1), or -1. */
+  portal: Int16Array;
 }
 
 export function kinematics(track: Track, maxTicks = Infinity): Timeline {
@@ -59,7 +63,15 @@ export function kinematics(track: Track, maxTicks = Infinity): Timeline {
   const t = new Float64Array(n + 1);
   for (let j = 0; j <= n; j++) t[j] = j * DT;
   vs.push(vs[n - 1] ?? 0);
-  return { n, y: Float64Array.from(ys), t, v: Float64Array.from(vs), r: Float32Array.from(rs), flipped: Uint8Array.from(fs) };
+  const w = new Float64Array(n + 1);
+  const portal = new Int16Array(n + 1).fill(-1);
+  let pi = 0;
+  for (let j = 0; j < n; j++) {
+    if (track.winds.length) w[j] = windAt(track, ys[j]!);
+    // Several portals in one tick never happen (they are hundreds of px apart).
+    if (pi < track.portals.length && track.portals[pi]!.y <= ys[j + 1]!) portal[j] = pi++;
+  }
+  return { n, y: Float64Array.from(ys), t, v: Float64Array.from(vs), r: Float32Array.from(rs), flipped: Uint8Array.from(fs), w, portal };
 }
 
 export interface ClearTable {
@@ -189,6 +201,8 @@ export function solve(track: Track | Prepared, opts: SolveOptions): Plan | null 
   for (let j = j0; j < n; j++) {
     const v = tl.v[j]! * DT;
     const flip = tl.flipped[j]!;
+    const wv = tl.w[j]! * v;
+    const portal = tl.portal[j]! >= 0 ? p.track.portals[tl.portal[j]!]! : null;
     const r1 = tl.r[j + 1]!;
     const lo1 = table.lo[j + 1]!;
     const hi1 = table.hi[j + 1]!;
@@ -216,7 +230,8 @@ export function solve(track: Track | Prepared, opts: SolveOptions): Plan | null 
             sn2 = 1;
           }
           const dir = (h2 === 1) !== (flip === 1) ? 1 : -1;
-          const x2 = x + dir * v;
+          let x2 = x + dir * v + wv;
+          if (portal) x2 = teleport(portal, x2);
           const b2 = Math.floor(x2 / BIN_W);
           if (b2 < lo1 || b2 > hi1) continue;
           const off = x2 - (b2 + 0.5) * BIN_W;

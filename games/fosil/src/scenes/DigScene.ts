@@ -421,7 +421,8 @@ export class DigScene extends OyunScene {
           break;
         }
         case 'rank':
-          this.time.delayedCall(700, () => this.rankUp(e.rank));
+          // after any goal notes from the same moment have had their say
+          this.time.delayedCall(events.some((x) => x.kind === 'quest') ? 2600 : 700, () => this.rankUp(e.rank));
           break;
       }
     }

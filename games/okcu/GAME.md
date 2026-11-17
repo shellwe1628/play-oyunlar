@@ -162,8 +162,8 @@ Multiplayer, more arenas, a story, weapon types other than the bow.
   fans three arrows). From wave 14, steel-capped veterans whose head hit is not a knockout.
   Each type is introduced alone with a banner line; a red "!" shows an archer about to shoot.
   A wave's first volley from each archer never lands a headshot (it counts as a body hit).
-- **Waves**: three rotating 4-ledge layouts + a boss arena, sky palette changes every five
-  waves; small pale birds and two far-off balloons drift through the upper sky. Clear →
+- **Waves**: three rotating 4-ledge layouts + a boss arena; the world theme changes every five
+  waves (see "Animation and worlds" below). Clear →
   heal, "Wave cleared!" + coin burst → three cards slam in → tap one → archers drop in.
 - **Feel**: string creak ticks while drawing; on release a snap, a whistle, a light haptic,
   the camera pushes along the shot (world kicks back 26 px + 3.5 % zoom punch, springs home),
@@ -186,7 +186,7 @@ Multiplayer, more arenas, a story, weapon types other than the bow.
   Double coins (rewarded) and a home icon. While a rewarded ad is pending every button is
   disabled, and a late answer after the screen was left or restarted grants nothing.
 - **Shop**: five upgrades (level bar, affordable prices bright, too dear dimmed, maxed shows a
-  green "Max") and six cosmetics in two rows.
+  green "Max") on an **Upgrades** tab; a **Looks** tab with twelve cosmetics (see below).
 - **Daily run**: the Daily pill switches to a seeded run (`okcu-daily-YYYY-MM-DD`, local date).
   **Decision: the daily ignores permanent upgrades**, so everyone gets the same run; the title
   says so ("Same archers for everyone today · no upgrades") and the pill reads "Normal" to
@@ -194,6 +194,58 @@ Multiplayer, more arenas, a story, weapon types other than the bow.
 - **Save**: version 2. v1 → v2 migration merges upgrades over defaults; validation no longer
   rejects a save that lacks an upgrade id, and missing ids are filled on load, so adding an
   upgrade never resets coins or best wave.
+
+### Animation and worlds
+
+- **One animation layer** (`src/anim/anim.ts`, pure, tested). `animate(input, out)` maps an
+  archer's read-only state (type, id, time, draw, brain, seconds since hit / release / landing
+  / cheer / taunt, health fraction, look target, title / result mood) to offsets: root
+  shift, lean and squash about the feet, head / hand / foot offsets (each capped at 64 px ×
+  size), eyes, mouth, scarf lift, dizzy, sweat, laugh, juggle and a bow-draw override.
+  `posePoints` writes a posed copy of the 11 points into the scene's own view arrays; the
+  renderer draws from those. The sim's points, hit boxes and rules are never written; arrows
+  stuck in a body ride the same transform. Dead archers get no offsets (the ragdoll owns them).
+- **Motion**: every archer breathes and shifts weight, blinks (per-id phase) and its eyes
+  follow the nearest incoming arrow, else the other side. Drawing: lean back, squint, scarf
+  lifts. Release: follow-through lean. Hit: eyes shut flinch, then dizzy stars. Health
+  under 30 %: sweat drop and knocking knees. Landing: squash (the boss lands with a roar,
+  shake and dust). Wave clear: the player hops twice with the bow raised. An enemy that hits
+  the player laughs (the sim's `playerHit` event now carries `by`, the shooter id).
+  Personality loops: archer taps a foot, shield bearer ducks behind the shield and peeks,
+  jumper bounces on its toes, bomber juggles a bomb, boss stomps (a small shake). Title: the
+  player stretches, tests the string and looks at you.
+- **Worlds** (`src/anim/themes.ts`, `src/scenes/worlds.ts`, `src/scenes/arena.ts`): meadow,
+  snow, desert, night. Each has a banded sky, a far range (hills, peaks, mesas) and a near
+  layer (trees, pines, cacti, lantern posts) baked once to textures with parallax on the
+  shot push, its own ledge art (grass, icicles, sandstone stripes and a cactus, hanging
+  lanterns), tinted clouds and ambient motion (pollen, balloons and a bird flock; snowfall;
+  blowing sand; 18 fireflies and pulsing lantern glow). The theme changes every five waves
+  with a 900 ms cross-fade (two baked themes kept at most); the daily run picks its starting
+  theme from the date. Night arrows get a pale halo so they read on the dark sky.
+- **Effects**: arrows look like their card (heavy: thick shaft with an iron head; bounce: a
+  green ball tip; pierce: a glowing needle; split: blue fletching) and trail per card (fire
+  embers, pierce cyan streak, bounce dots, heavy smoke) from a pooled ring buffer per arrow
+  slot. Impacts per surface (themed ledge chips, a metal ring on shields, bomb shockwave +
+  fireball + debris). Bigger knockout poof, apples wobble and pop with juice, coins spin,
+  a boss knockout opens a treasure flourish (rotating golden rays, a 24-coin fountain,
+  confetti, jingle).
+- **Screens**: the logo's arrow boings into it every 3.2 s; card icons sway, squash on press
+  and spin on pick; the result screen shows the wave's theme with an archer on a little ledge
+  that cheers on a new best, droops on an early death and idles otherwise; the shop's Looks
+  tab previews each look on a large animated archer (tap a locked look to preview it, an
+  unlocked one to wear it, and the archer cheers).
+- **Cosmetics**: six new looks (flower, party hat, bandana, wizard hat, beret, laurel) with
+  six bow skins (wood, leaf, candy, dark, ice, gold). They unlock from existing milestones,
+  runs played and best wave, never coins, so the economy is unchanged.
+- **Tests** (`tests/unit/anim.test.ts`): determinism and bounds over 4000 random states,
+  blink rate, each type's motion signature, every reaction, `posePoints` keeps the feet
+  planted and never touches the body, theme cycle and daily pick, and **a seeded 90 s
+  careless run whose full event log and final world are identical with the animation layer
+  on and off**.
+- **Frame time** (JS update, wave 8 snow with 47–71 arrows, headless Chromium on a loaded
+  machine, so noisy): before the round 2.0–2.7 ms average, after 2.6–4.1 ms. Same-session A/B
+  with the animation layer on vs off (4 pairs, warm-up dropped): night (the busiest theme)
+  3.5 vs 2.65 ms (+0.85), snow 2.28 vs 2.1 ms (+0.18). Not measured on a real phone.
 
 ### Deviations from the concept (and why)
 
@@ -213,7 +265,10 @@ Multiplayer, more arenas, a story, weapon types other than the bow.
   apples rather than pulling them.
 - **Test-hook extras**: `reroll`, `extra`, `pause`, `shop`, `daily`, `perf-reset`,
   `timescale` (slows game time and the real-time effects for frame captures; never used by
-  the gate). `jumpToWave` exists in the sim for tests only.
+  the gate; it also slows tweens and timers). Capture aids added in the animation round, never
+  used by the gate: `jump-wave` (a number or `{wave, drop}`, uses the sim's `jumpToWave`),
+  `god` (the player takes no damage), `give-cards` (replaces the card list), `anim` (true /
+  false: turn the animation layer off for A/B frame-time runs), `tab` (shop tab).
 
 ### Tuning numbers
 
@@ -235,7 +290,7 @@ Multiplayer, more arenas, a story, weapon types other than the bow.
 | Cards | heavy ×1.3 dmg ×1.35 shove (max 5) · double +1 volley (max 2) · split +2 arrows ±0.065 rad (max 2) · fire 8+6n dps for 2.5+0.5n s (max 4) · bounce +1 (max 3) · pierce +1 (max 3) · quick ×0.72 reload (max 4) · vitality +25 (max 6) · magnet radius ×2.1, heal ×1.6 (max 2) · bubble 1 block/wave (max 2) · eagle eye arc ×1.6 (max 2) · snack hits +3 hp/hit (max 3) |
 | Permanent upgrades | health 25 × 1.55^L (max 8, +15 each), damage 30 × 1.6^L (max 8, +10 %), coins 35 × 1.6^L (max 6, +20 %), second reroll 60, starting card 90 |
 | Coins | knockout 3 + ⌊w/2⌋ (+2 headshot, +25 boss); wave clear 2 + w; × coin upgrade |
-| Cosmetics | classic 0, beanie 5, feather cap 10, top hat 15, horned helm 20, crown 25 (best wave) |
+| Cosmetics | best wave: classic 0, beanie 5, feather cap 10, top hat 15, horned helm 20, crown 25, laurel 30 · runs played: flower 3, party hat 6, bandana 10, wizard hat 15, beret 25 |
 
 ### Measured balance (30 seeds each, asserted in `tests/unit/world.test.ts`)
 

@@ -4,7 +4,6 @@
  * per-frame allocation beyond what Phaser's Graphics does internally.
  */
 import type Phaser from 'phaser';
-import type { Ledge } from '../sim/body';
 import type { BowSkin, Cosmetic } from '../sim/meta';
 import type { AnimOut } from '../anim/anim';
 import { PT } from '../sim/ragdoll';

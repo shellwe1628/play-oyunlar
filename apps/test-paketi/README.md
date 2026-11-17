@@ -178,11 +178,11 @@ derlemesinin üzerine kurulur, sonraki GitHub derlemesi onu da günceller (versi
 Doğrulandı (bu makinede, 2026-11-17):
 - Güncelleme mantığı (manifest denetimi, sürüm karşılaştırma, bant durum makinesi, metinler,
   yerleşim, denetim aralığı) `tests/unit/` birim testleriyle (önce yazıldı, kırmızı görüldü).
-- `npm run apk -- all` arka arkaya iki kez: dört APK, her biri betiğin kendi denetiminden geçti
+- `npm run apk -- all` üç kez (ilk ikisi arka arkaya, versionCode 461833 → 461844 → 461877): dört APK, her biri betiğin kendi denetiminden geçti
   (kimlik, en/tr ad, versionCode, minSdk 24 / targetSdk 36, izinler: INTERNET +
   REQUEST_INSTALL_PACKAGES, `<id>.testupdate` sağlayıcısı, dex'te eklenti + sürüm adresi, her
   sayfada güncelleyici, imza = test anahtarı SHA-256 `bd03c5f1…fb8c64`). Yerel kod derlendi
-  (Gradle `assembleDebug`) ve `lintDebug` çalıştı.
+  (Gradle `assembleDebug`); `lintDebug` (okcu test projesi): 0 hata, eklentiye dair tek uyarı `UsableSpace` (öneri).
 - `tests/update-check.mjs` (APK'dan çıkarılan web klasörü, Chromium 390×844, sahte yerel köprü ve
   sahte sürüm sunucusu): bant yalnız daha yeni sürümde çıkıyor (eşit/eski sürüm, başka uygulamanın
   kaydı, bozuk manifest, HTTP 404 ve ağ yokken çıkmıyor, sayfa sorunsuz); en/tr metinler; Sonra

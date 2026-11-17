@@ -42,9 +42,10 @@ import { themeIndex } from '../anim/themes';
 import { animate, newAnimOut, posePoint, posePoints, type AnimInput, type AnimOut, type Kind } from '../anim/anim';
 import { Arena } from './arena';
 import { Trails } from './trails';
-import { createScarf, drawArcher, drawArrow, drawShield, lookFor, stepScarf, type Scarf } from './art';
+import { bowGeomOf, createScarf, drawArcher, drawArrow, drawShield, lookFor, stepScarf, type Scarf } from './art';
+import { BowAura } from './aura';
 import { Fx } from './fx';
-import { auraColor, drawBadge } from './gear';
+import { auraColor, drawBadge, newBowGeom } from './gear';
 import { HitNumbers } from './numbers';
 import { drawCardIcon } from './icons';
 import { DRAG_DEAD, DRAG_FULL, SCENES } from './keys';
@@ -243,6 +244,10 @@ export class GameScene extends OyunScene {
   private dailyCoins = 0;
   private dailyStreak = 0;
   private moverSkip: number[] = [];
+  private aura!: BowAura;
+  private glowG!: Phaser.GameObjects.Graphics;
+  private bowGeom = newBowGeom();
+  private realDt = 0;
 
   constructor() {
     super(SCENES.game);
@@ -323,7 +328,10 @@ export class GameScene extends OyunScene {
     this.arena = new Arena(this, this.layer);
     this.dyn = this.add.graphics();
     this.aimG = this.add.graphics();
-    this.layer.add([this.dyn, this.aimG]);
+    // the bow's glow (additive): arrow glows below, the aura on top of the archer
+    this.glowG = this.add.graphics().setBlendMode(Phaser.BlendModes.ADD);
+    this.layer.add([this.dyn, this.glowG, this.aimG]);
+    this.aura = new BowAura(this, this.layer);
     this.appleImgs = this.w.apples.map(() => {
       const img = this.add.image(0, 0, 'apple').setVisible(false);
       this.layer.add(img);
@@ -811,6 +819,7 @@ export class GameScene extends OyunScene {
     this.updateCamera(real);
     this.arena.setTheme(themeIndex(this.w.wave), false);
     this.syncLedges();
+    this.realDt = real;
     this.render(dt);
     this.syncHud();
     this.frameMs.push(performance.now() - t0);
@@ -903,9 +912,31 @@ export class GameScene extends OyunScene {
         face: tr.out,
         ...(a.type === 'player' ? { bowLevel: this.bowLevel } : {}),
       });
+      if (a.type === 'player') {
+        // the glow follows the bow as drawn this frame (bend, draw, release)
+        this.aura.facing = a.facing;
+        this.aura.update(this.realDt, this.bowLevel, bowGeomOf(a, { view: tr, face: tr.out }, this.bowGeom), a.draw, a.alive && !this.animOff);
+      }
       if (shield && !a.shieldOn) drawShield(g, shield.x[0]!, shield.y[0]!, shield.x[1]!, shield.y[1]!, 3, 0);
     }
     for (let i = 0; i < w.plates.length; i++) if (w.plates[i]!.active) drawPlate(g, w.plates[i]!, time, i);
+    // arrows loosed from a glowing bow carry its glow and a matching trail
+    const glow = bowGlow(this.bowLevel);
+    const gg = this.glowG;
+    gg.clear();
+    if (glow.band >= 2 && !this.animOff) {
+      const col = auraColor(this.bowLevel, this.skyT);
+      for (const a of w.arrows) {
+        if (!a.active || a.state !== 0 || a.owner !== 'player') continue;
+        const dx = Math.cos(a.angle);
+        const dy = Math.sin(a.angle);
+        const len = 60 + 50 * glow.aura;
+        gg.lineStyle(22 * glow.aura, col, 0.22).lineBetween(a.x - dx * len, a.y - dy * len, a.x, a.y);
+        gg.lineStyle(10, col, 0.45).lineBetween(a.x - dx * len * 0.8, a.y - dy * len * 0.8, a.x, a.y);
+        if (glow.core > 0) gg.lineStyle(4, PALETTE.white, 0.7 * glow.core).lineBetween(a.x - dx * 40, a.y - dy * 40, a.x, a.y);
+        gg.fillStyle(col, 0.35).fillCircle(a.x, a.y, 10 + 8 * glow.aura);
+      }
+    }
     for (const a of w.arrows) {
       if (!a.active || a.state === 1) continue;
       if (a.kind === 'orb') {
@@ -1190,6 +1221,7 @@ export class GameScene extends OyunScene {
           const glow = bowGlow(this.bowLevel);
           this.fx.sparks(e.x, e.y, 3 + (glow.aura > 0 ? 4 : 0), glow.aura > 0 ? auraColor(this.bowLevel, this.skyT) : PALETTE.gold, 160 + glow.aura * 120);
           if (e.over) this.fx.ring(e.x, e.y, PALETTE.focus, 1.2, 0.25);
+          this.aura.flare(e.over ? 1.4 : 1);
           break;
         }
         case 'hit': {
@@ -1209,6 +1241,7 @@ export class GameScene extends OyunScene {
             if (!e.slowmo) this.numbers.word(e.id, s.x, s.y, this.t('hud.crit'), PALETTE.crit, 54);
           }
           if (e.slowmo) {
+            this.aura.flare(2);
             audio.playPreset(SFX.ping);
             this.slowT = 0.25;
             this.zoom = 0.26;
@@ -1429,6 +1462,7 @@ export class GameScene extends OyunScene {
           this.fx.puffs(e.x, e.y, 8, PALETTE.dust, 220);
           break;
         case 'multi': {
+          this.aura.flare(2);
           audio.playPreset(SFX.stinger, { pitch: e.n * 2 });
           const key = e.n >= 4 ? 'hud.multi4' : e.n === 3 ? 'hud.multi3' : 'hud.multi2';
           this.callout(this.t(key), e.n >= 3 ? PALETTE.pink : PALETTE.gold, 70 + Math.min(3, e.n) * 8);
@@ -1436,6 +1470,7 @@ export class GameScene extends OyunScene {
           break;
         }
         case 'streak':
+          this.aura.flare(2.2);
           audio.playPreset(SFX.stinger, { pitch: Math.min(12, e.n / 2) });
           this.callout(this.t('hud.streak', { n: e.n }), PALETTE.heal, 62 + Math.min(20, e.n));
           break;
@@ -1454,6 +1489,7 @@ export class GameScene extends OyunScene {
           break;
         case 'focus':
           if (e.on) {
+            this.aura.flare(2.5);
             audio.playPreset(SFX.focus);
             this.flashA = 0.4;
             this.juice.shake(0.3);
@@ -1995,6 +2031,8 @@ export class GameScene extends OyunScene {
       scoreParts: { ...score },
       rank: RANKS[rankOf(score.total)]!.id,
       feats: [...save.feats],
+      /** coins paid by achievements (they are banked on top of run coins) */
+      featCoins: save.feats.reduce((n, id) => n + (FEATS.find((f) => f.id === id)?.coins ?? 0), 0),
       focus: r(w.focus),
       focusT: r(w.focusT),
       bonus: w.bonus ? { kind: w.bonus.kind, t: r(w.bonus.t), hits: w.bonus.hits, grade: w.bonus.grade } : null,

@@ -38,7 +38,8 @@ test('title → wave 1 cleared → card → stop shooting → result, coins save
   expect(cleared.data.firstKoShot).toBeLessThanOrEqual(3);
   expect((cleared.data.offer as string[]).length).toBe(3);
   // progress is banked at the wave clear, not only at death
-  expect(cleared.data.savedCoins).toBe(cleared.data.coins);
+  // (achievements unlocked on the way, like the first knockout, pay their coins on top)
+  expect(cleared.data.savedCoins).toBe((cleared.data.coins as number) + (cleared.data.featCoins as number));
   expect(cleared.data.best).toBe(2);
   await page.waitForTimeout(800); // cards slam in
   await shot(page, gameDir, 'cards');
@@ -75,7 +76,7 @@ test('title → wave 1 cleared → card → stop shooting → result, coins save
   const end = await state(page);
   expect(end.data.score).toBe(2);
   expect(end.data.coins as number).toBeGreaterThan(0);
-  expect(end.data.savedCoins).toBe(end.data.coins);
+  expect(end.data.savedCoins).toBe((end.data.coins as number) + (end.data.featCoins as number));
   expect(end.data.newBest).toBe(true);
   expect(end.data.canRevive).toBe(true);
   await page.waitForTimeout(1300);
@@ -86,7 +87,7 @@ test('title → wave 1 cleared → card → stop shooting → result, coins save
   // rewarded double coins (the web adapter grants)
   await act(page, 'double');
   await page.waitForFunction(() => window.__OYUN__?.state().data.doubled === true, null, { timeout: 10_000 });
-  expect((await state(page)).data.savedCoins).toBe((end.data.coins as number) * 2);
+  expect((await state(page)).data.savedCoins).toBe((end.data.coins as number) * 2 + (end.data.featCoins as number));
 
   // upgrades are one tap away and the coins can be spent
   await act(page, 'shop');
@@ -222,6 +223,7 @@ test('real touch: drag to knock out an archer, tap to pick a card', async ({ pag
   await waitForScene(page, 'pause');
   await act(page, 'quit');
   await page.waitForFunction(() => window.__OYUN__?.state().scene === 'game' && window.__OYUN__?.state().data.phase === 'title', null, { timeout: 10_000 });
-  expect((await state(page)).data.savedCoins).toBe(earned);
+  const after = await state(page);
+  expect(after.data.savedCoins).toBe(earned + (after.data.featCoins as number));
   expect(errors).toEqual([]);
 });

@@ -5,10 +5,11 @@ import { PALETTE } from '../textures';
 import { themeIndex, THEMES, type Theme } from '../anim/themes';
 import { bowTier } from '../sim/bow';
 import { cosmeticById } from '../sim/meta';
-import { progressScore, RANKS, rankOf } from '../sim/progress';
+import { FEATS, progressScore, RANKS, rankOf } from '../sim/progress';
 import { SFX } from '../sfx';
 import { drawThemeBack, drawThemeLedge, drawThemeNear } from './worlds';
-import { drawBadge } from './gear';
+import { drawBadge, newBowGeom } from './gear';
+import { BowAura } from './aura';
 import { Puppet } from './puppet';
 import { hasRevive, session, type RunResult } from './GameScene';
 import { SCENES } from './keys';
@@ -41,6 +42,8 @@ export class ResultScene extends ResultShell {
   private badgeG: Phaser.GameObjects.Graphics | null = null;
   private ceremony: Phaser.GameObjects.Container | null = null;
   private rankUp = false;
+  private aura: BowAura | null = null;
+  private geom = newBowGeom();
   private rank = 0;
   /** bumped on every create: an ad answer from an earlier visit is ignored */
   private visits = 0;
@@ -133,6 +136,9 @@ export class ResultScene extends ResultShell {
     this.rankUp = this.rank > save.data.rank;
     this.puppet.setMood(this.run.newBest || this.rankUp ? 1 : this.run.wave <= 2 ? -1 : 0);
     this.puppetG = this.add.graphics().setDepth(5);
+    this.aura = new BowAura(this, null, 0.85);
+    this.aura.setDepth(5.5);
+    this.aura.facing = -1;
     const p2 = this.buttonPosition(2);
     const p3 = this.buttonPosition(3);
     const canRevive = hasRevive();
@@ -208,6 +214,7 @@ export class ResultScene extends ResultShell {
     this.puppetG.clear();
     const save = gameSave(this.oyun).data;
     this.puppet.draw(this.puppetG, cosmeticById(save.cosmetic), save.bow.level);
+    this.aura?.update(Math.min(delta, 100) / 1000, save.bow.level, this.puppet.bowGeom(this.geom), this.puppet.archer.draw);
   }
 
   private setButtons(enabled: boolean): void {
@@ -277,6 +284,7 @@ export class ResultScene extends ResultShell {
       bow: `${bowTier(save.bow.level)}+${save.bow.level}`,
       feats: [...this.run.feats],
       records: [...this.run.records],
+      featCoins: save.feats.reduce((n, id) => n + (FEATS.find((f) => f.id === id)?.coins ?? 0), 0),
     };
   }
 

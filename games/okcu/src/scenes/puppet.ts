@@ -8,7 +8,8 @@ import { stepBody } from '../sim/body';
 import type { Cosmetic } from '../sim/meta';
 import { createRagdoll, LEG_HEIGHT, setPose } from '../sim/ragdoll';
 import type { Archer } from '../sim/world';
-import { createScarf, drawArcher, lookFor, stepScarf, type Scarf } from './art';
+import { bowGeomOf, createScarf, drawArcher, lookFor, stepScarf, type Scarf } from './art';
+import type { BowGeom } from './gear';
 import { PT } from '../sim/ragdoll';
 
 let nextId = 10_000;
@@ -69,6 +70,11 @@ export class Puppet {
     animate(this.inp, this.out);
     posePoints(a.body.x, a.body.y, a.body.n, this.out, this.vx, this.vy);
     stepScarf(this.scarf, this.vx[PT.neck]! - a.facing * 4, this.vy[PT.neck]! + 4, a.facing > 0 ? -520 : 520, Math.max(1 / 240, Math.min(dt, 1 / 30)), this.t, this.out.scarfLift);
+  }
+
+  /** Where its bow is this frame (for the glow). */
+  bowGeom(out: BowGeom): BowGeom {
+    return bowGeomOf(this.archer, { view: this.view, face: this.out }, out);
   }
 
   draw(g: Phaser.GameObjects.Graphics, cosmetic: Cosmetic, bowLevel?: number): void {

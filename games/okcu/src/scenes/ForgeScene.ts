@@ -1,11 +1,12 @@
 import { button, cssColor, label, OyunScene, type Button } from '@oyun/core';
 import type Phaser from 'phaser';
 import { gameSave } from '../save';
-import { attemptForge, BOW_MAX, bowCost, bowDamage, bowTier, forgeChance, HEAT_STEP, type ForgeResult } from '../sim/bow';
+import { attemptForge, BOW_MAX, bowCost, bowDamage, bowTier, forgeChance, GLOW_BANDS, glowBand, HEAT_STEP, nextGlowBand, type ForgeResult } from '../sim/bow';
 import { unlockFeats } from '../sim/progress';
 import { SFX } from '../sfx';
 import { PALETTE } from '../textures';
-import { auraColor, drawBowItem } from './gear';
+import { auraColor, bowItemGeom, drawBowItem, newBowGeom } from './gear';
+import { BowAura } from './aura';
 import { drawCoin } from './icons';
 import { fitButton } from './GameScene';
 import { SCENES } from './keys';
@@ -43,6 +44,12 @@ export class ForgeScene extends OyunScene {
   private last: ForgeResult | null = null;
   private sparks: { x: number; y: number; vx: number; vy: number; life: number; c: number }[] = [];
   private fxG!: Phaser.GameObjects.Graphics;
+  private aura!: BowAura;
+  private nextAura!: BowAura;
+  private nextG!: Phaser.GameObjects.Graphics;
+  private nextText!: Phaser.GameObjects.Text;
+  private glowText!: Phaser.GameObjects.Text;
+  private geom = newBowGeom();
 
   constructor() {
     super(SCENES.forge);
@@ -86,6 +93,11 @@ export class ForgeScene extends OyunScene {
     this.nameText = label(this, L.cx, L.top + 220, '', { size: 56, color: PALETTE.gold }).setStroke(cssColor(PALETTE.ink), 14);
     this.dmgText = label(this, L.cx, L.top + 282, '', { size: 34, color: PALETTE.cream }).setStroke(cssColor(PALETTE.ink), 8);
     this.bowG = this.add.graphics();
+    this.aura = new BowAura(this, null, 1);
+    this.nextG = this.add.graphics();
+    this.nextAura = new BowAura(this, null, 1);
+    this.nextText = label(this, L.left + 92, L.cy + 50, '', { size: 22, color: PALETTE.cream, wrap: 170 }).setStroke(cssColor(PALETTE.ink), 6);
+    this.glowText = label(this, L.cx, L.top + 312, '', { size: 30, color: PALETTE.cream }).setStroke(cssColor(PALETTE.ink), 8);
     this.fxG = this.add.graphics().setDepth(5);
     // the hammer, raised to the right of the anvil
     this.hammer = this.add.container(L.cx + 150, ay - 40).setDepth(4);
@@ -101,8 +113,8 @@ export class ForgeScene extends OyunScene {
     this.heatG = this.add.graphics().setDepth(6);
     this.heatText = label(this, L.cx, ay + 240, '', { size: 28, color: PALETTE.heat }).setStroke(cssColor(PALETTE.ink), 8).setDepth(6);
     this.resultText = label(this, L.cx, L.top + 330, '', { size: 76, color: PALETTE.gold }).setStroke(cssColor(PALETTE.ink), 18).setDepth(10).setAlpha(0);
-    this.resultSub = label(this, L.cx, L.top + 392, '', { size: 34, color: PALETTE.cream, wrap: 620 }).setStroke(cssColor(PALETTE.ink), 8).setDepth(10).setAlpha(0);
-    this.rules = label(this, L.cx, L.top + 350, this.t('forge.rules'), { size: 24, color: PALETTE.cream, wrap: 640 }).setAlpha(0.85);
+    this.resultSub = label(this, L.cx, L.top + 400, '', { size: 34, color: PALETTE.cream, wrap: 620 }).setStroke(cssColor(PALETTE.ink), 8).setDepth(10).setAlpha(0);
+    this.rules = label(this, L.cx, L.top + 372, this.t('forge.rules'), { size: 24, color: PALETTE.cream, wrap: 640 }).setAlpha(0.85);
     this.forgeBtn = fitButton(button(this, L.cx, L.bottom - 168, '', () => this.forge(), { width: 440, height: 100, fontSize: 42 }), 440);
     this.backBtn = button(this, L.cx, L.bottom - 60, this.t('forge.back'), () => this.back(), { width: 300, height: 88, variant: 'secondary', hotkey: 'ESC' });
     this.refresh();
@@ -113,6 +125,12 @@ export class ForgeScene extends OyunScene {
     const L = this.shownLevel;
     this.coinText.setText(String(save.coins));
     this.nameText.setText(this.t('bow.name', { name: this.t(`bow.${bowTier(L)}`), n: L }));
+    // the glow ladder: this band's name, and a preview of the next band
+    const band = glowBand(L);
+    this.glowText.setText(this.t('forge.glow', { g: this.t(`glow.${GLOW_BANDS[band]!.id}`) }));
+    this.glowText.setColor(cssColor(band === 0 ? PALETTE.locked : band === GLOW_BANDS.length - 1 ? PALETTE.white : GLOW_BANDS[band]!.color));
+    const nb = nextGlowBand(L);
+    this.nextText.setText(nb ? `${this.t('forge.nextGlow', { n: nb.from })}\n${this.t(`glow.${GLOW_BANDS[nb.band]!.id}`)}` : '');
     const cost = bowCost(save.bow.level);
     if (cost === null) {
       this.dmgText.setText(`×${bowDamage(L).toFixed(2)}`);
@@ -162,6 +180,7 @@ export class ForgeScene extends OyunScene {
         this.tweens.add({ targets: this.hammer, angle: -60, duration: 90, ease: 'Quad.easeIn', yoyo: true, hold: 40 });
         this.time.delayedCall(90, () => {
           this.oyun.audio.playPreset(SFX.anvil, { pitch: i * 2 });
+          this.aura.flare(0.6 + i * 0.4);
           this.flash = 0.6 + i * 0.2;
           this.shake = 6 + i * 4;
           this.cameras.main.shake(80, 0.004 + i * 0.002);
@@ -178,6 +197,8 @@ export class ForgeScene extends OyunScene {
     const save = gameSave(this.oyun).data;
     const L = this.layout;
     const newTier = bowTier(save.bow.level) !== bowTier(before);
+    const newBand = glowBand(save.bow.level) !== glowBand(before);
+    this.aura.flare(newBand ? 3.5 : 2);
     this.shownLevel = save.bow.level;
     this.shownHeat = 0;
     this.flash = 1.4;
@@ -187,7 +208,12 @@ export class ForgeScene extends OyunScene {
     this.juice.feedback('large', L.cx, L.cy - 20, auraColor(save.bow.level, this.clock));
     this.spray(L.cx, L.cy - 20, newTier ? 70 : 40, auraColor(save.bow.level, this.clock));
     if (newTier) this.spray(L.cx, L.cy - 20, 40, PALETTE.gold);
-    this.reveal(this.t('forge.success'), newTier ? `${this.t('forge.newTier')} ${this.t(`bow.${bowTier(save.bow.level)}`)}` : this.t('bow.name', { name: this.t(`bow.${bowTier(save.bow.level)}`), n: save.bow.level }), PALETTE.gold);
+    const sub = newBand ? this.t('forge.newGlow', { g: this.t(`glow.${GLOW_BANDS[glowBand(save.bow.level)]!.id}`) }) : newTier ? `${this.t('forge.newTier')} ${this.t(`bow.${bowTier(save.bow.level)}`)}` : this.t('bow.name', { name: this.t(`bow.${bowTier(save.bow.level)}`), n: save.bow.level });
+    if (newBand) {
+      this.cameras.main.flash(260, 255, 255, 255);
+      this.juice.shake(0.6);
+    }
+    this.reveal(this.t('forge.success'), sub, PALETTE.gold);
     this.juice.pop(this.nameText, 1.4, 400);
     this.done();
   }
@@ -225,9 +251,10 @@ export class ForgeScene extends OyunScene {
     this.tweens.add({ targets: this.resultSub, alpha: 1, duration: 250, delay: 200 });
     this.tweens.add({ targets: [this.resultText, this.resultSub], alpha: 0, delay: 2200, duration: 400 });
     // the rules make room for the verdict, then come back
-    this.tweens.killTweensOf(this.rules);
+    this.tweens.killTweensOf([this.rules, this.glowText]);
     this.rules.setAlpha(0);
-    this.tweens.add({ targets: this.rules, alpha: 0.85, delay: 2600, duration: 300 });
+    this.glowText.setAlpha(0);
+    this.tweens.add({ targets: [this.rules, this.glowText], alpha: { from: 0, to: 0.9 }, delay: 2600, duration: 300 });
   }
 
   private spray(x: number, y: number, n: number, c: number): void {
@@ -254,6 +281,18 @@ export class ForgeScene extends OyunScene {
     g.fillStyle(lv >= 3 ? col : PALETTE.heat, 0.12 + this.lift * 0.25).fillCircle(bx, by, 140 + this.lift * 40);
     drawBowItem(g, bx, by, 135, lv, this.clock, this.flash);
     if (this.dim > 0) g.fillStyle(0x2a1622, 0.45 * this.dim).fillCircle(bx, by, 160);
+    this.aura.update(dt, lv, bowItemGeom(bx, by, 135, this.geom), this.lift, this.dim < 0.5);
+    // what the next band looks like
+    const nb = nextGlowBand(lv);
+    const n = this.nextG;
+    n.clear();
+    if (nb) {
+      const nx = L.left + 92;
+      const ny = L.cy - 70;
+      n.fillStyle(PALETTE.ink, 0.55).fillRoundedRect(nx - 82, ny - 96, 164, 210, 22);
+      drawBowItem(n, nx + 8, ny, 62, nb.from, this.clock);
+      this.nextAura.update(dt, nb.from, bowItemGeom(nx + 8, ny, 62, this.geom), 0);
+    } else this.nextAura.update(dt, 0, this.geom, 0, false);
     // heat meter: a bar of flames, full = sure success
     const h = this.heatG;
     h.clear();

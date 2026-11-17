@@ -337,6 +337,57 @@ export const TEXTURES: readonly TextureRecipe[] = [
     },
   },
   {
+    key: 'ic-rank',
+    width: 72,
+    height: 72,
+    draw(g) {
+      g.fillStyle(0xffffff, 1);
+      poly(g, [[10, 30], [36, 12], [62, 30], [62, 42], [36, 24], [10, 42]]);
+      g.fillPath();
+      poly(g, [[10, 52], [36, 34], [62, 52], [62, 64], [36, 46], [10, 64]]);
+      g.fillPath();
+    },
+  },
+  {
+    key: 'ic-crown',
+    width: 72,
+    height: 72,
+    draw(g) {
+      g.fillStyle(0xffffff, 1);
+      poly(g, [[8, 58], [8, 22], [24, 38], [36, 12], [48, 38], [64, 22], [64, 58]]);
+      g.fillPath();
+    },
+  },
+  {
+    key: 'star-on',
+    width: 48,
+    height: 48,
+    draw(g) {
+      g.fillStyle(PALETTE.ink, 1);
+      poly(g, star(24, 26, 23, 0.5, 5));
+      g.fillPath();
+      g.fillStyle(PALETTE.gold, 1);
+      poly(g, star(24, 25, 18, 0.5, 5));
+      g.fillPath();
+      g.fillStyle(0xffffff, 0.7);
+      poly(g, star(21, 20, 6, 0.5, 5));
+      g.fillPath();
+    },
+  },
+  {
+    key: 'star-off',
+    width: 48,
+    height: 48,
+    draw(g) {
+      g.fillStyle(PALETTE.ink, 0.7);
+      poly(g, star(24, 26, 23, 0.5, 5));
+      g.fillPath();
+      g.lineStyle(3, 0xffffff, 0.45);
+      poly(g, star(24, 25, 17, 0.5, 5));
+      g.strokePath();
+    },
+  },
+  {
     key: 'ic-lock',
     width: 72,
     height: 72,

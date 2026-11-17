@@ -137,8 +137,9 @@ test('dig until layer 2 opens, visit the museum, reload and keep everything', as
   await act(page, 'ranks');
   await waitForScene(page, 'ranks');
   const ranks = (await state(page)).data as { score: number; rank: number; ranks: number; tab: string; canExpedition: boolean };
-  expect(ranks.score).toBe(scored.score);
-  expect(ranks.rank).toBe(scored.rank);
+  // the assistant keeps digging between the two reads: the score can only have grown
+  expect(ranks.score).toBeGreaterThanOrEqual(scored.score);
+  expect(ranks.rank).toBeGreaterThanOrEqual(scored.rank);
   expect(ranks.ranks).toBeGreaterThanOrEqual(10);
   expect(ranks.canExpedition).toBe(false);
   await shot(page, gameDir, 'ranks');
@@ -152,18 +153,20 @@ test('dig until layer 2 opens, visit the museum, reload and keep everything', as
   await waitForScene(page, 'dig');
   const saved = await dig(page);
 
-  // Close and reopen: nothing is lost.
+  // Close and reopen: nothing is lost. The assistant digs on until the page goes, and the reload
+  // credits the seconds it took as away time, so counts can only have grown — never shrunk.
   await page.reload();
   await page.waitForFunction(() => window.__OYUN__?.ready === true, null, { timeout: 20_000 });
   const menu: TestState = await state(page);
   expect(menu.scene).toBe('menu');
-  expect((menu.data as { found: number }).found).toBe(saved.museum.found);
+  expect((menu.data as { found: number }).found).toBeGreaterThanOrEqual(saved.museum.found);
   await act(page, 'play');
   await waitForScene(page, 'dig');
   const after = await dig(page);
-  expect(after.unlocked).toBe(saved.unlocked);
+  expect(after.unlocked).toBeGreaterThanOrEqual(saved.unlocked);
   expect(after.layer).toBe(saved.layer);
-  expect(after.museum).toEqual(saved.museum);
+  expect(after.museum.total).toBe(saved.museum.total);
+  saved.museum.perLayer.forEach((n, l) => expect(after.museum.perLayer[l], `layer ${l + 1}`).toBeGreaterThanOrEqual(n));
   expect(after.taps).toBe(saved.taps);
   expect(after.dust).toBeGreaterThanOrEqual(saved.dust);
   expect(after.digPower).toBeGreaterThanOrEqual(saved.digPower);

@@ -1,11 +1,12 @@
 import { beforeAll, describe, expect, it } from 'vitest';
 import { wallsInBounds } from '../../src/sim/builder';
 import { DT } from '../../src/sim/constants';
-import { buildLevel, LEVEL_COUNT, levelInfo } from '../../src/sim/levels';
+import { buildLevel, LEVEL_COUNT, levelInfo, WORLD_SIZE } from '../../src/sim/levels';
 import { analyse, kinematics, replay, type Analysis } from '../../src/sim/solver';
 import type { GateKind, Track } from '../../src/sim/track';
 
-const ids = Array.from({ length: LEVEL_COUNT }, (_, i) => i + 1);
+/** World 1 (the original slice, frozen); worlds 2-4 are tested in world*.test.ts. */
+const ids = Array.from({ length: WORLD_SIZE }, (_, i) => i + 1);
 const tracks = new Map<number, Track>();
 const results = new Map<number, Analysis>();
 
@@ -24,8 +25,9 @@ beforeAll(() => {
 }, 240_000);
 
 describe('levels 1-10', () => {
-  it('there are ten levels', () => {
-    expect(LEVEL_COUNT).toBe(10);
+  it('there are forty levels in four worlds of ten', () => {
+    expect(LEVEL_COUNT).toBe(40);
+    expect(WORLD_SIZE).toBe(10);
   });
 
   it('are deterministic', () => {
@@ -122,12 +124,12 @@ describe('levels 1-10', () => {
     expect(new Set(firstLevel.values()).size).toBe(3);
   });
 
-  it('every level ends in its normal state (all gate effects closed)', () => {
-    for (const id of ids) {
+  it('every level of every world ends in its normal state (all gate effects closed)', () => {
+    for (let id = 1; id <= LEVEL_COUNT; id++) {
       let mult = 'normal';
       let mini = false;
       let flip = false;
-      for (const g of tracks.get(id)!.gates) {
+      for (const g of buildLevel(id).gates) {
         if (g.kind === 'fast' || g.kind === 'slow' || g.kind === 'normal') mult = g.kind;
         if (g.kind === 'mini') mini = true;
         if (g.kind === 'big') mini = false;

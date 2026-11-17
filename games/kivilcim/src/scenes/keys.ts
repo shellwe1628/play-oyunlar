@@ -3,4 +3,5 @@ export const SCENES = {
   game: 'game',
   levels: 'levels',
   skins: 'skins',
+  ranks: 'ranks',
 } as const;

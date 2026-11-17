@@ -2,7 +2,7 @@ import { createRng } from '@oyun/core/pure';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { TrackBuilder } from '../../src/sim/builder';
 import { humanAttempt, humanRate, NOISE_S, REACT_S, reference } from '../../src/sim/human';
-import { buildLevel, LEVEL_COUNT } from '../../src/sim/levels';
+import { buildLevel, WORLD_SIZE as LEVEL_COUNT } from '../../src/sim/levels';
 import { K_REF, prepare, solve } from '../../src/sim/solver';
 
 /** The line a person flies: the middle, few changes (comfort objective). */
@@ -29,7 +29,8 @@ beforeAll(() => {
   );
 }, 300_000);
 
-describe('human model', () => {
+/** World 1; worlds 2-4 are in world*.test.ts. */
+describe('human model, world 1', () => {
   it('with no timing noise it finishes every level (the model itself is sound)', () => {
     for (const id of [1, 5, 10]) {
       const t = buildLevel(id);

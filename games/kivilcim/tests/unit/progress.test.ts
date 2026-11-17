@@ -10,10 +10,13 @@ import {
   recordDaily,
   recordEndless,
   recordLevelRun,
+  levelOpen,
   shouldShowInterstitial,
+  worldUnlocked,
   type SaveData,
 } from '../../src/sim/progress';
-import { SHAPES, TRAILS } from '../../src/sim/skins';
+import { GEMS_PER_STAR, streakReward, totalStars, WORLD_STAR_REQ } from '../../src/sim/meta';
+import { SHAPES, TIERS, TRAILS } from '../../src/sim/skins';
 
 const fresh = (): SaveData => defaults();
 
@@ -22,7 +25,7 @@ describe('level progress', () => {
     const d = fresh();
     expect(d.unlocked).toBe(1);
     expect(levelToPlay(d)).toBe(1);
-    expect(d.levels).toHaveLength(10);
+    expect(d.levels).toHaveLength(40);
     expect(d.gems).toBe(0);
   });
 
@@ -49,15 +52,29 @@ describe('level progress', () => {
     expect(recordLevelRun(d, 1, { percent: 50, gemMask: 0b001, finished: false }).gemsGained).toBe(1);
     expect(recordLevelRun(d, 1, { percent: 100, gemMask: 0b011, finished: true }).gemsGained).toBe(1);
     expect(recordLevelRun(d, 1, { percent: 100, gemMask: 0b111, finished: true }).gemsGained).toBe(1);
-    expect(d.gems).toBe(3);
+    expect(d.gems).toBe(3 + 2 * GEMS_PER_STAR); // three gems, plus the finish and all-gems stars
     expect(d.levels[0]!.gemMask).toBe(0b111);
   });
 
-  it('never unlocks past level 10, and level 10 stays the level to play once all are done', () => {
+  it('finishing level 10 reaches level 11, but world 2 opens only with enough stars', () => {
     const d = fresh();
-    for (let id = 1; id <= 10; id++) recordLevelRun(d, id, { percent: 100, gemMask: 0, finished: true });
-    expect(d.unlocked).toBe(10);
+    for (let id = 1; id <= 10; id++) recordLevelRun(d, id, { percent: 100, gemMask: 0, finished: true, nearMisses: 3 });
+    expect(d.unlocked).toBe(11);
+    expect(totalStars(d)).toBe(10);
+    expect(worldUnlocked(d, 2)).toBe(false);
+    expect(levelOpen(d, 11)).toBe(false);
     expect(levelToPlay(d)).toBe(10);
+    for (let id = 1; id <= 5; id++) recordLevelRun(d, id, { percent: 100, gemMask: 7, finished: true, nearMisses: 1 });
+    expect(totalStars(d)).toBe(WORLD_STAR_REQ[1]);
+    expect(levelToPlay(d)).toBe(11);
+  });
+
+  it('never unlocks past level 40', () => {
+    const d = fresh();
+    for (let id = 1; id <= 40; id++) recordLevelRun(d, id, { percent: 100, gemMask: 7, finished: true, nearMisses: 0 });
+    expect(d.unlocked).toBe(40);
+    expect(levelToPlay(d)).toBe(40);
+    expect(totalStars(d)).toBe(120);
   });
 
   it('endless unlocks after level 3 is finished', () => {
@@ -76,6 +93,7 @@ describe('endless and daily records', () => {
     expect(recordEndless(d, 80, 1).newBest).toBe(false);
     expect(d.endlessBest).toBe(120);
     expect(d.gems).toBe(3);
+    expect(recordEndless(d, 520, 0).milestoneGems).toBe(2); // one per 250 m
   });
 
   it('daily best resets on a new date; the streak counts consecutive days', () => {
@@ -90,9 +108,9 @@ describe('endless and daily records', () => {
   it('daily gems pay once per gem per date, however often the shaft is retried', () => {
     const d = fresh();
     for (let k = 0; k < 5; k++) recordDaily(d, '2026-11-17', 10 + k, [0, 3]);
-    expect(d.gems).toBe(2);
+    expect(d.gems).toBe(2 + streakReward(1)); // the day's first run also pays the streak reward
     expect(recordDaily(d, '2026-11-17', 5, [3, 4]).gemsGained).toBe(1);
-    expect(d.gems).toBe(3);
+    expect(d.gems).toBe(3 + streakReward(1));
     expect(recordDaily(d, '2026-11-18', 5, [0]).gemsGained).toBe(1); // a new day, a new shaft
   });
 
@@ -110,9 +128,13 @@ describe('endless and daily records', () => {
 });
 
 describe('skins', () => {
-  it('has eight shapes and eight trails; the first of each is free and equipped', () => {
+  it('eight shapes and a trail collection in tiers; the first of each is free and equipped', () => {
     expect(SHAPES).toHaveLength(8);
-    expect(TRAILS).toHaveLength(8);
+    expect(TRAILS.length).toBeGreaterThanOrEqual(20);
+    expect(TRAILS.length).toBeLessThanOrEqual(30); // owned trails are a 32-bit mask
+    expect(new Set(TRAILS.map((t) => t.id)).size).toBe(TRAILS.length);
+    // The original eight keep their indices, so old saves keep what they bought.
+    expect(TRAILS.slice(0, 8).map((t) => t.id)).toEqual(['white', 'lava', 'mint', 'sky', 'candy', 'lime', 'violet', 'rainbow']);
     const d = fresh();
     expect(d.skin.shape).toBe(0);
     expect(d.skin.trail).toBe(0);
@@ -132,6 +154,14 @@ describe('skins', () => {
     expect(d.gems).toBe(2);
   });
 
+  it('earned trails cannot be bought, whatever the wallet', () => {
+    const d = fresh();
+    d.gems = 1e6;
+    const i = TRAILS.findIndex((t) => t.unlock);
+    expect(buySkin(d, 'trail', i)).toBe('earned');
+    expect(d.gems).toBe(1e6);
+  });
+
   it('only owned skins can be equipped', () => {
     const d = fresh();
     expect(equipSkin(d, 'trail', 3)).toBe(false);
@@ -144,13 +174,15 @@ describe('skins', () => {
   });
 
   it('something is affordable after level 1 (three gems)', () => {
-    expect(Math.min(...SHAPES.slice(1).map((x) => x.price), ...TRAILS.slice(1).map((x) => x.price))).toBeLessThanOrEqual(3);
+    expect(Math.min(...SHAPES.slice(1).map((x) => x.price), ...TRAILS.slice(1).filter((t) => !t.unlock).map((x) => x.price))).toBeLessThanOrEqual(3);
   });
 
-  it('prices rise: there is always something more to want', () => {
-    for (const list of [SHAPES, TRAILS]) {
+  it('prices rise with the tier: there is always something more to want', () => {
+    for (const list of [SHAPES, TRAILS.filter((t) => !t.unlock)]) {
       for (let i = 2; i < list.length; i++) expect(list[i]!.price).toBeGreaterThan(list[i - 1]!.price);
     }
+    const sold = TRAILS.filter((t) => !t.unlock && t.price > 0);
+    for (let i = 1; i < sold.length; i++) expect(TIERS.indexOf(sold[i]!.tier)).toBeGreaterThanOrEqual(TIERS.indexOf(sold[i - 1]!.tier));
   });
 });
 
@@ -168,7 +200,7 @@ describe('game save', () => {
     a.update((d) => void recordLevelRun(d, 1, { percent: 100, gemMask: 1, finished: true }));
     const b = createSaveStore(saveOptions(storage, 'test'));
     expect(b.data.unlocked).toBe(2);
-    expect(b.data.gems).toBe(1);
+    expect(b.data.gems).toBe(1 + 2); // one gem + the finish star
   });
 
   it('migrates a template-era v1 save to fresh progress', () => {
@@ -176,26 +208,28 @@ describe('game save', () => {
     const s = createSaveStore(saveOptions(storage, 'test'));
     expect(s.status).toBe('migrated');
     expect(s.data.unlocked).toBe(1);
-    expect(SAVE_VERSION).toBe(2);
+    expect(SAVE_VERSION).toBe(3);
   });
 
   it('rejects a corrupt save and falls back to defaults', () => {
-    const storage = memoryStorage({ 'oyun:test:save': JSON.stringify({ v: 2, data: { unlocked: 'x' } }) });
+    const storage = memoryStorage({ 'oyun:test:save': JSON.stringify({ v: 3, data: { unlocked: 'x' } }) });
     const s = createSaveStore(saveOptions(storage, 'test'));
     expect(s.status).toBe('reset');
     expect(s.data.unlocked).toBe(1);
   });
 
   it('clamps out-of-range values instead of trusting them', () => {
-    const bad = { ...fresh(), unlocked: 40, gems: -5, skin: { shape: 99, trail: -1, ownedShapes: 1, ownedTrails: 1 } };
-    bad.levels[0] = { best: 150, attempts: -2, gemMask: 255, done: true };
-    const storage = memoryStorage({ 'oyun:test:save': JSON.stringify({ v: 2, data: bad }) });
+    const bad = { ...fresh(), unlocked: 99, gems: -5, skin: { shape: 99, trail: -1, ownedShapes: 1, ownedTrails: 1 } };
+    bad.levels[0] = { best: 150, attempts: -2, gemMask: 255, done: true, stars: 99, bestDate: 'x' };
+    bad.levels[1] = { best: 10, attempts: 1, gemMask: 0, done: false, stars: 7, bestDate: '' };
+    const storage = memoryStorage({ 'oyun:test:save': JSON.stringify({ v: 3, data: bad }) });
     const s = createSaveStore(saveOptions(storage, 'test'));
-    expect(s.data.unlocked).toBe(10);
+    expect(s.data.unlocked).toBe(40);
     expect(s.data.gems).toBe(0);
     expect(s.data.skin.shape).toBe(0);
     expect(s.data.skin.trail).toBe(0);
-    expect(s.data.levels[0]).toEqual({ best: 100, attempts: 0, gemMask: 7, done: true });
+    expect(s.data.levels[0]).toEqual({ best: 100, attempts: 0, gemMask: 7, done: true, stars: 7, bestDate: '' });
+    expect(s.data.levels[1]!.stars).toBe(0); // no stars on an unfinished level
   });
 
   it('fills fields missing from an older v2 save with defaults', () => {

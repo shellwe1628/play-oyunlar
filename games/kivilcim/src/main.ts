@@ -3,6 +3,7 @@ import meta from '../oyun.config.json';
 import { GameScene } from './scenes/GameScene';
 import { SCENES } from './scenes/keys';
 import { LevelsScene } from './scenes/LevelsScene';
+import { RanksScene } from './scenes/RanksScene';
 import { SkinsScene } from './scenes/SkinsScene';
 import { STRINGS } from './strings';
 import { TEXTURES } from './textures';
@@ -15,7 +16,7 @@ void createGame({
   textures: TEXTURES,
   // The game scene is also the title screen: the logo sits over the live shaft and the first
   // press starts the run in the same frame. Quit from the pause menu lands on that title.
-  scenes: [GameScene, LevelsScene, SkinsScene],
+  scenes: [GameScene, LevelsScene, SkinsScene, RanksScene],
   start: SCENES.game,
   menu: SCENES.game,
   theme: {

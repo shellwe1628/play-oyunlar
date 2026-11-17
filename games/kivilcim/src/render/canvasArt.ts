@@ -59,6 +59,17 @@ export function ensureCanvasArt(scene: Phaser.Scene): void {
   });
 
   // Backing for the HUD band: readable text over anything, hazards still visible (dimmed).
+  // Dark sections: darkness with a soft hole of light (placed around the spark, stretched).
+  make('dark-hole', 256, 256, (c) => {
+    const g = c.createRadialGradient(128, 128, 0, 128, 128, 128);
+    g.addColorStop(0, 'rgba(6,2,18,0)');
+    g.addColorStop(0.32, 'rgba(6,2,18,0)');
+    g.addColorStop(0.62, 'rgba(6,2,18,0.93)');
+    g.addColorStop(1, 'rgba(6,2,18,0.97)');
+    c.fillStyle = g;
+    c.fillRect(0, 0, 256, 256);
+  });
+
   make('hud-shade', 4, 320, (c) => {
     const g = c.createLinearGradient(0, 0, 0, 320);
     g.addColorStop(0, 'rgba(14,4,32,0.86)');

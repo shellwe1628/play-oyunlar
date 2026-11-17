@@ -117,7 +117,7 @@ const MORE: Def[] = [
   /* 23 */ [535, 'piston', [O, D(0.25), PI(0, true), W(0.3), PI(0.15), WN(0.4), PI(0.3, true), SN(0.45), D(0), X(23), D(0), R(23, true), D(0.45)]],
   /* 24 */ [545, null, [O, PI(0.45), WN(0.45, true), G('flip'), W(0.25), G('unflip'), PI(0.5), LZ(0.5, true), SP(0.5), D(0), X(24), D(0), R(24, true), D(0.5)]],
   /* 25 */ [555, null, [O, WN(0.5), PI(0.55, true), SN(0.5), G('mini'), W(0.15), G('big'), PI(0.55), WN(0.5, true), D(0), X(25), D(0), R(25, true), D(0.5)]],
-  /* 26 */ [565, 'dark', [O, D(0.25), dk(W(0.2, true)), Z(0.4), dk(Z(0.3)), PI(0.5), dk(S(0.35, true)), WN(0.5), D(0), X(26), D(0), R(26, true), D(0.5)]],
+  /* 26 */ [565, 'dark', [O, D(0.25), dk(W(0, true)), Z(0.4), dk(Z(0.3)), PI(0.5), dk(S(0.35, true)), WN(0.5), D(0), X(26), D(0), R(26, true), D(0.5)]],
   /* 27 */ [575, null, [O, W(0.2), dk(PI(0.55)), WN(0.55, true), dk(LZ(0.55)), SN(0.55), G('fast'), W(0.3), G('normal'), dk(SP(0.55, true)), D(0), X(27), D(0), R(27, true), D(0.55)]],
   /* 28 */ [585, null, [O, PI(0.6), dk(WN(0.55, true)), G('flip'), dk(Z(0.4)), G('unflip'), SN(0.6), dk(PI(0.6, true)), LZ(0.6), D(0), X(28), D(0), R(28, true), D(0.6)]],
   /* 29 */ [595, null, [O, W(0.2), dk(SN(0.6)), WN(0.65, true), PI(0.65), G('mini'), dk(W(0.2)), G('big'), dk(LZ(0.65, true)), SP(0.65), D(0), X(29), D(0), R(29, true), D(0.65)]],

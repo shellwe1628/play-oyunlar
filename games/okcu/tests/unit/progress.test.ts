@@ -8,6 +8,9 @@ import {
   bowGlow,
   bowLevelForOldDamage,
   bowTier,
+  glowBand,
+  GLOW_BANDS,
+  nextGlowBand,
   forgeChance,
   forgeRoll,
   freshBow,
@@ -60,20 +63,25 @@ describe('the bow: levels, damage, cost, looks', () => {
   it('six tiers change the look: wood, horn, steel, gilded, crystal, mythic', () => {
     expect([0, 2, 3, 6, 9, 12, 15, 20].map(bowTier)).toEqual(['wood', 'wood', 'horn', 'steel', 'gilded', 'crystal', 'mythic', 'mythic']);
   });
-  it('the glow grows with the level: none, a sheen, an aura that strengthens, motes, a string trail', () => {
-    expect(bowGlow(0)).toMatchObject({ sheen: 0, aura: 0, particles: false, stringTrail: false });
-    expect(bowGlow(3).sheen).toBeGreaterThan(0);
-    expect(bowGlow(3).aura).toBe(0);
-    let prev = 0;
-    for (let l = 6; l <= 20; l++) {
-      expect(bowGlow(l).aura, `+${l}`).toBeGreaterThanOrEqual(prev);
-      prev = bowGlow(l).aura;
+  it('the glow ladder: seven bands, each a visible step with its own colour', () => {
+    expect(GLOW_BANDS.map((b) => b.id)).toEqual(['none', 'frost', 'verdant', 'golden', 'azure', 'magenta', 'prism']);
+    expect([0, 2, 3, 5, 6, 9, 12, 15, 16, 19, 20].map(glowBand)).toEqual([0, 0, 1, 1, 2, 3, 4, 4, 5, 5, 6]);
+    expect(bowGlow(0)).toMatchObject({ sheen: 0, aura: 0, flame: 0, motes: 0, core: 0, light: 0 });
+    expect(bowGlow(3)).toMatchObject({ aura: 0.18, flame: 0, core: 0 });
+    expect(bowGlow(6).flame).toBe(0);
+    expect(bowGlow(9).flame).toBeGreaterThan(0);
+    expect(bowGlow(12).core).toBeGreaterThan(0);
+    expect(bowGlow(16).light).toBeGreaterThan(bowGlow(12).light);
+    expect(bowGlow(20).cycle).toBe(true);
+    for (let b = 1; b < GLOW_BANDS.length; b++) {
+      const lo = bowGlow(GLOW_BANDS[b - 1]!.from);
+      const hi = bowGlow(GLOW_BANDS[b]!.from);
+      expect(hi.aura, GLOW_BANDS[b]!.id).toBeGreaterThan(lo.aura);
+      expect(hi.motes).toBeGreaterThanOrEqual(lo.motes);
     }
-    expect(bowGlow(11).particles).toBe(false);
-    expect(bowGlow(12).particles).toBe(true);
-    expect(bowGlow(14).stringTrail).toBe(false);
-    expect(bowGlow(15).stringTrail).toBe(true);
-    expect(new Set([6, 9, 12, 15].map((l) => bowGlow(l).color)).size).toBe(4);
+    expect(new Set(GLOW_BANDS.map((b) => b.color)).size).toBe(GLOW_BANDS.length);
+    expect(nextGlowBand(7)).toEqual({ band: 3, from: 9 });
+    expect(nextGlowBand(20)).toBeNull();
   });
 });
 

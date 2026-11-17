@@ -40,7 +40,7 @@ const ARP = [0, 7, 12, 15, 12, 7, 3, 7];
 
 const ev: NoteEvent = { inst: 'kick', midi: 0, vel: 1 };
 
-/** Notes at a 16th step (absolute step index) for a theme and intensity 0..3. */
+/** Notes at a 16th step (absolute step index) for a theme and intensity 0..5 (4-5: flow layers). */
 export function notesAt(theme: number, step: number, intensity: number, fn: (e: NoteEvent) => void): void {
   const s = ((step % 16) + 16) % 16;
   const bar = Math.floor(step / 16);
@@ -61,4 +61,7 @@ export function notesAt(theme: number, step: number, intensity: number, fn: (e: 
   }
   if (intensity >= 2) emitNote('arp', root + 24 + (ARP[s % ARP.length] ?? 0), s % 4 === 0 ? 0.6 : 0.4);
   if (intensity >= 3 && (s === 4 || s === 12)) emitNote('clap', 0, 0.8);
+  // Flow layers: a high counter-arp, then extra claps.
+  if (intensity >= 4 && s % 2 === 0) emitNote('arp', root + 36 + (ARP[(s / 2 + 3) % ARP.length] ?? 0), 0.3);
+  if (intensity >= 5 && (s === 7 || s === 15)) emitNote('clap', 0, 0.5);
 }

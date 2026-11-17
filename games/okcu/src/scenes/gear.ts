@@ -26,59 +26,44 @@ export function hueColor(h: number): number {
   return (Math.round(f(5) * 255) << 16) | (Math.round(f(3) * 255) << 8) | Math.round(f(1) * 255);
 }
 
-/** Colour of the aura at a level and time (mythic +18 and up cycles through the rainbow). */
+/** Colour of the aura at a level and time (the maximum level cycles through the rainbow). */
 export function auraColor(level: number, time: number): number {
   const gl = bowGlow(level);
-  return gl.cycle ? hueColor((time * 0.25) % 1) : gl.color;
+  return gl.cycle ? hueColor((time * 0.25) % 1) : gl.band === 0 ? PALETTE.gold : gl.color;
 }
 
-/**
- * The glow around a bow whose limbs run t1 → mid → t2 (any size): aura, sheen, motes and,
- * with `drawn` > 0, a light trail on the string from `sx, sy`.
- */
-export function drawBowGlow(g: G, level: number, t1x: number, t1y: number, mx: number, my: number, t2x: number, t2y: number, s: number, time: number, drawn = 0, sx = 0, sy = 0): void {
-  const gl = bowGlow(level);
-  if (gl.aura <= 0 && gl.sheen <= 0) return;
-  const col = auraColor(level, time);
-  const pulse = 0.8 + Math.sin(time * 4) * 0.2;
-  if (gl.aura > 0) {
-    // soft coloured halo: three widening strokes along both limbs
-    for (let k = 3; k >= 1; k--) {
-      const w = (7 + k * 8) * s * (0.7 + gl.aura * 0.7);
-      g.lineStyle(w, col, Math.min(0.6, gl.aura * 0.3 * pulse));
-      g.lineBetween(t1x, t1y, mx, my).lineBetween(mx, my, t2x, t2y);
-    }
-    g.fillStyle(col, Math.min(0.55, 0.12 + gl.aura * 0.35) * pulse).fillCircle(mx, my, 30 * s * (0.7 + gl.aura * 0.6));
-    g.fillStyle(col, gl.aura * 0.18 * pulse).fillCircle((t1x + mx) / 2, (t1y + my) / 2, 16 * s * (0.6 + gl.aura)).fillCircle((t2x + mx) / 2, (t2y + my) / 2, 16 * s * (0.6 + gl.aura));
-  }
-  if (gl.sheen > 0) {
-    // a highlight sliding up and down the limbs
-    const u = (Math.sin(time * 2.2) + 1) / 2;
-    const hx = u < 0.5 ? t1x + (mx - t1x) * u * 2 : mx + (t2x - mx) * (u - 0.5) * 2;
-    const hy = u < 0.5 ? t1y + (my - t1y) * u * 2 : my + (t2y - my) * (u - 0.5) * 2;
-    g.fillStyle(PALETTE.white, 0.75 * gl.sheen).fillCircle(hx, hy, 3.4 * s);
-    g.fillStyle(PALETTE.white, 0.25 * gl.sheen).fillCircle(hx, hy, 7 * s);
-  }
-  if (gl.particles) {
-    for (let i = 0; i < 6; i++) {
-      const ph = (time * 0.6 + i / 6) % 1;
-      const along = (i * 0.37) % 1;
-      const bx = t1x + (t2x - t1x) * along + (mx - (t1x + t2x) / 2) * Math.sin(along * Math.PI);
-      const by = t1y + (t2y - t1y) * along + (my - (t1y + t2y) / 2) * Math.sin(along * Math.PI);
-      const x = bx + Math.sin(time * 3 + i * 2.1) * 10 * s;
-      const y = by - ph * 46 * s;
-      const a = (1 - ph) * 0.9;
-      g.fillStyle(gl.cycle ? hueColor((ph + i / 6) % 1) : col, a).fillCircle(x, y, (2.2 + (1 - ph) * 2.2) * s);
-    }
-  }
-  if (gl.stringTrail && drawn > 0.05) {
-    g.lineStyle(9 * s, col, 0.35 * drawn).lineBetween(t1x, t1y, sx, sy).lineBetween(t2x, t2y, sx, sy);
-    for (let i = 0; i < 4; i++) {
-      const k = (time * 3 + i / 4) % 1;
-      g.fillStyle(PALETTE.white, (1 - k) * drawn).fillCircle(t1x + (sx - t1x) * k, t1y + (sy - t1y) * k, 2.4 * s);
-      g.fillStyle(PALETTE.white, (1 - k) * drawn).fillCircle(t2x + (sx - t2x) * k, t2y + (sy - t2y) * k, 2.4 * s);
-    }
-  }
+/** Limb ends, grip and string centre of a bow (filled in place: no allocation). */
+export interface BowGeom {
+  t1x: number;
+  t1y: number;
+  mx: number;
+  my: number;
+  t2x: number;
+  t2y: number;
+  /** where the string is (the drawing hand while drawn) */
+  sx: number;
+  sy: number;
+  /** size: 1 for an archer's bow at scale 1 */
+  s: number;
+}
+
+export function newBowGeom(): BowGeom {
+  return { t1x: 0, t1y: 0, mx: 0, my: 0, t2x: 0, t2y: 0, sx: 0, sy: 0, s: 1 };
+}
+
+/** Geometry of a standalone bow drawn by drawBowItem at (x, y, size). */
+export function bowItemGeom(x: number, y: number, size: number, out: BowGeom): BowGeom {
+  const s = size / 40;
+  out.t1x = x - 16 * s;
+  out.t1y = y - size;
+  out.t2x = x - 16 * s;
+  out.t2y = y + size;
+  out.mx = x + 6 * s;
+  out.my = y;
+  out.sx = out.t1x;
+  out.sy = y;
+  out.s = s;
+  return out;
 }
 
 /** Tier decorations on the limbs (recurve curls, grip wrap, gems, shards, wings). */
@@ -162,7 +147,6 @@ export function drawBowItem(g: G, x: number, y: number, size: number, level: num
   const t2y = y + size;
   const mx = x + 6 * s;
   const my = y;
-  drawBowGlow(g, level, t1x, t1y, mx, my, t2x, t2y, s * 1.6, time);
   // limbs: a thick quadratic noodle
   const N = 10;
   const cx = 2 * mx - (t1x + t2x) / 2;

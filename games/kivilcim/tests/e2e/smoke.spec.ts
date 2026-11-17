@@ -156,14 +156,24 @@ test('title → autopilot finishes level 1 → death → retry by tap', async ({
   await page.waitForTimeout(300);
   await act(page, 'skins');
   await waitForScene(page, 'skins');
-  // Level 1 paid 3 gems: the first trail (3) is affordable and equips; the next one is not.
+  // Level 1 paid gems (gems, stars, a feat): the first trail (3) is affordable and equips; the
+  // top mythic one (200) is not.
+  const before = (await data(page)).wallet;
   await act(page, 'buy', { kind: 'trail', i: 1 });
-  expect((await data(page)).wallet).toBe(0);
+  expect((await data(page)).wallet).toBe(before - 3);
   expect((await data(page)).trail).toBe(1);
-  await act(page, 'buy', { kind: 'trail', i: 2 });
+  await act(page, 'buy', { kind: 'trail', i: 17 });
   expect((await data(page)).trail).toBe(1);
   await page.waitForTimeout(600);
   await shot(page, gameDir, 'skins');
+  await act(page, 'back');
+  await waitForScene(page, 'game');
+  // The rank ladder is one tap from the title too.
+  await page.waitForTimeout(300);
+  await act(page, 'ranks');
+  await waitForScene(page, 'ranks');
+  await page.waitForTimeout(400);
+  await shot(page, gameDir, 'ranks');
   await act(page, 'back');
   await waitForScene(page, 'game');
 

@@ -149,10 +149,13 @@ export class World {
    * dt seconds; dy = world px climbed this frame; pulse 0..1 on the beat; speedK ≈ 1 normal,
    * 1.38 after FAST, 0.72 after SLOW (smoothed by the caller).
    */
+  /** Flow makes the world brighter (1 = normal). */
+  boost = 1;
+
   update(dt: number, dy: number, pulse: number, speedK: number): void {
     const sp = this.spec;
     this.time += dt * speedK;
-    const energy = 0.85 + 0.6 * (speedK - 1);
+    const energy = (0.85 + 0.6 * (speedK - 1)) * this.boost;
     this.near.tilePositionY -= dy * sp.scrollNear;
     this.near.tilePositionX += sp.driftX * dt * speedK;
     this.far.tilePositionY -= dy * sp.scrollFar * 0.45;

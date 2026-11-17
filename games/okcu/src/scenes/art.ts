@@ -6,7 +6,7 @@
 import type Phaser from 'phaser';
 import type { BowSkin, Cosmetic } from '../sim/meta';
 import { bowTier } from '../sim/bow';
-import { drawBowGlow, drawBowTierBits, TIER_LOOK } from './gear';
+import { drawBowTierBits, TIER_LOOK, type BowGeom } from './gear';
 import type { AnimOut } from '../anim/anim';
 import { PT } from '../sim/ragdoll';
 import type { Archer, Arrow } from '../sim/world';
@@ -783,6 +783,33 @@ const BOW_SKIN: Record<BowSkin, [number, number]> = {
   gold: [PALETTE.gold, PALETTE.cream],
 };
 
+/** Where the bow in an archer's hand is this frame (same maths as drawBow; filled in place). */
+export function bowGeomOf(a: Archer, o: Pick<DrawOpts, 'view' | 'face'>, out: BowGeom): BowGeom {
+  const b = o.view ?? a.body;
+  const draw = o.face && o.face.drawOverride >= 0 ? o.face.drawOverride : a.draw;
+  const s = a.scale;
+  const hx = b.x[PT.handF]!;
+  const hy = b.y[PT.handF]!;
+  let dx = hx - b.x[PT.elbowF]!;
+  let dy = hy - b.y[PT.elbowF]!;
+  const dl = Math.hypot(dx, dy) || 1;
+  dx /= dl;
+  dy /= dl;
+  const bend = (10 + 10 * draw) * s;
+  const L = 40 * s;
+  out.t1x = hx - dy * L - dx * bend;
+  out.t1y = hy + dx * L - dy * bend;
+  out.t2x = hx + dy * L - dx * bend;
+  out.t2y = hy - dx * L - dy * bend;
+  out.mx = hx + dx * 5 * s;
+  out.my = hy + dy * 5 * s;
+  const drawn = a.alive && draw > 0.02;
+  out.sx = drawn ? b.x[PT.handB]! : (out.t1x + out.t2x) / 2;
+  out.sy = drawn ? b.y[PT.handB]! : (out.t1y + out.t2y) / 2;
+  out.s = s;
+  return out;
+}
+
 function drawStaff(g: G, a: Archer, o: DrawOpts): void {
   const b = o.view ?? a.body;
   const s = a.scale;
@@ -831,7 +858,6 @@ function drawBow(g: G, a: Archer, o: DrawOpts, skin: BowSkin): void {
   // string: to the drawing hand while alive and drawing, else straight
   const sx = a.alive && draw > 0.02 ? b.x[PT.handB]! : (t1x + t2x) / 2;
   const sy = a.alive && draw > 0.02 ? b.y[PT.handB]! : (t1y + t2y) / 2;
-  if (o.bowLevel !== undefined && a.alive) drawBowGlow(g, o.bowLevel, t1x, t1y, hx + dx * 5 * s, hy + dy * 5 * s, t2x, t2y, s, o.time, draw, sx, sy);
   noodle(g, t1x, t1y, hx + dx * 5 * s, hy + dy * 5 * s, t2x, t2y, (forged ? 8 : 7) * s, bowColor);
   if (forged) {
     g.lineStyle(2.5 * s, TIER_LOOK[tier].light, 0.8).lineBetween(t1x, t1y, (t1x + hx) / 2 + dx * 3 * s, (t1y + hy) / 2 + dy * 3 * s);

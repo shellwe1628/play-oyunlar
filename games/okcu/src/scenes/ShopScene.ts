@@ -7,7 +7,8 @@ import { SFX } from '../sfx';
 import { PALETTE } from '../textures';
 import { drawHeadIcon } from './art';
 import { bowDamage, bowTier } from '../sim/bow';
-import { drawBowItem } from './gear';
+import { bowItemGeom, drawBowItem, newBowGeom } from './gear';
+import { BowAura } from './aura';
 import { fitButton } from './GameScene';
 import { drawCoin, drawUpgradeIcon } from './icons';
 import { SCENES } from './keys';
@@ -42,6 +43,9 @@ export class ShopScene extends OyunScene {
   private bowNote!: Phaser.GameObjects.Text;
   private bowG!: Phaser.GameObjects.Graphics;
   private forgeBtn!: Button;
+  private rowAura!: BowAura;
+  private lookAura!: BowAura;
+  private geom = newBowGeom();
 
   constructor() {
     super(SCENES.shop);
@@ -93,6 +97,7 @@ export class ShopScene extends OyunScene {
     this.forgeBtn = fitButton(button(this, 612, fy, this.t('shop.forge'), () => this.goTo(SCENES.forge, { from: this.from === 'result' ? 'result' : 'game' }), { width: 150, height: 88, fontSize: 34 }), 150);
     this.bowG = this.add.graphics();
     this.upgradeUi.add([this.bowG, this.bowName, this.bowNote, this.forgeBtn]);
+    this.rowAura = new BowAura(this, this.upgradeUi);
 
     // ---- looks tab: animated preview on a little ledge + a 4×3 grid
     this.looksUi = this.add.container(0, 0);
@@ -104,6 +109,7 @@ export class ShopScene extends OyunScene {
     this.puppet.setMood(0, true);
     this.puppetG = this.add.graphics();
     this.looksUi.add(this.puppetG);
+    this.lookAura = new BowAura(this, this.looksUi, 1);
     this.previewName = label(this, L.cx, footY + 95, '', { size: 44, color: PALETTE.cream }).setStroke(cssColor(PALETTE.ink), 10);
     this.previewNote = label(this, L.cx, footY + 142, '', { size: 34, color: PALETTE.white }).setStroke(cssColor(PALETTE.ink), 8);
     this.tileG = this.add.graphics();
@@ -159,11 +165,13 @@ export class ShopScene extends OyunScene {
       this.bowG.fillStyle(PALETTE.ink, 0.6).fillRoundedRect(20, fy - 56, 680, 112, 24);
       this.bowG.fillStyle(PALETTE.cream, 1).fillCircle(84, fy, 40);
       drawBowItem(this.bowG, 88, fy, 30, save.bow.level, time / 1000);
+      this.rowAura.update(Math.min(delta, 100) / 1000, save.bow.level, bowItemGeom(88, fy, 30, this.geom), 0);
       return;
     }
     this.puppet.step(Math.min(delta, 100) / 1000);
     this.puppetG.clear();
     this.puppet.draw(this.puppetG, COSMETICS[this.preview]!, save.bow.level);
+    this.lookAura.update(Math.min(delta, 100) / 1000, save.bow.level, this.puppet.bowGeom(this.geom), this.puppet.archer.draw);
   }
 
   private refresh(): void {

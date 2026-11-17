@@ -110,7 +110,7 @@ const MORE: Def[] = [
   /* 17 */ [560, null, [O, W(0.2), SN(0.4), SP(0.5, true), LZ(0.55), G('fast'), W(0.3), G('normal'), SN(0.45, true), B(0.5), D(0), X(17), D(0), R(17, true), D(0.5)]],
   /* 18 */ [570, null, [O, LZ(0.6), SN(0.5, true), G('flip'), SP(0.4), G('unflip'), Z(0.5), SN(0.55), LZ(0.6, true), D(0), X(18), D(0), R(18, true), D(0.5)]],
   /* 19 */ [580, null, [O, SP(0.6), SN(0.6, true), LZ(0.65), G('mini'), Z(0.3), G('big'), SN(0.6), SP(0.6, true), D(0), X(19), D(0), R(19, true), D(0.6)]],
-  /* 20 */ [590, null, [O, LZ(0.6), SN(0.6), G('fast'), W(0.35), G('normal'), SP(0.5, true), LZ(0.7), SN(0.65, true), G('flip'), W(0.3), G('unflip'), SP(0.7), D(0), X(20), D(0), R(20, true), LZ(0.75), D(0.7)]],
+  /* 20 */ [590, null, [O, LZ(0.6), SN(0.6), G('fast'), W(0.35), G('normal'), SP(0.6, true), LZ(0.8), SN(0.8, true), G('flip'), W(0.3), G('unflip'), SP(0.7), D(0), X(20), D(0), R(20, true), LZ(0.75), D(0.7)]],
   // ── World 3 · Storm Spire: wind, moving walls, dark sections ──
   /* 21 */ [515, 'wind', [O, D(0.2), WN(0, true), W(0.3), WN(0.1), SP(0.4), WN(0.25, true), LZ(0.4), D(0), X(21), D(0), R(21, true), D(0.4)]],
   /* 22 */ [525, null, [O, WN(0.35), SN(0.45, true), LZ(0.45), WN(0.4), G('fast'), W(0.3), G('normal'), SP(0.5, true), D(0), X(22), D(0), R(22, true), D(0.4)]],
@@ -132,7 +132,7 @@ const MORE: Def[] = [
   /* 37 */ [590, null, [O, PO(0.65), MI(0.6, true), dk(WN(0.65)), PI(0.65), G('flip'), W(0.3), G('unflip'), MI(0.6, true), D(0), X(37), D(0), R(37, true), D(0.65)]],
   /* 38 */ [600, null, [O, MI(0.65), dk(PO(0.65, true)), SN(0.65), WN(0.7), G('mini'), Z(0.35), G('big'), dk(MI(0.65, true)), D(0), X(38), D(0), R(38, true), D(0.7)]],
   /* 39 */ [610, null, [O, W(0.2), dk(PI(0.7)), MI(0.7, true), PO(0.7), LZ(0.7), G('fast'), W(0.4), G('normal'), dk(MI(0.7)), SN(0.7, true), D(0), X(39), D(0), R(39, true), D(0.7)]],
-  /* 40 */ [620, null, [O, MI(0.7), PO(0.7, true), dk(WN(0.7)), PI(0.7), G('fast'), W(0.4), G('normal'), dk(MI(0.75, true)), SN(0.75), LZ(0.75), D(0), X(40), D(0), R(40, true), dk(PO(0.75)), D(0.75)]],
+  /* 40 */ [620, null, [O, MI(0.65), PO(0.6, true), dk(WN(0.62)), PI(0.7), G('fast'), W(0.4), G('normal'), dk(MI(0.75, true)), SN(0.75), LZ(0.75), D(0), X(40), D(0), R(40, true), dk(PO(0.75)), D(0.75)]],
 ];
 
 for (const [i, [speed, intro, segs]] of MORE.entries()) {

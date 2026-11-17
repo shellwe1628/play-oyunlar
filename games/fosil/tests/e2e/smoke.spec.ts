@@ -115,6 +115,27 @@ test('dig until layer 2 opens, visit the museum, reload and keep everything', as
   await act(page, 'close');
   await act(page, 'back');
   await waitForScene(page, 'dig');
+
+  // Ranks: your own ladder, records and goals (never anyone else's).
+  const scored = (await state(page)).data as { score: number; rank: number; scoreParts: Record<string, number> };
+  expect(scored.score).toBeGreaterThan(0);
+  expect(scored.score).toBe(Object.entries(scored.scoreParts).filter(([k]) => k !== 'total').reduce((a, [, v]) => a + v, 0));
+  await act(page, 'ranks');
+  await waitForScene(page, 'ranks');
+  const ranks = (await state(page)).data as { score: number; rank: number; ranks: number; tab: string; canExpedition: boolean };
+  expect(ranks.score).toBe(scored.score);
+  expect(ranks.rank).toBe(scored.rank);
+  expect(ranks.ranks).toBeGreaterThanOrEqual(10);
+  expect(ranks.canExpedition).toBe(false);
+  await shot(page, gameDir, 'ranks');
+  for (const tab of ['records', 'goals'] as const) {
+    await act(page, 'tab', tab);
+    expect(((await state(page)).data as { tab: string }).tab).toBe(tab);
+    await shot(page, gameDir, `ranks-${tab}`);
+  }
+  await act(page, 'scroll', 400);
+  await act(page, 'back');
+  await waitForScene(page, 'dig');
   const saved = await dig(page);
 
   // Close and reopen: nothing is lost.

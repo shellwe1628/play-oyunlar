@@ -1,9 +1,10 @@
 import { createRng } from '@oyun/core/pure';
 import { describe, expect, it } from 'vitest';
-import { CARD_IDS, CARDS, drawOffer, statsFor, type CardId } from '../../src/sim/cards';
+import { CARD_IDS, CARDS, drawOffer, statsFor, synergyFor, type CardId } from '../../src/sim/cards';
 import { HELMET_HEAD_MUL, resolveHit } from '../../src/sim/combat';
 import { applyRunResult, bankDaily, bankProgress, bankStart, buyUpgrade, COSMETICS, dailyKey, freshSave, newBank, NO_META, runOutcome, unlockedCosmetics, UPGRADE_IDS, upgradeCost } from '../../src/sim/meta';
-import { enemyAccuracy, enemyDamageMul, enemyHp, enemyTiming, graceStep, helmetChance, waveEnemies, waveGrace } from '../../src/sim/waves';
+import { CHAPTER_DEFS, levelOf, stageDef, stageOf } from '../../src/sim/chapters';
+import { bossHp, enemyAccuracy, enemyDamageMul, enemyHp, enemyTiming, graceStep, helmetChance, waveGrace } from '../../src/sim/waves';
 
 describe('damage and effect table', () => {
   it('head knocks out any regular archer outright, with slow motion', () => {
@@ -50,8 +51,8 @@ describe('damage and effect table', () => {
 describe('cards', () => {
   const base = statsFor([], NO_META);
   const one = (id: CardId, n = 1) => statsFor(Array<CardId>(n).fill(id), NO_META);
-  it('there are twelve cards', () => {
-    expect(CARD_IDS.length).toBe(12);
+  it('there are eighteen cards (six change how you play)', () => {
+    expect(CARD_IDS.length).toBe(18);
   });
   it('every card changes something and stacks', () => {
     for (const id of CARD_IDS) {
@@ -78,6 +79,26 @@ describe('cards', () => {
     expect(one('shield', 2).shieldCharges).toBe(2);
     expect(one('longsight').previewMul).toBeGreaterThan(1);
     expect(one('vampire', 3).lifesteal).toBe(3 * one('vampire').lifesteal);
+    expect(one('seeker').seek).toBeGreaterThan(0);
+    expect(one('overdraw').overdraw).toBeGreaterThan(1);
+    expect(one('chain').chainShare).toBeGreaterThan(0);
+    expect(one('keen').crit).toBeCloseTo(base.crit + 0.08);
+    expect(one('zen').focusGain).toBeGreaterThan(base.focusGain);
+    expect(one('zen').focusTime).toBeGreaterThan(base.focusTime);
+    expect(one('boom').boomDmg).toBeGreaterThan(0);
+  });
+  it('synergies switch on with both cards and show on the card that completes them', () => {
+    expect(statsFor(['fire', 'boom'], NO_META).inferno).toBe(true);
+    expect(statsFor(['fire'], NO_META).inferno).toBe(false);
+    expect(statsFor(['pierce', 'chain'], NO_META).chainJumps).toBe(2);
+    expect(statsFor(['chain'], NO_META).chainJumps).toBe(1);
+    expect(statsFor(['split', 'seeker'], NO_META).swarm).toBe(true);
+    expect(statsFor(['heavy', 'overdraw'], NO_META).siege).toBe(true);
+    expect(statsFor(['keen', 'longsight'], NO_META).critMul).toBeGreaterThan(statsFor(['keen'], NO_META).critMul);
+    expect(synergyFor(['fire'], 'boom')).toBe('inferno');
+    expect(synergyFor(['boom'], 'fire')).toBe('inferno');
+    expect(synergyFor(['fire', 'boom'], 'boom')).toBeNull();
+    expect(synergyFor([], 'fire')).toBeNull();
   });
   it('cards combine (heavy + double + split)', () => {
     const s = statsFor(['heavy', 'double', 'split', 'heavy'], NO_META);
@@ -122,11 +143,12 @@ describe('permanent upgrades', () => {
     expect(buyUpgrade(s, 'reroll')).toBe(true);
     expect(buyUpgrade(s, 'reroll')).toBe(false);
   });
-  it('effects: start health, damage, coin gain, rerolls, starting card', () => {
-    const lv = { hp: 2, dmg: 3, coins: 1, reroll: 1, starter: 1 };
+  it('effects: start health, the bow\'s damage, coin gain, rerolls, starting card', () => {
+    const lv = { hp: 2, coins: 1, reroll: 1, starter: 1, bow: 3 };
     const s = statsFor([], lv);
     expect(s.maxHp).toBe(130);
-    expect(s.dmgMul).toBeCloseTo(1.3);
+    expect(s.dmgMul).toBeCloseTo(1.24);
+    expect(UPGRADE_IDS).not.toContain('dmg');
     expect(s.coinMul).toBeCloseTo(1.2);
     expect(s.rerolls).toBe(2);
     expect(statsFor([], NO_META).rerolls).toBe(1);
@@ -154,23 +176,53 @@ describe('permanent upgrades', () => {
   });
 });
 
-describe('waves', () => {
-  it('each new enemy type is introduced alone', () => {
-    const rng = createRng(1);
-    expect(waveEnemies(1, rng)).toEqual(['archer']);
-    expect(waveEnemies(3, rng)).toEqual(['shield']);
-    expect(waveEnemies(4, rng)).toEqual(['jumper']);
-    expect(waveEnemies(5, rng)).toEqual(['boss']);
-    expect(waveEnemies(6, rng)).toEqual(['bomber']);
-  });
-  it('every fifth wave has a boss; counts are bounded', () => {
-    const rng = createRng(2);
-    for (let w = 1; w <= 60; w++) {
-      const e = waveEnemies(w, rng);
-      expect(e.includes('boss')).toBe(w % 5 === 0);
-      expect(e.length).toBeLessThanOrEqual(4);
-      expect(e.length).toBeGreaterThanOrEqual(1);
+describe('chapters and stages', () => {
+  it('four chapters of seven stages: an elite at stage 4, a boss with its own mechanic at 7, then endless', () => {
+    expect(CHAPTER_DEFS.map((c) => c.id)).toEqual(['meadow', 'snow', 'desert', 'night']);
+    expect(CHAPTER_DEFS.map((c) => c.boss)).toEqual(['shields', 'giant', 'summoner', 'warden']);
+    expect(CHAPTER_DEFS.map((c) => c.bonus)).toEqual(['gallery', 'apples', 'defend', 'gallery']);
+    for (const c of CHAPTER_DEFS) {
+      expect(c.stages.length).toBe(7);
+      expect(c.stages[3]!.enemies[0]).toBe('elite');
+      expect(c.stages[6]!.enemies).toEqual(['boss']);
+      for (const st of c.stages) expect(st.enemies.length).toBeLessThanOrEqual(st.ledges.length);
     }
+    expect(stageOf(1)).toEqual({ chapter: 0, stage: 1, endless: false, theme: 0 });
+    expect(stageOf(14)).toEqual({ chapter: 1, stage: 7, endless: false, theme: 1 });
+    expect(stageOf(29)).toEqual({ chapter: 4, stage: 1, endless: true, theme: 0 });
+    expect(stageOf(36).theme).toBe(1);
+  });
+  it('the opening teaches one thing at a time', () => {
+    const rng = createRng(1);
+    expect(stageDef(1, rng).enemies).toEqual(['archer']);
+    expect(stageDef(2, rng).enemies).toEqual(['archer', 'archer']);
+    expect(stageDef(3, rng).enemies).toEqual(['shield', 'archer']);
+  });
+  it('each world brings new behaviour: wind and sliding ledges in the snow, swinging ledges and cover in the desert', () => {
+    const snow = CHAPTER_DEFS[1]!.stages;
+    expect(snow.every((s) => (s.wind ?? 0) > 0)).toBe(true);
+    expect(snow.some((s) => s.ledges.some((l) => l.slide))).toBe(true);
+    const desert = CHAPTER_DEFS[2]!.stages;
+    expect(desert.some((s) => s.ledges.some((l) => l.swing))).toBe(true);
+    expect(desert.some((s) => s.enemies.includes('cover'))).toBe(true);
+    expect(desert.some((s) => s.enemies.includes('catcher'))).toBe(true);
+    expect(CHAPTER_DEFS[3]!.stages.some((s) => s.enemies.includes('ward'))).toBe(true);
+    expect(CHAPTER_DEFS[0]!.stages.some((s) => s.enemies.includes('healer'))).toBe(true);
+    expect(CHAPTER_DEFS.some((c) => c.stages.some((s) => s.props?.some((p) => p.kind === 'barrel')))).toBe(true);
+    expect(CHAPTER_DEFS.some((c) => c.stages.some((s) => s.props?.some((p) => p.kind === 'rock')))).toBe(true);
+  });
+  it('endless stages stay bounded and keep a boss every seventh wave', () => {
+    const rng = createRng(2);
+    for (let w = 29; w <= 120; w++) {
+      const d = stageDef(w, rng);
+      expect(d.enemies.length).toBeGreaterThanOrEqual(1);
+      expect(d.enemies.length).toBeLessThanOrEqual(4);
+      expect(d.enemies.includes('boss')).toBe(stageOf(w).stage === 7);
+    }
+  });
+  it('difficulty level: a gentle first chapter, then steeper chapters and endless', () => {
+    expect([1, 7, 8, 14, 15, 21, 22, 28, 29, 30].map(levelOf)).toEqual([1, 2.2, 3.5, 9.5, 10.5, 16.5, 17, 23, 23.5, 25]);
+    for (let w = 2; w < 80; w++) expect(levelOf(w)).toBeGreaterThan(levelOf(w - 1));
   });
   it('enemy accuracy tightens and draws quicken as waves go on, with floors', () => {
     let prev = enemyAccuracy(1);
@@ -185,12 +237,13 @@ describe('waves', () => {
     }
     expect(enemyAccuracy(1).angle).toBeGreaterThan(2.5 * enemyAccuracy(15).angle);
     expect(enemyAccuracy(60).angle).toBeGreaterThan(0.01);
-    expect(enemyTiming(60).draw).toBeGreaterThanOrEqual(0.5);
+    expect(enemyTiming(60).draw).toBeGreaterThanOrEqual(0.75);
   });
-  it('enemy health grows with the wave; the wave 1 archer falls to one body hit', () => {
+  it('enemy health grows with the level; the first archer falls to one body hit', () => {
     expect(enemyHp('archer', 1)).toBeLessThanOrEqual(resolveHit('archer', 'body', 1).damage);
     expect(enemyHp('archer', 10)).toBeGreaterThan(enemyHp('archer', 2));
-    expect(enemyHp('boss', 5)).toBeGreaterThanOrEqual(300);
+    expect(bossHp('shields', 0)).toBeLessThan(bossHp('warden', 0));
+    expect(bossHp('giant', 1)).toBeGreaterThan(bossHp('giant', 0));
   });
 });
 
@@ -238,11 +291,10 @@ describe('exact values (so a changed number fails a test)', () => {
   });
   it('upgrade costs grow on the curve and stop at the max level', () => {
     expect([0, 1, 2, 3].map((l) => upgradeCost('hp', l))).toEqual([25, 39, 60, 93]);
-    expect([0, 1, 2].map((l) => upgradeCost('dmg', l))).toEqual([30, 48, 77]);
     expect([0, 1, 2].map((l) => upgradeCost('coins', l))).toEqual([35, 56, 90]);
     expect(upgradeCost('reroll', 0)).toBe(60);
     expect(upgradeCost('starter', 0)).toBe(90);
-    const max = { hp: 8, dmg: 8, coins: 6, reroll: 1, starter: 1 } as const;
+    const max = { hp: 8, coins: 6, reroll: 1, starter: 1 } as const;
     for (const id of UPGRADE_IDS) {
       expect(upgradeCost(id, max[id] - 1), id).not.toBeNull();
       expect(upgradeCost(id, max[id]), id).toBeNull();
@@ -253,26 +305,29 @@ describe('exact values (so a changed number fails a test)', () => {
     expect(dailyKey(2026, 3, 7)).toBe('2026-03-07');
     expect(dailyKey(2026, 11, 17)).toBe('2026-11-17');
   });
-  it('enemy curves at a few waves', () => {
+  it('enemy curves at a few levels', () => {
     expect(enemyAccuracy(1).angle).toBeCloseTo(0.34, 6);
-    expect(enemyAccuracy(3).angle).toBeCloseTo(0.02 + 0.32 * 0.49, 6);
+    expect(enemyAccuracy(3).angle).toBeCloseTo(0.05 + 0.29 * 0.72 ** 2, 6);
     expect(enemyAccuracy(1).speed).toBeCloseTo(0.075, 6);
-    expect(enemyAccuracy(3).speed).toBeCloseTo(0.015 + 0.06 * 0.64, 6);
+    expect(enemyAccuracy(3).speed).toBeCloseTo(0.02 + 0.055 * 0.64, 6);
+    expect(enemyAccuracy(60).angle).toBeGreaterThanOrEqual(0.05);
     expect(enemyTiming(1).draw).toBeCloseTo(1.6, 6);
     expect(enemyTiming(5).draw).toBeCloseTo(1.28, 6);
-    expect(enemyTiming(20).draw).toBe(0.5);
+    expect(enemyTiming(20).draw).toBe(0.75);
+    expect(enemyTiming(20).cool).toBe(1);
     expect(enemyHp('archer', 1)).toBe(40);
     expect(enemyHp('archer', 2)).toBe(64);
-    expect(enemyHp('archer', 11)).toBe(314);
-    expect(enemyHp('boss', 5)).toBe(380);
-    expect(enemyHp('boss', 10)).toBe(540);
+    expect(enemyHp('archer', 11)).toBe(Math.round(40 * 7 * 1.12 ** 3));
+    expect(bossHp('shields', 0)).toBe(170);
+    expect(bossHp('warden', 0)).toBe(520);
+    expect(bossHp('giant', 2)).toBe(714);
     expect(enemyDamageMul(1)).toBeCloseTo(0.45, 6);
-    expect(enemyDamageMul(5)).toBeCloseTo(0.89 * 1.11 ** 4, 6);
-    expect(enemyDamageMul(9)).toBeCloseTo(1.11 ** 8, 6);
+    expect(enemyDamageMul(5)).toBeCloseTo(0.89 * 1.065 ** 4, 6);
+    expect(enemyDamageMul(9)).toBeCloseTo(1.065 ** 8, 6);
     expect(waveGrace(1)).toBeCloseTo(1.6, 6);
-    expect(waveGrace(20)).toBe(0);
+    expect(waveGrace(20)).toBe(1);
     expect(graceStep(2)).toBeCloseTo(1.4, 6);
-    expect(graceStep(20)).toBe(0);
+    expect(graceStep(20)).toBe(0.5);
     expect(helmetChance(13)).toBe(0);
     expect(helmetChance(14)).toBeCloseTo(0.2, 6);
     expect(helmetChance(18)).toBe(1);

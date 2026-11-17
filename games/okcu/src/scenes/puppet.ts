@@ -71,8 +71,9 @@ export class Puppet {
     stepScarf(this.scarf, this.vx[PT.neck]! - a.facing * 4, this.vy[PT.neck]! + 4, a.facing > 0 ? -520 : 520, Math.max(1 / 240, Math.min(dt, 1 / 30)), this.t, this.out.scarfLift);
   }
 
-  draw(g: Phaser.GameObjects.Graphics, cosmetic: Cosmetic): void {
+  draw(g: Phaser.GameObjects.Graphics, cosmetic: Cosmetic, bowLevel?: number): void {
     drawArcher(g, this.archer, lookFor(this.archer, cosmetic), {
+      ...(bowLevel !== undefined ? { bowLevel } : {}),
       time: this.t,
       scarf: this.scarf,
       flash: 0,

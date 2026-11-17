@@ -201,7 +201,7 @@ export class DigScene extends OyunScene {
     this.pauseButton = iconButton(this, L.left + 60, hy, 'pause', () => this.openPauseMenu());
     this.layerTitle = outlined(this, L.cx, hy, '', 46, PALETTE.sand, 8);
     // arrows sit between the pause button (left edge) and the screen edge, clear of both
-    const ax = 188;
+    const ax = 172;
     const arrow = (dir: -1 | 1): Phaser.GameObjects.Graphics => {
       const g = this.add.graphics({ x: L.cx + dir * ax, y: hy });
       g.fillStyle(PALETTE.shadow, 0.5).fillCircle(0, 4, 34);
@@ -214,11 +214,11 @@ export class DigScene extends OyunScene {
     this.tweens.add({ targets: nudge, scale: 1.45, alpha: 0, duration: 900, repeat: -1 });
     this.arrows = { left: arrow(-1), right: arrow(1), lock: this.add.image(L.cx + ax, hy, 'lock').setScale(0.7), nudge };
     // rank badge (top right): opens the ladder; a ring pulses when the expedition is open
-    const rx = L.right - 60;
-    this.rankRing = this.add.circle(rx, hy, 44).setStrokeStyle(6, PALETTE.glint, 1).setVisible(false);
+    const rx = L.right - 54;
+    this.rankRing = this.add.circle(rx, hy, 40).setStrokeStyle(6, PALETTE.glint, 1).setVisible(false);
     this.tweens.add({ targets: this.rankRing, scale: 1.4, alpha: 0, duration: 900, repeat: -1 });
-    this.rankBadge = this.add.image(rx, hy, badgeKey(this, this.sim.rank)).setScale(0.62);
-    hitZone(this, rx, hy, 100, 100, () => this.goTo(SCENES.ranks));
+    this.rankBadge = this.add.image(rx, hy, badgeKey(this, this.sim.rank)).setScale(0.55);
+    hitZone(this, rx, hy, 96, 96, () => this.goTo(SCENES.ranks));
 
     const cy = L.top + 152;
     const mk = (x: number, icon: string, color: number): Chip => {
@@ -264,7 +264,7 @@ export class DigScene extends OyunScene {
     const sx = L.left + 84;
     const sy = L.bottom - 190;
     this.streak = { g: this.add.graphics({ x: sx, y: sy }), text: outlined(this, sx, sy, '', 26, 0xffffff, 5), x: sx, y: sy, shown: -1 };
-    label(this, sx, sy + 56, this.t('hud.streakShort'), { size: 20, color: PALETTE.sand });
+    outlined(this, sx, sy - 60, this.t('hud.streakShort'), 22, PALETTE.sand, 5);
     hitZone(this, sx, sy, 110, 110, () => this.showTip('pity', this.t('tip.pity'), true));
     this.dailyButton = button(this, L.right - 84, sy, this.t('dig.daily'), () => this.openDaily(), { width: 140, height: 88, fontSize: 28 });
     this.tweens.add({ targets: this.dailyButton, scale: 1.06, yoyo: true, repeat: -1, duration: 700 });
@@ -1168,7 +1168,7 @@ export class DigScene extends OyunScene {
     this.comboText.setColor(cssColor(fever > 0 ? 0xffd23f : 0xffffff));
     fitText(this.comboText, 200);
     this.layerTitle.setText(this.t(`layer.${at(LAYERS, s.layer).id}`));
-    fitText(this.layerTitle, 270);
+    fitText(this.layerTitle, 250);
     this.arrows.left.setVisible(s.layer > 0);
     const deeper = s.layer < LAYERS.length - 1;
     this.arrows.right.setVisible(deeper);
@@ -1270,7 +1270,9 @@ export class DigScene extends OyunScene {
 
   /** A tap on the block centre, exactly as a finger would land there. */
   private tapBlock(): void {
-    if (this.reveal.blocking) this.reveal.dismiss();
+    if (this.ceremony) this.closeCeremony();
+    else if (this.dailyBox) this.closeDaily();
+    else if (this.reveal.blocking) this.reveal.dismiss();
     else if (!this.popup) this.onDigTap(this.block.x, this.block.y);
   }
 

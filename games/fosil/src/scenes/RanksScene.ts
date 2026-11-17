@@ -1,4 +1,4 @@
-import { button, cssColor, label, OyunScene, panel, progressBar, type Button } from '@oyun/core';
+import { button, cssColor, label, OyunScene, panel, progressBar, toast, type Button } from '@oyun/core';
 import type { PauseReason } from '@oyun/core/pure';
 import Phaser from 'phaser';
 import { badgeKey } from '../art/badges';
@@ -13,6 +13,11 @@ import { duration, questText } from './progress';
 import { big, fitText, fossilName, hitZone, lang, mult, oddsText } from './ui';
 
 type Tab = 'ladder' | 'records' | 'goals';
+
+/** Whole numbers as players read them: 1,000 / 1.000 (never 1.00K for a goal count). */
+function count(scene: OyunScene, n: number): string {
+  return n < 1e6 ? Math.floor(n).toLocaleString(lang(scene) === 'tr' ? 'tr-TR' : 'en-US') : big(scene, n);
+}
 const TABS: readonly Tab[] = ['ladder', 'records', 'goals'];
 
 /**
@@ -29,7 +34,7 @@ export class RanksScene extends OyunScene {
   private backButton!: Button;
   private expButton!: Button;
   private confirm: { box: Phaser.GameObjects.Container; go: Button; cancel: Button } | null = null;
-  private scroll = { y: 0, max: 0, list: null as Phaser.GameObjects.Container | null, top: 0 };
+  private scroll = { y: 0, max: 0, list: null as Phaser.GameObjects.Container | null, top: 0, bottom: 0 };
   private fx!: Particles;
   private bodyKey = '';
 
@@ -44,7 +49,7 @@ export class RanksScene extends OyunScene {
     this.tabs = [];
     this.confirm = null;
     this.bodyKey = '';
-    this.scroll = { y: 0, max: 0, list: null, top: 0 };
+    this.scroll = { y: 0, max: 0, list: null, top: 0, bottom: 0 };
     this.fx = new Particles(this, 90, 990);
     const L = this.layout;
     this.cameras.main.setBackgroundColor(0x241812);
@@ -118,7 +123,7 @@ export class RanksScene extends OyunScene {
       t.bg.fillStyle(on ? PALETTE.ochre : PALETTE.dirtLight, 1).fillRoundedRect(-tabW / 2 + 4, -38, tabW - 8, 72, 20);
       t.text.setColor(cssColor(on ? PALETTE.ink : 0xffffff));
     }
-    this.expButton.setEnabled(this.sim.canExpedition);
+    this.expButton.setAlpha(this.sim.canExpedition ? 1 : 0.6);
   }
 
   private drawBody(force = false): void {
@@ -176,8 +181,8 @@ export class RanksScene extends OyunScene {
     });
 
     // the whole ladder, lowest at the bottom, your rung marked
-    const listTop = top + 320;
-    const rowH = Math.min(56, (L.bottom - 140 - listTop) / RANKS.length);
+    const listTop = top + 318;
+    const rowH = Math.min(56, (L.bottom - 172 - listTop) / RANKS.length);
     RANKS.forEach((rk, i) => {
       const y = listTop + (RANKS.length - 1 - i) * rowH + rowH / 2;
       const mine = i === rank;
@@ -197,7 +202,7 @@ export class RanksScene extends OyunScene {
         this.body.add(you);
       }
     });
-    const rule = label(this, L.cx, L.bottom - 140, this.t('ranks.rule'), { size: 20, color: PALETTE.sand, wrap: L.width - 60 });
+    const rule = label(this, L.cx, L.bottom - 148, this.t('ranks.rule'), { size: 20, color: PALETTE.sand, wrap: L.width - 60 });
     this.body.add(rule);
   }
 
@@ -209,7 +214,7 @@ export class RanksScene extends OyunScene {
     let y = L.top + 230;
     const head = (key: 'rec.rare' | 'rec.sets' | 'rec.expedition'): void => {
       this.body.add(label(this, L.left + 30, y, this.t(key), { size: 34, color: PALETTE.ochreLight }).setOrigin(0, 0.5));
-      y += 48;
+      y += 64;
     };
     const none = (): void => {
       this.body.add(label(this, L.left + 40, y, this.t('rec.none'), { size: 26, color: PALETTE.sand }).setOrigin(0, 0.5));
@@ -259,7 +264,7 @@ export class RanksScene extends OyunScene {
     const s = this.sim;
     const top = L.top + 210;
     const bottom = L.bottom - 140;
-    const list = this.add.container(0, top);
+    const list = this.add.container(0, 0);
     // unfinished first (closest to done on top), then the earned ones
     const rows = [...ACHIEVEMENTS].sort((a, b) => {
       const da = s.quests.includes(a.id) ? 1 : 0;
@@ -279,27 +284,37 @@ export class RanksScene extends OyunScene {
       const p = Math.min(a.target, s.questProgress(a));
       const bar = progressBar(this, L.left + 40 + (L.width - 260) / 2, y + 20, L.width - 260, 16, { color: done ? 0x9fe08a : PALETTE.ochre });
       bar.setValue(p / a.target);
-      const pt = label(this, L.right - 40, y + 20, `${big(this, p)}/${big(this, a.target)}`, { size: 22, color: PALETTE.sand }).setOrigin(1, 0.5);
-      list.add([g, t, reward, bar, pt]);
+      const pt = label(this, L.right - 40, y + 20, `${count(this, p)}/${count(this, a.target)}`, { size: 22, color: PALETTE.sand }).setOrigin(1, 0.5);
+      const row = this.add.container(0, 0, [g, t, reward, bar, pt]);
+      row.setData('y', y);
+      list.add(row);
     });
-    const maskG = this.make.graphics({}, false);
-    maskG.fillStyle(0xffffff).fillRect(0, top, L.width, bottom - top);
-    list.setMask(maskG.createGeometryMask());
     this.body.add(list);
-    this.scroll = { y: 0, max: Math.max(0, rows.length * rowH - (bottom - top)), list, top };
+    this.scroll = { y: 0, max: Math.max(0, rows.length * rowH - (bottom - top)), list, top, bottom };
+    this.scrollBy(0);
   }
 
+  /** Rows move with the scroll; only rows wholly inside the window show (no masks needed). */
   private scrollBy(dy: number): void {
     const sc = this.scroll;
     if (!sc.list) return;
     sc.y = Phaser.Math.Clamp(sc.y + dy, 0, sc.max);
-    sc.list.setY(sc.top - sc.y);
+    for (const o of sc.list.list) {
+      const row = o as Phaser.GameObjects.Container;
+      const y = sc.top + (row.getData('y') as number) - sc.y;
+      row.setY(y - (row.getData('y') as number));
+      row.setVisible(y - 46 >= sc.top - 1 && y + 46 <= sc.bottom + 1);
+    }
   }
 
   // ------------------------------------------------------------------ expedition
 
   private openConfirm(): void {
-    if (this.confirm || !this.sim.canExpedition) return;
+    if (this.confirm) return;
+    if (!this.sim.canExpedition) {
+      toast(this, this.t('exp.locked', { name: this.t(`layer.${at(LAYERS, EXPEDITION.needLayer).id}`) }), { position: Math.round(this.layout.bottom - 190) });
+      return;
+    }
     const L = this.layout;
     const s = this.sim;
     const box = this.add.container(0, 0).setDepth(950);

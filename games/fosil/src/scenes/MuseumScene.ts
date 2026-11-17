@@ -61,10 +61,11 @@ export class MuseumScene extends OyunScene {
       const x = L.left + 20 + tabW * ((i % TABS_PER_ROW) + 0.5);
       const y = L.top + 156 + Math.floor(i / TABS_PER_ROW) * 76;
       const bg = this.add.graphics({ x, y });
-      const text = label(this, x, y, this.t(`layer.${layer.id}`), { size: 24, color: PALETTE.ink, wrap: tabW - 18 });
+      // two-word names go on two lines (never broken inside a word), then shrink to fit
+      const name = this.t(`layer.${layer.id}`).replace(' ', '\n');
+      const text = label(this, x, y, name, { size: 24, color: PALETTE.ink });
       text.setLineSpacing(-6);
-      if (text.height > 58) text.setScale(58 / text.height);
-      fitText(text, tabW - 18, 0.5);
+      text.setScale(Math.min(1, 58 / text.height, (tabW - 18) / text.width));
       this.tabs.push({ bg, text });
       hitZone(this, x, y, tabW - 6, 72, () => this.selectTab(i));
     });

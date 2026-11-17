@@ -1,11 +1,17 @@
 import type { OyunScene } from '@oyun/core';
 import { at, LAYERS, TIERS, type Achievement } from '../sim/data';
-import { counted } from './ui';
+import { lang } from './ui';
 
 /** Local calendar day number (days since 1970 in the player's time zone), for the daily dig. */
 export function today(now = Date.now()): number {
   const offset = new Date(now).getTimezoneOffset() * 60_000;
   return Math.floor((now - offset) / 86_400_000);
+}
+
+/** A counted noun with a readable whole number ("1,000 fossils" / "1.000 fosil"). */
+function counted(scene: OyunScene, base: string, n: number): string {
+  const text = n.toLocaleString(lang(scene) === 'tr' ? 'tr-TR' : 'en-US');
+  return scene.t(n === 1 ? `${base}.one` : base, { n: text });
 }
 
 /** The goal as a sentence: "Find 100 fossils", "Reach Coal Swamp". */

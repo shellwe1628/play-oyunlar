@@ -6,6 +6,9 @@ import { buyUpgrade, COSMETICS, isUnlocked, UPGRADE_IDS, UPGRADES, upgradeCost, 
 import { SFX } from '../sfx';
 import { PALETTE } from '../textures';
 import { drawHeadIcon } from './art';
+import { bowDamage, bowTier } from '../sim/bow';
+import { drawBowItem } from './gear';
+import { fitButton } from './GameScene';
 import { drawCoin, drawUpgradeIcon } from './icons';
 import { SCENES } from './keys';
 import { Puppet } from './puppet';
@@ -35,6 +38,10 @@ export class ShopScene extends OyunScene {
   private previewName!: Phaser.GameObjects.Text;
   private previewNote!: Phaser.GameObjects.Text;
   private preview = 0;
+  private bowName!: Phaser.GameObjects.Text;
+  private bowNote!: Phaser.GameObjects.Text;
+  private bowG!: Phaser.GameObjects.Graphics;
+  private forgeBtn!: Button;
 
   constructor() {
     super(SCENES.shop);
@@ -79,6 +86,13 @@ export class ShopScene extends OyunScene {
       this.maxLabels.set(id, max);
       this.upgradeUi.add([b, max]);
     });
+    // the bow is forged, not bought: its row leads to the forge
+    const fy = this.rowY(UPGRADE_IDS.length);
+    this.bowName = label(this, 158, fy - 24, '', { size: 36, color: PALETTE.gold }).setOrigin(0, 0.5).setStroke(cssColor(PALETTE.ink), 8);
+    this.bowNote = label(this, 158, fy + 20, '', { size: 32, color: PALETTE.white }).setOrigin(0, 0.5);
+    this.forgeBtn = fitButton(button(this, 612, fy, this.t('shop.forge'), () => this.goTo(SCENES.forge, { from: this.from === 'result' ? 'result' : 'game' }), { width: 150, height: 88, fontSize: 34 }), 150);
+    this.bowG = this.add.graphics();
+    this.upgradeUi.add([this.bowG, this.bowName, this.bowNote, this.forgeBtn]);
 
     // ---- looks tab: animated preview on a little ledge + a 4×3 grid
     this.looksUi = this.add.container(0, 0);
@@ -120,7 +134,7 @@ export class ShopScene extends OyunScene {
     const L = this.layout;
     const top = L.top + 340;
     const bottom = L.bottom - 170;
-    return top + i * Math.min(124, (bottom - top) / (UPGRADE_IDS.length - 1));
+    return top + i * Math.min(124, (bottom - top) / UPGRADE_IDS.length);
   }
 
   private setTab(t: Tab): void {
@@ -129,23 +143,34 @@ export class ShopScene extends OyunScene {
     this.looksUi.setVisible(t === 'looks');
     for (const [k, b] of this.tabBtns) b.setAlpha(k === t ? 1 : 0.55);
     // hidden buttons must not take taps
-    for (const b of this.buyBtns.values()) {
+    for (const b of [...this.buyBtns.values(), this.forgeBtn]) {
       if (t === 'upgrades') b.setInteractive();
       else b.disableInteractive();
     }
     this.refresh();
   }
 
-  override update(_time: number, delta: number): void {
-    if (this.tab !== 'looks') return;
+  override update(time: number, delta: number): void {
+    const save = gameSave(this.oyun).data;
+    if (this.tab === 'upgrades') {
+      // the bow row's icon glows like the real thing
+      const fy = this.rowY(UPGRADE_IDS.length);
+      this.bowG.clear();
+      this.bowG.fillStyle(PALETTE.ink, 0.6).fillRoundedRect(20, fy - 56, 680, 112, 24);
+      this.bowG.fillStyle(PALETTE.cream, 1).fillCircle(84, fy, 40);
+      drawBowItem(this.bowG, 88, fy, 30, save.bow.level, time / 1000);
+      return;
+    }
     this.puppet.step(Math.min(delta, 100) / 1000);
     this.puppetG.clear();
-    this.puppet.draw(this.puppetG, COSMETICS[this.preview]!);
+    this.puppet.draw(this.puppetG, COSMETICS[this.preview]!, save.bow.level);
   }
 
   private refresh(): void {
     const save = gameSave(this.oyun).data;
     this.coinText.setText(String(save.coins));
+    this.bowName.setText(this.t('bow.name', { name: this.t(`bow.${bowTier(save.bow.level)}`), n: save.bow.level }));
+    this.bowNote.setText(this.t('forge.dmg', { a: bowDamage(save.bow.level).toFixed(2), b: bowDamage(save.bow.level + 1).toFixed(2) }));
     const g = this.rowG;
     g.clear();
     UPGRADE_IDS.forEach((id, i) => {
@@ -239,6 +264,7 @@ export class ShopScene extends OyunScene {
   protected override testActions() {
     return {
       buy: (p: unknown) => this.buyBtns.get(p as UpgradeId)?.fire(),
+      forge: () => this.forgeBtn.fire(),
       wear: (p: unknown) => this.wear(Number(p)),
       tab: (p: unknown) => this.tabBtns.get(p === 'looks' ? 'looks' : 'upgrades')?.fire(),
       back: () => this.backBtn.fire(),

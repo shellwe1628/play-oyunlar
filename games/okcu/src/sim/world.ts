@@ -1108,7 +1108,7 @@ function clearWave(w: World): void {
   if (w.stage === STAGES && !stageOf(w.wave).endless) w.run.chapterStage[w.chapter] = STAGES + 1;
   const o = w.objective;
   if (o) {
-    let ok = false;
+    let ok: boolean;
     if (o.kind === 'noHit') ok = !o.hit;
     else if (o.kind === 'fast') ok = w.time - w.waveT0 <= o.limit;
     else if (o.kind === 'heads') ok = o.heads >= 1;
@@ -2157,7 +2157,7 @@ function playerArrowHits(w: World, a: Arrow, x0: number, y0: number): void {
   }
   for (const p of w.props) {
     if (!p.active) continue;
-    let t = -1;
+    let t: number;
     if (p.kind === 'barrel') t = sweepAabb(x0, y0, a.x, a.y, p.x, p.y, p.w, p.h)?.t ?? -1;
     else t = sweepCapsule(x0, y0, a.x, a.y, p.x, p.y, p.x, p.y, p.w);
     if (t >= 0 && t < bestT) {
@@ -2263,7 +2263,7 @@ function hitEnemy(w: World, a: Arrow, e: Archer, part: Part, hx: number, hy: num
   const crit = w.critRng.chance(w.stats.crit + (a.focus ? FX.focusCrit : 0));
   // the first chapter's boss relies on its shields, not its armour: body hits count four times
   const armourK = e.bossKind === 'shields' && part.kind !== 'weak' ? 4 : 1;
-  const out = resolveHit(e.type as EnemyType, part.kind, a.dmgMul * (crit ? w.stats.critMul : 1) * armourK, e.helmet);
+  const out = resolveHit(e.type, part.kind, a.dmgMul * (crit ? w.stats.critMul : 1) * armourK, e.helmet);
   if (crit) w.run.crits += 1;
   e.hurt = 0;
   e.body.muscle = Math.min(e.body.muscle, e.type === 'boss' ? 0.35 : TUNING.hitMuscle);

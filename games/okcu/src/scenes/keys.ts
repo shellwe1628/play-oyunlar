@@ -3,6 +3,8 @@ export const SCENES = {
   game: 'game',
   result: 'result',
   shop: 'shop',
+  forge: 'forge',
+  ranks: 'ranks',
 } as const;
 
 /** Drag → shot mapping (logical px). Below DRAG_DEAD a release cancels instead of firing. */

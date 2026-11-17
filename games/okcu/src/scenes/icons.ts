@@ -102,6 +102,61 @@ export function drawCardIcon(g: G, id: CardId, x: number, y: number): void {
       g.fillStyle(INK, 1).fillCircle(x, y, 7);
       g.fillStyle(PALETTE.white, 1).fillCircle(x - 5, y - 6, 4);
       break;
+    case 'seeker': {
+      // a curving arrow homing on a target
+      g.fillStyle(INK, 1).fillCircle(x + 26, y - 22, 17);
+      g.fillStyle(PALETTE.danger, 1).fillCircle(x + 26, y - 22, 13);
+      g.fillStyle(PALETTE.white, 1).fillCircle(x + 26, y - 22, 7);
+      g.fillStyle(PALETTE.danger, 1).fillCircle(x + 26, y - 22, 3);
+      g.lineStyle(5, PALETTE.white, 0.85).beginPath().arc(x - 6, y - 10, 34, Math.PI * 0.55, Math.PI * 1.05, false).strokePath();
+      arrow(g, x - 2, y + 8, -0.75, 64);
+      break;
+    }
+    case 'overdraw':
+      g.lineStyle(14, INK, 1).beginPath().arc(x + 22, y, 42, Math.PI * 0.62, Math.PI * 1.38, false).strokePath();
+      g.lineStyle(8, PALETTE.bow, 1).beginPath().arc(x + 22, y, 42, Math.PI * 0.62, Math.PI * 1.38, false).strokePath();
+      g.lineStyle(3, PALETTE.string, 1).lineBetween(x + 2, y - 36, x - 26, y).lineBetween(x - 26, y, x + 2, y + 36);
+      arrow(g, x + 6, y, 0, 70, PALETTE.powerHigh);
+      break;
+    case 'chain':
+      g.lineStyle(10, INK, 1).lineBetween(x - 30, y - 24, x - 4, y - 2).lineBetween(x - 4, y - 2, x - 14, y + 4).lineBetween(x - 14, y + 4, x + 28, y + 28);
+      g.lineStyle(5, PALETTE.bubble, 1).lineBetween(x - 30, y - 24, x - 4, y - 2).lineBetween(x - 4, y - 2, x - 14, y + 4).lineBetween(x - 14, y + 4, x + 28, y + 28);
+      g.fillStyle(INK, 1).fillCircle(x - 30, y - 24, 11).fillCircle(x + 28, y + 28, 11);
+      g.fillStyle(PALETTE.archer, 1).fillCircle(x - 30, y - 24, 7).fillCircle(x + 28, y + 28, 7);
+      break;
+    case 'keen': {
+      for (let i = 0; i < 8; i++) {
+        const a = (i / 8) * Math.PI * 2;
+        const r = i % 2 ? 22 : 40;
+        g.lineStyle(9, INK, 1).lineBetween(x, y, x + Math.cos(a) * r, y + Math.sin(a) * r);
+        g.lineStyle(4, PALETTE.crit, 1).lineBetween(x, y, x + Math.cos(a) * r, y + Math.sin(a) * r);
+      }
+      g.fillStyle(INK, 1).fillCircle(x, y, 14);
+      g.fillStyle(PALETTE.white, 1).fillCircle(x, y, 9);
+      break;
+    }
+    case 'zen':
+      g.fillStyle(INK, 1).fillCircle(x, y, 38);
+      g.fillStyle(PALETTE.focus, 1).fillCircle(x, y, 32);
+      g.fillStyle(PALETTE.white, 0.9).slice(x, y, 32, -Math.PI / 2, Math.PI / 2, false).fillPath();
+      g.fillStyle(PALETTE.focus, 1).fillCircle(x, y - 16, 16);
+      g.fillStyle(PALETTE.white, 0.9).fillCircle(x, y + 16, 16);
+      g.fillStyle(INK, 1).fillCircle(x, y - 16, 5).fillCircle(x, y + 16, 5);
+      break;
+    case 'boom': {
+      for (let i = 0; i < 10; i++) {
+        const a = (i / 10) * Math.PI * 2;
+        const r = i % 2 ? 26 : 42;
+        g.fillStyle(INK, 1).fillTriangle(x, y, x + Math.cos(a - 0.3) * 20, y + Math.sin(a - 0.3) * 20, x + Math.cos(a) * (r + 5), y + Math.sin(a) * (r + 5));
+      }
+      for (let i = 0; i < 10; i++) {
+        const a = (i / 10) * Math.PI * 2;
+        const r = i % 2 ? 22 : 36;
+        g.fillStyle(PALETTE.fire, 1).fillTriangle(x, y, x + Math.cos(a - 0.3) * 16, y + Math.sin(a - 0.3) * 16, x + Math.cos(a) * r, y + Math.sin(a) * r);
+      }
+      g.fillStyle(PALETTE.fireCore, 1).fillCircle(x, y, 14);
+      break;
+    }
     case 'vampire':
       heart(g, x, y - 4, 1.2, PALETTE.pink);
       g.fillStyle(PALETTE.white, 1).fillTriangle(x - 14, y - 6, x - 6, y - 6, x - 10, y + 8).fillTriangle(x + 6, y - 6, x + 14, y - 6, x + 10, y + 8);
@@ -113,9 +168,6 @@ export function drawUpgradeIcon(g: G, id: UpgradeId, x: number, y: number): void
   switch (id) {
     case 'hp':
       heart(g, x, y, 1);
-      break;
-    case 'dmg':
-      arrow(g, x, y, -0.7, 74);
       break;
     case 'coins':
       coin(g, x - 10, y + 8, 18);

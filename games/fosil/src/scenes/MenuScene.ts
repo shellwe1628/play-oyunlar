@@ -71,7 +71,12 @@ export class MenuScene extends MenuShell {
     const show = this.add.container(px, floorY - 150);
     show.add(this.add.image(0, 0, best ? fossilKey(best.id) : fossilKey('topsoil-01')).setScale(0.62));
     if (best) addCardLife(this, show, best.tier, 120, 120);
-    else (show.list[0] as Phaser.GameObjects.Image).setTint(0x000000).setTintMode(Phaser.TintModes.FILL).setAlpha(0.35);
+    else {
+      (show.list[0] as Phaser.GameObjects.Image).setVisible(false);
+      const q = label(this, 0, 0, '?', { size: 72, color: PALETTE.sand });
+      q.setAlpha(0.8);
+      show.add(q);
+    }
     this.tweens.add({ targets: show, y: floorY - 160, yoyo: true, repeat: -1, duration: 1500, ease: 'Sine.easeInOut' });
     if (best) {
       label(this, cx, height * 0.3 + 170, this.t('menu.rarest', { name: fossilName(this, best), odds: oddsText(this, best.odds) }), {

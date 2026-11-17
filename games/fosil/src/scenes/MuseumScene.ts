@@ -210,7 +210,7 @@ export class MuseumScene extends OyunScene {
       }
       this.grid.add(this.card(f, x, y, cardH, locked));
       if (i === spotAt) {
-        const tag = label(this, x - CARD_W / 2 + 14, y - cardH / 2 - 2, this.t('museum.rarest'), { size: 22, color: PALETTE.ink }).setOrigin(0, 0.5);
+        const tag = label(this, x + CARD_W / 2 - 12, y - cardH / 2 - 2, this.t('museum.rarest'), { size: 22, color: PALETTE.ink }).setOrigin(1, 0.5);
         tag.setBackgroundColor('#ffd23f').setPadding(8, 2, 8, 2);
         this.grid.add(tag);
       }

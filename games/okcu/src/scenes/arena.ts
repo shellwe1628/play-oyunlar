@@ -7,7 +7,7 @@ import Phaser from 'phaser';
 import { THEMES, type Theme } from '../anim/themes';
 import type { Ledge } from '../sim/body';
 import { PALETTE } from '../textures';
-import { Ambient, drawThemeBack, drawThemeLedge, drawThemeNear } from './worlds';
+import { Ambient, drawThemeBack, drawThemeLedge, drawThemeNear, LANTERN_Y } from './worlds';
 
 const W = 720;
 const H = 1280;
@@ -135,31 +135,19 @@ export class Arena {
     this.drawLanterns();
   }
 
-  /** Night theme: a string of lanterns swaying between the hill posts. */
+  /** Night theme: the baked lanterns' glow pulses (nine soft circles). */
   private drawLanterns(): void {
     const g = this.lantern;
     g.clear();
     if (this.theme.id !== 'night') return;
     const t = this.time;
     for (let i = 0; i < 3; i++) {
-      const x0 = 60 + i * 200;
-      const x1 = x0 + 200;
-      const y0 = 868;
-      const sway = Math.sin(t * 1.3 + i) * 6;
-      let px = x0;
-      let py = y0;
-      for (let k = 1; k <= 8; k++) {
+      for (let k = 2; k < 8; k += 2) {
         const u = k / 8;
-        const x = x0 + (x1 - x0) * u;
-        const y = y0 + Math.sin(u * Math.PI) * (34 + sway);
-        g.lineStyle(2, PALETTE.ink, 0.8).lineBetween(px, py, x, y);
-        px = x;
-        py = y;
-        if (k % 2 === 0 && k < 8) {
-          const glow = 0.7 + Math.sin(t * 3 + k + i) * 0.3;
-          g.fillStyle(PALETTE.lantern, 0.22 * glow).fillCircle(x, y + 10, 16);
-          g.fillStyle(k % 4 === 0 ? PALETTE.lantern : PALETTE.pink, 1).fillRoundedRect(x - 6, y + 2, 12, 15, 5);
-        }
+        const x = 60 + i * 200 + 200 * u;
+        const y = LANTERN_Y + Math.sin(u * Math.PI) * 34 + 10;
+        const glow = 0.6 + Math.sin(t * 3 + k + i * 2) * 0.4;
+        g.fillStyle(PALETTE.lantern, 0.25 * glow).fillCircle(x, y, 20);
       }
     }
   }

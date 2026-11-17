@@ -11,6 +11,9 @@ import { PALETTE } from '../textures';
 type G = Phaser.GameObjects.Graphics;
 type Pt = { x: number; y: number };
 
+/** Height of the night theme's lantern string (baked into the near layer; glows drawn live). */
+export const LANTERN_Y = 868;
+
 function poly(g: G, pts: Pt[]): void {
   g.fillPoints(pts as unknown as Phaser.Math.Vector2[], true);
 }
@@ -143,11 +146,28 @@ export function drawThemeNear(g: G, th: Theme, W: number, H: number): void {
       }
       break;
     case 'night':
-      // lantern posts on the hills
+      // lantern posts on the hills, strung together (baked; only the glow pulses at runtime)
       for (let i = 0; i < 4; i++) {
         const x = 60 + i * 200;
         const y = yAt(x) + 8;
         g.fillStyle(th.nearShade, 1).fillRect(x - 3, y - 70, 6, 74);
+      }
+      for (let i = 0; i < 3; i++) {
+        const x0 = 60 + i * 200;
+        let px = x0;
+        let py = LANTERN_Y;
+        for (let k = 1; k <= 8; k++) {
+          const u = k / 8;
+          const x = x0 + 200 * u;
+          const y = LANTERN_Y + Math.sin(u * Math.PI) * 34;
+          g.lineStyle(2, PALETTE.ink, 0.8).lineBetween(px, py, x, y);
+          px = x;
+          py = y;
+          if (k % 2 === 0 && k < 8) {
+            g.fillStyle(PALETTE.ink, 1).fillRoundedRect(x - 8, y, 16, 19, 6);
+            g.fillStyle(k % 4 === 0 ? PALETTE.lantern : PALETTE.pink, 1).fillRoundedRect(x - 6, y + 2, 12, 15, 5);
+          }
+        }
       }
       break;
   }
@@ -288,7 +308,7 @@ export class Ambient {
         }
         break;
       case 'fireflies':
-        for (let i = 0; i < 26; i++) {
+        for (let i = 0; i < 18; i++) {
           const a = 0.35 + 0.65 * Math.max(0, Math.sin(t * 2.4 + this.p[i]! * 3));
           const x = this.x[i]!;
           const y = this.y[i]! * 0.55 + 380;

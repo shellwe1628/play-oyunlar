@@ -156,23 +156,54 @@ test.describe('input timing (stepped clock)', () => {
   });
 });
 
-test('endless and daily fly on autopilot (planned ahead incrementally)', async ({ page }) => {
+test('first run ever: "let go!" then "hold!" as the walls approach, once, never again', async ({ page, context }) => {
   test.setTimeout(240_000);
   const errors = collectErrors(page);
+  await openStepped(page);
+  await edge(page, true); // first press on the title: the run starts, holding (going right)
+  const seen: string[] = [];
+  for (let i = 0; i < 400 && seen.length < 2; i++) {
+    await page.clock.runFor(17);
+    const d = await data(page);
+    const cue = d.cue as string;
+    if (cue && seen[seen.length - 1] !== cue) {
+      seen.push(cue);
+      await edge(page, !cue.includes('LET GO')); // react as told
+    }
+    expect(d.phase).toBe('playing'); // the chamber is wide enough to react in time
+  }
+  expect(seen).toEqual(['← LET GO!', 'HOLD! →']);
+  for (let k = 0; k < 20; k++) await page.clock.runFor(17);
+  expect((await data(page)).tutorialStep).toBe(-1);
+  // A later session (same storage): no cues. (The clock is per context: let time flow again.)
+  await page.clock.resume();
+  const again = await context.newPage();
+  await openGame(again, { seed: 1, lang: 'en' });
+  expect((await state(again)).data.tutorialStep).toBe(-1);
+  expect(errors).toEqual([]);
+});
+
+test('endless and daily fly on autopilot (planned ahead incrementally)', async ({ page }) => {
+  test.setTimeout(400_000);
+  const errors = collectErrors(page);
   await openGame(page, { seed: 3, lang: 'tr' });
+  // Waits on the game's own clock (sim seconds), not wall time: on a loaded machine frames
+  // longer than 200 ms make game time run slower than the wall.
+  const until = (secs: number): Promise<unknown> =>
+    page.waitForFunction((t) => Number(window.__OYUN__?.state().data.t) >= t || window.__OYUN__?.state().data.phase !== 'playing', secs, { timeout: 300_000, polling: 500 });
   await act(page, 'start', { mode: 'endless' });
   await act(page, 'autopilot', true);
-  await page.waitForTimeout(40_000);
+  await until(40);
   let d = await data(page);
-  console.warn(`endless autopilot: ${d.height} m after 40 s of wall time (phase ${d.phase})`);
+  console.warn(`endless autopilot: ${d.height} m after ${d.t.toFixed(1)} s of game time (phase ${d.phase})`);
   expect(d.phase).toBe('playing');
-  expect(d.height).toBeGreaterThan(1200);
+  expect(d.height).toBeGreaterThan(1500);
   await act(page, 'autopilot', false);
   await act(page, 'start', { mode: 'daily' });
   await act(page, 'autopilot', true);
-  await page.waitForTimeout(12_000);
+  await until(12);
   d = await data(page);
-  console.warn(`daily autopilot: ${d.height} m after 12 s (phase ${d.phase})`);
+  console.warn(`daily autopilot: ${d.height} m after ${d.t.toFixed(1)} s (phase ${d.phase})`);
   expect(d.phase).toBe('playing');
   expect(d.height).toBeGreaterThan(300);
   expect(errors).toEqual([]);

@@ -1,7 +1,9 @@
 # Yayın kontrol listesi (aşama 6 ve 7)
 
-Bu liste yazıldı, **hiçbiri bu ortamda çalıştırılmadı** (Android SDK, Xcode, mağaza ve portal hesapları yok),
-yalnızca web derlemesi ve `npx cap add android` / `npx cap sync android` yerelde denendi. Mağaza ve portal
+Bu liste yazıldı; mağaza ve portal hesapları olmadığı için **hiçbir mağazaya ya da portala gönderim denenmedi**.
+Yerelde denenen: web derlemesi, debug test APK'sı (`npm run apk`) ve Google Play için imzalı release AAB'leri
+(`npm run aab -- <slug>`, deneme anahtarıyla). Google Play'e yayın akışının tamamı ve sahibin yapacakları:
+**`docs/production/play-yayin.md`**. Mağaza ve portal
 kuralları sık değişir; "güncel kuralı kontrol et" yazan her yerde ilgili mağazanın ya da portalın şu anki
 belgesine bakılır, buradan çıkarım yapılmaz.
 
@@ -35,8 +37,13 @@ Başka portallar (örn. Poki) için çekirdekte bağdaştırıcı yok; bu ancak 
 
 ## 2. Capacitor paketi
 
-Doğrulanmış: `npx cap config`, `npx cap add android`, `npx cap sync android` `games/ornek` için çalıştı; üretilen proje
-JDK 21, compile/target SDK 36, min SDK 24 ister. Doğrulanmamış: Gradle derlemesi, `.github/workflows/android.yml`.
+Android için Google Play yolu hazır ve bu bölümün 1–3, 5, 6 ve 9. maddelerinin yerini alır: **`npm run aab -- <slug>`**
+(`tools/aab.mjs`, ayarlar `store/apps.json`) her oyun için ayrı uygulama olarak imzalı release AAB üretir; GitHub
+Actions **"Play'e yükle"** (`.github/workflows/play-yukle.yml`) kapıyı çalıştırıp AAB'yi Play'e yükler. Doğrulanmış
+(bu makinede): fosil ve okcu AAB'leri derlendi, `bundletool validate` geçti, bildirim (paket, versionCode, hedef
+SDK 36, min SDK 24, debuggable değil, şifresiz HTTP kapalı, yalnız INTERNET izni), imza ve içerik denetlendi.
+Doğrulanmamış: `play-yukle.yml` ve `android.yml` hiç çalışmadı; hiçbir paket telefonda açılmadı; Play'e yükleme
+denenmedi. Aşağıdaki maddeler oyun klasöründen elle Capacitor projesi kurma yolunu anlatır (iOS ve debug için).
 `android/` ve `ios/` git-ignored: üret, commit'leme.
 
 1. [AGENT] Web paketini Capacitor platformuyla derle: `VITE_OYUN_PLATFORM=capacitor npm run build -w games/<slug>`.
@@ -48,12 +55,14 @@ JDK 21, compile/target SDK 36, min SDK 24 ister. Doğrulanmamış: Gradle derlem
    `npx cap sync ios`, Xcode'da derle. iOS için iş akışı yok.
 5. [İNSAN: hesap] İmza: Android için yükleme anahtarı (keystore) ve release derlemesi (release derlemesi hiç
    denenmedi); iOS için Apple Developer hesabı, sertifika ve provisioning. Anahtarları depoya koyma.
-6. [AGENT] Uygulama kimliği `games/<slug>/oyun.config.json` içindeki `appId`; mağazaya yüklendikten sonra
-   değiştirilemeyebilir, yüklemeden önce son halini onayla (güncel kuralı kontrol et).
+6. [AGENT] Google Play kimlikleri `store/apps.json` içindedir (`com.playoyunlar.fossilodds`, `.sparkrise`,
+   `.noodlearchers`) ve ilk yüklemeden sonra değişmez; `games/<slug>/oyun.config.json` içindeki eski `appId`
+   (`com.oyunlar.<slug>`) yalnız oyun klasöründen elle kurulan projelerde kullanılır.
 7. [AGENT] Kayıt: Capacitor WebView içinde de `localStorage` kullanılır; Preferences bağdaştırıcısı yok
    (`packages/core/README.md`). Cihazda kaydın uygulama kapanıp açılınca ve güncellemede durduğunu elle dene.
 8. [AGENT] Titreşim için `@capacitor/haptics` native projeye eklenmeli (yeni bağımlılık; yoksa çağrılar sessizce boşa gider).
-9. [AGENT] Uygulama simgesi ve açılış görseli: Capacitor varsayılanlarını bırakma. Kodla çizip üretilebilir; ikili
+9. [AGENT] Uygulama simgesi ve açılış görseli: Capacitor varsayılanlarını bırakma (`npm run aab` bunu yapar: simge
+   `store/<slug>/icon/` içinden, yoksa kodla üretilen yer tutucu; açılış düz renk). Kodla çizip üretilebilir; ikili
    dosya kuralı oyun kaynağı içindir, mağaza varlıkları bu sınırın dışındadır ama kaynağı (betik) depoda dursun.
    Gereken ölçüler için güncel kuralı kontrol et.
 
@@ -75,8 +84,10 @@ Bunlar hukuki beyanlardır: metni agent hazırlayabilir, **beyanı insan verir v
 - [AGENT] Gizlilik politikası taslağı: oyunun ne sakladığını açıkça yaz. Bugünkü durum (kodu okuyarak): kayıt yalnızca
   cihazda (`localStorage`), analitik hiçbir yere gönderilmiyor, reklam sağlayıcısı yok. Bir reklam ya da analitik
   SDK'sı eklenince bu cümleler ve aşağıdaki formlar değişir.
-- [İNSAN: hesap] Politikayı herkese açık bir adreste yayımla (barındırma gerekir); mağazalar genelde bir adres ister,
-  güncel kuralı kontrol et.
+- [AGENT] Yapıldı: `docs/gizlilik/` (her oyun için Türkçe + İngilizce sayfa, `node tools/gizlilik.mjs` üretir).
+- [İNSAN: hesap] GitHub Pages'i aç (Settings → Pages → Deploy from a branch → `main`, `/docs`); adresler
+  `https://shellwe1628.github.io/play-oyunlar/gizlilik/<slug>/` (`play-yayin.md` A6).
+- [İNSAN: hesap] Google Play formlarının bugünkü cevapları: `play-yayin.md` bölüm B.
 - [İNSAN: hesap] Google Play "veri güvenliği" formu ve Apple "uygulama gizliliği" bildirimi: cevaplar gerçek SDK ve
   veri akışıyla tutarlı olmalı. Her ekleme (reklam, analitik, satın alma) sonrası yeniden gözden geçir.
 - [İNSAN: hesap] Yaş derecelendirme anketleri (Google Play ve App Store kendi anketini ister; güncel kuralı kontrol et).

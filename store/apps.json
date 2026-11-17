@@ -1,0 +1,47 @@
+{
+  "_doc": "Per-app Google Play release settings, read by tools/aab.mjs, tools/play-metadata.mjs and .github/workflows/play-yukle.yml. Package names (applicationId) are permanent once an app exists in Play Console: never change them. Guide: docs/production/play-yayin.md.",
+  "defaultLanguage": "en-US",
+  "languages": ["en-US", "tr-TR"],
+  "privacyPolicyBase": "https://shellwe1628.github.io/play-oyunlar/gizlilik/",
+  "apps": [
+    {
+      "slug": "fosil",
+      "applicationId": "com.playoyunlar.fossilodds",
+      "title": { "en-US": "Fossil Odds", "tr-TR": "Fosil Şansı" },
+      "versionName": "0.1.0",
+      "platform": "web",
+      "background": "#1b1f3b",
+      "icon": { "background": "#2a1e14", "accent": "#d99a3e" },
+      "releaseNotes": {
+        "en-US": "Internal test build. Rewarded buttons give their reward straight away: no ads are shown.",
+        "tr-TR": "Dahili test sürümü. Ödüllü düğmeler ödülü hemen verir: reklam gösterilmez."
+      }
+    },
+    {
+      "slug": "kivilcim",
+      "applicationId": "com.playoyunlar.sparkrise",
+      "title": { "en-US": "Sparkrise", "tr-TR": "Kıvılcım" },
+      "versionName": "0.1.0",
+      "platform": "web",
+      "background": "#1b1f3b",
+      "icon": { "background": "#1a0f2e", "accent": "#ff4fa3" },
+      "releaseNotes": {
+        "en-US": "Internal test build. Rewarded buttons give their reward straight away: no ads are shown.",
+        "tr-TR": "Dahili test sürümü. Ödüllü düğmeler ödülü hemen verir: reklam gösterilmez."
+      }
+    },
+    {
+      "slug": "okcu",
+      "applicationId": "com.playoyunlar.noodlearchers",
+      "title": { "en-US": "Noodle Archers", "tr-TR": "Sallanan Okçular" },
+      "versionName": "0.1.0",
+      "platform": "web",
+      "background": "#1b1f3b",
+      "icon": { "background": "#0f2233", "accent": "#4fc3ff" },
+      "releaseNotes": {
+        "en-US": "Internal test build. Rewarded buttons give their reward straight away: no ads are shown.",
+        "tr-TR": "Dahili test sürümü. Ödüllü düğmeler ödülü hemen verir: reklam gösterilmez."
+      }
+    }
+  ]
+}

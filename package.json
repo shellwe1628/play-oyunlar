@@ -17,7 +17,8 @@
     "typecheck": "npm run typecheck --workspaces --if-present",
     "lint": "eslint .",
     "new-game": "node tools/new-game.mjs",
-    "apk": "node tools/apk.mjs"
+    "apk": "node tools/apk.mjs",
+    "aab": "node tools/aab.mjs"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",

@@ -1288,7 +1288,7 @@ export class GameScene extends OyunScene {
     const i = segmentAt(tr.wy, sim.y);
     const room = sim.dir === 1 ? wallXAt(tr.wy, tr.rx, i, sim.y) - sim.x - sim.radius : sim.x - wallXAt(tr.wy, tr.lx, i, sim.y) - sim.radius;
     const want = this.tutorialStep === 0 ? 1 : -1;
-    if (sim.dir === want && room < 190 && this.cue.alpha < 0.5) {
+    if (this.cueDir === 0 && sim.dir === want && room < 190 && this.cue.alpha < 0.5) {
       const left = want === 1;
       this.cue.setText(left ? `← ${this.t('cue.letGo')}` : `${this.t('cue.hold')} →`).setColor(left ? '#ffffff' : '#ffe14d').setAlpha(1).setScale(1.5);
       fitText(this.cue, this.layout.width - 60, 84);
@@ -1298,8 +1298,9 @@ export class GameScene extends OyunScene {
       this.tweens.add({ targets: this.cue, scale: 1.12, yoyo: true, repeat: 3, delay: 200, duration: 160 });
       this.oyun.audio.play('pop');
       this.cueDir = want;
-    } else if (this.cue.alpha > 0.5 && sim.dir === -this.cueDir) {
-      // The player reacted: the cue goes, and the next one (or none) is armed.
+    } else if (this.cueDir !== 0 && sim.dir === -this.cueDir) {
+      // The player reacted: the cue goes, and the next one (or none) is armed (once).
+      this.cueDir = 0;
       this.tweens.killTweensOf(this.cue);
       this.tweens.add({ targets: this.cue, alpha: 0, scale: 0.8, duration: 180 });
       this.tutorialStep++;
@@ -1389,6 +1390,7 @@ export class GameScene extends OyunScene {
       pendingEdges: this.edges.pending,
       height: Math.floor(sim.y / 10),
       cue: this.cue.alpha > 0.5 ? this.cue.text : '',
+      tutorialStep: this.tutorialStep,
       flipTag: this.flipTag.visible,
       trackLength: Math.round(this.track.length),
       edge: sim.edge,

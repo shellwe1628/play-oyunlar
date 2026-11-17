@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "mixamo": {
+      "command": "python",
+      "args": ["tools/mcp/mixamo-mcp/mcp_server.py"]
+    }
+  }
+}

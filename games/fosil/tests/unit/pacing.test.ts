@@ -21,7 +21,7 @@ function summary(profile: Profile, runs: PacingMetrics[]): string {
 // Fast runs 60 seeds and casual 30: the rare-find timings are exponential waits and noisy.
 describe.each(['fast', 'casual'] as const)('pacing: %s player (scripted)', (profile) => {
   const runs: PacingMetrics[] = seeds(profile === 'fast' ? 60 : 30).map((s) => runPolicy(s, 40, profile));
-  const t = (f: (r: PacingMetrics) => number | null) => runs.map((r) => min(f(r)));
+  const t = (f: (r: PacingMetrics) => number | null | undefined) => runs.map((r) => min(f(r)));
 
   it('prints the measured pacing', () => {
     console.warn(summary(profile, runs));

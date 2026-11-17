@@ -466,19 +466,22 @@ export const LUCK_BOOST = { mult: 2, seconds: 60 } as const;
 /** Lucky streak: after this many rolls without a find at 1 in 100 or rarer, the next roll is one. */
 export const PITY = 150;
 
-/** Combo fever: at a full combo, taps hit twice as hard and dust doubles for a while. */
-export const FEVER = { seconds: 8, damage: 2, dust: 2, comboAfter: 0.5 } as const;
+/**
+ * Combo fever: every tap fills the fever meter by your combo (a full combo fills it fastest);
+ * at `charge` the frenzy starts: `seconds` of ×2 tap damage and ×2 dust, combo frozen full.
+ */
+export const FEVER = { charge: 200, seconds: 8, damage: 2, dust: 2 } as const;
 
 /** Blocks broken within `window` seconds of each other chain: +10 % dust per link, up to ×2. */
 export const CHAIN = { window: 1.5, step: 0.1, max: 2 } as const;
 
 /** Golden blocks (any layer, shown before you break them): ×5 dust and two rolls. */
-export const GOLDEN = { chance: 1 / 20, hp: 1.5, dust: 5, rolls: 2 } as const;
+export const GOLDEN = { chance: 1 / 20, hp: 1.5, dust: 5, rolls: 2, after: 40 } as const;
 
 /** Layer twists. */
 export const VEIN = { chance: 0.35, weak: 0.25, maxCharge: 5, fullHold: 0.8 } as const;
 export const UNSTABLE = { chance: 0.35, window: 6 } as const;
-export const TWIN = { hp: 1.7, rolls: 2 } as const;
+export const TWIN = { chance: 0.4, hp: 1.7, rolls: 2 } as const;
 export const RELIC = { chance: 1 / 6, fragments: 5, max: 3, power: 1.15 } as const;
 export const CAVEIN = { chance: 1 / 8, hp: 0.4, dust: 3 } as const;
 export const BOSS = { every: 20, hp: 6, phases: 3, luck: 3, dust: 5 } as const;

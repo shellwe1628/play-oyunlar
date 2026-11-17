@@ -4,8 +4,24 @@
  */
 import { createRng, type Rng } from '@oyun/core/pure';
 import {
+  ACHIEVEMENTS,
+  BOSS,
+  CAVEIN,
+  CHAIN,
   COMBO,
+  DAILY,
+  EXPEDITION,
+  FEVER,
   FOSSILS,
+  GOLDEN,
+  PITY,
+  RELIC,
+  SCORE,
+  TWIN,
+  UNSTABLE,
+  VEIN,
+  rankOf,
+  type Achievement,
   FOSSIL_BY_ID,
   FUSE_AT,
   GLINT,
@@ -20,7 +36,7 @@ import {
   type Fossil,
   type SetBonusKind,
   type UpgradeId, at } from './data';
-import { effectiveLuck, layerFossils, rollFossil } from './loot';
+import { effectiveLuck, layerFossils, LUCKY_TIER, rollFossil, rollRare } from './loot';
 
 export interface GlintState {
   /** Position inside the dig site, 0..1. */
@@ -65,6 +81,48 @@ export interface DigSave {
   lastFind: { id: string; grade: number; luck: number; source: FindSource } | null;
   /** Wall-clock ms of the last save (written by the scene, read for the offline haul). */
   lastSeen: number;
+  /** Species ever found (kept through expeditions: the museum). */
+  discovered: string[];
+  /** Best grade ever held per species. */
+  best: Record<string, number>;
+  /** The block being dug. */
+  block: BlockState;
+  /** Rolls since the last find at 1 in 100 or rarer (the lucky streak). */
+  dry: number;
+  /** Seconds of combo fever left. */
+  fever: number;
+  /** Fever meter (0..FEVER.charge). */
+  feverCharge: number;
+  /** Blocks broken in a chain and the play time of the last break. */
+  chain: { n: number; last: number };
+  /** Relic fragments collected (every 5 make a relic, up to 3 relics). */
+  fragments: number;
+  expedition: { count: number; runStart: number; best: number };
+  /** Deepest layer index ever reached (any run). */
+  deepest: number;
+  /** Achievements earned. */
+  quests: string[];
+  /** Gold-grade fusions made. */
+  golds: number;
+  daily: { day: number; streak: number };
+  records: { rare: RareRecord[]; sets: Record<string, number>; layerStart: number[] };
+  /** Highest rank already celebrated. */
+  rank: number;
+  /** Wall-clock ms most recently injected by the scene (for record dates). */
+  clock: number;
+}
+
+export type BlockKind = 'normal' | 'vein' | 'unstable' | 'twin' | 'golden' | 'cavein' | 'boss';
+export interface BlockState {
+  kind: BlockKind;
+  /** Unstable: seconds left in the bonus window (-1 = not started). */
+  timer: number;
+}
+export interface RareRecord {
+  id: string;
+  odds: number;
+  /** Wall-clock ms when found (0 = unknown, e.g. from an old save). */
+  at: number;
 }
 
 export function defaultSave(): DigSave {
@@ -74,7 +132,7 @@ export function defaultSave(): DigSave {
     levels: { pick: 0, luck: 0, assistant: 0, offline: 0 },
     layer: 0,
     unlocked: 0,
-    broken: [0, 0, 0, 0],
+    broken: LAYERS.map(() => 0),
     damage: 0,
     combo: 0,
     idle: 0,
@@ -88,10 +146,42 @@ export function defaultSave(): DigSave {
     tips: [],
     lastFind: null,
     lastSeen: 0,
+    discovered: [],
+    best: {},
+    block: { kind: 'normal', timer: -1 },
+    dry: 0,
+    fever: 0,
+    feverCharge: 0,
+    chain: { n: 0, last: -99 },
+    fragments: 0,
+    expedition: { count: 0, runStart: 0, best: 0 },
+    deepest: 0,
+    quests: [],
+    golds: 0,
+    daily: { day: 0, streak: 0 },
+    records: { rare: [], sets: {}, layerStart: [0] },
+    rank: 0,
+    clock: 0,
   };
 }
 
 export type FindSource = 'tap' | 'assistant' | 'glint' | 'offline';
+
+/** Things that happened, for the presentation (and tips) to react to. */
+export type SimEvent =
+  | { kind: 'fever' }
+  | { kind: 'feverEnd' }
+  | { kind: 'chain'; n: number }
+  | { kind: 'fragment'; fragments: number; relics: number }
+  | { kind: 'relic'; relics: number }
+  | { kind: 'cavein' }
+  | { kind: 'boss' }
+  | { kind: 'phase'; phase: number }
+  | { kind: 'golden' }
+  | { kind: 'settled' }
+  | { kind: 'pity' }
+  | { kind: 'quest'; id: string; dust: number }
+  | { kind: 'rank'; rank: number };
 
 export interface Find {
   fossil: Fossil;
@@ -109,11 +199,22 @@ export interface Find {
   unlocked: number | null;
   /** Dig power added by this find (including any fusion it triggered). */
   powerGain: number;
+  /** A lucky-streak roll: guaranteed 1 in 100 or rarer, in printed proportions (not luck-scaled). */
+  pity: boolean;
+  /** Block this came from. */
+  block: BlockKind;
 }
 
 export interface TapResult {
   damage: number;
   find: Find | null;
+  /** Further rolls from the same hit: twin, golden, unstable bonus, boss phases. */
+  extra: Find[];
+  events: SimEvent[];
+  /** The block broke on this hit (cave-in rubble breaks without a find). */
+  broke: boolean;
+  /** Dust paid by the break (0 if it did not break). */
+  dust: number;
 }
 
 export interface TickResult {
@@ -122,6 +223,7 @@ export interface TickResult {
   assistantHits: number;
   glintAppeared: boolean;
   glintExpired: boolean;
+  events: SimEvent[];
 }
 
 export interface OfflineHaul {
@@ -196,13 +298,99 @@ export function sanitizeSave(raw: Partial<DigSave> | undefined): DigSave {
       ? { id: lf.id, grade: int(lf.grade, 0, GRADE_COUNT - 1), luck: Math.max(1, num(lf.luck, 1)), source: sources.includes(lf.source) ? lf.source : 'tap' }
       : null;
   d.lastSeen = num(raw.lastSeen);
+  const disc = Array.isArray(raw.discovered) ? raw.discovered : Object.keys(d.counts);
+  d.discovered = [...new Set([...disc.filter((x): x is string => typeof x === 'string' && FOSSIL_BY_ID.has(x)), ...Object.keys(d.counts)])];
+  for (const id of d.discovered) {
+    const top = (d.counts[id] ?? []).reduce((m, n, g) => (n > 0 ? g : m), 0);
+    d.best[id] = Math.max(top, int(raw.best?.[id], 0, GRADE_COUNT - 1));
+  }
+  // Set bonuses follow from the museum, so a hand-edited or older save stays consistent.
+  d.sets = LAYERS.map((_, l) => l).filter((l) => layerFossils(l).every((f) => d.discovered.includes(f.id)));
+  const kinds: readonly BlockKind[] = ['normal', 'vein', 'unstable', 'twin', 'golden', 'cavein', 'boss'];
+  const b = raw.block;
+  d.block = b && kinds.includes(b.kind) ? { kind: b.kind, timer: typeof b.timer === 'number' && Number.isFinite(b.timer) ? b.timer : -1 } : { kind: 'normal', timer: -1 };
+  d.dry = int(raw.dry);
+  d.fever = num(raw.fever);
+  d.feverCharge = Math.min(FEVER.charge, num(raw.feverCharge));
+  d.chain = { n: int(raw.chain?.n), last: typeof raw.chain?.last === 'number' && Number.isFinite(raw.chain.last) ? raw.chain.last : -99 };
+  d.fragments = int(raw.fragments, 0, RELIC.fragments * RELIC.max);
+  d.expedition = { count: int(raw.expedition?.count), runStart: num(raw.expedition?.runStart), best: num(raw.expedition?.best) };
+  d.deepest = Math.max(d.unlocked, int(raw.deepest, 0, LAYERS.length - 1));
+  d.quests = Array.isArray(raw.quests) ? raw.quests.filter((q): q is string => typeof q === 'string' && ACHIEVEMENTS.some((a) => a.id === q)) : [];
+  d.golds = int(raw.golds);
+  d.daily = { day: int(raw.daily?.day), streak: int(raw.daily?.streak, 0, DAILY.maxStreak) };
+  const rec = raw.records;
+  d.records = {
+    rare: (Array.isArray(rec?.rare) ? rec.rare : [])
+      .filter((r): r is RareRecord => !!r && FOSSIL_BY_ID.has(r.id))
+      .map((r) => ({ id: r.id, odds: FOSSIL_BY_ID.get(r.id)!.odds, at: num(r.at) }))
+      .slice(0, 5),
+    sets: Object.fromEntries(Object.entries(rec?.sets ?? {}).filter(([, v]) => typeof v === 'number' && Number.isFinite(v) && v >= 0)),
+    layerStart: LAYERS.map((_, i) => (i === 0 ? num(rec?.layerStart?.[0]) : typeof rec?.layerStart?.[i] === 'number' ? num(rec.layerStart[i]) : -1)).filter((_, i) => i <= d.unlocked),
+  };
+  if (d.records.rare.length === 0 && d.stats.bestId) d.records.rare = [{ id: d.stats.bestId, odds: d.stats.bestOdds, at: 0 }];
+  d.rank = int(raw.rank, 0, 99);
+  d.clock = num(raw.clock);
   return d;
+}
+
+/**
+ * Save v1 (four layers, no expeditions) → v2. Everything a player had is kept: the collection
+ * becomes the museum, best grades and the rarest find become records; new systems start fresh.
+ */
+export function migrateV1(old: unknown): unknown {
+  if (!old || typeof old !== 'object') return old;
+  const o = old as Partial<DigSave>;
+  const counts = o.counts ?? {};
+  const best: Record<string, number> = {};
+  for (const [id, g] of Object.entries(counts)) best[id] = Array.isArray(g) ? g.reduce((m: number, n: number, i: number) => (n > 0 ? i : m), 0) : 0;
+  const broken = Array.isArray(o.broken) ? [...o.broken] : [];
+  while (broken.length < LAYERS.length) broken.push(0);
+  return {
+    ...o,
+    broken,
+    discovered: Object.keys(counts),
+    best,
+    deepest: typeof o.unlocked === 'number' ? o.unlocked : 0,
+    records: { rare: o.stats?.bestId ? [{ id: o.stats.bestId, odds: o.stats.bestOdds ?? 0, at: 0 }] : [], sets: {}, layerStart: [0] },
+  };
+}
+
+/** Score breakdown (pure): what each part of your progress is worth on the ladder. */
+export interface ScoreBreakdown {
+  species: number;
+  grades: number;
+  sets: number;
+  depth: number;
+  relics: number;
+  expeditions: number;
+  total: number;
+}
+
+export function scoreOf(s: Pick<DigSave, 'discovered' | 'best' | 'sets' | 'deepest' | 'fragments' | 'expedition'>): ScoreBreakdown {
+  let species = 0;
+  let grades = 0;
+  for (const id of s.discovered) {
+    const f = FOSSIL_BY_ID.get(id);
+    if (!f) continue;
+    species += at(SCORE.species, f.tier);
+    grades += (s.best[id] ?? 0) * SCORE.grade;
+  }
+  const sets = s.sets.length * SCORE.set;
+  const depth = s.deepest * SCORE.depth;
+  const relics = Math.min(RELIC.max, Math.floor(s.fragments / RELIC.fragments)) * SCORE.relic;
+  const expeditions = s.expedition.count * SCORE.expedition;
+  return { species, grades, sets, depth, relics, expeditions, total: species + grades + sets + depth + relics + expeditions };
 }
 
 export class DigSim {
   private readonly s: DigSave;
   private readonly rng: Rng;
   private pendingOfflineDust = 0;
+  /** Cached collection power (invalidated on every change to the collection). */
+  private powerCache = -1;
+  /** Events from the last glint tap (tapGlint returns only the find). */
+  lastEvents: SimEvent[] = [];
 
   constructor(seed: number, save?: Partial<DigSave>) {
     this.s = sanitizeSave(save);
@@ -211,6 +399,95 @@ export class DigSim {
     // A brand-new dig shows its first glint early so players meet it; later ones come every 20-40 s.
     if (this.s.glintIn < 0 && !this.s.glint) this.s.glintIn = this.s.stats.rolls === 0 && this.s.stats.taps === 0 ? GLINT.first : this.nextGlintGap();
     this.checkUnlocks();
+  }
+
+  // ---------------------------------------------------------------- new systems (read)
+
+  get block(): Readonly<BlockState> {
+    return this.s.block;
+  }
+  get dry(): number {
+    return this.s.dry;
+  }
+  get feverSeconds(): number {
+    return this.s.fever;
+  }
+  /** Fever meter fill, 0..1. */
+  get feverFill(): number {
+    return this.s.fever > 0 ? this.s.fever / FEVER.seconds : this.s.feverCharge / FEVER.charge;
+  }
+  get chainCount(): number {
+    return this.s.chain.n;
+  }
+  get fragments(): number {
+    return this.s.fragments;
+  }
+  get relics(): number {
+    return Math.min(RELIC.max, Math.floor(this.s.fragments / RELIC.fragments));
+  }
+  get expeditions(): number {
+    return this.s.expedition.count;
+  }
+  get deepest(): number {
+    return this.s.deepest;
+  }
+  get quests(): readonly string[] {
+    return this.s.quests;
+  }
+  get records(): Readonly<DigSave['records']> {
+    return this.s.records;
+  }
+  get bestExpedition(): number {
+    return this.s.expedition.best;
+  }
+  get dailyStreak(): number {
+    return this.s.daily.streak;
+  }
+  get discoveredCount(): number {
+    return this.s.discovered.length;
+  }
+  get score(): ScoreBreakdown {
+    return scoreOf(this.s);
+  }
+  get rank(): number {
+    return rankOf(this.score.total);
+  }
+  /** The expedition is open once the deepest layer has been reached in this run. */
+  get canExpedition(): boolean {
+    return this.s.unlocked >= EXPEDITION.needLayer;
+  }
+  /** Permanent multiplier from expeditions (dig power and dust). */
+  get expeditionMult(): number {
+    return 1 + EXPEDITION.power * this.s.expedition.count;
+  }
+  /** Luck of a boss-phase roll from your next tap. */
+  get bossLuck(): number {
+    return effectiveLuck(this.s.layer, this.baseLuck * this.comboMult * BOSS.luck);
+  }
+  /** Progress of an achievement towards its target. */
+  questProgress(a: Achievement): number {
+    switch (a.kind) {
+      case 'finds':
+        return this.s.stats.rolls;
+      case 'species':
+        return this.s.discovered.length;
+      case 'tier':
+        return this.s.discovered.filter((id) => (FOSSIL_BY_ID.get(id)?.tier ?? -1) >= (a.tier ?? 0)).length;
+      case 'sets':
+        return this.s.sets.length;
+      case 'depth':
+        return this.s.deepest + 1;
+      case 'gold':
+        return this.s.golds;
+      case 'relics':
+        return this.relics;
+      case 'expeditions':
+        return this.s.expedition.count;
+    }
+  }
+  /** Inject the wall clock (ms) so records can carry dates; pure otherwise. */
+  setClock(ms: number): void {
+    if (Number.isFinite(ms) && ms > 0) this.s.clock = ms;
   }
 
   // ---------------------------------------------------------------- derived values
@@ -253,8 +530,14 @@ export class DigSim {
     return (this.s.counts[id] ?? []).reduce((sum, n, g) => sum + n * FUSE_AT ** g, 0);
   }
 
+  /** In the museum (found in any run). */
   discovered(id: string): boolean {
-    return this.s.counts[id] !== undefined;
+    return this.s.discovered.includes(id);
+  }
+
+  /** Best grade ever held (museum), or -1 if never found. */
+  bestGrade(id: string): number {
+    return this.discovered(id) ? (this.s.best[id] ?? 0) : -1;
   }
 
   /** Highest grade held of a fossil, or -1 if undiscovered. */
@@ -289,6 +572,7 @@ export class DigSim {
   }
 
   get collectionPower(): number {
+    if (this.powerCache >= 0) return this.powerCache;
     let sum = 0;
     for (const [id, grades] of Object.entries(this.s.counts)) {
       const f = FOSSIL_BY_ID.get(id)!;
@@ -296,11 +580,12 @@ export class DigSim {
         if (n) sum += n * fossilPower(f, g);
       });
     }
+    this.powerCache = sum;
     return sum;
   }
 
   get pickMult(): number {
-    return UPGRADES.pick.effect(this.s.levels.pick) * this.bonus('power');
+    return UPGRADES.pick.effect(this.s.levels.pick) * this.bonus('power') * this.expeditionMult * RELIC.power ** this.relics;
   }
 
   /** Damage per tap: (bare hands 1 + collection power) × pick multiplier. */
@@ -365,7 +650,9 @@ export class DigSim {
   }
 
   get blockHp(): number {
-    return this.hpOf(this.s.layer);
+    const k = this.s.block.kind;
+    const m = k === 'twin' ? TWIN.hp : k === 'golden' ? GOLDEN.hp : k === 'cavein' ? CAVEIN.hp : k === 'boss' ? BOSS.hp : 1;
+    return Math.ceil(this.hpOf(this.s.layer) * m);
   }
 
   get blockDamage(): number {
@@ -374,7 +661,7 @@ export class DigSim {
 
   blockDust(layer: number): number {
     const L = at(LAYERS, layer);
-    return Math.ceil(L.dust * (this.hpOf(layer) / L.hp) ** L.dustCurve);
+    return Math.ceil(L.dust * (this.hpOf(layer) / L.hp) ** L.dustCurve * (1 + EXPEDITION.dust * this.s.expedition.count));
   }
 
   upgradeCost(id: UpgradeId): number | null {
@@ -390,11 +677,34 @@ export class DigSim {
 
   /** A tap on the dig site. */
   tap(): TapResult {
+    return this.strike(1);
+  }
+
+  /**
+   * A charged strike (hold, then release): on a hard vein it deals up to 5× dig power after a
+   * 0.8 s hold; on any other block it is a normal tap.
+   */
+  charge(holdSeconds: number): TapResult {
+    const t = Math.min(1, Math.max(0, holdSeconds) / VEIN.fullHold);
+    return this.strike(this.s.block.kind === 'vein' ? 1 + (VEIN.maxCharge - 1) * t : 1, true);
+  }
+
+  private strike(mult: number, charged = false): TapResult {
     this.s.stats.taps += 1;
     // Roll with the luck that was on screen, then let this tap raise the combo.
-    const r = this.hit('tap', this.baseLuck * this.comboMult);
+    const veinWeak = this.s.block.kind === 'vein' && !charged ? VEIN.weak : 1;
+    const fever = this.s.fever > 0 ? FEVER.damage : 1;
+    const r = this.hit('tap', this.baseLuck * this.comboMult, mult * veinWeak * fever);
     this.s.combo = Math.min(1, this.s.combo + COMBO.perTap);
     this.s.idle = 0;
+    if (this.s.fever <= 0) {
+      this.s.feverCharge = Math.min(FEVER.charge, this.s.feverCharge + this.s.combo);
+      if (this.s.feverCharge >= FEVER.charge) {
+        this.s.feverCharge = 0;
+        this.s.fever = FEVER.seconds;
+        r.events.push({ kind: 'fever' });
+      }
+    }
     return r;
   }
 
@@ -404,19 +714,36 @@ export class DigSim {
     if (!g) return null;
     this.s.glint = null;
     this.s.glintIn = this.nextGlintGap();
-    return this.roll('glint', g.luck);
+    const events: SimEvent[] = [];
+    const f = this.roll('glint', g.luck, 0, events);
+    this.checkQuests(events);
+    this.lastEvents = events;
+    return f;
   }
 
   /** Advance time: combo drain, glint timer, boost timer, assistant digging. */
   tick(dt: number): TickResult {
-    const out: TickResult = { finds: [], assistantHits: 0, glintAppeared: false, glintExpired: false };
+    const out: TickResult = { finds: [], assistantHits: 0, glintAppeared: false, glintExpired: false, events: [] };
     if (!(dt > 0)) return out;
     this.s.stats.playSeconds += dt;
+    // fever: when it ends the combo drops back
+    if (this.s.fever > 0) {
+      this.s.fever = Math.max(0, this.s.fever - dt);
+      if (this.s.fever === 0) out.events.push({ kind: 'feverEnd' });
+    }
+    // unstable block: the bonus window runs out and the block settles
+    if (this.s.block.kind === 'unstable' && this.s.block.timer > 0) {
+      this.s.block.timer = Math.max(0, this.s.block.timer - dt);
+      if (this.s.block.timer === 0) {
+        this.s.block = { kind: 'normal', timer: -1 };
+        out.events.push({ kind: 'settled' });
+      }
+    }
     // combo
     const before = this.s.idle;
     this.s.idle += dt;
     const drainFor = Math.max(0, this.s.idle - Math.max(before, COMBO.grace));
-    if (drainFor > 0) this.s.combo = Math.max(0, this.s.combo - COMBO.drain * drainFor);
+    if (drainFor > 0 && this.s.fever <= 0) this.s.combo = Math.max(0, this.s.combo - COMBO.drain * drainFor);
     // boost
     if (this.s.boost > 0) this.s.boost = Math.max(0, this.s.boost - dt);
     // glint
@@ -441,8 +768,11 @@ export class DigSim {
       while (this.s.assistantAcc >= 1) {
         this.s.assistantAcc -= 1;
         out.assistantHits += 1;
-        const r = this.hit('assistant', this.baseLuck);
+        const veinWeak = this.s.block.kind === 'vein' ? VEIN.weak : 1;
+        const r = this.hit('assistant', this.baseLuck, veinWeak);
         if (r.find) out.finds.push(r.find);
+        out.finds.push(...r.extra);
+        out.events.push(...r.events);
       }
     }
     this.saveRng();
@@ -455,6 +785,7 @@ export class DigSim {
     this.s.dust -= cost;
     this.s.levels[id] += 1;
     this.checkUnlocks();
+    this.checkQuests([]);
     return true;
   }
 
@@ -462,6 +793,7 @@ export class DigSim {
     if (!Number.isInteger(layer) || layer < 0 || layer > this.s.unlocked || layer === this.s.layer) return false;
     this.s.layer = layer;
     this.s.damage = 0;
+    this.newBlock();
     return true;
   }
 
@@ -484,11 +816,11 @@ export class DigSim {
     haul.hits = Math.floor(haul.seconds * rate * OFFLINE.efficiency);
     const haulLuck = this.luckNoBoost; // fixed for the whole haul
     for (let i = 0; i < haul.hits; i++) {
-      const r = this.hit('offline', haulLuck);
-      const f = r.find;
-      if (!f) continue;
-      haul.blocks += 1;
-      haul.dust += f.dust;
+      const veinWeak = this.s.block.kind === 'vein' ? VEIN.weak : 1;
+      const r = this.hit('offline', haulLuck, veinWeak);
+      if (r.broke) haul.blocks += 1;
+      haul.dust += r.dust;
+      for (const f of r.find ? [r.find, ...r.extra] : r.extra) {
       haul.fusions += f.fusions;
       haul.found[f.fossil.id] = (haul.found[f.fossil.id] ?? 0) + 1;
       if (!haul.lucks.includes(f.luck)) haul.lucks.push(f.luck);
@@ -496,6 +828,7 @@ export class DigSim {
       if (f.fossil.odds >= 1000) haul.notable.push(f);
       if (!haul.best || f.fossil.odds > haul.best.odds) haul.best = f.fossil;
       if (f.unlocked !== null) haul.unlocked = f.unlocked;
+      }
     }
     // Hauls not yet shown add up; the rewarded double covers everything the popup shows.
     this.pendingOfflineDust += haul.dust;
@@ -532,6 +865,8 @@ export class DigSim {
     const f = FOSSIL_BY_ID.get(id);
     if (!f) throw new Error(`unknown fossil ${id}`);
     const isNew = !this.discovered(id);
+    if (isNew) this.s.discovered.push(id);
+    this.powerCache = -1;
     const g = (this.s.counts[id] ??= [0, 0, 0, 0]);
     const get = (i: number): number => g[i] ?? 0;
     g[0] = get(0) + 1;
@@ -542,11 +877,15 @@ export class DigSim {
       g[grade + 1] = get(grade + 1) + 1;
       grade += 1;
       fusions += 1;
+      if (grade === GRADE_COUNT - 1) this.s.golds += 1;
     }
+    this.s.best[id] = Math.max(this.s.best[id] ?? 0, grade);
     let setCompleted: number | null = null;
     if (isNew && !this.s.sets.includes(f.layer) && layerFossils(f.layer).every((x) => this.discovered(x.id))) {
       this.s.sets.push(f.layer);
       setCompleted = f.layer;
+      const start = this.s.records.layerStart[f.layer];
+      if (start !== undefined && start >= 0 && this.s.records.sets[String(f.layer)] === undefined) this.s.records.sets[String(f.layer)] = this.s.stats.playSeconds - start;
     }
     return { grade, fusions, isNew, setCompleted };
   }
@@ -558,27 +897,113 @@ export class DigSim {
 
   // ---------------------------------------------------------------- internals
 
-  private hit(source: FindSource, luck: number): TapResult {
-    const damage = this.digPower;
+  private hit(source: FindSource, luck: number, mult = 1): TapResult {
+    const out: TapResult = { damage: 0, find: null, extra: [], events: [], broke: false, dust: 0 };
+    const b = this.s.block;
+    const damage = this.digPower * mult;
+    out.damage = damage;
+    const hp = this.blockHp;
+    const before = this.s.damage;
     this.s.damage += damage;
-    if (this.s.damage < this.blockHp) {
+    if (b.kind === 'unstable' && b.timer < 0) b.timer = UNSTABLE.window;
+    if (b.kind === 'boss') {
+      // phases: each third of the boss's hp rolls once at boss luck
+      const step = hp / BOSS.phases;
+      const from = Math.floor(before / step);
+      const to = Math.min(BOSS.phases - 1, Math.floor(Math.min(this.s.damage, hp - 1e-9) / step));
+      for (let ph = from + 1; ph <= to; ph++) {
+        out.events.push({ kind: 'phase', phase: ph });
+        out.extra.push(this.roll(source, luck * BOSS.luck, 0, out.events));
+      }
+    }
+    if (this.s.damage < hp) {
+      if (out.extra.length) this.checkQuests(out.events);
       this.saveRng();
-      return { damage, find: null };
+      return out;
     }
     // Break: at most one block per hit, overkill is discarded.
+    out.broke = true;
     const layer = this.s.layer;
-    const dust = this.blockDust(layer);
     this.s.broken[layer] = this.blocksBroken(layer) + 1;
     this.s.damage = 0;
+    let dustMult = b.kind === 'golden' ? GOLDEN.dust : b.kind === 'cavein' ? CAVEIN.dust : b.kind === 'boss' ? BOSS.dust : 1;
+    if (source !== 'offline' && this.s.fever > 0) dustMult *= FEVER.dust;
+    if (source === 'tap') {
+      const t = this.s.stats.playSeconds;
+      this.s.chain.n = t - this.s.chain.last <= CHAIN.window ? this.s.chain.n + 1 : 1;
+      this.s.chain.last = t;
+      if (this.s.chain.n >= 2) {
+        dustMult *= this.chainMult;
+        out.events.push({ kind: 'chain', n: this.s.chain.n });
+      }
+    }
+    const dust = Math.ceil(this.blockDust(layer) * dustMult);
     this.s.dust += dust;
-    const find = this.roll(source, luck, dust);
-    return { damage, find };
+    out.dust = dust;
+    if (b.kind === 'cavein') {
+      // rubble: no fossil, just dust
+      this.newBlock(out.events);
+      this.checkQuests(out.events);
+      this.saveRng();
+      return out;
+    }
+    const bossLuck = b.kind === 'boss' ? BOSS.luck : 1;
+    out.find = this.roll(source, luck * bossLuck, dust, out.events);
+    const rolls = b.kind === 'twin' ? TWIN.rolls : b.kind === 'golden' ? GOLDEN.rolls : b.kind === 'unstable' && b.timer > 0 ? 2 : 1;
+    for (let i = 1; i < rolls; i++) out.extra.push(this.roll(source, luck, 0, out.events));
+    if (LAYERS[layer]?.twist === 'relic' && this.relics < RELIC.max && this.rng.next() < RELIC.chance) {
+      const had = this.relics;
+      this.s.fragments += 1;
+      this.powerCache = -1;
+      out.events.push({ kind: 'fragment', fragments: this.s.fragments, relics: this.relics });
+      if (this.relics > had) {
+        out.events.push({ kind: 'relic', relics: this.relics });
+        const u = this.checkUnlocks();
+        if (u !== null) out.find.unlocked = u;
+      }
+    }
+    this.newBlock(out.events);
+    this.checkQuests(out.events);
+    this.saveRng();
+    return out;
   }
 
-  private roll(source: FindSource, luck: number, dust = 0): Find {
+  /** Dust multiplier of the current tap chain (1 when not chaining). */
+  get chainMult(): number {
+    const n = this.s.chain.n;
+    return n >= 2 ? Math.min(CHAIN.max, 1 + CHAIN.step * (n - 1)) : 1;
+  }
+
+  /** Choose the next block: golden anywhere (after the first 40 finds), else the layer's twist. */
+  private newBlock(events?: SimEvent[]): void {
+    const layer = this.s.layer;
+    const twist = LAYERS[layer]?.twist ?? 'none';
+    let kind: BlockKind = 'normal';
+    const broken = this.blocksBroken(layer);
+    if (twist === 'boss' && broken % BOSS.every === BOSS.every - 1) kind = 'boss';
+    else if (this.s.stats.rolls >= GOLDEN.after && this.rng.next() < GOLDEN.chance) kind = 'golden';
+    else if (twist === 'vein' && this.rng.next() < VEIN.chance) kind = 'vein';
+    else if (twist === 'unstable' && this.rng.next() < UNSTABLE.chance) kind = 'unstable';
+    else if (twist === 'twin' && this.rng.next() < TWIN.chance) kind = 'twin';
+    else if (twist === 'cavein' && this.rng.next() < CAVEIN.chance) kind = 'cavein';
+    this.s.block = { kind, timer: -1 };
+    if (events) {
+      if (kind === 'golden') events.push({ kind: 'golden' });
+      if (kind === 'cavein') events.push({ kind: 'cavein' });
+      if (kind === 'boss') events.push({ kind: 'boss' });
+    }
+  }
+
+  /**
+   * One fossil roll. After PITY rolls in a row without a 1-in-100-or-rarer find, the next roll is
+   * the lucky streak: guaranteed tier 2+, chosen in the printed proportions among those fossils.
+   */
+  private roll(source: FindSource, luck: number, dust = 0, events: SimEvent[] = []): Find {
     const layer = this.s.layer;
     const applied = effectiveLuck(layer, luck);
-    const fossil = rollFossil(layer, applied, this.rng);
+    const pity = this.s.dry >= PITY;
+    const fossil = pity ? rollRare(layer, this.rng) : rollFossil(layer, applied, this.rng);
+    this.s.dry = fossil.tier >= LUCKY_TIER ? 0 : this.s.dry + 1;
     if (source === 'glint') {
       dust = this.blockDust(layer);
       this.s.dust += dust;
@@ -590,10 +1015,89 @@ export class DigSim {
       this.s.stats.bestOdds = fossil.odds;
       this.s.stats.bestId = fossil.id;
     }
+    this.recordRare(fossil);
     this.s.lastFind = { id: fossil.id, grade: c.grade, luck: applied, source };
     const unlocked = this.checkUnlocks();
     this.saveRng();
-    return { fossil, grade: c.grade, fusions: c.fusions, isNew: c.isNew, source, luck: applied, dust, setCompleted: c.setCompleted, unlocked, powerGain: this.digPower - powerBefore };
+    if (pity) events.push({ kind: 'pity' });
+    return { fossil, grade: c.grade, fusions: c.fusions, isNew: c.isNew, source, luck: applied, dust, setCompleted: c.setCompleted, unlocked, powerGain: this.digPower - powerBefore, pity, block: this.s.block.kind };
+  }
+
+  /** Keep the five rarest species ever found, each with the date of its first find. */
+  private recordRare(f: Fossil): void {
+    const r = this.s.records.rare;
+    if (r.some((x) => x.id === f.id)) return;
+    if (r.length >= 5 && f.odds <= (r[r.length - 1]?.odds ?? 0)) return;
+    r.push({ id: f.id, odds: f.odds, at: this.s.clock });
+    r.sort((a, b) => b.odds - a.odds);
+    r.length = Math.min(r.length, 5);
+  }
+
+  /** Grant newly met achievements (dust reward) and note a rank-up. */
+  private checkQuests(events: SimEvent[]): void {
+    for (const a of ACHIEVEMENTS) {
+      if (this.s.quests.includes(a.id) || this.questProgress(a) < a.target) continue;
+      this.s.quests.push(a.id);
+      const dust = a.reward * this.blockDust(this.s.unlocked);
+      this.s.dust += dust;
+      events.push({ kind: 'quest', id: a.id, dust });
+    }
+    const r = this.rank;
+    if (r > this.s.rank) {
+      this.s.rank = r;
+      events.push({ kind: 'rank', rank: r });
+    }
+  }
+
+  /**
+   * Expedition: once the deepest layer is open, restart from Topsoil. Kept: the museum, set
+   * bonuses, relics, records, achievements, daily streak. Gained: +60% dig power and dust, forever.
+   */
+  expedition(): boolean {
+    if (!this.canExpedition) return false;
+    const t = this.s.stats.playSeconds - this.s.expedition.runStart;
+    this.s.expedition.best = this.s.expedition.best > 0 ? Math.min(this.s.expedition.best, t) : t;
+    this.s.expedition.count += 1;
+    this.s.expedition.runStart = this.s.stats.playSeconds;
+    this.s.counts = {};
+    this.s.dust = 0;
+    this.s.levels = { pick: 0, luck: 0, assistant: 0, offline: 0 };
+    this.s.layer = 0;
+    this.s.unlocked = 0;
+    this.s.broken = LAYERS.map(() => 0);
+    this.s.damage = 0;
+    this.s.combo = 0;
+    this.s.fever = 0;
+    this.s.feverCharge = 0;
+    this.s.chain = { n: 0, last: -99 };
+    this.s.assistantAcc = 0;
+    this.s.block = { kind: 'normal', timer: -1 };
+    this.powerCache = -1;
+    const ev: SimEvent[] = [];
+    this.checkQuests(ev);
+    this.lastEvents = ev;
+    this.checkUnlocks();
+    return true;
+  }
+
+  /**
+   * Daily dig bonus for calendar day `day` (days since epoch, local, from the scene). Once per day;
+   * consecutive days grow the streak up to 7. Reward: streak x 15 blocks of dust at your deepest
+   * open layer and 3 minutes of x2 luck. Null if already claimed today.
+   */
+  claimDaily(day: number): { streak: number; dust: number; boost: number } | null {
+    if (!Number.isInteger(day) || day <= this.s.daily.day) return null;
+    const streak = day === this.s.daily.day + 1 ? Math.min(DAILY.maxStreak, this.s.daily.streak + 1) : 1;
+    this.s.daily = { day, streak };
+    const dust = DAILY.dustBlocks * streak * this.blockDust(this.s.unlocked);
+    this.s.dust += dust;
+    this.grantLuckBoost(DAILY.boostSeconds);
+    return { streak, dust, boost: DAILY.boostSeconds };
+  }
+
+  /** Whether today's daily bonus is still unclaimed. */
+  dailyOpen(day: number): boolean {
+    return Number.isInteger(day) && day > this.s.daily.day;
   }
 
   /** Unlock every layer whose threshold dig power has reached. Returns the deepest newly unlocked. */
@@ -603,6 +1107,8 @@ export class DigSim {
     while (this.s.unlocked < LAYERS.length - 1 && p >= at(LAYERS, this.s.unlocked + 1).unlockPower) {
       this.s.unlocked += 1;
       newly = this.s.unlocked;
+      this.s.deepest = Math.max(this.s.deepest, this.s.unlocked);
+      if (this.s.records.layerStart[this.s.unlocked] === undefined) this.s.records.layerStart[this.s.unlocked] = this.s.stats.playSeconds;
     }
     return newly;
   }

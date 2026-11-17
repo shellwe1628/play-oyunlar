@@ -2,8 +2,9 @@
 /* global window, document, localStorage, location */
 // Repeatable browser check of the test APK's web folder (no device or emulator needed).
 //   node apps/test-paketi/tests/web-check.mjs [webDir]
-// webDir default: the assets/public folder unpacked from build/play-oyunlar-test.apk (exactly
-// what is inside the APK); falls back to android/app/src/main/assets/public.
+// webDir default: the assets/public folder unpacked from the bundle APK listed in
+// build/test-apk/versions.json (exactly what is inside the APK); falls back to the Capacitor
+// project copy build/test-apk/work/paket/android/app/src/main/assets/public.
 // Serves it with a small static server, then drives Chromium at 390×844 with touch:
 //   - launcher (tr + en) shows three cards;
 //   - each card opens its game from its sub-folder (no ?test): screenshots, one real input;
@@ -29,7 +30,18 @@ import { chromium } from 'playwright';
 
 const APP = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const ROOT = resolve(APP, '..', '..');
-const APK = join(ROOT, 'build', 'play-oyunlar-test.apk');
+const OUT = join(ROOT, 'build', 'test-apk');
+/** The bundle APK of the last `npm run apk` (file names carry the versionCode). */
+function bundleApk() {
+  try {
+    const m = JSON.parse(readFileSync(join(OUT, 'versions.json'), 'utf8'));
+    const e = m.apps.find((a) => a.applicationId === 'com.playoyunlar.testpaketi');
+    return e ? join(OUT, e.file) : null;
+  } catch {
+    return null;
+  }
+}
+const APK = bundleApk();
 const SHOTS = join(APP, 'tests', 'artifacts');
 const VIEW = { width: 390, height: 844 };
 const SLUGS = ['kivilcim', 'okcu', 'fosil'];
@@ -56,7 +68,7 @@ const check = (ok, msg) => {
 let tmp = null;
 function webDir() {
   if (process.argv[2]) return resolve(process.argv[2]);
-  if (existsSync(APK)) {
+  if (APK && existsSync(APK)) {
     try {
       tmp = mkdtempSync(join(tmpdir(), 'oyun-apk-'));
       execFileSync('unzip', ['-q', APK, 'assets/public/*', '-d', tmp]);
@@ -66,7 +78,7 @@ function webDir() {
       console.warn(`could not unpack the APK (${String(e)}); using the android project copy`);
     }
   }
-  return join(APP, 'android', 'app', 'src', 'main', 'assets', 'public');
+  return join(OUT, 'work', 'paket', 'android', 'app', 'src', 'main', 'assets', 'public');
 }
 
 const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.woff2': 'font/woff2', '.woff': 'font/woff', '.json': 'application/json' };

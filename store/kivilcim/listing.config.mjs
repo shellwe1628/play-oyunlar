@@ -103,6 +103,9 @@ async function startMode(g, mode, level) {
   await g.run(300, 100);
 }
 
+/** Keep a caption phrase on one line (no-break spaces), so captions break where they read well. */
+const keep = (phrase) => phrase.replace(/ /g, '\u00a0');
+
 function withSkin(base, shape, trail) {
   const s = structuredClone(base);
   s.data.skin.shape = shape;
@@ -204,7 +207,7 @@ export default {
       // Level 2 (sky to green): the plain zigzag, two turns of the ribbon below the spark.
       id: 'climb',
       save: 'diamondLava',
-      caption: { 'en-US': 'Hold to veer right, let go to veer left', 'tr-TR': 'Basılı tut sağa git, bırak sola dön' },
+      caption: { 'en-US': `Hold to veer right, ${keep('let go to veer left')}`, 'tr-TR': `Basılı tut, sağa git; ${keep('bırak, sola dön')}` },
       async run(g) {
         await startMode(g, 'level', 2);
         await fly(g, 'L2', 700);
@@ -224,7 +227,7 @@ export default {
       // Level 4 (orange): flipped, the tag under the spark, the mint NORMAL gate ahead.
       id: 'flip',
       save: 'orbMint',
-      caption: { 'en-US': 'Flip gates swap your controls', 'tr-TR': 'Ters kapısı kontrolleri tersine çevirir' },
+      caption: { 'en-US': `Flip gates swap ${keep('your controls')}`, 'tr-TR': 'Ters kapısı kontrolleri tersine çevirir' },
       async run(g) {
         await startMode(g, 'level', 4);
         await fly(g, 'L4', 2180);
@@ -234,22 +237,22 @@ export default {
       // Level 9 (pink to blue): shrunk by a MINI gate, the BIG gate ahead.
       id: 'mini',
       save: 'player',
-      caption: { 'en-US': 'Gates speed you up, slow you down or shrink you', 'tr-TR': 'Kapılar hızlandırır, yavaşlatır ya da küçültür' },
+      caption: { 'en-US': `Gates speed you up, ${keep('slow you down')} or shrink you`, 'tr-TR': 'Kapılar hızlandırır, yavaşlatır ya da küçültür' },
       async run(g) {
         await startMode(g, 'level', 9);
         await fly(g, 'L9', 2850);
       },
     },
     {
-      // Level 7 (teal), finished for the first time: ring burst, confetti, 100 %, three gems.
+      // Level 7 (teal), finished for the first time: confetti over the finish line, 100 %, three gems.
       id: 'finish',
       save: 'before7',
-      caption: { 'en-US': 'Reach 100% to clear the level', 'tr-TR': "%100'e ulaş, bölümü bitir" },
+      caption: { 'en-US': `Reach 100% to ${keep('clear the level')}`, 'tr-TR': `%100'e ulaş, ${keep('bölümü bitir')}` },
       async run(g) {
         await startMode(g, 'level', 7);
         await fly(g, 'L7', 1e9);
         await g.until((s) => s.data.phase === 'finishing' || s.data.phase === 'finished', { step: 50, max: 5000, what: 'finish' });
-        await g.run(330, 30);
+        await g.run(600, 50);
       },
     },
     {

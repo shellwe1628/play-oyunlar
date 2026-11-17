@@ -4,7 +4,7 @@ import tseslint from 'typescript-eslint';
 
 export default tseslint.config(
   {
-    ignores: ['**/node_modules/**', '**/dist/**', '**/android/**', '**/ios/**', '**/test-results/**', '**/tests/artifacts/**', '.claude/**', 'docs/**', 'templates/**'],
+    ignores: ['**/node_modules/**', '**/dist/**', '**/android/**', '**/ios/**', '**/test-results/**', '**/tests/artifacts/**', '.claude/**', 'docs/**', 'templates/**', 'archive/**'],
   },
   js.configs.recommended,
   {

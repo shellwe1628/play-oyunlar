@@ -1,153 +1,1113 @@
-import { createRng, iconButton, label, OyunScene, progressBar, splitStep, type IconButton, type ProgressBar } from '@oyun/core';
+import { button, cssColor, hashSeed, iconButton, label, muteButton, OyunScene, type Button, type IconButton } from '@oyun/core';
 import Phaser from 'phaser';
 import { gameSave } from '../save';
-import { applyRoundResult } from '../sim/progress';
-import { createRound, DEFAULT_RULES, step, tap, type Round } from '../sim/round';
-import { PALETTE } from '../textures';
-import { drawBackdrop } from './Background';
-import { SCENES } from './keys';
+import { planShot, solveShot, CAREFUL, type Profile } from '../sim/aimbot';
+import { countCards } from '../sim/cards';
+import type { EnemyType } from '../sim/combat';
+import { applyRunResult, cosmeticById, dailyKey } from '../sim/meta';
+import { PT } from '../sim/ragdoll';
+import { TUNING } from '../sim/tuning';
+import { skyIndex } from '../sim/waves';
+import {
+  addExtraCard,
+  advance,
+  aimAt,
+  aliveEnemies,
+  arrowSpeed,
+  canShoot,
+  createWorld,
+  effectiveAngle,
+  pickCard,
+  playerOrigin,
+  reroll,
+  revive,
+  shoot,
+  targetPoint,
+  type Archer,
+  type GameEvent,
+  type World,
+} from '../sim/world';
+import { SFX } from '../sfx';
+import { PALETTE, SKIES } from '../textures';
+import { createScarf, drawArcher, drawArrow, drawHills, drawLedge, drawShield, drawSky, lookFor, stepScarf, type Scarf } from './art';
+import { Fx } from './fx';
+import { drawCardIcon } from './icons';
+import { DRAG_DEAD, DRAG_FULL, SCENES } from './keys';
+
+/** The world of a run that just ended, kept so the result screen can offer a revive. */
+let pendingWorld: World | null = null;
+/** Finished runs this session (interstitial pacing). */
+export const session = { finishedRuns: 0 };
+
+export function hasRevive(): boolean {
+  return pendingWorld !== null && !pendingWorld.revived;
+}
+
+export interface GameData {
+  revive?: boolean;
+  daily?: boolean;
+  /** straight back into play from the result screen: smaller title */
+  quick?: boolean;
+}
+
+export interface RunResult {
+  wave: number;
+  coins: number;
+  kos: number;
+  headshots: number;
+  best: number;
+  newBest: boolean;
+  daily: boolean;
+}
+
+const ENEMY_TINT: Record<EnemyType, number> = {
+  archer: PALETTE.archer,
+  shield: PALETTE.shield,
+  jumper: PALETTE.jumper,
+  bomber: PALETTE.bomber,
+  boss: PALETTE.boss,
+};
+
+const W = 720;
+const H = 1280;
 
 /**
- * The round. This scene only draws and forwards input: every rule lives in src/sim.
- * Test actions: tapTarget, tapAt {x,y}, pause.
+ * The whole run: title (which IS the first shot), waves, card picks and death. Draws the sim
+ * and forwards input to it; every rule lives in src/sim.
+ * Test actions: shoot {angle, power}, aimbot {error?}, pick-card index, advance seconds,
+ * reroll, extra, pause, shop, daily.
  */
 export class GameScene extends OyunScene {
   protected override autoPause = true;
-  private round!: Round;
-  private target!: Phaser.GameObjects.Image;
-  private scoreText!: Phaser.GameObjects.Text;
-  private comboText!: Phaser.GameObjects.Text;
-  private timer!: ProgressBar;
-  private pauseButton!: IconButton;
+  private w!: World;
+  private data0: GameData = {};
+  private daily = false;
+  private layer!: Phaser.GameObjects.Container;
+  private overlay!: Phaser.GameObjects.Container;
+  private hillsFar!: Phaser.GameObjects.Graphics;
+  private hillsNear!: Phaser.GameObjects.Graphics;
+  private sky!: Phaser.GameObjects.Graphics;
+  private skyShown = -1;
+  private clouds: Phaser.GameObjects.Image[] = [];
+  private ledgeG!: Phaser.GameObjects.Graphics;
+  private ledgeKey = '';
+  private dyn!: Phaser.GameObjects.Graphics;
+  private aimG!: Phaser.GameObjects.Graphics;
+  private pullG!: Phaser.GameObjects.Graphics;
+  private appleImgs: Phaser.GameObjects.Image[] = [];
+  private fx!: Fx;
+  private scarves = new Map<number, Scarf>();
+  // input
+  private dragId = -1;
+  private dragX0 = 0;
+  private dragY0 = 0;
+  private dragX = 0;
+  private dragY = 0;
+  private buffered: { angle: number; power: number } | null = null;
+  private lastCreak = 0;
+  // time + camera effects
+  private slowT = 0;
+  private zoom = 0;
+  private zoomFx = 360;
+  private zoomFy = 640;
+  private pushX = 0;
+  private pushY = 0;
+  private hurtFlash = 0;
+  // hud
+  private hud!: Phaser.GameObjects.Container;
+  private hpG!: Phaser.GameObjects.Graphics;
+  private hpShown = 1;
+  private hpPop = 0;
+  private waveText!: Phaser.GameObjects.Text;
+  private coinText!: Phaser.GameObjects.Text;
+  private coinShown = 0;
+  private coinIcon!: Phaser.GameObjects.Image;
+  private coinPop = 0;
+  private pauseBtn!: IconButton;
+  private vignette!: Phaser.GameObjects.Image;
+  // title + cards
+  private titleUi: Phaser.GameObjects.Container | null = null;
+  private shopBtn: Button | null = null;
+  private dailyBtn: Button | null = null;
+  private cardUi: Phaser.GameObjects.Container | null = null;
+  private cardHits: Phaser.GameObjects.Zone[] = [];
+  private cardRects: Record<string, number[]> = {};
+  private picking = false;
+  private rerollBtn: Button | null = null;
+  private extraBtn: Button | null = null;
+  private seen = new Set<string>();
   private finished = false;
+  private frameMs: number[] = [];
+  /** whole Phaser step (update + render submission) in JS ms, measured prestep → postrender */
+  private stepMs: number[] = [];
+  private stepT0 = 0;
+  /** visual-capture aid only (test action `timescale`): slows game time so screenshots catch a hit */
+  private debugScale = 1;
 
   constructor() {
     super(SCENES.game);
   }
 
-  create(): void {
-    const L = this.layout;
-    const th = this.oyun.theme;
-    this.finished = false;
-    drawBackdrop(this, th.colors.background);
-
-    // HUD inside the safe area.
-    const hudY = L.top + 70;
-    this.scoreText = label(this, L.left + 40, hudY, this.t('game.score', { n: 0 }), { size: 48 }).setOrigin(0, 0.5);
-    this.pauseButton = iconButton(this, L.right - 70, hudY, 'pause', () => this.openPauseMenu());
-    this.timer = progressBar(this, L.cx, hudY + 80, L.width - 80, 30, { color: th.colors.accent });
-    this.comboText = label(this, L.cx, hudY + 140, '', { size: 36, color: th.colors.accent });
-
-    // The playfield is everything below the HUD, inside the safe area.
-    const top = hudY + 180;
-    const arena = { x: L.left + 20, y: top, width: L.right - L.left - 40, height: L.bottom - top - 20 };
-    this.round = createRound({ ...DEFAULT_RULES, arena }, createRng(this.oyun.rng.int(0, 2 ** 31 - 1)));
-
-    this.target = this.add.image(this.round.target.x, this.round.target.y, 'target');
-    this.syncTarget();
-    this.juice.pop(this.target, 0.3, 300);
-
-    const hint = label(this, L.cx, L.cy, this.t('game.hint'), { size: 56 });
-    this.tweens.add({ targets: hint, alpha: 0, delay: 900, duration: 500, onComplete: () => hint.destroy() });
-
-    // Taps on HUD buttons must not count as misses.
-    this.input.on(Phaser.Input.Events.POINTER_DOWN, (p: Phaser.Input.Pointer, over: Phaser.GameObjects.GameObject[]) => {
-      if (over.length === 0) this.onTap(p.worldX, p.worldY);
-    });
-
-    this.oyun.platform.gameplayStart();
-    this.oyun.platform.track('round_start');
+  init(data: GameData): void {
+    this.data0 = data ?? {};
   }
 
-  override update(_time: number, delta: number): void {
-    if (this.finished) return;
-    // Hit-stop aware. A long frame (≤ 200 ms from core) is stepped in ≤ 50 ms slices: the target
-    // cannot tunnel and the round clock still keeps up with real time.
-    let ended = false;
-    for (const dt of splitStep(this.juice.scaledDelta(delta) / 1000, 0.05)) {
-      if (step(this.round, dt).ended) {
-        ended = true;
-        break;
+  create(): void {
+    const save = gameSave(this.oyun);
+    this.finished = false;
+    this.picking = false;
+    this.cardUi = null;
+    this.titleUi = null;
+    this.scarves.clear();
+    this.seen.clear();
+    this.skyShown = -1;
+    this.ledgeKey = '';
+    this.dragId = -1;
+    this.buffered = null;
+    this.slowT = 0;
+    this.zoom = 0;
+    this.frameMs = [];
+    this.stepMs = [];
+    const onPre = (): void => {
+      this.stepT0 = performance.now();
+    };
+    const onPost = (): void => {
+      if (this.stepT0 > 0) this.stepMs.push(performance.now() - this.stepT0);
+      if (this.stepMs.length > 240) this.stepMs.shift();
+    };
+    this.game.events.on(Phaser.Core.Events.PRE_STEP, onPre);
+    this.game.events.on(Phaser.Core.Events.POST_RENDER, onPost);
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+      this.game.events.off(Phaser.Core.Events.PRE_STEP, onPre);
+      this.game.events.off(Phaser.Core.Events.POST_RENDER, onPost);
+    });
+    const d = this.data0;
+    if (d.revive && pendingWorld && revive(pendingWorld)) {
+      this.w = pendingWorld;
+      this.daily = d.daily ?? false;
+    } else {
+      this.daily = d.daily ?? false;
+      const now = new Date();
+      const seed = this.daily ? hashSeed(`okcu-daily-${dailyKey(now.getFullYear(), now.getMonth() + 1, now.getDate())}`) : this.oyun.rng.int(0, 2 ** 31 - 1);
+      this.w = createWorld({ seed, meta: save.data.upgrades });
+    }
+    pendingWorld = null;
+    for (const e of this.w.enemies) this.seen.add(e.type);
+
+    // ---- world layer (zoomable)
+    this.cameras.main.setBackgroundColor(SKIES[0].top);
+    this.layer = this.add.container(0, 0);
+    this.sky = this.add.graphics();
+    this.hillsFar = this.add.graphics();
+    this.hillsNear = this.add.graphics();
+    this.layer.add([this.sky, this.hillsFar]);
+    this.clouds = [];
+    for (let i = 0; i < 5; i++) {
+      const c = this.add.image(Math.random() * W, 120 + i * 150 + Math.random() * 60, 'cloud').setAlpha(0.75).setScale(0.5 + Math.random() * 0.7);
+      c.setData('v', 8 + Math.random() * 16);
+      this.clouds.push(c);
+      this.layer.add(c);
+    }
+    this.layer.add(this.hillsNear);
+    this.ledgeG = this.add.graphics();
+    this.dyn = this.add.graphics();
+    this.aimG = this.add.graphics();
+    this.layer.add([this.ledgeG, this.dyn, this.aimG]);
+    this.appleImgs = this.w.apples.map(() => {
+      const img = this.add.image(0, 0, 'apple').setVisible(false);
+      this.layer.add(img);
+      return img;
+    });
+    // ---- screen-space layers
+    this.overlay = this.add.container(0, 0).setDepth(50);
+    this.fx = new Fx(this, this.layer, this.overlay);
+    this.pullG = this.add.graphics().setDepth(40);
+    if (!this.textures.exists('okcu-vignette')) {
+      const tex = this.textures.createCanvas('okcu-vignette', 360, 640);
+      const ctx = tex?.getContext();
+      if (tex && ctx) {
+        const grad = ctx.createRadialGradient(180, 320, 150, 180, 320, 380);
+        grad.addColorStop(0, 'rgba(255,255,255,0)');
+        grad.addColorStop(1, 'rgba(255,255,255,1)');
+        ctx.fillStyle = grad;
+        ctx.fillRect(0, 0, 360, 640);
+        tex.refresh();
       }
     }
-    this.syncTarget();
-    this.timer.setValue(this.round.timeLeft / this.round.rules.duration);
-    if (ended) this.finish();
+    this.vignette = this.add.image(W / 2, H / 2, 'okcu-vignette').setScale(2).setTint(PALETTE.danger).setAlpha(0).setDepth(45);
+    this.buildHud();
+    this.refreshSky();
+    this.refreshLedges();
+
+    // ---- input: drag anywhere; buttons win
+    this.input.addPointer(2);
+    this.input.on(Phaser.Input.Events.POINTER_DOWN, (p: Phaser.Input.Pointer, over: Phaser.GameObjects.GameObject[]) => this.onDown(p, over));
+    this.input.on(Phaser.Input.Events.POINTER_MOVE, (p: Phaser.Input.Pointer) => this.onMove(p));
+    this.input.on(Phaser.Input.Events.POINTER_UP, (p: Phaser.Input.Pointer) => this.onUp(p));
+    this.input.on(Phaser.Input.Events.POINTER_UP_OUTSIDE, (p: Phaser.Input.Pointer) => this.onUp(p));
+    this.input.on(Phaser.Input.Events.GAME_OUT, () => this.onCancelAll());
+    const onBlur = (): void => this.onCancelAll();
+    this.game.events.on(Phaser.Core.Events.BLUR, onBlur);
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+      this.game.events.off(Phaser.Core.Events.BLUR, onBlur);
+    });
+    // a pointer cancelled by the browser (system gesture, incoming call) never fires up
+    const canvas = this.game.canvas;
+    const cancel = (): void => this.onCancelAll();
+    canvas.addEventListener('pointercancel', cancel);
+    canvas.addEventListener('touchcancel', cancel);
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+      canvas.removeEventListener('pointercancel', cancel);
+      canvas.removeEventListener('touchcancel', cancel);
+    });
+
+    if (this.w.phase === 'title') this.buildTitle(d.quick ?? false);
+    else {
+      this.oyun.platform.gameplayStart();
+      this.showBanner(this.t('hud.wave', { n: this.w.wave }), null);
+    }
+    this.syncHud(true);
   }
 
-  /** The one input handler: pointer taps and the test hook both call it. */
-  private onTap(x: number, y: number): void {
-    if (this.finished) return;
-    const result = tap(this.round, x, y);
-    if (result.kind === 'hit') {
-      const big = result.combo > 0 && result.combo % 5 === 0;
-      this.oyun.audio.play('coin', { pitch: Math.min(result.combo, 12) });
-      this.juice.feedback(big ? 'medium' : 'small', result.x, result.y, PALETTE.spark);
-      this.juice.floatText(result.x, result.y - 40, `+${result.points}`, { color: this.oyun.theme.colors.primary });
-      this.scoreText.setText(this.t('game.score', { n: this.round.score }));
-      this.juice.pop(this.scoreText, 1.2);
-      this.comboText.setText(result.combo >= 2 ? this.t('game.combo', { n: result.combo }) : '');
-      if (result.combo >= 2) this.juice.pop(this.comboText, 1.3);
-      this.syncTarget();
-      this.juice.pop(this.target, 0.3, 260);
-    } else if (result.kind === 'miss') {
-      this.oyun.audio.play('hit', { volume: 0.5 });
-      this.oyun.platform.haptic('error');
-      this.juice.shake(0.25);
-      this.juice.floatText(x, y, this.t('game.penalty', { s: result.penalty.toFixed(1) }), { color: PALETTE.miss, size: 40 });
-      this.comboText.setText('');
+  // ------------------------------------------------------------------ HUD
+
+  private buildHud(): void {
+    const L = this.layout;
+    const top = L.top + 64;
+    this.hud = this.add.container(0, 0).setDepth(60);
+    this.hpG = this.add.graphics();
+    this.hud.add(this.hpG);
+    this.waveText = label(this, L.cx, top + 78, '', { size: 44 }).setStroke(cssColor(PALETTE.ink), 10);
+    const coinG = this.add.image(L.right - 216, top, 'coin').setScale(1.15);
+    this.coinIcon = coinG;
+    this.coinText = label(this, L.right - 128, top, '0', { size: 44, color: PALETTE.coin }).setOrigin(1, 0.5).setStroke(cssColor(PALETTE.ink), 10);
+    this.pauseBtn = iconButton(this, L.right - 62, top, 'pause', () => this.openPauseMenu(), 96);
+    this.hud.add([this.waveText, coinG, this.coinText, this.pauseBtn]);
+  }
+
+  private coinTarget(): { x: number; y: number } {
+    return { x: this.coinIcon.x, y: this.coinIcon.y };
+  }
+
+  private syncHud(force = false): void {
+    const p = this.w.player;
+    const L = this.layout;
+    const top = L.top + 64;
+    const k = Math.max(0, p.hp / p.maxHp);
+    this.hpShown += (k - this.hpShown) * (force ? 1 : 0.18);
+    const g = this.hpG;
+    g.clear();
+    const x = L.left + 84;
+    const w = 210 + Math.min(80, (p.maxHp - 100) * 0.5);
+    const pop = 1 + this.hpPop * 0.12;
+    const h = 34 * pop;
+    g.fillStyle(PALETTE.ink, 1).fillRoundedRect(x - 8, top - h / 2 - 7, w + 16, h + 14, (h + 14) / 2);
+    g.fillStyle(PALETTE.hpBack, 1).fillRoundedRect(x, top - h / 2, w, h, h / 2);
+    // white trail then the real bar
+    if (this.hpShown > k + 0.005) g.fillStyle(0xffffff, 0.9).fillRoundedRect(x, top - h / 2, Math.max(h, w * this.hpShown), h, h / 2);
+    if (k > 0) g.fillStyle(k > 0.3 ? PALETTE.hp : PALETTE.danger, 1).fillRoundedRect(x, top - h / 2, Math.max(h, w * k), h, h / 2);
+    g.fillStyle(0xffffff, 0.35).fillRoundedRect(x + 8, top - h / 2 + 5, Math.max(10, w * k - 16), h * 0.28, 4);
+    // heart
+    const hs = 1 + this.hpPop * 0.3 + (k < 0.3 && p.alive ? Math.abs(Math.sin(this.time.now / 160)) * 0.15 : 0);
+    drawHeartAt(g, x - 18, top, hs);
+    // shield bubbles left this wave
+    for (let i = 0; i < this.w.shieldLeft; i++) {
+      g.fillStyle(PALETTE.ink, 1).fillCircle(x + w + 30 + i * 30, top, 14);
+      g.fillStyle(0x8fe3ff, 1).fillCircle(x + w + 30 + i * 30, top, 10);
+    }
+    this.waveText.setText(this.w.phase === 'title' || this.w.phase === 'cards' ? '' : this.t('hud.wave', { n: this.w.wave }));
+    this.coinText.setText(String(this.coinShown));
+    this.coinText.setScale(1 + this.coinPop * 0.35);
+    this.coinIcon.setX(this.coinText.x - this.coinText.width - 30).setScale(1.15 + this.coinPop * 0.3);
+    this.hud.setAlpha(this.w.phase === 'title' ? 0 : 1);
+    this.pauseBtn.setVisible(this.w.phase !== 'title');
+  }
+
+  // ------------------------------------------------------------------ title
+
+  private buildTitle(quick: boolean): void {
+    const L = this.layout;
+    const c = this.add.container(0, 0).setDepth(70);
+    const save = gameSave(this.oyun).data;
+    if (!quick) {
+      const logo = label(this, L.cx, L.top + 230, this.t('title.name'), { size: 92, color: PALETTE.cream, wrap: 640 }).setStroke(cssColor(PALETTE.ink), 18);
+      logo.setShadow(0, 10, cssColor(PALETTE.inkSoft), 0, true, true);
+      c.add(logo);
+      this.tweens.add({ targets: logo, angle: { from: -2.5, to: 2.5 }, yoyo: true, repeat: -1, duration: 1100, ease: 'Sine.easeInOut' });
+      this.juice.pop(logo, 1.25, 500);
+    }
+    const sub = this.daily ? this.t('title.dailyOn', { d: dailyKey(new Date().getFullYear(), new Date().getMonth() + 1, new Date().getDate()) }) : save.best > 0 ? this.t('title.best', { n: save.best }) : '';
+    if (sub) c.add(label(this, L.cx, L.top + (quick ? 170 : 340), sub, { size: 40, color: PALETTE.gold }).setStroke(cssColor(PALETTE.ink), 10));
+    // the hint: a ghost thumb pulling back from open sky (never over the archers)
+    const hintY = L.top + (quick ? 260 : 440);
+    const hint = label(this, L.cx, hintY, this.t('title.drag'), { size: 52, color: 0xffffff, wrap: 640 }).setStroke(cssColor(PALETTE.ink), 14);
+    c.add(hint);
+    this.tweens.add({ targets: hint, scale: 1.07, yoyo: true, repeat: -1, duration: 520, ease: 'Sine.easeInOut' });
+    const thumb = this.add.graphics();
+    const draw = (t: number): void => {
+      thumb.clear();
+      const x0 = 380;
+      const y0 = 560;
+      const x = x0 - 120 * t;
+      const y = y0 + 110 * t;
+      thumb.lineStyle(10, PALETTE.ink, 0.5).lineBetween(x0, y0, x, y);
+      thumb.lineStyle(5, 0xffffff, 0.8).lineBetween(x0, y0, x, y);
+      thumb.fillStyle(PALETTE.ink, 0.5).fillCircle(x0, y0, 14);
+      thumb.fillStyle(PALETTE.ink, 1).fillCircle(x, y, 30);
+      thumb.fillStyle(0xffffff, 1).fillCircle(x, y, 24);
+      thumb.fillStyle(PALETTE.skinShade, 1).fillCircle(x, y, 15);
+    };
+    const tw = { t: 0 };
+    this.tweens.add({ targets: tw, t: 1, duration: 900, hold: 250, repeatDelay: 350, repeat: -1, ease: 'Cubic.easeOut', onUpdate: () => draw(tw.t) });
+    draw(0);
+    c.add(thumb);
+    this.shopBtn = button(this, L.left + 150, L.top + 70, this.t('title.shop'), () => this.openShop(), { width: 260, height: 92, fontSize: 38, variant: 'secondary' });
+    this.dailyBtn = button(this, L.right - 255, L.top + 70, this.t('title.daily'), () => this.goTo(SCENES.game, { daily: !this.daily }), { width: 200, height: 92, fontSize: 38, variant: this.daily ? 'primary' : 'secondary' });
+    c.add([this.shopBtn, this.dailyBtn, muteButton(this, L.right - 70, L.top + 70)]);
+    this.titleUi = c;
+  }
+
+  private hideTitle(): void {
+    const c = this.titleUi;
+    if (!c) return;
+    this.titleUi = null;
+    this.shopBtn?.setEnabled(false);
+    this.dailyBtn?.setEnabled(false);
+    this.tweens.add({ targets: c, alpha: 0, y: -60, duration: 260, ease: 'Cubic.easeIn', onComplete: () => c.destroy() });
+    this.tweens.add({ targets: this.hud, alpha: 1, duration: 300 });
+  }
+
+  private openShop(): void {
+    this.goTo(SCENES.shop, { from: 'game' });
+  }
+
+  // ------------------------------------------------------------------ input
+
+  private onDown(p: Phaser.Input.Pointer, over: Phaser.GameObjects.GameObject[]): void {
+    if (over.length > 0 || this.dragId !== -1 || this.finished) return;
+    if (this.w.phase === 'cards' || this.w.phase === 'dying' || this.w.phase === 'over') return;
+    this.oyun.audio.unlock();
+    this.dragId = p.id;
+    this.dragX0 = this.dragX = p.x;
+    this.dragY0 = this.dragY = p.y;
+    this.lastCreak = 0;
+  }
+
+  private onMove(p: Phaser.Input.Pointer): void {
+    if (p.id !== this.dragId) return;
+    this.dragX = p.x;
+    this.dragY = p.y;
+    const aim = this.dragAim();
+    if (aim) {
+      aimAt(this.w, aim.angle, aim.power);
+      // string creak: a tick every 8 % of extra pull
+      if (Math.abs(aim.power - this.lastCreak) > 0.08) {
+        this.oyun.audio.playPreset(SFX.creak, { pitch: aim.power * 9, volume: 0.9 });
+        this.lastCreak = aim.power;
+      }
     }
   }
 
-  private syncTarget(): void {
-    const t = this.round.target;
-    this.target.setPosition(t.x, t.y);
-    // The texture is drawn at the start radius; scale it to the current one.
-    const s = t.radius / DEFAULT_RULES.startRadius;
-    if (!this.tweens.isTweening(this.target)) this.target.setScale(s);
-    this.target.setData('oyunRestScaleX', s).setData('oyunRestScaleY', s);
+  private onUp(p: Phaser.Input.Pointer): void {
+    if (p.id !== this.dragId) return;
+    this.dragX = p.x;
+    this.dragY = p.y;
+    const aim = this.dragAim();
+    this.dragId = -1;
+    this.pullG.clear();
+    if (!aim) {
+      // a tap or a tiny drag: no dud arrow
+      this.w.player.draw = 0;
+      this.oyun.audio.playPreset(SFX.cancel);
+      return;
+    }
+    this.release(aim.angle, aim.power);
   }
+
+  private onCancelAll(): void {
+    if (this.dragId === -1) return;
+    this.dragId = -1;
+    this.pullG.clear();
+    this.aimG.clear();
+    this.w.player.draw = 0;
+  }
+
+  /** Pull vector → angle/power; null while inside the dead zone. */
+  private dragAim(): { angle: number; power: number } | null {
+    const dx = this.dragX0 - this.dragX;
+    const dy = this.dragY0 - this.dragY;
+    const len = Math.hypot(dx, dy);
+    if (len < DRAG_DEAD) return null;
+    return { angle: Math.atan2(dy, dx), power: Math.min(1, (len - DRAG_DEAD) / (DRAG_FULL - DRAG_DEAD)) };
+  }
+
+  /** The one shot handler: finger releases and test actions both come here. */
+  private release(angle: number, power: number): boolean {
+    if (this.finished) return false;
+    if (!canShoot(this.w)) {
+      // let go a moment early: fire as soon as the arrow is nocked
+      if (this.w.reload > 0 && this.w.reload < 0.3 && this.w.player.alive) this.buffered = { angle, power };
+      return false;
+    }
+    const wasTitle = this.w.phase === 'title';
+    const ok = shoot(this.w, angle, power);
+    if (ok && wasTitle) {
+      this.hideTitle();
+      this.oyun.platform.gameplayStart();
+      this.oyun.platform.track('run_start', { daily: this.daily });
+    }
+    return ok;
+  }
+
+  // ------------------------------------------------------------------ frame
+
+  override update(_time: number, delta: number): void {
+    const t0 = performance.now();
+    const real = Math.min(delta, 200) / 1000;
+    // headshot slow motion runs on real time
+    let scale = 1;
+    if (this.slowT > 0) {
+      this.slowT -= real;
+      scale = this.slowT > 0.08 ? 0.18 : 0.5;
+    }
+    const dt = (this.juice.scaledDelta(delta) / 1000) * scale * this.debugScale;
+    if (this.dragId !== -1) {
+      const aim = this.dragAim();
+      if (aim) aimAt(this.w, aim.angle, aim.power);
+      else this.w.player.draw = 0;
+    }
+    if (this.buffered && canShoot(this.w)) {
+      const b = this.buffered;
+      this.buffered = null;
+      this.release(b.angle, b.power);
+    }
+    advance(this.w, dt);
+    this.handleEvents(this.w.events);
+    this.fx.update(dt);
+    this.hpPop = Math.max(0, this.hpPop - real * 4);
+    this.coinPop = Math.max(0, this.coinPop - real * 5);
+    this.hurtFlash = Math.max(0, this.hurtFlash - real * 2.5);
+    this.updateCamera(real);
+    this.refreshSky();
+    this.refreshLedges();
+    this.render(dt);
+    this.syncHud();
+    this.frameMs.push(performance.now() - t0);
+    if (this.frameMs.length > 240) this.frameMs.shift();
+  }
+
+  private updateCamera(real: number): void {
+    // zoom eases back; push springs back
+    this.zoom += (0 - this.zoom) * Math.min(1, real * (this.slowT > 0 ? 0.5 : 5));
+    this.pushX += (0 - this.pushX) * Math.min(1, real * 9);
+    this.pushY += (0 - this.pushY) * Math.min(1, real * 9);
+    const z = 1 + this.zoom;
+    const fx = this.zoomFx;
+    const fy = this.zoomFy;
+    // keep the focus point where it is, drifting it a little toward the centre
+    const k = this.zoom * 1.2;
+    this.layer.setScale(z);
+    this.layer.setPosition(fx * (1 - z) + (360 - fx) * k + this.pushX, fy * (1 - z) + (640 - fy) * k + this.pushY);
+    // parallax: hills shift opposite to the push
+    this.hillsFar.setPosition(-this.pushX * 0.5, -this.pushY * 0.3);
+    this.hillsNear.setPosition(-this.pushX * 0.25, -this.pushY * 0.15);
+    for (const c of this.clouds) {
+      c.x += (c.getData('v') as number) * real;
+      if (c.x > W + 160) c.x = -160;
+    }
+    // red vignette on damage
+    this.vignette.setAlpha(this.hurtFlash * 0.75);
+  }
+
+  private toScreen(x: number, y: number): { x: number; y: number } {
+    return { x: this.layer.x + x * this.layer.scaleX, y: this.layer.y + y * this.layer.scaleY };
+  }
+
+  private refreshSky(): void {
+    const s = skyIndex(this.w.wave, SKIES.length);
+    if (s === this.skyShown) return;
+    this.skyShown = s;
+    this.sky.clear();
+    drawSky(this.sky, s, W, H);
+    this.hillsFar.clear();
+    drawHills(this.hillsFar, s, W, H, 0);
+    this.hillsNear.clear();
+    drawHills(this.hillsNear, s, W, H, 1);
+    this.cameras.main.setBackgroundColor(SKIES[s]!.top);
+  }
+
+  private refreshLedges(): void {
+    const key = this.w.ledges.map((l) => `${l.x},${l.y}`).join('|');
+    if (key === this.ledgeKey) return;
+    this.ledgeKey = key;
+    this.ledgeG.clear();
+    this.w.ledges.forEach((l, i) => drawLedge(this.ledgeG, l, i + this.w.wave));
+  }
+
+  private render(dt: number): void {
+    const w = this.w;
+    const g = this.dyn;
+    g.clear();
+    const time = w.time;
+    const cos = cosmeticById(gameSave(this.oyun).data.cosmetic);
+    // arrows in ledges sit behind bodies
+    for (const a of w.arrows) if (a.active && a.state === 1) drawArrow(g, a, time);
+    const archers: Archer[] = [...w.enemies, w.player];
+    for (const a of archers) {
+      if (a.gone) continue;
+      let scarf = this.scarves.get(a.id);
+      if (!scarf) {
+        scarf = createScarf(a.body.x[PT.neck]!, a.body.y[PT.neck]!);
+        this.scarves.set(a.id, scarf);
+      }
+      const wind = a.type === 'player' ? -520 : 520;
+      stepScarf(scarf, a.body.x[PT.neck]! - a.facing * 4, a.body.y[PT.neck]! + 4, wind, Math.max(1 / 240, Math.min(dt, 1 / 30)), time);
+      const shield = a.shield;
+      if (shield && a.shieldOn) drawShield(g, shield.x[0]!, shield.y[0]!, shield.x[1]!, shield.y[1]!, 3 - a.shieldHp, a.hurt < 0.06 ? 0.6 : 0);
+      drawArcher(g, a, lookFor(a, cos), {
+        time,
+        scarf: a.type === 'player' || a.type === 'jumper' || a.type === 'boss' ? scarf : null,
+        flash: a.hurt < 0.07 ? 0.85 : 0,
+        hpBar: a.type !== 'player' && a.hp < a.maxHp,
+        telegraph: a.alive && a.type !== 'player' && a.brain === 'draw' && a.draw > 0.15,
+        weakHint: a.type === 'boss',
+      });
+      if (shield && !a.shieldOn) drawShield(g, shield.x[0]!, shield.y[0]!, shield.x[1]!, shield.y[1]!, 3, 0);
+    }
+    for (const a of w.arrows) if (a.active && a.state !== 1) drawArrow(g, a, time);
+    // apples
+    w.apples.forEach((ap, i) => {
+      const img = this.appleImgs[i]!;
+      img.setVisible(ap.active);
+      if (ap.active) img.setPosition(ap.x, ap.y).setRotation(Math.sin(ap.t * 3) * 0.25).setScale(w.stats.appleRadiusMul > 1 ? 1.25 : 1);
+    });
+    // reload ring around the bow hand
+    const p = w.player;
+    if (p.alive && w.reload > 0 && w.phase !== 'title') {
+      const k = 1 - w.reload / w.stats.reload;
+      const hx = p.body.x[PT.handF]!;
+      const hy = p.body.y[PT.handF]!;
+      g.lineStyle(8, PALETTE.ink, 0.6).beginPath().arc(hx, hy, 30, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * k, false).strokePath();
+      g.lineStyle(4, 0xffffff, 1).beginPath().arc(hx, hy, 30, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * k, false).strokePath();
+    }
+    this.renderAim();
+  }
+
+  /** Dotted arc preview (world layer) + the rubber band under the thumb (screen). */
+  private renderAim(): void {
+    this.aimG.clear();
+    this.pullG.clear();
+    if (this.dragId === -1) return;
+    const aim = this.dragAim();
+    const pg = this.pullG;
+    // rubber band from where the thumb went down
+    pg.fillStyle(PALETTE.ink, 0.35).fillCircle(this.dragX0, this.dragY0, 16);
+    pg.fillStyle(0xffffff, 0.7).fillCircle(this.dragX0, this.dragY0, 10);
+    if (!aim) {
+      pg.lineStyle(3, 0xffffff, 0.5).strokeCircle(this.dragX0, this.dragY0, DRAG_DEAD);
+      return;
+    }
+    const col = aim.power < 0.5 ? 0x7cf29c : aim.power < 0.85 ? 0xffd23f : 0xff6b4a;
+    pg.lineStyle(12, PALETTE.ink, 0.45).lineBetween(this.dragX0, this.dragY0, this.dragX, this.dragY);
+    pg.lineStyle(6, col, 0.9).lineBetween(this.dragX0, this.dragY0, this.dragX, this.dragY);
+    pg.fillStyle(col, 0.9).fillCircle(this.dragX, this.dragY, 12);
+    const w = this.w;
+    const ang = effectiveAngle(w, aim.angle);
+    const speed = arrowSpeed(aim.power);
+    const o = playerOrigin(w, ang);
+    const vx = Math.cos(ang) * speed;
+    const vy = Math.sin(ang) * speed;
+    const g = TUNING.gravity;
+    const steps = Math.round(15 * w.stats.previewMul);
+    const ag = this.aimG;
+    const ready = canShoot(w) || w.reload < 0.3;
+    for (let i = 1; i <= steps; i++) {
+      const t = i * 0.032;
+      const x = o.x + vx * t;
+      const y = o.y + vy * t + 0.5 * g * t * t;
+      const r = 8 - (i / steps) * 4;
+      const a = ready ? 1 - (i / steps) * 0.6 : 0.35;
+      ag.fillStyle(PALETTE.ink, a * 0.8).fillCircle(x, y, r + 3);
+      ag.fillStyle(0xffffff, a).fillCircle(x, y, r);
+    }
+  }
+
+  // ------------------------------------------------------------------ events → juice
+
+  private handleEvents(events: readonly GameEvent[]): void {
+    const audio = this.oyun.audio;
+    for (const e of events) {
+      switch (e.t) {
+        case 'shot': {
+          audio.playPreset(SFX.snap, { pitch: e.power * 3 });
+          audio.playPreset(SFX.whistle, { volume: 0.6 + e.power * 0.4, pitch: e.power * 2 });
+          this.oyun.platform.haptic('light');
+          this.pushX = Math.cos(e.angle) * 18;
+          this.pushY = Math.sin(e.angle) * 18;
+          this.fx.puffs(e.x, e.y, 3, 0xffffff, 90);
+          break;
+        }
+        case 'hit': {
+          const dir = Math.atan2(e.vy, e.vx);
+          const tint = ENEMY_TINT[e.enemy];
+          audio.playPreset(SFX.thunk, { pitch: e.part === 'head' ? 3 : 0 });
+          this.fx.ring(e.x, e.y, 0xffffff, e.slowmo ? 1.6 : 0.9);
+          this.fx.shards(e.x, e.y, dir, tint, e.slowmo ? 10 : 6);
+          this.fx.sparks(e.x, e.y, e.slowmo ? 8 : 3, 0xffffff, 320);
+          const s = this.toScreen(e.x, e.y);
+          this.juice.floatText(s.x + 30, s.y - 30, String(Math.round(e.dmg)), { size: e.slowmo ? 54 : 42, color: e.slowmo ? PALETTE.gold : 0xffffff, rise: 80 });
+          if (e.slowmo) {
+            audio.playPreset(SFX.ping);
+            this.slowT = 0.22;
+            this.zoom = 0.16;
+            this.zoomFx = e.x;
+            this.zoomFy = e.y;
+            this.juice.shake(0.45);
+            this.oyun.platform.haptic('heavy');
+            const txt = e.part === 'weak' ? this.t('hud.weak') : this.t('hud.headshot');
+            this.juice.floatText(s.x, s.y - 90, txt, { size: 66, color: PALETTE.gold, rise: 120, duration: 900 });
+          } else {
+            this.juice.shake(e.ko ? 0.3 : 0.18);
+            this.juice.hitStop(e.ko ? 70 : 40);
+            this.oyun.platform.haptic('medium');
+          }
+          break;
+        }
+        case 'bodyThunk':
+          audio.playPreset(SFX.thunk, { volume: 0.6, pitch: -2 });
+          this.fx.sparks(e.x, e.y, 3, 0xffffff, 200);
+          break;
+        case 'playerHit': {
+          audio.playPreset(SFX.ouch);
+          audio.playPreset(SFX.thunk, { volume: 0.7, pitch: -3 });
+          this.juice.shake(0.5);
+          this.juice.hitStop(60);
+          this.hurtFlash = 1;
+          this.hpPop = 1;
+          this.oyun.platform.haptic('heavy');
+          this.fx.shards(e.x, e.y, Math.atan2(e.vy, e.vx), PALETTE.player, 7);
+          this.fx.ring(e.x, e.y, PALETTE.danger, 1.1);
+          const s = this.toScreen(e.x, e.y);
+          this.juice.floatText(s.x, s.y - 40, `-${Math.round(e.dmg)}`, { size: 52, color: PALETTE.danger, rise: 90 });
+          break;
+        }
+        case 'blocked': {
+          audio.playPreset(SFX.bubble);
+          this.fx.ring(e.x, e.y, 0x8fe3ff, 1.8, 0.4);
+          this.fx.sparks(e.x, e.y, 8, 0x8fe3ff, 260);
+          const s = this.toScreen(e.x, e.y);
+          this.juice.floatText(s.x, s.y - 50, this.t('hud.blocked'), { size: 44, color: 0x8fe3ff });
+          break;
+        }
+        case 'ko': {
+          audio.playPreset(SFX.boing, { pitch: e.enemy === 'boss' ? -5 : 0 });
+          this.oyun.platform.haptic('success');
+          this.fx.feathers(e.x, e.y, ENEMY_TINT[e.enemy], e.enemy === 'boss' ? 10 : 4);
+          const s = this.toScreen(e.x, e.y);
+          const word = e.cause === 'fall' ? this.t('hud.fell') : e.cause === 'burn' ? this.t('hud.burned') : e.cause === 'head' ? null : this.t('hud.ko');
+          if (word) this.juice.floatText(s.x, s.y - 80, word, { size: 60, color: PALETTE.cream, rise: 110, duration: 800 });
+          this.flyCoins(s.x, s.y, e.coins);
+          if (e.enemy === 'boss') {
+            this.juice.feedback('large', s.x, s.y, PALETTE.gold);
+            this.slowT = 0.3;
+            this.zoom = 0.14;
+            this.zoomFx = e.x;
+            this.zoomFy = e.y;
+          }
+          break;
+        }
+        case 'poof': {
+          audio.playPreset(SFX.poof);
+          this.fx.feathers(e.x, e.y, ENEMY_TINT[e.enemy], e.enemy === 'boss' ? 30 : 16);
+          this.scarves.delete(e.id);
+          break;
+        }
+        case 'thunk':
+          audio.playPreset(SFX.thock, { volume: e.owner === 'player' ? 1 : 0.5 });
+          this.fx.shards(e.x, e.y, -Math.PI / 2, PALETTE.soil, 4, 260);
+          this.fx.puffs(e.x, e.y, 2, 0xe8d3b0, 60);
+          break;
+        case 'bounce':
+          audio.playPreset(SFX.thock, { pitch: 7 });
+          this.fx.sparks(e.x, e.y, 5, PALETTE.grassLight, 240);
+          break;
+        case 'shieldHit': {
+          audio.playPreset(SFX.clang, { pitch: e.broke ? -4 : 0 });
+          this.fx.sparks(e.x, e.y, e.broke ? 14 : 6, PALETTE.gold, 380);
+          this.fx.shards(e.x, e.y, Math.PI, PALETTE.shieldWood, e.broke ? 12 : 4);
+          this.juice.shake(e.broke ? 0.4 : 0.15);
+          break;
+        }
+        case 'bomb': {
+          audio.playPreset(SFX.boom, { volume: e.popped ? 0.7 : 1 });
+          this.fx.ring(e.x, e.y, PALETTE.fire, 2.4, 0.35);
+          this.fx.sparks(e.x, e.y, 16, PALETTE.fire, 520);
+          this.fx.puffs(e.x, e.y, 8, 0x8a7a8a, 220);
+          this.juice.shake(e.hurt ? 0.7 : 0.35);
+          if (e.popped) {
+            const s = this.toScreen(e.x, e.y);
+            this.juice.floatText(s.x, s.y - 50, this.t('hud.popped'), { size: 42, color: PALETTE.fireCore });
+          }
+          break;
+        }
+        case 'apple': {
+          audio.playPreset(SFX.crunch);
+          this.fx.shards(e.x, e.y, 0, PALETTE.apple, 10, 300);
+          this.fx.sparks(e.x, e.y, 6, PALETTE.heal, 200);
+          const s = this.toScreen(e.x, e.y);
+          this.juice.floatText(s.x, s.y - 40, `+${e.heal}`, { size: 52, color: PALETTE.heal });
+          break;
+        }
+        case 'burn':
+          this.fx.sparks(e.x, e.y, 3, PALETTE.fire, 140);
+          break;
+        case 'heal':
+          this.hpPop = 0.7;
+          break;
+        case 'enemyDraw':
+          audio.playPreset(SFX.enemyDraw, { volume: 0.8 });
+          break;
+        case 'enemyShot':
+          audio.playPreset(SFX.enemySnap);
+          if (e.kind === 'bomb') audio.playPreset(SFX.fuse);
+          break;
+        case 'waveStart':
+          this.onWaveStart(e.wave);
+          break;
+        case 'waveClear': {
+          // let the knockout land first
+          this.time.delayedCall(650, () => {
+            if (this.finished) return;
+            audio.play('win', { volume: 0.7 });
+            this.showBanner(this.t('hud.clear'), null);
+            this.flyCoins(360, 520, e.coins);
+          });
+          break;
+        }
+        case 'cards':
+          this.openCards();
+          break;
+        case 'dying':
+          audio.play('lose');
+          this.slowT = 0.35;
+          this.zoom = 0.12;
+          this.zoomFx = this.w.player.body.x[PT.head]!;
+          this.zoomFy = this.w.player.body.y[PT.head]!;
+          this.oyun.platform.haptic('error');
+          break;
+        case 'dead':
+          this.finish();
+          break;
+        default:
+          break;
+      }
+    }
+  }
+
+  private flyCoins(x: number, y: number, amount: number): void {
+    const target = this.coinTarget();
+    const n = Math.min(12, Math.max(3, Math.round(amount / 2)));
+    let left = amount;
+    let i = 0;
+    this.fx.coins(x, y, n, target.x, target.y, () => {
+      i += 1;
+      const add = i === n ? left : Math.floor(amount / n);
+      left -= add;
+      this.coinShown += add;
+      this.coinPop = 1;
+      this.oyun.audio.playPreset(SFX.tick, { pitch: Math.min(12, i), jitter: 0 });
+    });
+  }
+
+  private onWaveStart(wave: number): void {
+    const audio = this.oyun.audio;
+    const types = new Set(this.w.enemies.map((e) => e.type));
+    let intro: string | null = null;
+    for (const t of types) {
+      if (!this.seen.has(t) || (wave > 1 && types.size === 1 && wave <= 6 && t !== 'archer' && !this.seen.has(`intro-${t}`))) {
+        intro = this.t(`hud.new.${t}`);
+        this.seen.add(`intro-${t}`);
+      }
+      this.seen.add(t);
+    }
+    if (types.has('boss')) {
+      audio.playPreset(SFX.roar);
+      this.juice.shake(0.5);
+      this.showBanner(this.t('hud.bossWave'), intro ?? this.t('hud.new.boss'));
+    } else {
+      audio.playPreset(SFX.drum);
+      if (wave > 1 || this.data0.revive) this.showBanner(this.t('hud.wave', { n: wave }), intro);
+    }
+    // landing thumps for archers dropping in
+    this.time.delayedCall(560, () => {
+      if (this.finished) return;
+      for (const e of this.w.enemies) {
+        if (e.type === 'boss') this.juice.shake(0.35);
+        this.fx.puffs(e.anchorX, e.anchorY + 52 * e.scale, 4, 0xffffff, 140);
+      }
+      if (this.w.enemies.length) audio.playPreset(SFX.slam, { volume: 0.6 });
+    });
+    this.oyun.platform.track('wave_start', { wave });
+  }
+
+  private showBanner(text: string, sub: string | null): void {
+    const L = this.layout;
+    const c = this.add.container(L.cx, L.cy - 120).setDepth(80);
+    const t = label(this, 0, 0, text, { size: 84, color: PALETTE.cream, wrap: 660 }).setStroke(cssColor(PALETTE.ink), 18);
+    c.add(t);
+    if (sub) c.add(label(this, 0, 84, sub, { size: 38, color: 0xffffff, wrap: 640 }).setStroke(cssColor(PALETTE.ink), 10));
+    c.setScale(2.2).setAlpha(0).setAngle(-8);
+    this.tweens.add({ targets: c, scale: 1, alpha: 1, angle: 0, duration: 260, ease: 'Back.easeOut' });
+    this.tweens.add({ targets: c, alpha: 0, y: c.y - 60, delay: sub ? 1900 : 950, duration: 300, onComplete: () => c.destroy() });
+  }
+
+  // ------------------------------------------------------------------ cards
+
+  private openCards(): void {
+    if (this.cardUi) return;
+    this.picking = false;
+    const L = this.layout;
+    const c = this.add.container(0, 0).setDepth(90);
+    const scrim = this.add.rectangle(L.cx, L.cy, W, H, PALETTE.ink, 0.62).setInteractive();
+    c.add(scrim);
+    const title = label(this, L.cx, L.top + 170, this.t('cards.title'), { size: 64, color: PALETTE.cream }).setStroke(cssColor(PALETTE.ink), 14);
+    c.add(title);
+    this.juice.pop(title, 1.3, 300);
+    this.cardUi = c;
+    this.buildCardFaces();
+  }
+
+  private buildCardFaces(): void {
+    const c = this.cardUi;
+    if (!c) return;
+    for (const z of this.cardHits) z.destroy();
+    this.cardHits = [];
+    c.list.filter((o) => o.getData('card') === true).forEach((o) => o.destroy());
+    this.rerollBtn?.destroy();
+    this.extraBtn?.destroy();
+    const L = this.layout;
+    const offer = this.w.offer;
+    const n = offer.length;
+    const ch = n > 3 ? 168 : 196;
+    const gap = n > 3 ? 14 : 22;
+    const startY = L.top + 280 + ch / 2;
+    this.cardRects = {};
+    offer.forEach((id, i) => {
+      const y = startY + i * (ch + gap);
+      const card = this.add.container(L.cx, y);
+      card.setData('card', true);
+      const g = this.add.graphics();
+      const cw = 620;
+      g.fillStyle(PALETTE.ink, 1).fillRoundedRect(-cw / 2 - 6, -ch / 2 - 6 + 8, cw + 12, ch + 12, 30);
+      g.fillStyle(PALETTE.ink, 1).fillRoundedRect(-cw / 2 - 6, -ch / 2 - 6, cw + 12, ch + 12, 30);
+      g.fillStyle(PALETTE.cardEdge, 1).fillRoundedRect(-cw / 2, -ch / 2, cw, ch, 26);
+      g.fillStyle(PALETTE.card, 1).fillRoundedRect(-cw / 2 + 8, -ch / 2 + 8, cw - 16, ch - 16, 20);
+      g.fillStyle(0xffe2b0, 1).fillCircle(-cw / 2 + 96, 0, 70);
+      drawCardIcon(g, id, -cw / 2 + 96, 0);
+      const held = countCards(this.w.cards, id);
+      const name = label(this, -cw / 2 + 190, -30, this.t(`card.${id}.name`), { size: 44, color: PALETTE.ink }).setOrigin(0, 0.5);
+      const desc = label(this, -cw / 2 + 190, 26, this.t(`card.${id}.desc`), { size: 32, color: PALETTE.inkSoft, wrap: 400, align: 'left' }).setOrigin(0, 0.5);
+      card.add([g, name, desc]);
+      if (held > 0) {
+        const badge = this.add.graphics();
+        badge.fillStyle(PALETTE.ink, 1).fillCircle(cw / 2 - 40, -ch / 2 + 34, 30);
+        badge.fillStyle(PALETTE.danger, 1).fillCircle(cw / 2 - 40, -ch / 2 + 34, 25);
+        card.add([badge, label(this, cw / 2 - 40, -ch / 2 + 32, this.t('cards.stack', { n: held + 1 }), { size: 30 })]);
+      }
+      c.add(card);
+      // slam in
+      card.setScale(1.7).setAlpha(0).setAngle(i % 2 ? 7 : -7);
+      card.y = y - 80;
+      this.tweens.add({
+        targets: card,
+        scale: 1,
+        alpha: 1,
+        angle: 0,
+        y,
+        delay: 90 + i * 120,
+        duration: 230,
+        ease: 'Cubic.easeIn',
+        onComplete: () => {
+          this.oyun.audio.playPreset(SFX.slam, { pitch: i * 2 });
+          this.juice.shake(0.18);
+          this.juice.squash(card, 0.12, 220);
+        },
+      });
+      const zone = this.add.zone(L.cx, y, cw, ch).setInteractive({ useHandCursor: true });
+      zone.on(Phaser.Input.Events.GAMEOBJECT_POINTER_UP, () => this.onPickCard(i));
+      c.add(zone);
+      this.cardHits.push(zone);
+      this.cardRects[`card${i}`] = [L.cx - cw / 2, y - ch / 2, cw, ch];
+    });
+    const by = Math.min(L.bottom - 80, startY + n * (ch + gap) + 40);
+    this.rerollBtn = button(this, L.cx - 165, by, this.t('cards.reroll', { n: this.w.rerollsLeft }), () => this.onReroll(), { width: 300, height: 100, fontSize: 38, variant: 'secondary' });
+    this.rerollBtn.setEnabled(this.w.rerollsLeft > 0);
+    this.extraBtn = button(this, L.cx + 165, by, this.t('cards.extra'), () => void this.onExtra(), { width: 300, height: 100, fontSize: 38 });
+    this.extraBtn.setEnabled(!this.w.offerExtra);
+    c.add([this.rerollBtn, this.extraBtn]);
+    this.cardRects.reroll = [L.cx - 315, by - 50, 300, 100];
+    this.cardRects.extra = [L.cx + 15, by - 50, 300, 100];
+  }
+
+  private onPickCard(i: number): void {
+    if (this.picking || !this.cardUi || this.w.phase !== 'cards' || !this.w.offer[i]) return;
+    this.picking = true;
+    this.oyun.audio.playPreset(SFX.pick);
+    this.oyun.platform.haptic('medium');
+    const c = this.cardUi;
+    const cards = c.list.filter((o) => o.getData('card') === true) as Phaser.GameObjects.Container[];
+    cards.forEach((card, k) => {
+      this.tweens.killTweensOf(card);
+      if (k === i) {
+        this.tweens.add({ targets: card, scale: 1.12, duration: 120, yoyo: true, ease: 'Quad.easeOut' });
+        this.tweens.add({ targets: card, y: this.layout.top + 40, scale: 0.2, alpha: 0, delay: 260, duration: 260, ease: 'Cubic.easeIn' });
+      } else {
+        this.tweens.add({ targets: card, y: card.y + 900, angle: k < i ? -25 : 25, duration: 420, ease: 'Cubic.easeIn' });
+      }
+    });
+    this.time.delayedCall(540, () => {
+      c.destroy();
+      this.cardUi = null;
+      this.cardHits = [];
+      this.rerollBtn = null;
+      this.extraBtn = null;
+      this.cardRects = {};
+      pickCard(this.w, i);
+      this.handleEvents(this.w.events);
+      this.w.events.length = 0;
+    });
+  }
+
+  private onReroll(): void {
+    if (this.picking || reroll(this.w) === false) return;
+    this.oyun.audio.play('pop');
+    this.buildCardFaces();
+  }
+
+  private async onExtra(): Promise<void> {
+    if (this.picking || this.w.offerExtra) return;
+    this.extraBtn?.setEnabled(false);
+    const r = await this.oyun.platform.showRewarded('extra_card');
+    if (r !== 'granted' || !addExtraCard(this.w)) {
+      this.extraBtn?.setEnabled(!this.w.offerExtra);
+      return;
+    }
+    this.oyun.platform.track('reward_claimed', { placement: 'extra_card' });
+    this.buildCardFaces();
+  }
+
+  // ------------------------------------------------------------------ end of run
 
   private finish(): void {
+    if (this.finished) return;
     this.finished = true;
-    const r = this.round;
+    const w = this.w;
     this.oyun.platform.gameplayStop();
-    this.oyun.platform.track('round_end', { score: r.score, hits: r.hits, misses: r.misses });
+    this.oyun.platform.track('run_end', { wave: w.wave, coins: w.run.coins, kos: w.run.kos, daily: this.daily });
     let outcome = { best: 0, newBest: false };
     gameSave(this.oyun).update((d) => {
-      outcome = applyRoundResult(d, r.score);
+      outcome = applyRunResult(d, w.wave, w.run.coins);
+      if (this.daily) {
+        const now = new Date();
+        const key = dailyKey(now.getFullYear(), now.getMonth() + 1, now.getDate());
+        if (d.dailyDate !== key) {
+          d.dailyDate = key;
+          d.dailyBest = 0;
+        }
+        d.dailyBest = Math.max(d.dailyBest, w.wave);
+      }
     });
-    this.juice.shake(0.5);
-    this.tweens.add({ targets: this.target, scale: 0, duration: 250, ease: 'Back.easeIn' });
-    this.time.delayedCall(450, () =>
-      this.goTo(SCENES.result, {
-        score: r.score,
-        best: outcome.best,
-        newBest: outcome.newBest,
-        lines: [this.t('result.stats', { hits: r.hits, combo: r.bestCombo })],
-      }),
-    );
+    session.finishedRuns += 1;
+    pendingWorld = w;
+    const result: RunResult = { wave: w.wave, coins: w.run.coins, kos: w.run.kos, headshots: w.run.headshots, best: outcome.best, newBest: outcome.newBest, daily: this.daily };
+    this.time.delayedCall(350, () => this.goTo(SCENES.result, result));
   }
 
+  // ------------------------------------------------------------------ test hook
+
   protected override testState() {
-    const t = this.round.target;
+    const w = this.w;
+    const r = (v: number) => Math.round(v * 10) / 10;
+    const first = aliveEnemies(w).find((e) => e.brain !== 'spawn');
+    let solution: { angle: number; power: number } | null = null;
+    if (first) {
+      const p = targetPoint(first, 'chest');
+      const s = solveShot(w, p.x, p.y);
+      solution = { angle: r(s.angle * 1000) / 1000, power: r(s.power * 1000) / 1000 };
+    }
+    const stats = (xs: number[]) => {
+      const v = [...xs].sort((a, b) => a - b);
+      return v.length ? { avg: r(v.reduce((a, b) => a + b, 0) / v.length), p95: r(v[Math.floor(v.length * 0.95)]!), max: r(v[v.length - 1]!), n: v.length } : null;
+    };
     return {
-      score: this.round.score,
-      timeLeft: Math.round(this.round.timeLeft * 100) / 100,
-      combo: this.round.combo,
-      over: this.round.over,
-      target: { x: Math.round(t.x), y: Math.round(t.y), radius: t.radius },
+      phase: w.phase,
+      wave: w.wave,
+      health: r(w.player.hp),
+      maxHealth: w.player.maxHp,
+      coins: w.run.coins,
+      savedCoins: gameSave(this.oyun).data.coins,
+      best: gameSave(this.oyun).data.best,
+      enemies: w.enemies.map((e) => ({ id: e.id, type: e.type, alive: e.alive, x: r(e.body.x[PT.pelvis]!), y: r(e.body.y[PT.pelvis]!), hp: r(e.hp) })),
+      cards: [...w.cards],
+      offer: [...w.offer],
+      reload: r(w.reload),
+      shots: w.run.shots,
+      kos: w.run.kos,
+      firstKoShot: w.run.firstKoShot,
+      time: r(w.time),
+      aiming: this.dragId !== -1,
+      draw: r(w.player.draw),
+      solution,
+      drag: { dead: DRAG_DEAD, full: DRAG_FULL },
+      rects: this.cardRects,
+      revivable: hasRevive(),
+      /** JS ms in this scene's update (sim + drawing commands) */
+      frameMs: stats(this.frameMs),
+      /** JS ms for the whole Phaser step incl. render submission (software GL here) */
+      stepMs: stats(this.stepMs),
+      arrowsActive: w.arrows.filter((a) => a.active).length,
     };
   }
 
   protected override testActions() {
     return {
-      tapTarget: () => this.onTap(this.round.target.x, this.round.target.y),
-      tapAt: (p: unknown) => {
-        const { x, y } = p as { x: number; y: number };
-        this.onTap(x, y);
+      shoot: (p: unknown) => {
+        const { angle, power } = p as { angle: number; power: number };
+        this.release(angle, power);
       },
-      pause: () => this.pauseButton.fire(),
+      aimbot: (p: unknown) => {
+        const error = (p as { error?: number } | undefined)?.error ?? CAREFUL.angleError;
+        const prof: Profile = { ...CAREFUL, angleError: error, powerError: error };
+        const s = planShot(this.w, this.w.rng.fork('aimbot'), prof);
+        if (s) this.release(s.angle, s.power);
+      },
+      'pick-card': (p: unknown) => this.onPickCard(Number(p)),
+      advance: (p: unknown) => {
+        const seconds = Number(p);
+        for (let t = 0; t < seconds && !this.finished; t += 1 / 60) {
+          advance(this.w, 1 / 60);
+          this.handleEvents(this.w.events);
+        }
+      },
+      reroll: () => this.rerollBtn?.fire(),
+      extra: () => this.extraBtn?.fire(),
+      pause: () => this.pauseBtn.fire(),
+      shop: () => this.shopBtn?.fire(),
+      daily: () => this.dailyBtn?.fire(),
+      'perf-reset': () => {
+        this.frameMs = [];
+        this.stepMs = [];
+      },
+      timescale: (p: unknown) => {
+        this.debugScale = Number(p) || 1;
+      },
     };
   }
 }
+
+function drawHeartAt(g: Phaser.GameObjects.Graphics, x: number, y: number, s: number): void {
+  g.fillStyle(PALETTE.ink, 1).fillCircle(x - 11 * s, y - 6 * s, 14 * s).fillCircle(x + 11 * s, y - 6 * s, 14 * s).fillTriangle(x - 24 * s, y, x + 24 * s, y, x, y + 25 * s);
+  g.fillStyle(PALETTE.hp, 1).fillCircle(x - 11 * s, y - 6 * s, 10 * s).fillCircle(x + 11 * s, y - 6 * s, 10 * s).fillTriangle(x - 19 * s, y - 2 * s, x + 19 * s, y - 2 * s, x, y + 19 * s);
+  g.fillStyle(0xffffff, 0.6).fillCircle(x - 14 * s, y - 10 * s, 3.5 * s);
+}
+

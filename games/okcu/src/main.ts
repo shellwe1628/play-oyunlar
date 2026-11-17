@@ -2,10 +2,10 @@ import { createGame } from '@oyun/core';
 import meta from '../oyun.config.json';
 import { GameScene } from './scenes/GameScene';
 import { SCENES } from './scenes/keys';
-import { MenuScene } from './scenes/MenuScene';
 import { ResultScene } from './scenes/ResultScene';
+import { ShopScene } from './scenes/ShopScene';
 import { STRINGS } from './strings';
-import { TEXTURES } from './textures';
+import { PALETTE, TEXTURES } from './textures';
 
 void createGame({
   id: meta.id,
@@ -13,9 +13,22 @@ void createGame({
   orientation: meta.orientation === 'landscape' ? 'landscape' : 'portrait',
   strings: STRINGS,
   textures: TEXTURES,
-  scenes: [MenuScene, GameScene, ResultScene],
-  start: SCENES.menu,
-  menu: SCENES.menu,
+  scenes: [GameScene, ResultScene, ShopScene],
+  // the title IS the game scene: the first drag fires the first arrow
+  start: SCENES.game,
+  menu: SCENES.game,
+  theme: {
+    colors: {
+      background: 0x3fb4ff,
+      surface: 0x2b3160,
+      primary: 0xffc93c,
+      primaryText: PALETTE.ink,
+      secondary: 0x6b4ca8,
+      accent: 0x7cf29c,
+      shadow: PALETTE.ink,
+    },
+    radius: 30,
+  },
 }).catch((error: unknown) => {
   console.error('[oyun] boot failed', error);
 });

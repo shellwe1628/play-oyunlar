@@ -1,21 +1,22 @@
 import type { OyunContext } from '@oyun/core';
 import { createSaveStore, type SaveOptions, type SaveStore, type StorageAdapter } from '@oyun/core/pure';
-import { SAVE_DEFAULTS, type SaveData } from './sim/progress';
+import { defaults, normalize, type SaveData } from './sim/progress';
 
 /**
- * Save schema version. Bump it (and add a migration) when a field is renamed, removed or
- * changes type. Adding a field only needs a default in SAVE_DEFAULTS.
+ * Save schema version. v1 was the template's { best, rounds } (no game progress to keep);
+ * v2 is Sparkrise's progress. Keep every migration forever.
  */
-export const SAVE_VERSION = 1;
+export const SAVE_VERSION = 2;
 
 export function saveOptions(storage: StorageAdapter, gameId: string): SaveOptions<SaveData> {
   return {
     key: `oyun:${gameId}:save`,
     version: SAVE_VERSION,
-    defaults: () => ({ ...SAVE_DEFAULTS }),
-    migrations: {},
-    validate: (d): d is SaveData =>
-      typeof d === 'object' && d !== null && Number.isFinite((d as SaveData).best) && Number.isFinite((d as SaveData).rounds),
+    defaults,
+    migrations: {
+      1: () => defaults(),
+    },
+    validate: normalize,
     storage,
     onError: (e) => console.warn('[save]', e),
   };

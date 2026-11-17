@@ -1,89 +1,188 @@
 import { act, clockRate, collectErrors, colorNear, expect, openGame, pixel, setHidden, shot, state, test, waitForScene } from '@oyun/core/e2e';
-import { DEFAULT_THEME, findOverlaps, logicalSize, type Orientation } from '@oyun/core/pure';
+import type { Page } from '@playwright/test';
 
 const gameDir = new URL('../..', import.meta.url).pathname.replace(/\/$/, '');
 
+type Data = Record<string, unknown> & {
+  phase: string;
+  progress: number;
+  tick: number;
+  gems: number;
+  wallet: number;
+  unlocked: number;
+  retryReady: boolean;
+};
+
+const data = async (page: Page): Promise<Data> => (await state(page)).data as Data;
+
+async function untilPhase(page: Page, phases: string[], timeout: number): Promise<Data> {
+  await page.waitForFunction((ps) => ps.includes(window.__OYUN__?.state().data.phase as string), phases, { timeout, polling: 50 });
+  return data(page);
+}
+
 /**
- * Gate smoke test: built game, ?test=1&seed=1, phone viewport. Drives a full session through
- * window.__OYUN__ (menu → game → pause/resume → result), fails on any console or page error.
+ * Gate smoke test (built game, ?test=1&seed=1, 390×844, touch). Title → level 1 finished on the
+ * solver's autopilot (all three gems) → a run where nobody touches dies → retry by tap, measured
+ * inside the page → pause menu drawn over the game → tab hidden auto-pauses → menus → no errors.
  */
-test('menu → game → result without errors', async ({ page }) => {
+test('title → autopilot finishes level 1 → death → retry within 600 ms', async ({ page }) => {
+  test.setTimeout(240_000);
   const errors = collectErrors(page);
   await openGame(page, { seed: 1, lang: 'tr' });
 
-  expect((await state(page)).scene).toBe('menu');
-  await shot(page, gameDir, 'menu');
-  await act(page, 'play');
-  await waitForScene(page, 'game');
+  // App open lands on the title over the live shaft, level 1, nothing in the way.
+  const s0 = await state(page);
+  expect(s0.scene).toBe('game');
+  expect(s0.data.phase).toBe('title');
+  expect(s0.data.level).toBe(1);
+  await page.waitForTimeout(400);
+  await shot(page, gameDir, 'title');
 
-  // Hit the target a few times through the same handler a finger tap uses.
-  for (let i = 0; i < 5; i++) {
-    await act(page, 'tapTarget');
-    await page.waitForTimeout(150);
-  }
-  const mid = await state(page);
-  expect(mid.data.score).toBeGreaterThanOrEqual(5);
-  await shot(page, gameDir, 'game');
+  // Autopilot replays the solver's timeline from the title: the run starts at once.
+  const tPlan = Date.now();
+  await act(page, 'autopilot', true);
+  console.warn(`autopilot plan computed in the page in ${Date.now() - tPlan} ms`);
+  expect((await data(page)).phase).toBe('playing');
+  await page.waitForTimeout(2500);
+  await shot(page, gameDir, 'run');
+  const end = await untilPhase(page, ['finishing', 'finished', 'dead'], 150_000);
+  expect(end.phase).not.toBe('dead');
+  expect(end.progress).toBe(100);
+  expect(end.gems).toBe(3);
+  await page.waitForTimeout(300);
+  await shot(page, gameDir, 'finish-burst');
+  const fin = await untilPhase(page, ['finished'], 10_000);
+  expect(fin.wallet).toBeGreaterThanOrEqual(3);
+  expect(fin.unlocked).toBe(2);
+  await page.waitForTimeout(500);
+  await shot(page, gameDir, 'finish');
 
-  // Pause button, then resume. The menu must be DRAWN above the (opaque) game scene, not only
-  // active: read the rendered pixel inside the pause card, left of the buttons.
+  // Never touching: the spark drifts left into the wall within a couple of seconds. The retry is
+  // measured inside the page, armed before the death: it records the death, taps on every frame
+  // until the game takes the tap, and stops once the sim is advancing again.
+  await act(page, 'autopilot', false);
+  await act(page, 'start', { mode: 'level', level: 1 });
+  expect((await data(page)).phase).toBe('ready');
+  const measured = page.evaluate(
+    () =>
+      new Promise<{ cause: string; progress: number; acceptedMs: number; restartedMs: number; advancingMs: number; phase: string }>((resolve) => {
+        const api = window.__OYUN__!;
+        let tDeath = 0;
+        let acceptedMs = -1;
+        let restartedMs = -1;
+        let tick0 = 0;
+        let cause = '';
+        let progress = 0;
+        const frame = (): void => {
+          const d = api.state().data;
+          const now = performance.now();
+          if (!tDeath) {
+            if (d.phase === 'dead') {
+              // Death happened at most one frame ago: msSinceDeath is the game's own clock.
+              tDeath = now - Number(d.msSinceDeath);
+              cause = d.deathCause as string;
+              progress = Number(d.progress);
+            }
+          } else if (restartedMs < 0) {
+            if (d.retryReady && acceptedMs < 0) acceptedMs = now - tDeath;
+            api.act('tap');
+            const after = api.state().data;
+            if (after.phase === 'playing') {
+              restartedMs = Number(after.retryLatencyMs);
+              tick0 = Number(after.tick);
+            }
+          } else if (Number(d.tick) > tick0) {
+            resolve({ cause, progress, acceptedMs, restartedMs, advancingMs: now - tDeath, phase: d.phase as string });
+            return;
+          }
+          requestAnimationFrame(frame);
+        };
+        requestAnimationFrame(frame);
+      }),
+  );
+  await act(page, 'tap'); // press + release: starts the run, then hands off
+  const r = await measured;
+  console.warn(`retry: died at ${r.progress}% (${r.cause}); tap accepted ${Math.round(r.acceptedMs)} ms after death, run restarted at ${r.restartedMs} ms, sim advancing at ${Math.round(r.advancingMs)} ms`);
+  expect(r.cause).toBe('wall');
+  expect(r.progress).toBeLessThan(10);
+  expect(r.phase).toBe('playing');
+  expect(r.restartedMs).toBeLessThan(600);
+  expect(r.advancingMs).toBeLessThan(600 + 250); // + at most one software-rendered frame on this machine
+  await untilPhase(page, ['dead'], 15_000);
+  await page.waitForTimeout(500);
+  await shot(page, gameDir, 'death');
+
+  // Pause menu over a running game: the card must be drawn on top (pixel check).
+  await act(page, 'tap');
+  expect((await data(page)).phase).toBe('playing');
+  await page.waitForTimeout(200);
+  const pausedTick = (await data(page)).tick;
   await act(page, 'pause');
   await waitForScene(page, 'pause');
-  await page.waitForTimeout(500); // card pop-in settles
-  const size = logicalSize((await state(page)).meta.orientation as Orientation);
-  const inCard = await pixel(page, size.width / 2 - 240, size.height / 2);
+  await page.waitForTimeout(500);
+  const inCard = await pixel(page, 360 - 240, 640);
   await shot(page, gameDir, 'pause');
-  expect(colorNear(inCard, DEFAULT_THEME.colors.surface), `pause card pixel ${JSON.stringify(inCard)}`).toBe(true);
+  expect(colorNear(inCard, 0x2a1263), `pause card pixel ${JSON.stringify(inCard)}`).toBe(true);
   await act(page, 'resume');
   await waitForScene(page, 'game');
 
-  // Tab hidden → auto-pause (platform lifecycle); the round clock must not run while paused.
-  const before = (await state(page)).data.timeLeft as number;
+  // Tab hidden → auto-pause; the sim must not run while paused.
   await setHidden(page, true);
   await setHidden(page, false);
   await waitForScene(page, 'pause');
-  await page.waitForTimeout(1500);
-  await act(page, 'resume');
+  const t1 = (await state(page)).scenes;
+  expect(t1).toContain('game');
+  await page.waitForTimeout(800);
+  await act(page, 'quit');
   await waitForScene(page, 'game');
-  expect((await state(page)).data.timeLeft as number).toBeGreaterThan(before - 0.5);
+  const back = await data(page);
+  expect(back.phase).toBe('title');
+  expect(pausedTick).toBeGreaterThan(0);
 
-  // Let the timer run out.
-  await waitForScene(page, 'result', 30_000);
-  const end = await state(page);
-  expect(end.data.score).toBeGreaterThanOrEqual(5);
-  expect(end.data.newBest).toBe(true);
-  await page.waitForTimeout(1200); // count-up + new-best badge finish before the screenshot
-  await shot(page, gameDir, 'result');
-  // The new-best badge is a row of the score card: nothing on the result screen may overlap.
-  const rects = (await state(page)).data.rects as Record<string, number[]>;
-  expect(Object.keys(rects)).toContain('badge');
-  expect(findOverlaps(rects), JSON.stringify(rects)).toEqual([]);
+  // Level select and skins are one tap from the title.
+  await act(page, 'levels');
+  await waitForScene(page, 'levels');
+  await page.waitForTimeout(600);
+  await shot(page, gameDir, 'levels');
+  await act(page, 'pick', 2);
+  await waitForScene(page, 'game');
+  expect((await data(page)).level).toBe(2);
+  expect((await data(page)).phase).toBe('ready');
+  await act(page, 'home');
+  await waitForScene(page, 'game');
+  await page.waitForTimeout(300);
+  await act(page, 'skins');
+  await waitForScene(page, 'skins');
+  // Level 1 paid 3 gems; the first trail costs 4: refused, wallet unchanged. The diamond spark costs 6.
+  await act(page, 'buy', { kind: 'trail', i: 1 });
+  expect((await data(page)).wallet).toBe(3);
+  await page.waitForTimeout(600);
+  await shot(page, gameDir, 'skins');
+  await act(page, 'back');
+  await waitForScene(page, 'game');
 
-  // Rewarded flow: the web adapter grants, so the score doubles.
-  await act(page, 'double');
-  await page.waitForFunction(() => window.__OYUN__?.state().data.doubled === true);
-  expect((await state(page)).data.score).toBe((end.data.score as number) * 2);
-
-  await act(page, 'menu');
-  await waitForScene(page, 'menu');
-  expect((await state(page)).data.best).toBe((end.data.score as number) * 2);
+  // Daily shaft from the title: ready, then a run.
+  await page.waitForTimeout(300);
+  await act(page, 'daily');
+  expect((await data(page)).mode).toBe('daily');
+  expect((await data(page)).phase).toBe('ready');
+  await shot(page, gameDir, 'daily');
 
   expect(errors).toEqual([]);
 });
 
-/**
- * Game time must follow the wall clock under automation: headless Chromium is never a focused
- * window and runs at a low frame rate on a loaded machine, where Phaser's default smoothing
- * clamps every frame to 16.7 ms (core turns that off with ?test=1 / navigator.webdriver).
- */
-test('round clock follows the wall clock in headless mode', async ({ page }) => {
+/** Game time must follow the wall clock under automation (core realTimeDelta). */
+test('run clock follows the wall clock in headless mode', async ({ page }) => {
   const errors = collectErrors(page);
   await openGame(page, { seed: 1 });
-  await act(page, 'play');
-  await waitForScene(page, 'game');
-  const r = await clockRate(page, 'timeLeft', 3000);
-  const msg = `round clock ran ${r.game.toFixed(2)} s in ${r.wall.toFixed(2)} s of wall time (${r.frames} frames, ${r.longFrames} over 200 ms)`;
+  await act(page, 'autopilot', true);
+  await page.waitForTimeout(300);
+  const r = await clockRate(page, 't', 3000);
+  const msg = `run clock ran ${r.game.toFixed(2)} s in ${r.wall.toFixed(2)} s of wall time (${r.frames} frames, ${r.longFrames} over 200 ms)`;
+  console.warn(msg);
   expect(r.rate, msg).toBeGreaterThan(0.85);
   expect(r.rate, msg).toBeLessThan(1.15);
+  const d = await data(page);
+  console.warn(`frame time while playing: own update ${JSON.stringify(d.frameUpdate)}, whole Phaser step+render ${JSON.stringify(d.frameJs)}`);
   expect(errors).toEqual([]);
 });

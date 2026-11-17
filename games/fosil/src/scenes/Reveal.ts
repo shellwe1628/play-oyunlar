@@ -31,6 +31,8 @@ interface Host {
 const MAX_POPS = 6;
 const CARD_W = 320;
 const CARD_H = 400;
+/** Badge centre below the card top: under the 64 px tier band, beside the art. */
+const BADGE_Y = 112;
 
 /**
  * Plays the reveal for every find, scaled by rarity:
@@ -206,8 +208,9 @@ export class Reveal {
       s.juice.feedback('medium', pos.x, pos.y, tierColor);
       s.juice.burst(pos.x, pos.y, { count: big ? 22 : 14, color: tierColor, texture: 'spark', distance: 260 });
       s.juice.burst(pos.x, pos.y, { count: 8, color: 0xffffff, texture: 'spark', distance: 200 });
-      if (find.isNew) this.badge(pos.x + CARD_W / 2 - 40, pos.y - CARD_H / 2 + 10, s.t('reveal.new'));
-      if (find.fusions > 0) this.badge(pos.x - CARD_W / 2 + 60, pos.y - CARD_H / 2 + 10, s.t(`grade.${find.grade}`));
+      // stickers on the card's side edges, below the tier band: they never touch the tier name
+      if (find.isNew) this.badge(pos.x + CARD_W / 2, pos.y - CARD_H / 2 + BADGE_Y, s.t('reveal.new'));
+      if (find.fusions > 0) this.badge(pos.x - CARD_W / 2, pos.y - CARD_H / 2 + BADGE_Y, s.t(`grade.${find.grade}`));
       if (find.source === 'glint') this.badge(pos.x - CARD_W / 2 + 70, pos.y + CARD_H / 2 - 14, s.t('reveal.glint'));
       if (find.source === 'assistant') this.badge(pos.x - CARD_W / 2 + 80, pos.y + CARD_H / 2 - 14, s.t('reveal.assistantFind'));
     });
@@ -337,7 +340,7 @@ export class Reveal {
       fitText(luckText, L.width - 60);
       objects.push(luckText);
       if (find.isNew) {
-        const tag = outlined(s, pos.x + CARD_W / 2 - 56, pos.y - CARD_H / 2 + 4, s.t('reveal.new'), 40, PALETTE.ochreLight, 8).setDepth(870).setAngle(-10);
+        const tag = outlined(s, pos.x + CARD_W / 2, pos.y - CARD_H / 2 + BADGE_Y, s.t('reveal.new'), 40, PALETTE.ochreLight, 8).setDepth(905).setAngle(-10); // above sparks
         objects.push(tag);
         s.juice.pop(tag, 0.3, 320);
       }

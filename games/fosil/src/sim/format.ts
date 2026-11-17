@@ -62,3 +62,8 @@ export function formatBig(value: number, lang: Lang): string {
   if (tier >= suffixes.length) return v.toExponential(2).replace('+', '');
   return dec(rounded.toFixed(digits)) + suffixes[tier];
 }
+
+/** Key of a counted noun: `<base>.one` for exactly 1 (English "1 tap"), `<base>` otherwise. */
+export function countKey(base: string, n: number): string {
+  return n === 1 ? `${base}.one` : base;
+}

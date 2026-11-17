@@ -122,6 +122,8 @@ export class GameScene extends OyunScene {
   private flashA = 0;
   private punch = 0;
   private bannerUntil = 0;
+  private banners = new Set<Phaser.GameObjects.Container>();
+  private floats = new Set<Phaser.GameObjects.Text>();
   /** shot events whose feedback played (test state: must equal shots) */
   private shotFx = 0;
   /** wave-start events handled */
@@ -189,6 +191,8 @@ export class GameScene extends OyunScene {
     this.shotFx = 0;
     this.waveFx = 0;
     this.bannerUntil = 0;
+    this.banners.clear();
+    this.floats.clear();
     this.flashA = 0;
     this.punch = 0;
     const onPre = (): void => {
@@ -470,7 +474,7 @@ export class GameScene extends OyunScene {
       this.tweens.add({ targets: this.hintText, scale: 1, duration: 420, ease: 'Back.easeOut' });
       this.tweens.add({ targets: this.hintText, scale: 1.07, yoyo: true, repeat: -1, delay: 420, duration: 520, ease: 'Sine.easeInOut' });
     }
-    this.juice.floatText(x, y - 70, this.t('title.tapHint'), { size: 40, color: PALETTE.cream, rise: 60, duration: 900 });
+    this.float(x, y - 70, this.t('title.tapHint'), { size: 40, color: PALETTE.cream, rise: 60, duration: 900 });
   }
 
   private onCancelAll(): void {
@@ -545,6 +549,7 @@ export class GameScene extends OyunScene {
   }
 
   override openPauseMenu(): void {
+    this.clearTransients();
     if (!this.finished) this.bank();
     super.openPauseMenu();
   }
@@ -901,7 +906,7 @@ export class GameScene extends OyunScene {
           this.juice.shake(e.hurt ? 0.7 : 0.35);
           if (e.popped) {
             const s = this.toScreen(e.x, e.y);
-            this.juice.floatText(s.x, s.y - 50, this.t('hud.popped'), { size: 42, color: PALETTE.fireCore });
+            this.float(s.x, s.y - 50, this.t('hud.popped'), { size: 42, color: PALETTE.fireCore });
           }
           break;
         }
@@ -910,7 +915,7 @@ export class GameScene extends OyunScene {
           this.fx.shards(e.x, e.y, 0, PALETTE.apple, 10, 300);
           this.fx.sparks(e.x, e.y, 6, PALETTE.heal, 200);
           const s = this.toScreen(e.x, e.y);
-          this.juice.floatText(s.x, s.y - 40, `+${e.heal}`, { size: 52, color: PALETTE.heal });
+          this.float(s.x, s.y - 40, `+${e.heal}`, { size: 52, color: PALETTE.heal });
           break;
         }
         case 'burn':
@@ -935,7 +940,7 @@ export class GameScene extends OyunScene {
           this.bank(e.wave + 1);
           // let the knockout land first
           this.time.delayedCall(900, () => {
-            if (this.finished) return;
+            if (this.finished || this.cardUi || this.w.phase !== 'clear') return;
             audio.play('win', { volume: 0.7 });
             this.showBanner(this.t('hud.clear'), null);
             this.flyCoins(360, 520, e.coins);
@@ -1009,9 +1014,45 @@ export class GameScene extends OyunScene {
   }
 
   /** Headline (+ optional subtitle on its own dark pill) high in the sky, clear of the HUD. */
+  /** Rising text that is tracked, so clearTransients can remove it before an overlay opens. */
+  private float(x: number, y: number, text: string, opts: Parameters<OyunScene['juice']['floatText']>[3]): void {
+    const t = this.juice.floatText(x, y, text, opts);
+    this.floats.add(t);
+    t.once(Phaser.GameObjects.Events.DESTROY, () => this.floats.delete(t));
+  }
+
+  /**
+   * Remove every transient text (wave banners, damage numbers, hit words, floating labels)
+   * at once. Called before the card pick, the pause menu and the result screen, so nothing
+   * half-faded can sit behind them.
+   */
+  private clearTransients(): void {
+    for (const b of [...this.banners]) {
+      this.tweens.killTweensOf(b);
+      b.destroy();
+    }
+    this.banners.clear();
+    for (const t of [...this.floats]) {
+      this.tweens.killTweensOf(t);
+      t.destroy();
+    }
+    this.floats.clear();
+    this.numbers.clear();
+    this.bannerUntil = 0;
+  }
+
   private showBanner(text: string, sub: string | null): void {
+    // never over an overlay: no banner while the cards are up or the run is over
+    if (this.cardUi || this.finished || this.w.phase === 'cards' || this.w.phase === 'over') return;
+    // one banner at a time: a new headline replaces whatever is still fading
+    for (const b of [...this.banners]) {
+      this.tweens.killTweensOf(b);
+      b.destroy();
+    }
     const L = this.layout;
     const c = this.add.container(L.cx, L.top + 230).setDepth(80);
+    this.banners.add(c);
+    c.once(Phaser.GameObjects.Events.DESTROY, () => this.banners.delete(c));
     const t = label(this, 0, 0, text, { size: 80, color: PALETTE.cream, wrap: 660 }).setStroke(cssColor(PALETTE.ink), 18);
     c.add(t);
     if (sub) {
@@ -1034,6 +1075,7 @@ export class GameScene extends OyunScene {
 
   private openCards(): void {
     if (this.cardUi) return;
+    this.clearTransients();
     this.picking = false;
     const L = this.layout;
     const c = this.add.container(0, 0).setDepth(90);
@@ -1174,6 +1216,7 @@ export class GameScene extends OyunScene {
 
   private finish(): void {
     if (this.finished) return;
+    this.clearTransients();
     this.finished = true;
     const w = this.w;
     this.oyun.platform.gameplayStop();

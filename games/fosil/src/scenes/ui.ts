@@ -2,7 +2,7 @@ import { cssColor, label, touchHitSize, type OyunScene } from '@oyun/core';
 import Phaser from 'phaser';
 import { TIERS, type Fossil, at } from '../sim/data';
 import type { FindSource } from '../sim/dig';
-import { formatBig, formatOddsNumber, type Lang } from '../sim/format';
+import { countKey, formatBig, formatOddsNumber, type Lang } from '../sim/format';
 import { fossilKey, PALETTE } from '../textures';
 
 export function lang(scene: OyunScene): Lang {
@@ -106,3 +106,8 @@ export function luckLine(scene: OyunScene, source: FindSource, luck: number): st
   return scene.t('reveal.luckShort', { n });
 }
 
+
+/** "1 tap" / "3 taps" (Turkish has one form): a counted noun with its number. */
+export function counted(scene: OyunScene, base: string, n: number): string {
+  return scene.t(countKey(base, n), { n: big(scene, n) });
+}

@@ -80,6 +80,14 @@ export class HitNumbers {
     this.pop(s, 0.5);
   }
 
+  /** Hide everything at once (an overlay is opening). */
+  clear(): void {
+    for (const s of this.slots) {
+      s.active = false;
+      s.text.setVisible(false);
+    }
+  }
+
   update(dt: number): void {
     for (const s of this.slots) {
       if (!s.active) continue;

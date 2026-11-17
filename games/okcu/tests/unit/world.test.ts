@@ -641,3 +641,21 @@ describe('balance (scripted players over many seeds)', () => {
     expect(Math.max(...waves)).toBeLessThan(40);
   }, 120_000);
 });
+
+describe('card pick is calm', () => {
+  it('no arrow is left flying when the cards open, so nothing can land during the pick', () => {
+    const w = createWorld({ seed: 2 });
+    const s = aimAtEnemy(w, 'head', 1.04);
+    shoot(w, s.angle, s.power);
+    for (let i = 0; i < 60 * 4 && w.phase !== 'cards'; i++) {
+      // keep arrows in the air right up to the pick
+      if (w.phase === 'clear' && w.reload === 0) shoot(w, -1.45, 1);
+      run(w, 1 / 60);
+    }
+    expect(w.phase).toBe('cards');
+    expect(w.arrows.some((a) => a.active && a.state === 0)).toBe(false);
+    const hp = w.player.hp;
+    expect(of(run(w, 3), 'playerHit').length).toBe(0);
+    expect(w.player.hp).toBe(hp);
+  });
+});

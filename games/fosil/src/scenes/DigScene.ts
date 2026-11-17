@@ -10,7 +10,7 @@ import { StratumBlock } from './Block';
 import { Drawer } from './Drawer';
 import { SCENES } from './keys';
 import { Reveal } from './Reveal';
-import { big, fitText, fossilName, hitZone, luckLine, mult, oddsText, outlined } from './ui';
+import { big, counted, fitText, fossilName, hitZone, luckLine, mult, oddsText, outlined } from './ui';
 
 const BLOCK_W = 460;
 const HEADER = 266;
@@ -425,7 +425,7 @@ export class DigScene extends OyunScene {
     const finds = this.ses.pendingFinds.splice(0);
     const quiet = this.ses.pendingQuiet;
     this.ses.pendingQuiet = 0;
-    if (finds.length + quiet > 0) this.note(this.t('dig.awayFinds', { n: finds.length + quiet }));
+    if (finds.length + quiet > 0) this.note(this.t('dig.awayFinds', { finds: counted(this, 'n.finds', finds.length + quiet) }));
     finds.forEach((f, i) => this.time.delayedCall(i * 350, () => this.onFind(f)));
   }
 
@@ -487,9 +487,9 @@ export class DigScene extends OyunScene {
     box.add(shade);
     const lines: [string, number, number][] = [
       [this.t('offline.title'), 50, PALETTE.ochreLight],
-      [this.t('offline.body', { blocks: big(this, haul.blocks), min: Math.round(haul.seconds / 60) }), 32, 0xffffff],
+      [this.t('offline.body', { blocks: counted(this, 'n.blocks', haul.blocks), min: Math.round(haul.seconds / 60) }), 32, 0xffffff],
       [this.t('offline.dust', { n: big(this, haul.dust) }), 50, PALETTE.dust],
-      [this.t('offline.found', { n: big(this, haul.blocks), k: haul.newSpecies.length }), 32, PALETTE.sand],
+      [this.t('offline.found', { fossils: counted(this, 'n.fossils', haul.blocks), k: haul.newSpecies.length }), 32, PALETTE.sand],
       [this.t('offline.luck', { n: haul.lucks.map((l) => mult(this, l)).join(' / ×') }), 26, PALETTE.sand],
     ];
     if (haul.best) lines.push([this.t('offline.best', { name: fossilName(this, haul.best), odds: oddsText(this, haul.best.odds) }), 30, at(TIERS, haul.best.tier).color]);
@@ -671,7 +671,7 @@ export class DigScene extends OyunScene {
     const hp = s.blockHp;
     this.hpBar.setValue(1 - s.blockDamage / hp);
     const left = Math.max(1, Math.ceil((hp - s.blockDamage) / s.digPower));
-    this.hpText.setText(this.t('hud.taps', { n: big(this, left) }));
+    this.hpText.setText(this.t('hud.taps', { taps: counted(this, 'n.taps', left) }));
     const affordable = UPGRADE_ORDER.filter((id) => s.canBuy(id)).length;
     this.upgradesButton.setLabel(affordable > 0 ? `${this.t('dig.upgrades')} (${affordable})` : this.t('dig.upgrades'));
     if (affordable > 0 && !this.popup) this.showTip('dust', this.t('tip.dust'));

@@ -695,6 +695,8 @@ function tick(w: World): void {
         } else {
           w.phase = 'cards';
           w.phaseT = 0;
+          // nothing still in the air may land while the player is choosing
+          for (const a of w.arrows) if (a.active && a.state === 0) a.active = false;
           w.events.push({ t: 'cards' });
         }
       }

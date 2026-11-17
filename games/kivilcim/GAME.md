@@ -187,6 +187,32 @@ generated beat.
 - **`?fx=0`** turns off the new presentation (worlds, wall fx, trail styles, demo spark); the
   scene keeps a running hash of sim state (`simHash` in the test hook) for the presentation test.
 
+- **Content round: 40 levels in 4 worlds** (`src/sim/levels.ts`, `patterns.ts`): world 1 is the
+  original ten (geometry frozen; a test replays the old and new code bit for bit). Worlds 2-4 add
+  eight mechanics, each introduced alone at q 0 on its own level with a one-time cue: split paths
+  (islands, gem in the narrow branch, L11), lasers blinking on the beat in a checkerboard (L13),
+  spinners (L16), wind zones that bend the 45° line (L21), moving walls / pistons (L23), dark
+  sections lit around the spark (L26, presentation only), portal pairs (L31), mirror twin (L34).
+  Levels 20/30/40 are boss finales (a code-drawn eye in the backdrop, HP bar, cracks per cleared
+  section, "boss down" at the finish). The sim stays pure: new hazards are in `sdf`, wind and
+  portals in `RunSim.step` and the solver's transition, so the solver and human model cover them.
+- **Stars** (finish, all 3 gems in one finished run, no near miss) and **star-gated worlds**
+  (15 / 36 / 60 stars); 2 gems per new star, world clear bonus 20/30/40/50.
+- **Trail collection** (`src/sim/skins.ts`, `render/Trail.ts`): 22 trails in tiers (common, rare,
+  epic, legendary, mythic, earned), animated styles up to layered mythic ones with a
+  colour-shifting spark; 4 earned only (rank Comet, 7-day streak, 5 clean levels, world 4).
+  Shop (`SkinsScene`) with a live preview, buy / equip / try for one run.
+- **Ranks** (`src/sim/meta.ts`, `RanksScene`): 12 ranks with code-drawn badges, a pure score,
+  the ladder with breakdown, a records board (best per level with attempts and date, endless
+  best with date, daily history), feats (20 achievements with gems); rank on the title,
+  rank-up ceremony across the top of the cards (never blocks the retry).
+- **Excitement**: flow meter (gems and perfect sections; 5 levels bring music layers 4-5, a
+  brighter world, a longer, fatter trail; reset on death), PERFECT callouts, 25/50/75 %
+  milestones, "so close" at ≥ 85 %, new-best fanfares sized by the improvement, daily streak
+  reward ladder 5/6/7/8/10/12/20 then 12.
+- **Save v3** with a v2 → v3 migration (levels, gems, skins, records kept; finish and gem stars
+  derived; tested).
+
 ### Tuning numbers
 
 - Tick 120 Hz. Spark radius 13 px (mini 7.5); drawn ~34 px. Lateral speed = scroll speed.
@@ -285,5 +311,8 @@ maximum speed and 8 deep runs, solved with 1 px to spare and replayed (tested).
 
 ### Unfinished / not verified
 
+- Keys/shortcuts were not built: climb speed is input-independent, so a "shortcut" cannot save
+  time, and a key would make hazards depend on run history (solver state ×2). Speed ramps are
+  covered by the existing speed gates.
 - Not heard: the audio mix was never listened to. Not run on a phone (frame time, haptics,
   audio latency). Levels are tuned against a model, not people.

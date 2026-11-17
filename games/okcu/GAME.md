@@ -185,7 +185,7 @@ Multiplayer, more arenas, a story, weapon types other than the bow.
   title-as-first-shot. Result also has Upgrades, Revive (rewarded, once per run, half health),
   Double coins (rewarded) and a home icon. While a rewarded ad is pending every button is
   disabled, and a late answer after the screen was left or restarted grants nothing.
-- **Shop**: five upgrades (level bar, affordable prices bright, too dear dimmed, maxed shows a
+- **Shop**: four upgrades (damage moved to the forged bow) (level bar, affordable prices bright, too dear dimmed, maxed shows a
   green "Max") on an **Upgrades** tab; a **Looks** tab with twelve cosmetics (see below).
 - **Daily run**: the Daily pill switches to a seeded run (`okcu-daily-YYYY-MM-DD`, local date).
   **Decision: the daily ignores permanent upgrades**, so everyone gets the same run; the title
@@ -246,6 +246,55 @@ Multiplayer, more arenas, a story, weapon types other than the bow.
   machine, so noisy): before the round 2.0–2.7 ms average, after 2.6–4.1 ms. Same-session A/B
   with the animation layer on vs off (4 pairs, warm-up dropped): night (the busiest theme)
   3.5 vs 2.65 ms (+0.85), snow 2.28 vs 2.1 ms (+0.18). Not measured on a real phone.
+
+### Content and progression round
+
+- **Bow as an item** (`src/sim/bow.ts`, forge in `src/scenes/ForgeScene.ts`): levels +0 … +20,
+  damage ×(1 + 0.08 per level to +10, then +0.10), cost `round(40 × 1.38^level)` per attempt.
+  +0 … +5 always succeed; after that the success chance is printed (90, 80, 70, 60, 50, 45, 40,
+  35, 30, 25, 22, 20, 18, 15 %). A failure only spends the coins and adds 10 % forge heat (pity),
+  so a streak always ends (at most 9 failures in a row at +19); success resets the heat. The roll
+  is seeded from the save's attempt counter (no money, no ads). Six art tiers (wood, horn,
+  steel, gilded, crystal, mythic) and seven glow bands that read from the colour alone: none
+  (+0–2), Frost Sheen (+3), Verdant Aura (+6), Golden Flame (+9), Sapphire Flame (+12),
+  Magenta Inferno (+16), Prismatic Nova (+20). The glow (`src/scenes/aura.ts`) is additive,
+  follows the bow's real shape (bend, draw, release), flickers, licks flame tongues up the limbs,
+  sheds pooled wisps that trail a moving bow, flares on a shot and surges on headshots, streaks
+  and focus; the top bands add a white-hot core and light cast on the archer and ledge; a colour
+  underlay keeps it readable on snow and meadow skies. Glowing bows fire glowing arrows. Shown in
+  play, on the title, in the forge (with the next band previewed), the shop and the result. The
+  old "base damage" upgrade is gone; save v3 converts its levels to the lowest bow level with at
+  least the same damage.
+- **Chapters** (`src/sim/chapters.ts`): four worlds × seven stages (stage 4 an elite with loot,
+  stage 7 a boss with a phase change at half health), a bonus round after each chapter (target
+  gallery, apple rain, defend the ledge; graded medals), then endless. Bosses: Bramble Baron
+  (orbiting shield plates), Frost Giant (on a sliding ledge in the wind, bombs in phase 2),
+  Sand Sultan (summons imps), Night Warden (orb fans you shoot down). New behaviour: sliding
+  ledges, ledges swinging on ropes you can cut, hanging rocks to drop, explosive barrels, wind
+  (shown by a wind sock, the weather and the aim preview), healers, cover walls, arrow-catchers,
+  lantern knights (a ward that a quick second hit gets through). Stage objectives pay coins.
+  Six new cards (seeker, overdraw, chain spark, keen eye, zen, boom tips) and five synergies
+  shown on the card. Chapter select on the title starts at any chapter reached with five drafted
+  cards per chapter skipped. Archers dropping in cannot be hit until they land.
+- **Excitement**: multi-kills, knockout streaks, headshot chains paying more each time, a focus
+  meter (tap the eye) for powered-up shots, critical hits with their own look and sound, loot from
+  elites and bosses, 19 achievements with coin rewards, a daily challenge (modifier + goal) with a
+  streak.
+- **Ranks** (`src/sim/progress.ts`, `src/scenes/RanksScene.ts`): progress score = 600 per
+  chapter cleared + 40 per boss knockout (≤ 50) + 80 per bow level + 15 per best wave (≤ 100) +
+  100 per achievement; twelve ranks (0, 200, 500, 900, 1400, 2000, 2800, 3700, 4800, 6000, 7400,
+  9000) with distinct badges, a rank-up ceremony on the result screen, the ladder with the score
+  breakdown, a records board of the player's own bests with dates, and the achievements. No other
+  players exist. Candidate for core: a platform `submitScore({ board, value, rank, meta })`
+  (`scoreSubmission` builds it).
+- **Balance** (30 seeds, `tests/unit/world.test.ts`; reached = share reaching each chapter):
+  slow human +0: chapter 2 100 %, chapter 3 13 %; careless +0: ch3 63 %, ch4 40 %, endless 30 %;
+  careless bow +10: ch3 75 %, ch4 60 %, endless 50 %; careful +0: ch3 100 %, ch4 93 %. A
+  robustness sweep plays every chapter, boss and bonus round (and the first endless lap) with a
+  kept-alive player: no stuck stage, no NaN.
+- **Test-hook additions**: actions `forge`, `ranks`, `chapter`, `unleash`, `aim`, `bonus`,
+  `fill-focus`, `bow-level`, `show-result`, `toast` (capture aids, not used by the gate); state
+  has chapter, stage, level, wind, bow, score, rank, feats, focus, bonus and objective.
 
 ### Deviations from the concept (and why)
 

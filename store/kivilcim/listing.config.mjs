@@ -55,6 +55,8 @@ function replay(M, track, held) {
  * leaves the line.
  */
 async function takeoff(g, key) {
+  // Frames must stay under the game's 200 ms automation cap even when the fake rAF fires a few
+  // ms late, or the run loses time and later edges land on earlier ticks: keep `frame` ≤ 150.
   const line = LINES.get(key);
   if (!line) throw new Error(`no line ${key}`);
   const d0 = await g.data();
@@ -71,6 +73,7 @@ async function takeoff(g, key) {
   };
   return {
     async to(stopTick, frame = 150) {
+      if (frame > 150) throw new Error('fly: frame must be ≤ 150 ms');
       for (; next < line.switches.length && line.switches[next] < stopTick; next++) {
         const s = line.switches[next];
         await goto(s, frame);
@@ -224,7 +227,7 @@ export default {
       caption: { 'en-US': 'Flip gates swap your controls', 'tr-TR': 'Ters kapısı kontrolleri tersine çevirir' },
       async run(g) {
         await startMode(g, 'level', 4);
-        await fly(g, 'L4', 2230);
+        await fly(g, 'L4', 2180);
       },
     },
     {
@@ -244,19 +247,19 @@ export default {
       caption: { 'en-US': 'Ten levels, each in its own colours', 'tr-TR': 'On bölüm, her biri kendi renginde' },
       async run(g) {
         await startMode(g, 'level', 7);
-        await fly(g, 'L7', 1e9, 200);
+        await fly(g, 'L7', 1e9);
         await g.until((s) => s.data.phase === 'finishing' || s.data.phase === 'finished', { step: 50, max: 5000, what: 'finish' });
         await g.run(330, 30);
       },
     },
     {
-      // Endless past 1,400 m (blue to violet): moving bars, the zigzag ribbon.
+      // Endless past 1,600 m (blue to violet): a zigzag stretch with a gem on the wall ahead.
       id: 'endless',
       save: 'starLava',
       caption: { 'en-US': 'Endless mode: how high can you climb?', 'tr-TR': 'Sonsuz mod: ne kadar yükseğe çıkabilirsin?' },
       async run(g) {
         await startMode(g, 'endless');
-        await fly(g, 'endless', 3700);
+        await fly(g, 'endless', 4000);
       },
     },
     {

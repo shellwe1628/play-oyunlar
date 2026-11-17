@@ -12,7 +12,7 @@
  * The launcher has no canvas: the banner is simply at the top.
  */
 export const IDLE_MS = 4000;
-export const MARGIN = 8;
+export const MARGIN = 4;
 
 export interface PlacementInput {
   viewport: { width: number; height: number };

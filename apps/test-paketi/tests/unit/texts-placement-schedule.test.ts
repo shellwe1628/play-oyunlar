@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { pickLang } from '../../src/lang';
 import { initial, reduce, type State } from '../../src/update/machine';
 import type { ManifestApp } from '../../src/update/manifest';
-import { IDLE_MS, placeBanner } from '../../src/update/placement';
+import { IDLE_MS, MARGIN, placeBanner } from '../../src/update/placement';
 import { MIN_INTERVAL_MS, needsCheck, parseRecord } from '../../src/update/schedule';
 import { describeState } from '../../src/update/texts';
 
@@ -77,10 +77,10 @@ describe('placeBanner', () => {
   const insets = { top: 24, bottom: 16 };
   // 720×1280 FIT into 390×844: 390×693, centred → 75.3 px letterbox above and below.
   const canvas = { top: 75.3, bottom: 768.7, left: 0, right: 390 };
-  const base = { viewport, insets, canvas, height: 56, idleMs: 0, pointerHeld: false, engaged: false };
+  const base = { viewport, insets, canvas, height: 48, idleMs: 0, pointerHeld: false, engaged: false };
 
   it('launcher (no game canvas): at the top, below the status bar', () => {
-    expect(placeBanner({ ...base, canvas: null })).toEqual({ mode: 'top', top: 24 + 8 });
+    expect(placeBanner({ ...base, canvas: null })).toEqual({ mode: 'top', top: 24 + MARGIN });
   });
 
   it('game with room in the bottom letterbox: entirely outside the play area, even mid-run', () => {
@@ -101,7 +101,7 @@ describe('placeBanner', () => {
     const full = { ...canvas, top: 0, bottom: 844 };
     expect(placeBanner({ ...base, canvas: full, pointerHeld: true, idleMs: 60_000 }).mode).toBe('wait');
     expect(placeBanner({ ...base, canvas: full, idleMs: IDLE_MS - 1 }).mode).toBe('wait');
-    expect(placeBanner({ ...base, canvas: full, idleMs: IDLE_MS })).toEqual({ mode: 'overlay', top: 32 });
+    expect(placeBanner({ ...base, canvas: full, idleMs: IDLE_MS })).toEqual({ mode: 'overlay', top: 24 + MARGIN });
   });
 
   it('once the player is using the banner (download, permission…), it stays put', () => {

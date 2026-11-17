@@ -21,6 +21,22 @@ export function bigText(scene: Phaser.Scene, x: number, y: number, text: string,
 }
 
 /**
+ * Shrink a text's font until it fits maxWidth (Turkish lines run long). Uses the font size, not
+ * the scale, so pulse tweens on the scale keep working. Returns the text.
+ */
+export function fitText(t: Phaser.GameObjects.Text, maxWidth: number, base?: number): Phaser.GameObjects.Text {
+  let size = base ?? (t.getData('baseSize') as number | undefined) ?? parseInt(String(t.style.fontSize), 10);
+  t.setData('baseSize', size);
+  t.setFontSize(size);
+  while (t.width > maxWidth && size > 20) {
+    size -= 2;
+    t.setFontSize(size);
+    t.setStroke(t.style.stroke, Math.max(6, Math.round(size * 0.16)));
+  }
+  return t;
+}
+
+/**
  * Round icon button with a label underneath. Fires on release inside (drag off cancels), with
  * the same tap sound and haptic as core buttons. `fire()` is the same path for the test hook.
  */

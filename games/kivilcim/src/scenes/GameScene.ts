@@ -26,7 +26,7 @@ import { SHAPES, TRAILS } from '../sim/skins';
 import { K_REF, prepare, solve } from '../sim/solver';
 import { sdf, segmentAt, wallXAt, type GateKind, type Track } from '../sim/track';
 import { ENDLESS_THEMES, GATE_COLORS, PALETTE, PALETTES, type Palette } from '../textures';
-import { bigText, IconTile } from '../ui';
+import { bigText, fitText, IconTile } from '../ui';
 import { SCENES } from './keys';
 
 export type Mode = 'level' | 'endless' | 'daily';
@@ -114,6 +114,8 @@ export class GameScene extends OyunScene {
   private endlessThemeIdx = -1;
   private doubled = false;
   private gemsGainedThisFinish = 0;
+  /** Best percentage when this attempt started (to celebrate passing it), -1 once passed. */
+  private runBest = -1;
 
   // view
   private world!: Phaser.GameObjects.Container;
@@ -167,6 +169,7 @@ export class GameScene extends OyunScene {
   private finishTitle!: Phaser.GameObjects.Text;
   private finishGems!: Phaser.GameObjects.Text;
   private finishNext!: Phaser.GameObjects.Text;
+  private finishStyle!: Phaser.GameObjects.Text;
   private doubleBtn!: Button;
   private hint!: Phaser.GameObjects.Container;
   private titleTiles: IconTile[] = [];
@@ -352,9 +355,9 @@ export class GameScene extends OyunScene {
     logo.setFill(grad);
     const logoGlow = this.add.image(L.cx, L.top + 250, 'glow').setBlendMode(Phaser.BlendModes.ADD).setDisplaySize(760, 300).setAlpha(0.55);
     this.tweens.add({ targets: logo, scale: 1.05, yoyo: true, repeat: -1, duration: 470, ease: 'Sine.easeInOut' });
-    const tag = bigText(this, L.cx, L.top + 360, this.t('title.tagline'), 36);
+    const tag = fitText(bigText(this, L.cx, L.top + 360, this.t('title.tagline'), 36), L.width - 80);
     this.titleLevel = bigText(this, L.cx, L.cy + 60, '', 48, PALETTE.gold);
-    const tap = bigText(this, L.cx, L.cy + 150, this.t('title.tap'), 66);
+    const tap = fitText(bigText(this, L.cx, L.cy + 150, this.t('title.tap'), 66), L.width - 120);
     this.tweens.add({ targets: tap, scale: 1.1, alpha: 0.75, yoyo: true, repeat: -1, duration: 420, ease: 'Sine.easeInOut' });
     this.titleBest = bigText(this, L.cx, L.cy + 230, '', 32);
     c.add([logoGlow, logo, tag, this.titleLevel, tap, this.titleBest]);
@@ -379,9 +382,9 @@ export class GameScene extends OyunScene {
     const c = this.add.container(0, 0).setDepth(200);
     this.readyTitle = bigText(this, L.cx, L.top + 300, '', 84);
     this.readySub = bigText(this, L.cx, L.top + 390, '', 38, PALETTE.gold);
-    const tap = bigText(this, L.cx, L.cy + 40, this.t('ready.tap'), 62);
+    const tap = fitText(bigText(this, L.cx, L.cy + 40, this.t('ready.tap'), 62), L.width - 120);
     this.tweens.add({ targets: tap, scale: 1.1, alpha: 0.75, yoyo: true, repeat: -1, duration: 420, ease: 'Sine.easeInOut' });
-    const tag = bigText(this, L.cx, L.cy + 120, this.t('title.tagline'), 34);
+    const tag = fitText(bigText(this, L.cx, L.cy + 120, this.t('title.tagline'), 34), L.width - 80);
     c.add([this.readyTitle, this.readySub, tap, tag]);
     this.readyUi = c;
   }
@@ -404,7 +407,7 @@ export class GameScene extends OyunScene {
     this.deadBarW = bw;
     this.deadBest = bigText(this, L.cx, L.cy - 20, '', 40);
     this.deadAttempt = bigText(this, L.cx, L.cy + 50, '', 32);
-    this.deadRetry = bigText(this, L.cx, L.cy + 230, this.t('dead.retry'), 66);
+    this.deadRetry = fitText(bigText(this, L.cx, L.cy + 230, this.t('dead.retry'), 66), L.width - 120);
     this.tweens.add({ targets: this.deadRetry, scale: 1.1, yoyo: true, repeat: -1, duration: 380, ease: 'Sine.easeInOut' });
     this.continueBtn = button(this, L.cx, L.bottom - 150, this.t('dead.continue'), () => void this.continueRun(), { width: 380, height: 104, fontSize: 40, variant: 'secondary' });
     const adIcon = this.add.image(-150, 0, 'ic-ad').setScale(0.6);
@@ -423,12 +426,13 @@ export class GameScene extends OyunScene {
     const pct = bigText(this, L.cx, L.cy - 240, '100%', 170);
     this.finishGems = bigText(this, L.cx + 30, L.cy - 60, '', 56, PALETTE.gem);
     const gemIcon = this.add.image(L.cx - 60, L.cy - 60, 'gem').setScale(0.9);
-    this.finishNext = bigText(this, L.cx, L.cy + 170, this.t('finish.next'), 56);
+    this.finishStyle = bigText(this, L.cx, L.cy + 10, '', 34, PALETTE.gold);
+    this.finishNext = fitText(bigText(this, L.cx, L.cy + 170, this.t('finish.next'), 56), L.width - 120);
     this.tweens.add({ targets: this.finishNext, scale: 1.08, alpha: 0.8, yoyo: true, repeat: -1, duration: 400, ease: 'Sine.easeInOut' });
     this.doubleBtn = button(this, L.cx, L.bottom - 170, this.t('finish.double'), () => void this.doubleGems(), { width: 440, height: 104, fontSize: 40 });
     const adIcon = this.add.image(-180, 0, 'ic-ad').setScale(0.6).setTint(PALETTE.ink);
     this.doubleBtn.add(adIcon);
-    c.add([band, this.finishTitle, pct, gemIcon, this.finishGems, this.finishNext, this.doubleBtn]);
+    c.add([band, this.finishTitle, pct, gemIcon, this.finishGems, this.finishStyle, this.finishNext, this.doubleBtn]);
     this.finishUi = c;
   }
 
@@ -520,6 +524,10 @@ export class GameScene extends OyunScene {
     void playingish;
     this.setLetterbox();
     this.pauseBtn.setVisible(p === 'playing');
+    if (p !== 'playing') {
+      this.tweens.killTweensOf(this.hint);
+      this.hint.setAlpha(0);
+    }
     if (p === 'title') this.refreshTitle();
     if (p === 'ready') this.refreshReady();
     this.music.setMuffled(p !== 'playing');
@@ -546,6 +554,12 @@ export class GameScene extends OyunScene {
   }
 
   private refreshReady(): void {
+    this.fillReady();
+    fitText(this.readyTitle, this.layout.width - 80);
+    fitText(this.readySub, this.layout.width - 80);
+  }
+
+  private fillReady(): void {
     const save = gameSave(this.oyun).data;
     if (this.mode === 'endless') {
       this.readyTitle.setText(this.t('hud.endless'));
@@ -553,7 +567,7 @@ export class GameScene extends OyunScene {
     } else if (this.mode === 'daily') {
       this.readyTitle.setText(this.t('daily.title'));
       const today = save.daily.date === this.dailyDate ? save.daily.best : 0;
-      this.readySub.setText(`${this.t('daily.best', { n: today })} · ${this.t('daily.streak', { n: Math.max(save.daily.streak, 0) })}`);
+      this.readySub.setText(save.daily.streak > 0 ? `${this.t('daily.best', { n: today })} · ${this.t('daily.streak', { n: save.daily.streak })}` : this.t('daily.best', { n: today }));
     } else {
       this.readyTitle.setText(this.t('title.level', { n: this.level }));
       const best = save.levels[this.level - 1]!.best;
@@ -610,7 +624,13 @@ export class GameScene extends OyunScene {
     if (!save.data.played) save.update((d) => void (d.played = true));
     this.hintShown = this.mode === 'level' && this.level === 1 && this.attempts < 3;
     this.attempts += 1;
+    this.runBest = this.mode === 'level' ? gameSave(this.oyun).data.levels[this.level - 1]!.best : -1;
     this.showPhase('playing');
+    // Respawn pop: the spark arrives with a ring, never blocking input.
+    this.ringBurst.setVisible(true).setPosition(this.rx, SPARK_Y).setScale(0.15).setAlpha(0.9).setTint(this.pal.edge);
+    this.tweens.killTweensOf(this.ringBurst);
+    this.tweens.add({ targets: this.ringBurst, scale: 0.9, alpha: 0, duration: 320, ease: 'Cubic.easeOut' });
+    this.squash = 0.6;
     this.music.start(this.sim.y);
     this.oyun.platform.gameplayStart();
     this.oyun.platform.track('run_start', { mode: this.mode, level: this.level });
@@ -691,11 +711,14 @@ export class GameScene extends OyunScene {
     this.deadBarBest.setDisplaySize(Math.max(2, this.deadBarW * (this.mode === 'level' ? ref : 1)), 32);
     this.deadBarNow.setDisplaySize(Math.max(2, this.deadBarW * (this.mode === 'level' ? now : Math.min(1, ref))), 32).setTint(this.newBest ? PALETTE.gold : this.pal.edge);
     this.deadBarMark.setText(this.mode === 'level' && !this.newBest && best > pct ? `▲ ${this.t('dead.best', { n: best })}` : '');
-    this.deadBarMark.setX(this.layout.cx - this.deadBarW / 2 + this.deadBarW * ref).setVisible(this.deadBarMark.text !== '');
+    const markX = this.layout.cx - this.deadBarW / 2 + this.deadBarW * ref;
+    const half = this.deadBarMark.width / 2 + 20;
+    this.deadBarMark.setX(Math.min(this.layout.width - half, Math.max(half, markX))).setVisible(this.deadBarMark.text !== '');
     this.oyun.platform.track('run_end', { mode: this.mode, level: this.level, percent: pct, cause: sim.deathCause ?? 'wall' });
     this.deadPct.setText(this.mode === 'level' ? `${pct}%` : this.t('hud.height', { n: Math.floor(sim.y / 10) }));
     this.deadBest.setText(this.mode === 'level' ? (this.deadBarMark.visible ? '' : this.t('dead.best', { n: best })) : this.t('dead.height', { n: best }));
-    this.deadAttempt.setText(this.mode === 'level' ? this.t('hud.attempt', { n: this.attempts }) : '');
+    const style = sim.style > 0 ? this.t('dead.style', { n: sim.style }) : '';
+    this.deadAttempt.setText([this.mode === 'level' ? this.t('hud.attempt', { n: this.attempts }) : '', style].filter(Boolean).join('  ·  '));
     this.deadBadge.setVisible(this.newBest && prevBest > 0);
     const canContinue = this.mode === 'level' && !this.continueUsed && this.gateSnap !== null;
     this.continueBtn.setVisible(canContinue).setEnabled(true);
@@ -765,9 +788,10 @@ export class GameScene extends OyunScene {
     this.pctText.setText('100%').setScale(1.8);
     this.tweens.add({ targets: this.pctText, scale: 1, duration: 420, ease: 'Back.easeOut' });
     this.gemSlots.forEach((g, i) => this.tweens.add({ targets: g, scale: 0.95, yoyo: true, delay: 200 + i * 120, duration: 160 }));
-    this.finishTitle.setText(all && this.level === LEVEL_COUNT ? this.t('finish.all') : this.t('finish.title'));
+    fitText(this.finishTitle.setText(all && this.level === LEVEL_COUNT ? this.t('finish.all') : this.t('finish.title')), this.layout.width - 60);
     this.finishGems.setText(`+${gained}`);
-    this.finishNext.setText(this.level < LEVEL_COUNT ? this.t('finish.next') : this.t('finish.again'));
+    this.finishStyle.setText(sim.style > 0 ? this.t('dead.style', { n: sim.style }) : '');
+    fitText(this.finishNext.setText(this.level < LEVEL_COUNT ? this.t('finish.next') : this.t('finish.again')), this.layout.width - 120);
     this.doubleBtn.setVisible(gained > 0).setEnabled(true);
   }
 
@@ -845,6 +869,9 @@ export class GameScene extends OyunScene {
       { jitter: 0 },
     );
     this.flashGateText(this.t(`gate.${kind}`), kind === 'flip' && this.sim.flipped ? this.t('gate.flipHint') : '', color);
+    const cam = this.cameras.main;
+    cam.setZoom(kind === 'fast' ? 1.05 : kind === 'slow' ? 0.97 : 1.03);
+    this.tweens.add({ targets: cam, zoom: 1, duration: 300, ease: 'Cubic.easeOut' });
     this.stars.setParticleTint(color);
     this.stars.explode(14, this.sim.x, -this.sim.y);
     if (kind === 'mini' || kind === 'big') this.squash = 0.5;
@@ -853,7 +880,8 @@ export class GameScene extends OyunScene {
 
   private flashGateText(text: string, sub: string, color: number, size = 110): void {
     this.tweens.killTweensOf([this.gateText, this.gateSub]);
-    this.gateText.setText(text).setColor(`#${color.toString(16).padStart(6, '0')}`).setFontSize(size).setAlpha(1).setScale(1.6);
+    this.gateText.setText(text).setColor(`#${color.toString(16).padStart(6, '0')}`).setAlpha(1).setScale(1.6);
+    fitText(this.gateText, this.layout.width - 60, size);
     this.tweens.add({ targets: this.gateText, scale: 1, duration: 220, ease: 'Back.easeOut' });
     this.tweens.add({ targets: this.gateText, alpha: 0, delay: 650, duration: 300 });
     this.gateSub.setText(sub).setAlpha(sub ? 1 : 0);
@@ -1009,6 +1037,7 @@ export class GameScene extends OyunScene {
     } else this.flash.setAlpha(0);
 
     this.refreshHud(false);
+    if (this.phase === 'playing' && !this.tweens.isTweening(this.pctText)) this.pctText.setScale(1 + pulse * 0.06);
     if (this.phase === 'playing') this.frameUpdate.add(performance.now() - t0);
   }
 
@@ -1058,6 +1087,13 @@ export class GameScene extends OyunScene {
     const pct = level ? Math.floor(sim.progress * 100) : Math.floor(sim.y / 10);
     if (pct !== this.lastPct || force) {
       this.lastPct = pct;
+      if (level && this.phase === 'playing' && this.runBest > 0 && this.runBest < 100 && pct > this.runBest) {
+        this.runBest = -1;
+        this.flashGateText(this.t('hud.passBest'), '', PALETTE.gold, 64);
+        this.oyun.audio.play('win', { volume: 0.6 });
+        this.oyun.platform.haptic('success');
+        this.juice.pop(this.pctText, 1.5);
+      }
       if (this.phase !== 'finishing' && this.phase !== 'finished') this.pctText.setText(level ? `${pct}%` : this.t('hud.height', { n: pct }));
       const frac = level ? sim.progress : Math.min(1, save.endlessBest > 0 ? sim.y / 10 / save.endlessBest : 0);
       this.barFill.setDisplaySize(Math.max(1, this.barW * frac), 18);

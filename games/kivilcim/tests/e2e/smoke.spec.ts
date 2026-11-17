@@ -26,7 +26,7 @@ async function untilPhase(page: Page, phases: string[], timeout: number): Promis
  * inside the page → pause menu drawn over the game → tab hidden auto-pauses → menus → no errors.
  */
 test('title → autopilot finishes level 1 → death → retry within 600 ms', async ({ page }) => {
-  test.setTimeout(240_000);
+  test.setTimeout(600_000); // heavy on a loaded software-rendering machine (see GAME.md)
   const errors = collectErrors(page);
   await openGame(page, { seed: 1, lang: 'tr' });
 

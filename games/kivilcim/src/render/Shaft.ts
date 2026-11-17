@@ -86,7 +86,7 @@ export class ShaftView {
       this.gemPool.push(g);
     }
     for (let i = 0; i < 6; i++) {
-      const glow = scene.add.image(0, 0, 'glow').setBlendMode(Phaser.BlendModes.ADD).setAlpha(0.5);
+      const glow = scene.add.image(0, 0, 'glow').setBlendMode(Phaser.BlendModes.ADD).setAlpha(0.85);
       const l = scene.add.image(0, 0, 'bar-cap');
       const m = scene.add.image(0, 0, 'bar-mid');
       const r = scene.add.image(0, 0, 'bar-cap');
@@ -203,7 +203,7 @@ export class ShaftView {
       const cx = barCentre(b, t);
       const w = b.half * 2;
       v.root.setVisible(true).setPosition(cx, -b.y);
-      const s = (b.thick * 2 + 8) / 40;
+      const s = (b.thick * 2 + 16) / 40;
       v.l.setPosition(-b.half, 0).setScale(s).setTint(this.pal.edge);
       v.r.setPosition(b.half, 0).setScale(s).setTint(this.pal.edge);
       v.m.setPosition(0, 0).setDisplaySize(w, 40 * s).setTint(this.pal.edge);

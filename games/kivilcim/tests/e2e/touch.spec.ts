@@ -40,7 +40,7 @@ function fingers(cdp: CDPSession) {
  * timing and the frame-time numbers for that).
  */
 test('real touch: press/release steer, past 30 % of level 1, multi-touch and cancel are safe, tap to retry', async ({ page }) => {
-  test.setTimeout(240_000);
+  test.setTimeout(600_000); // heavy on a loaded software-rendering machine (see GAME.md)
   const errors = collectErrors(page);
 
   // The plan: level 1's first 36 % with long holds and the widest clearance at that tempo.

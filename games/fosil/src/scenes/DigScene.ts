@@ -24,6 +24,8 @@ const BLOCK_W = 460;
 /** `?fx=0` switches the presentation layer off (for on/off comparisons); gameplay is identical. */
 const FX_ON = typeof location === 'undefined' || new URLSearchParams(location.search).get('fx') !== '0';
 const HEADER = 266;
+/** Seconds without a touch before a rank-up ceremony may cover the screen. */
+const QUIET_BEFORE_CEREMONY = 1;
 const FOOTER = 362;
 
 interface Chip {
@@ -97,6 +99,12 @@ export class DigScene extends OyunScene {
   private dailyButton!: Button;
   private holdState: { x: number; y: number; t0: number; ring: Phaser.GameObjects.Arc; text: Phaser.GameObjects.Text } | null = null;
   private ceremony: Phaser.GameObjects.Container | null = null;
+  private ceremonyReady = false;
+  /** A rank-up waiting for a quiet moment (never pops up under a finger that is still tapping). */
+  private pendingRank = -1;
+  private rankNotBefore = 0;
+  /** fxClock of the last pointer press or dig tap. */
+  private lastInput = -99;
   private dailyBox: Phaser.GameObjects.Container | null = null;
 
   constructor() {
@@ -126,6 +134,10 @@ export class DigScene extends OyunScene {
     this.rankShown = -1;
     this.holdState = null;
     this.ceremony = null;
+    this.ceremonyReady = false;
+    this.pendingRank = -1;
+    this.rankNotBefore = 0;
+    this.lastInput = -99;
     this.dailyBox = null;
     this.sim.setClock(Date.now());
     const L = this.layout;
@@ -170,6 +182,7 @@ export class DigScene extends OyunScene {
     }
 
     this.input.on(Phaser.Input.Events.POINTER_DOWN, (p: Phaser.Input.Pointer, over: Phaser.GameObjects.GameObject[]) => {
+      this.lastInput = this.fxClock;
       if (over.length > 0) return; // buttons, glint, drawer, tips and overlays handle their own taps
       if (p.worldY < this.site.top || p.worldY > this.site.bottom) return;
       // a hard vein is struck on release: holding charges the blow
@@ -184,6 +197,8 @@ export class DigScene extends OyunScene {
     this.refreshProgress(true);
     this.oyun.platform.gameplayStart();
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+      // a rank-up not yet celebrated waits for the next visit
+      if (this.pendingRank >= 0) this.ses.pendingEvents.push({ kind: 'rank', rank: this.pendingRank });
       this.oyun.platform.gameplayStop();
       this.ses.flush();
     });
@@ -302,6 +317,7 @@ export class DigScene extends OyunScene {
   }
 
   private digTap(x: number, y: number, hold?: number): void {
+    this.lastInput = this.fxClock;
     if (this.reveal.blocking) {
       this.reveal.dismiss();
       return;
@@ -422,7 +438,9 @@ export class DigScene extends OyunScene {
         }
         case 'rank':
           // after any goal notes from the same moment have had their say
-          this.time.delayedCall(events.some((x) => x.kind === 'quest') ? 2600 : 700, () => this.rankUp(e.rank));
+          // shown at the next quiet moment, after any goal notes from the same moment
+          this.pendingRank = Math.max(this.pendingRank, e.rank);
+          this.rankNotBefore = Math.max(this.rankNotBefore, this.fxClock + (events.some((x) => x.kind === 'quest') ? 2.6 : 0.7));
           break;
       }
     }
@@ -512,8 +530,18 @@ export class DigScene extends OyunScene {
   // ------------------------------------------------------------------ rank-up ceremony
 
   /** A rank-up: everything pauses for the new badge, its name and what comes next. */
+  /** The ceremony starts only when nothing else is up and the player has not touched for 1 s. */
+  private maybeRankUp(): void {
+    if (this.pendingRank < 0 || this.ceremony || this.reveal.busy || this.popup || this.dailyBox || this.travelling) return;
+    if (this.fxClock < this.rankNotBefore || this.fxClock - this.lastInput < QUIET_BEFORE_CEREMONY) return;
+    const r = this.pendingRank;
+    this.pendingRank = -1;
+    this.rankUp(r);
+  }
+
   private rankUp(rank: number): void {
     if (this.ceremony) return;
+    this.ceremonyReady = false;
     const L = this.layout;
     const r = at(RANKS, rank);
     const box = this.add.container(0, 0).setDepth(960);
@@ -552,6 +580,7 @@ export class DigScene extends OyunScene {
     this.time.delayedCall(1300, () => {
       tap.setAlpha(1);
       this.tweens.add({ targets: tap, alpha: 0.35, yoyo: true, repeat: -1, duration: 600 });
+      this.ceremonyReady = true;
       shadeRect.once(Phaser.Input.Events.GAMEOBJECT_POINTER_DOWN, () => this.closeCeremony());
     });
     this.oyun.platform.track('rank_up', { rank: r.id, score });
@@ -1070,6 +1099,7 @@ export class DigScene extends OyunScene {
     const b = this.sim.block;
     this.block.animate(real, b.kind === 'unstable' && b.timer > 0 ? 1 - b.timer / 6 : 0);
     this.updateHold();
+    this.maybeRankUp();
     this.sim.setClock(Date.now());
     this.refreshStatus();
     this.refreshProgress();
@@ -1313,6 +1343,10 @@ export class DigScene extends OyunScene {
       dailyOpen: s.dailyOpen(today()),
       dailyStreak: s.dailyStreak,
       ceremony2: this.ceremony ? 'rank' : this.dailyBox ? 'daily' : null,
+      /** Anything covering the dig that a tap would close or that swallows taps. */
+      overlay: this.ceremony ? 'rank' : this.dailyBox ? 'daily' : this.popup ? 'offline' : this.reveal.blocking ? 'grand' : null,
+      overlayReady: this.ceremony ? this.ceremonyReady : this.reveal.blocking ? this.reveal.canDismiss : this.dailyBox !== null || this.popup !== null,
+      rankPending: this.pendingRank >= 0,
       status: this.statusText.text,
       lastFind: last && s.lastFind ? { id: last.id, odds: last.odds, grade: s.lastFind.grade, luck: Math.round(s.lastFind.luck * 100) / 100, source: s.lastFind.source } : null,
       taps: s.stats.taps,

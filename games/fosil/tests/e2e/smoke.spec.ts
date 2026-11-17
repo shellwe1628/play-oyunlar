@@ -33,6 +33,17 @@ async function buyCheapest(page: Page): Promise<void> {
   }
 }
 
+/** Close whatever covers the dig (grand reveal, rank-up, daily) the way a tap would, once it accepts one. */
+async function settle(page: Page): Promise<void> {
+  for (let i = 0; i < 10; i++) {
+    const s = (await state(page)).data as { overlay?: string | null };
+    if (!s.overlay) return;
+    await page.waitForFunction(() => window.__OYUN__?.state().data.overlayReady === true, null, { timeout: 30_000 });
+    await act(page, s.overlay === 'grand' ? 'dismiss' : s.overlay === 'offline' ? 'claim' : 'close');
+    await page.waitForTimeout(200);
+  }
+}
+
 /**
  * Gate smoke test: built game, ?test=1&seed=1, phone viewport. Menu → dig, tap (through the same
  * handler a finger uses) until layer 2 unlocks, open the museum, pause/resume, background the tab,
@@ -68,12 +79,14 @@ test('dig until layer 2 opens, visit the museum, reload and keep everything', as
   await shot(page, gameDir, 'dig');
 
   // Time passes: combo drains, a glint can appear; tap it like a player would.
+  await settle(page);
   await act(page, 'advance', 45);
   d = await dig(page);
   expect(d.combo).toBe(0);
   if ((await state(page)).data.glint) await act(page, 'glint');
 
   // Travel down to the Ice Age and dig there.
+  await settle(page);
   await act(page, 'travel', 1);
   d = await dig(page);
   expect(d.layer).toBe(1);
@@ -97,6 +110,7 @@ test('dig until layer 2 opens, visit the museum, reload and keep everything', as
   await waitForScene(page, 'dig');
 
   // Museum.
+  await settle(page);
   const before = await dig(page);
   await act(page, 'museum');
   await waitForScene(page, 'museum');

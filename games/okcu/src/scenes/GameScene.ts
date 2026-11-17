@@ -1657,7 +1657,7 @@ export class GameScene extends OyunScene {
   private callout(text: string, color: number, size: number): void {
     if (this.cardUi || this.finished) return;
     const L = this.layout;
-    const t = label(this, L.cx, L.top + 340, text, { size, color, wrap: 660 }).setStroke(cssColor(PALETTE.ink), Math.round(size / 5)).setDepth(82);
+    const t = label(this, L.cx, L.top + 450, text, { size, color, wrap: 660 }).setStroke(cssColor(PALETTE.ink), Math.round(size / 5)).setDepth(82);
     this.floats.add(t);
     t.once(Phaser.GameObjects.Events.DESTROY, () => this.floats.delete(t));
     t.setScale(2.4).setAngle(-6 + Math.random() * 12);
@@ -1689,7 +1689,7 @@ export class GameScene extends OyunScene {
     this.floats.add(c);
     c.once(Phaser.GameObjects.Events.DESTROY, () => this.floats.delete(c));
     this.oyun.audio.playPreset(SFX.fanfare, { volume: 0.6 });
-    this.tweens.add({ targets: c, y: L.top + 250, duration: 320, ease: 'Back.easeOut' });
+    this.tweens.add({ targets: c, y: L.top + 62, duration: 320, ease: 'Back.easeOut' });
     this.tweens.add({
       targets: c,
       y: L.top - 80,
@@ -1736,7 +1736,8 @@ export class GameScene extends OyunScene {
     const c = this.add.container(L.cx, L.top + 230).setDepth(80);
     this.banners.add(c);
     c.once(Phaser.GameObjects.Events.DESTROY, () => this.banners.delete(c));
-    const t = label(this, 0, 0, text, { size: 76, color: PALETTE.cream, wrap: 660 }).setStroke(cssColor(PALETTE.ink), 18);
+    const size = text.length > 13 ? 56 : 76;
+    const t = label(this, 0, 0, text, { size, color: PALETTE.cream, wrap: 680 }).setStroke(cssColor(PALETTE.ink), size > 60 ? 18 : 14);
     c.add(t);
     if (sub) {
       const st = label(this, 0, 0, sub, { size: 34, color: PALETTE.white, wrap: 600 });
@@ -1750,7 +1751,7 @@ export class GameScene extends OyunScene {
     c.setScale(2.2).setAlpha(0).setAngle(-8);
     this.tweens.add({ targets: c, scale: 1, alpha: 1, angle: 0, duration: 260, ease: 'Back.easeOut' });
     // the banner stands in for the HUD's wave line while it is up
-    this.bannerUntil = performance.now() + (sub ? 2600 : 1250);
+    this.bannerUntil = performance.now() + (sub ? 2900 : 1550);
     this.tweens.add({ targets: c, alpha: 0, y: c.y - 60, delay: sub ? 2300 : 950, duration: 300, onComplete: () => c.destroy() });
   }
 
@@ -1998,6 +1999,9 @@ export class GameScene extends OyunScene {
       focusT: r(w.focusT),
       bonus: w.bonus ? { kind: w.bonus.kind, t: r(w.bonus.t), hits: w.bonus.hits, grade: w.bonus.grade } : null,
       objective: w.objective?.kind ?? null,
+      bannerUp: performance.now() < this.bannerUntil,
+      banner: [...this.banners].map((c) => (c.list[0] as Phaser.GameObjects.Text).text).join('|'),
+      waveLabel: this.waveText.visible ? this.waveText.text : '',
       movers: w.movers.length,
       props: w.props.filter((p) => p.active).length,
       enemies: w.enemies.map((e) => ({ id: e.id, type: e.type, alive: e.alive, x: r(e.body.x[PT.pelvis]!), y: r(e.body.y[PT.pelvis]!), hp: r(e.hp) })),

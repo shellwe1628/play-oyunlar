@@ -187,15 +187,15 @@ function emitInner(b: TrackBuilder, seg: Seg, ctx: PatternCtx): void {
     }
     case 'split': {
       // Islands split the corridor in two; the gem branch is the narrower one.
-      const H = lerp(262, 215, q);
-      const r = lerp(40, 60, q);
+      const H = lerp(270, 240, q);
+      const r = lerp(40, 52, q);
       const hl = lerp(150, 260, q);
       const n = 1 + Math.round(q * 2);
       b.straight(Math.max(60, Math.abs(b.h - H) / 0.6 + 40), H);
       let sd = first;
       for (let k = 0; k < n; k++) {
-        const off = sd * lerp(8, 34, q);
-        b.straight(k === 0 ? 140 : 320);
+        const off = sd * lerp(8, 26, q);
+        b.straight(k === 0 ? 140 : 420);
         const yc = b.y + hl + r;
         b.pills.push({ y: yc, x0: b.c + off, hl, r, amp: 0, period: 1, phase: 0 });
         if (seg.gem && k === n - 1) b.addGem(b.c + off + sd * (r + (H - Math.abs(off) - r) / 2), yc + hl * 0.3);
@@ -234,12 +234,12 @@ function emitInner(b: TrackBuilder, seg: Seg, ctx: PatternCtx): void {
       return;
     }
     case 'spin': {
-      // Rotating bars: horizontal-ish as the spark arrives, so it passes beside a tip.
-      const H = lerp(250, 212, q);
+      // Rotating bars: flat-ish as the spark arrives, so it passes beside the free tip.
+      const H = lerp(250, 205, q);
       const n = 2 + Math.round(q * 2);
-      const spacing = lerp(540, 400, q);
-      const len = lerp(78, 112, q);
-      const omega = lerp(1.6, 2.5, q);
+      const spacing = lerp(540, 380, q);
+      const len = lerp(80, 118, q);
+      const omega = lerp(1.6, 2.9, q);
       b.straight(Math.max(120, Math.abs(b.h - H) / 0.6 + 60), H);
       const y0 = b.y + 200;
       let sd = first;
@@ -247,7 +247,9 @@ function emitInner(b: TrackBuilder, seg: Seg, ctx: PatternCtx): void {
         const y = y0 + k * spacing;
         const tk = b.arrivalTime(y);
         const om = (k % 2 === 0 ? 1 : -1) * omega;
-        const x = b.c + sd * lerp(0, 36, q);
+        // Pivot near one wall: while the bar lies flat that side is shut, so the spark passes on
+        // the open side; consecutive spinners alternate sides.
+        const x = b.c + sd * (H - len - 17);
         b.spinners.push({ y, x, len, thick: 11, omega: om, phase: rng.range(-0.25, 0.25) - om * tk });
         if (seg.gem && k === n - 1) b.addGem(x - sd * (len + 60), y + 40);
         sd = sd === 1 ? -1 : 1;

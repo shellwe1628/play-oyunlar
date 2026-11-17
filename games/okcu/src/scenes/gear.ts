@@ -44,11 +44,12 @@ export function drawBowGlow(g: G, level: number, t1x: number, t1y: number, mx: n
   if (gl.aura > 0) {
     // soft coloured halo: three widening strokes along both limbs
     for (let k = 3; k >= 1; k--) {
-      const w = (6 + k * 7) * s * (0.7 + gl.aura * 0.6);
-      g.lineStyle(w, col, gl.aura * 0.16 * pulse);
+      const w = (7 + k * 8) * s * (0.7 + gl.aura * 0.7);
+      g.lineStyle(w, col, Math.min(0.6, gl.aura * 0.3 * pulse));
       g.lineBetween(t1x, t1y, mx, my).lineBetween(mx, my, t2x, t2y);
     }
-    g.fillStyle(col, gl.aura * 0.22 * pulse).fillCircle(mx, my, 18 * s * (0.6 + gl.aura));
+    g.fillStyle(col, Math.min(0.55, 0.12 + gl.aura * 0.35) * pulse).fillCircle(mx, my, 30 * s * (0.7 + gl.aura * 0.6));
+    g.fillStyle(col, gl.aura * 0.18 * pulse).fillCircle((t1x + mx) / 2, (t1y + my) / 2, 16 * s * (0.6 + gl.aura)).fillCircle((t2x + mx) / 2, (t2y + my) / 2, 16 * s * (0.6 + gl.aura));
   }
   if (gl.sheen > 0) {
     // a highlight sliding up and down the limbs

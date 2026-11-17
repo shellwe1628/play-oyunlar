@@ -37,6 +37,28 @@ async function touch(page: Page, p: Pt): Promise<void> {
 }
 
 /**
+ * Something may cover the dig between two reads (a rank-up waits for a quiet moment, and under load
+ * any pause in the test is one): wait until it accepts a tap, close it by touch like a player.
+ */
+async function clearOverlays(page: Page): Promise<void> {
+  for (let i = 0; i < 10; i++) {
+    const s = (await state(page)).data as { overlay?: string | null; overlayReady?: boolean };
+    if (!s.overlay || s.overlay === 'grand') {
+      if (s.overlay === 'grand') {
+        await page.waitForFunction(() => window.__OYUN__?.state().data.canDismiss === true, null, { timeout: 30_000 });
+        await touch(page, { x: 360, y: 640 });
+        await page.waitForTimeout(300);
+        continue;
+      }
+      return;
+    }
+    await page.waitForFunction(() => window.__OYUN__?.state().data.overlayReady === true, null, { timeout: 30_000 });
+    await touch(page, { x: 360, y: 300 });
+    await page.waitForTimeout(300);
+  }
+}
+
+/**
  * Real-touch playthrough. The test hook is used only to read state and to learn where things
  * are on screen; every action is a touchscreen tap.
  */
@@ -58,14 +80,22 @@ test('plays with real touch: dig, glint, upgrade, museum', async ({ page }) => {
   expect(d.rolls).toBeGreaterThan(0);
   expect(d.lastFind?.source).toBe('tap');
 
-  // A brand-new dig shows its first glint after 8 s: wait for it, then tap it.
-  await page.waitForFunction(() => window.__OYUN__?.state().data.glint === true, null, { timeout: 150_000, polling: 100 });
-  d = await dig(page);
-  const before = d.rolls;
-  await touch(page, d.ui.glint!);
-  await page.waitForFunction((n) => (window.__OYUN__?.state().data.rolls as number) > n, before, { timeout: 10_000 });
-  d = await dig(page);
-  expect(d.lastFind?.source).toBe('glint');
+  // A brand-new dig shows its first glint after 8 s: wait for it, then tap it. Under load a glint can
+  // fade (3 s) between reading its position and the touch landing: then wait for the next one.
+  let glintFound = false;
+  for (let attempt = 0; attempt < 4 && !glintFound; attempt++) {
+    await page.waitForFunction(() => window.__OYUN__?.state().data.glint === true, null, { timeout: 150_000, polling: 100 });
+    await clearOverlays(page);
+    d = await dig(page);
+    if (!d.glint || !d.ui.glint) continue;
+    const before = d.rolls;
+    await touch(page, d.ui.glint);
+    await page.waitForFunction((n) => (window.__OYUN__?.state().data.rolls as number) > n || window.__OYUN__?.state().data.glint === false, before, { timeout: 10_000 });
+    await page.waitForTimeout(200);
+    d = await dig(page);
+    glintFound = d.lastFind?.source === 'glint';
+  }
+  expect(glintFound).toBe(true);
   expect(d.glint).toBe(false);
 
   // Dig until the first upgrade is affordable, open the drawer and buy it by tapping.
@@ -73,6 +103,7 @@ test('plays with real touch: dig, glint, upgrade, museum', async ({ page }) => {
     await touch(page, d.ui.block);
     if (i % 5 === 0) d = await dig(page);
   }
+  await clearOverlays(page);
   d = await dig(page);
   expect(d.dust).toBeGreaterThanOrEqual(d.costs.pick!);
   await touch(page, d.ui.upgrades);
@@ -87,6 +118,7 @@ test('plays with real touch: dig, glint, upgrade, museum', async ({ page }) => {
   await page.waitForTimeout(400);
 
   // Museum, then a detail card, all by touch.
+  await clearOverlays(page);
   await touch(page, d.ui.museum);
   await waitForScene(page, 'museum');
   await page.waitForTimeout(400);

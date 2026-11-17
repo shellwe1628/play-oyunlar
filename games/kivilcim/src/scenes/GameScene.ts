@@ -176,6 +176,7 @@ export class GameScene extends OyunScene {
   private gateText!: Phaser.GameObjects.Text;
   private gateSub!: Phaser.GameObjects.Text;
   private flipTag!: Phaser.GameObjects.Text;
+  private hudShade!: Phaser.GameObjects.Image;
   private cue!: Phaser.GameObjects.Text;
   private pauseBtn!: IconButton;
 
@@ -359,6 +360,11 @@ export class GameScene extends OyunScene {
 
   private buildHud(): void {
     const L = this.layout;
+    // A dark gradient behind the HUD band keeps it readable over bars and labels; hazards
+    // passing under it stay visible (dimmed), and world labels fade out before reaching it.
+    this.hudShade = this.add.image(0, 0, 'hud-shade').setOrigin(0, 0).setDisplaySize(L.width, L.top + 300).setDepth(95);
+    this.shaft.sparkScreenY = SPARK_Y;
+    this.shaft.hudBottom = L.top + 230;
     this.hud = this.add.container(0, 0).setDepth(100);
     const cx = L.cx;
     const top = L.top;
@@ -586,6 +592,7 @@ export class GameScene extends OyunScene {
     this.deadUi.setVisible(p === 'dead');
     this.finishUi.setVisible(p === 'finished');
     this.hud.setVisible(p === 'playing' || p === 'finishing' || p === 'resume');
+    this.hudShade.setVisible(this.hud.visible);
     void playingish;
     this.setLetterbox();
     this.pauseBtn.setVisible(p === 'playing');
@@ -901,6 +908,7 @@ export class GameScene extends OyunScene {
     this.oyun.platform.track('level_complete', { level: this.level, attempts: this.attempts, gems: sim.gemsTaken });
     // Burst through the ring.
     const x = this.rx;
+    this.shaft.burstFinishLabel();
     this.ringBurst.setVisible(true).setPosition(x, SPARK_Y).setScale(0.3).setAlpha(1).setTint(PALETTE.gold);
     this.tweens.add({ targets: this.ringBurst, scale: 4.5, alpha: 0, duration: 900, ease: 'Cubic.easeOut' });
     this.confetti.explode(90, x, SPARK_Y);

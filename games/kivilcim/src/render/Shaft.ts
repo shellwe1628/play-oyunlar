@@ -65,6 +65,11 @@ export class ShaftView {
   finishLabel = 'FINISH';
   /** Endless has no finish line. */
   showFinish = true;
+  /** Screen y of the spark and the bottom of the HUD band: labels fade out under the band. */
+  sparkScreenY = 930;
+  hudBottom = 300;
+  private sy = 0;
+  private finishBurstAt = -1;
 
   constructor(
     private readonly scene: Phaser.Scene,
@@ -119,6 +124,7 @@ export class ShaftView {
   setTrack(track: Track, pal: Palette): void {
     this.track = track;
     this.pal = pal;
+    this.finishBurstAt = -1;
     for (const s of this.pool) {
       s.index = NaN;
       s.img.setVisible(false);
@@ -145,6 +151,7 @@ export class ShaftView {
    * at (interpolated like the spark, so bars and spark agree). taken[i] hides taken gems.
    */
   update(sy: number, t: number, taken: Uint8Array, pulse: number): void {
+    this.sy = sy;
     const lo = sy - VIEW_BELOW;
     const hi = sy + VIEW_ABOVE;
     const first = Math.floor(lo / CHUNK_H);
@@ -249,7 +256,7 @@ export class ShaftView {
         v.idx = i;
         v.text.setText(this.gateLabel(g.kind));
       }
-      v.text.setVisible(true).setPosition((l + r) / 2, -g.y - 66).setColor(css(color)).setScale(1 + pulse * 0.08);
+      v.text.setVisible(true).setPosition((l + r) / 2, -g.y - 66).setColor(css(color)).setScale(1 + pulse * 0.08).setAlpha(this.labelAlpha(g.y + 66));
     }
     for (; n < this.gatePool.length; n++) {
       const v = this.gatePool[n]!;
@@ -271,7 +278,25 @@ export class ShaftView {
     this.finishBand.tilePositionX = this.scene.time.now / 10;
     this.finishGlow.setPosition((l + r) / 2, -y).setDisplaySize(r - l + 200, 300).setTint(PALETTE.gold).setAlpha(0.7 + pulse * 0.3);
     if (this.finishText.text !== this.finishLabel) this.finishText.setText(this.finishLabel);
-    this.finishText.setPosition((l + r) / 2, -y - 70).setColor(css(PALETTE.gold)).setScale(1 + pulse * 0.1);
+    // On the crossing the label bursts up and away instead of sitting under the spark.
+    const since = this.finishBurstAt < 0 ? -1 : this.scene.time.now - this.finishBurstAt;
+    const k = since < 0 ? 0 : Math.min(1, since / 600);
+    this.finishText
+      .setPosition((l + r) / 2, -y - 70 - k * 260)
+      .setColor(css(PALETTE.gold))
+      .setScale(1 + pulse * 0.1 + k * 0.8)
+      .setAlpha((1 - k) * this.labelAlpha(y + 70));
+  }
+
+  /** The finish label flies off (call on the crossing). */
+  burstFinishLabel(): void {
+    this.finishBurstAt = this.scene.time.now;
+  }
+
+  /** World label at height wy: fades as it slides under the HUD band. */
+  private labelAlpha(wy: number): number {
+    const screenY = this.sparkScreenY - (wy - this.sy);
+    return Math.min(1, Math.max(0, (screenY - this.hudBottom) / 90));
   }
 
   /** Bake chunk k (world y in [k·H, (k+1)·H)) into a slot. */

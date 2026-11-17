@@ -8,7 +8,7 @@ import { gameSave } from '../save';
 import { buySkin, equipSkin, type SkinKind } from '../sim/progress';
 import { SHAPES, TRAILS } from '../sim/skins';
 import { PALETTE, PALETTES } from '../textures';
-import { bigText, IconTile } from '../ui';
+import { bigText, fitText, IconTile } from '../ui';
 import type { GameStart } from './GameScene';
 import { SCENES } from './keys';
 
@@ -34,16 +34,22 @@ export class SkinsScene extends OyunScene {
     const L = this.layout;
     this.tiles = [];
     this.backdrop = new Backdrop(this, PALETTES[2]!, L.width, L.height);
-    bigText(this, L.cx, L.top + 80, this.t('skins.title'), 76);
+    // Title fits between the back button and the wallet in every language.
+    fitText(bigText(this, L.cx, L.top + 80, this.t('skins.title'), 76), 2 * (L.right - 210 - L.cx));
     this.back = new IconTile(this, L.left + 70, L.top + 76, 'ic-back', null, () => this.scene.start(SCENES.game, { phase: 'title' } satisfies GameStart), { radius: 46 });
     this.add.image(L.right - 170, L.top + 78, 'gem').setScale(0.6);
     this.wallet = bigText(this, L.right - 110, L.top + 78, '', 44, PALETTE.gem);
 
-    // Live preview: the spark zigzags in place, drawing its trail.
-    const pg = this.add.graphics();
+    // Live preview on its own stage: the spark zigzags in place, drawing a short trail that
+    // never reaches the tile grid.
+    const stage = this.add.graphics().setDepth(0);
+    stage.fillStyle(PALETTE.ink, 0.42).fillRoundedRect(L.cx - 250, L.top + 168, 500, 210, 40);
+    stage.lineStyle(4, 0xffffff, 0.35).strokeRoundedRect(L.cx - 250, L.top + 168, 500, 210, 40);
+    const pg = this.add.graphics().setDepth(1);
     this.trail = new Trail(pg);
-    this.previewGlow = this.add.image(L.cx, L.top + 270, 'glow').setBlendMode(Phaser.BlendModes.ADD).setScale(1.6);
-    this.preview = this.add.image(L.cx, L.top + 270, 'spark-0').setScale(1.3);
+    this.trail.length = 90;
+    this.previewGlow = this.add.image(L.cx, L.top + 270, 'glow').setBlendMode(Phaser.BlendModes.ADD).setScale(1.6).setDepth(2);
+    this.preview = this.add.image(L.cx, L.top + 270, 'spark-0').setScale(1.3).setDepth(2);
     this.trail.reset(this.px, 0);
 
     const section = (kind: SkinKind, y0: number): void => {

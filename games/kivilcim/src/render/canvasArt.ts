@@ -58,6 +58,16 @@ export function ensureCanvasArt(scene: Phaser.Scene): void {
     c.fillRect(0, 0, 4, 4);
   });
 
+  // Backing for the HUD band: readable text over anything, hazards still visible (dimmed).
+  make('hud-shade', 4, 320, (c) => {
+    const g = c.createLinearGradient(0, 0, 0, 320);
+    g.addColorStop(0, 'rgba(14,4,32,0.86)');
+    g.addColorStop(0.62, 'rgba(14,4,32,0.6)');
+    g.addColorStop(1, 'rgba(14,4,32,0)');
+    c.fillStyle = g;
+    c.fillRect(0, 0, 4, 320);
+  });
+
   // Rounded card used by menus.
   make('card', 128, 128, (c) => {
     c.fillStyle = 'rgba(255,255,255,1)';

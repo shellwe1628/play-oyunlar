@@ -6,7 +6,7 @@ import { ensureCanvasArt } from '../render/canvasArt';
 import { gameSave } from '../save';
 import { LEVEL_COUNT, levelInfo } from '../sim/levels';
 import { PALETTE, PALETTES } from '../textures';
-import { bigText, IconTile } from '../ui';
+import { bigText, fitText, IconTile } from '../ui';
 import type { GameStart } from './GameScene';
 import { SCENES } from './keys';
 
@@ -26,7 +26,7 @@ export class LevelsScene extends OyunScene {
     const L = this.layout;
     this.cards = [];
     this.backdrop = new Backdrop(this, PALETTES[7]!, L.width, L.height);
-    bigText(this, L.cx, L.top + 80, this.t('levels.title'), 76);
+    fitText(bigText(this, L.cx, L.top + 80, this.t('levels.title'), 76), 2 * (L.right - 210 - L.cx));
     this.back = new IconTile(this, L.left + 70, L.top + 76, 'ic-back', null, () => this.goHome(), { radius: 46 });
     const save = gameSave(this.oyun).data;
     bigText(this, L.right - 110, L.top + 78, `${save.gems}`, 44, PALETTE.gem);

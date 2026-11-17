@@ -128,6 +128,43 @@ Prestige, trading, events, more layers, leaderboards.
   every 2 s. The stored last-seen time never moves backwards (`src/sim/clock.ts`), so winding the
   clock back and forth earns nothing until real time passes it.
 
+**Presentation layer (animation and art round).** Driven by sim events and time, never feeding
+back: `src/fx/model.ts` (pure) decides visual tiers and the helper's moods from a read-only
+`SimView` (getters only); `src/fx/*` draws. `tests/unit/fx.test.ts` proves a seeded 4,000-step
+session ends in the identical save with the presentation reading the sim every step, that printed
+odds and displayed luck are unchanged, and checks the one read-only hook added (`TickResult.assistantHits`).
+`?fx=0` switches the presentation off (same gameplay) for comparisons.
+- *Dig*: a pickaxe (5 looks by pick level: wood, iron, steel, gold, crystal) swings onto the tap
+  point; each tap restarts the strike instead of queuing, and taps < 130 ms apart add motion ghosts
+  (a flurry). Chips and dust fly from the strike point; cracks start where the block was hit (up to
+  three strike origins). A breaking block splits into chunks that tumble, bounce and settle at its
+  foot while the next block rises; a found fossil rises out of the rubble (glowing in its tier colour)
+  before its card appears; very rare finds lift a dark silhouette out of the rubble during the
+  slow-motion build. Everything is pooled (fixed particle slots, oldest reused).
+- *Four places*: each layer has its own baked backdrop and block material plus ambient actors —
+  topsoil roots, burrowing worms and spores; ice-age icicles, frost, glinting crystals, snow and a
+  cold shimmer; cretaceous amber, swaying ferns and embers; deep-sea kelp, sand, bubbles, plankton,
+  light shafts and a leviathan silhouette crossing far behind. A dark band behind the HUD keeps the
+  readouts on top. Travel plays a short descent/ascent of rushing strata.
+- *The helper*: appears with the first assistant level, works at its own rhythm in time with real
+  assistant hits (never more than 3 queued swings), is visibly better equipped as it levels (cap,
+  pick, lamp helmet, drill), shows "!" when it finds something, cheers at 1 in 100+, naps through the
+  offline popup (and a moment after) and wakes with a stretch.
+- *Cards*: rare and prized get a slow sheen, legendary drifting motes, mythic and singular a
+  breathing glow — on reveal cards, the last-find strip, museum cases and the museum detail.
+  Fusion: three copies spin together with trailing sparks into the new grade, shockwave ring, shake,
+  haptic and a counting-up power gain. Glints: a glow, a main star and seven twinkling sparkles.
+- *Museum*: layer-tinted wall, wooden shelves under each row, glass glint on found cases, a
+  spotlight and "Rarest" ribbon on the rarest find of the layer, and a one-time set-completion
+  celebration (cases pop in sequence, confetti, banner, fanfare; remembered outside the save).
+- *Screens*: the menu shows the dig site in miniature with the helper working and your rarest find
+  on a lit pedestal. Drawer icons (pick at its tier, clover, helper head, moon) bob and glow when
+  affordable and spin when bought.
+- *Cost* (Deep Sea, assistant on, 15 real touches/s, this shared machine at ~6 FPS): own scene JS
+  0.4–0.6 ms per idle frame and 0.4–1.2 ms per tap with the presentation, 0.3–0.9 / 0.4–0.5 ms with
+  `?fx=0`; whole-page JS per frame 5.1–5.4 ms before this round, 5.3–7.0 ms after. Every tap counted
+  (150/150) in every run. Bundle 394/550 KB gz.
+
 **Honesty: luck per roll source** (`tests/unit/honesty.test.ts` checks each against what the sim
 exposes for display immediately before the action):
 | source | luck applied = shown as |

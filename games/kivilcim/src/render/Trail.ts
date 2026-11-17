@@ -36,6 +36,8 @@ export class Trail {
   rainbow = false;
   /** Width multiplier (edge combo makes the ribbon fatter). */
   boost = 1;
+  /** World px of climb the ribbon covers. */
+  length = TRAIL_LEN;
 
   constructor(readonly g: Phaser.GameObjects.Graphics) {}
 
@@ -73,9 +75,9 @@ export class Trail {
       for (let n = 0; n < this.count; n++) {
         const x = this.xs[i]!;
         const y = this.ys[i]!;
-        const t0 = (hy - py) / TRAIL_LEN;
+        const t0 = (hy - py) / this.length;
         if (t0 >= 1) break;
-        const t1 = Math.min(1, (hy - y) / TRAIL_LEN);
+        const t1 = Math.min(1, (hy - y) / this.length);
         const tm = (t0 + t1) * 0.5;
         const fade = (1 - tm) * alpha;
         const w = (5 + 19 * (1 - tm)) * this.boost;

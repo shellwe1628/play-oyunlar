@@ -59,24 +59,34 @@ function bow(c) {
 </g>`;
 }
 
-/** A four-point spark at the top of its zigzag trail (Sparkrise). */
+/**
+ * A four-point spark at the top of its zigzag trail (Sparkrise). The trail is the game's: legs at
+ * exactly 45°, up-right, up-left, up-right, ending under the spark.
+ */
 function spark(c) {
+  const cx = 4;
+  const cy = -44;
   const star = (r, inner) => {
     let d = '';
     for (let i = 0; i < 8; i++) {
       const a = (i * Math.PI) / 4 - Math.PI / 2;
       const rr = i % 2 ? inner : r;
-      d += `${d ? 'L' : 'M'}${f(Math.cos(a) * rr + 34)} ${f(Math.sin(a) * rr - 40)} `;
+      d += `${d ? 'L' : 'M'}${f(Math.cos(a) * rr + cx)} ${f(Math.sin(a) * rr + cy)} `;
     }
     return d + 'Z';
   };
-  const trail = 'M-150 175 L-70 95 L-130 35 L-30 -60';
+  // start → up-right 44 → up-left 48 → up-right 96 = (cx, cy); everything within r ≈ 200
+  const p3 = [cx - 96, cy + 96];
+  const p2 = [p3[0] + 48, p3[1] + 48];
+  const p1 = [p2[0] - 44, p2[1] + 44];
+  const trail = `M${p1.join(' ')} L${p2.join(' ')} L${p3.join(' ')} L${cx} ${cy}`;
   return `
-<path d="${trail}" stroke="${c.ink}" stroke-width="58" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
-<path d="${trail}" stroke="${c.trail}" stroke-width="32" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
-<path d="${star(150, 62)}" fill="${c.main}" stroke="${c.ink}" stroke-width="20" stroke-linejoin="round"/>
-<path d="${star(92, 40)}" fill="${c.light}"/>
-<circle cx="34" cy="-40" r="26" fill="${c.glint}"/>`;
+<path d="${trail}" stroke="${c.ink}" stroke-width="60" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+<path d="${trail}" stroke="${c.trail}" stroke-width="34" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+<path d="${trail}" stroke="${c.glint}" stroke-width="9" stroke-linecap="round" stroke-linejoin="round" fill="none" opacity="0.75"/>
+<path d="${star(132, 53)}" fill="${c.main}" stroke="${c.ink}" stroke-width="20" stroke-linejoin="round"/>
+<path d="${star(82, 33)}" fill="${c.light}"/>
+<circle cx="${cx}" cy="${cy}" r="24" fill="${c.glint}"/>`;
 }
 
 export const EMBLEMS = {

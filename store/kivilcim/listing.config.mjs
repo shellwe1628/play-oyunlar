@@ -121,7 +121,8 @@ export default {
     text: '#ffffff',
     stroke: 12,
     frame: '#3ff6ffaa',
-    pattern: 'sparks',
+    pattern: 'neon',
+    ribbons: ['#3ff6ff', '#ff4fa3', '#ffe14d'],
   },
 
   // Icon: a glowing four-point spark at the top of its zigzag trail, in the family frame.
@@ -141,6 +142,9 @@ export default {
     d.played = true;
     d.tutorial = true; // the one-time "LET GO!" / "HOLD!" cues were shown on the first run
     const log = [];
+    const snapshots = {};
+    // The shop in order of price; each item is bought as soon as the wallet allows.
+    const wishlist = [['trail', 1], ['shape', 1], ['trail', 2], ['shape', 2]];
     for (let id = 1; id <= M.L.LEVEL_COUNT; id++) {
       const track = M.L.buildLevel(id);
       // The human model flies the human-test comfort line until it finishes once.
@@ -153,6 +157,8 @@ export default {
         if (r.finished) break;
         M.P.recordLevelRun(d, id, { percent: r.progress * 100, gemMask: 0, finished: false });
       }
+      // Just before level 7's finishing run (for the level-complete shot: it pays +3 gems).
+      if (id === 7) snapshots.before7 = { v: 2, data: structuredClone(d) };
       // The finishing run: the gem line, replayed through the sim.
       const held = gemLine(M, track);
       const { sim, x, switches } = replay(M, track, held);
@@ -160,7 +166,9 @@ export default {
       M.P.recordLevelRun(d, id, { percent: 100, gemMask: sim.gemMask, finished: true });
       LINES.set(`L${id}`, { held, x, switches, trackLength: Math.round(track.length) });
       log.push(`L${id} ${fails}✗ +${sim.gemsTaken}`);
+      while (wishlist.length && M.P.buySkin(d, ...wishlist[0]) === 'bought') log.push(`bought ${wishlist.shift().join(' ')}`);
     }
+    if (wishlist.length) throw new Error(`stage: could not afford ${wishlist.map((w) => w.join(' ')).join(', ')}`);
     // One endless run by the human model (gems taken there are not counted: a lower bound).
     const seed = M.C.createRng(1).int(1, 2 ** 31 - 1); // the game's first endless seed with ?seed=1
     const endless = M.E.buildEndless(seed).track;
@@ -171,86 +179,90 @@ export default {
     const e = replay(M, endless, eHeld);
     if (!e.sim.alive) throw new Error('stage: endless line died');
     LINES.set('endless', { held: eHeld, x: e.x, switches: e.switches, trackLength: Math.round(endless.length) });
-    // Spend the 30 gems in the shop's order of price: lava trail, diamond, mint trail, star.
-    for (const [kind, i] of [['trail', 1], ['shape', 1], ['trail', 2], ['shape', 2]]) {
-      if (M.P.buySkin(d, kind, i) !== 'bought') throw new Error(`stage: could not buy ${kind} ${i} with ${d.gems} gems`);
-    }
     log.push(`gems left ${d.gems}, endless best ${d.endlessBest} m`);
     console.log(`[stage kivilcim] ${log.join(' · ')}`);
     const player = { v: 2, data: d };
     return {
-      player, // star + mint (as left by the last purchase)
+      player, // all ten levels done; star + mint equipped (as left by the last purchase)
       diamondLava: withSkin(player, 1, 1),
+      orbWhite: withSkin(player, 0, 0),
       orbMint: withSkin(player, 0, 2),
       starLava: withSkin(player, 2, 1),
-      diamondWhite: withSkin(player, 1, 0),
+      before7: withSkin(snapshots.before7, 0, 1), // levels 1-6 done; orb + lava
     };
   },
   storageFor: (save) => ({ [SAVE_KEY]: save }),
 
-  // Shot ticks were picked from contact sheets of each flight: spark just past a turn near a
-  // wall, a gate or gem on screen ahead, no banner over the path, colours unlike the other shots.
+  // Shot ticks were picked from contact sheets of each flight (frames every 50-200 ticks): the
+  // spark just past a turn near a wall, a gate or gem ahead, no banner over the path, and each
+  // level's colours unlike its neighbours'. No near miss on any line, so no "EDGE" text.
   shots: [
     {
+      // Level 2 (sky to green): the plain zigzag, two turns of the ribbon below the spark.
       id: 'climb',
       save: 'diamondLava',
-      caption: { 'en-US': 'Hold to veer right, let go to veer left', 'tr-TR': 'Basılı tut sağa, bırak sola' },
+      caption: { 'en-US': 'Hold to veer right, let go to veer left', 'tr-TR': 'Basılı tut sağa git, bırak sola dön' },
       async run(g) {
         await startMode(g, 'level', 2);
-        await fly(g, 'L2', 1400);
+        await fly(g, 'L2', 700);
       },
     },
     {
+      // Level 6 (hot pink, lime edges): a gem on the wall ahead, a SLOW gate before it.
+      id: 'gems',
+      save: 'orbWhite',
+      caption: { 'en-US': 'Grab the gems on the riskier lines', 'tr-TR': 'Riskli yollardaki elmasları topla' },
+      async run(g) {
+        await startMode(g, 'level', 6);
+        await fly(g, 'L6', 1050);
+      },
+    },
+    {
+      // Level 4 (orange): flipped, the tag under the spark, the mint NORMAL gate ahead.
       id: 'flip',
       save: 'orbMint',
-      caption: { 'en-US': 'Flip gates swap your controls', 'tr-TR': 'Ters kapıdan geçince kontroller yer değiştirir' },
+      caption: { 'en-US': 'Flip gates swap your controls', 'tr-TR': 'Ters kapısı kontrolleri tersine çevirir' },
       async run(g) {
         await startMode(g, 'level', 4);
-        await fly(g, 'L4', 1400);
+        await fly(g, 'L4', 2230);
       },
     },
     {
-      id: 'gems',
-      save: 'starLava',
-      caption: { 'en-US': 'Grab the gems on the riskier lines', 'tr-TR': 'Riskli yollardaki elmasları kap' },
-      async run(g) {
-        await startMode(g, 'level', 7);
-        await fly(g, 'L7', 3290);
-      },
-    },
-    {
+      // Level 9 (pink to blue): shrunk by a MINI gate, the BIG gate ahead.
       id: 'mini',
       save: 'player',
       caption: { 'en-US': 'Gates speed you up, slow you down or shrink you', 'tr-TR': 'Kapılar hızlandırır, yavaşlatır ya da küçültür' },
       async run(g) {
         await startMode(g, 'level', 9);
-        await fly(g, 'L9', 2840);
+        await fly(g, 'L9', 2850);
       },
     },
     {
+      // Level 7 (teal), finished for the first time: ring burst, confetti, 100 %, three gems.
       id: 'finish',
-      save: 'diamondWhite',
+      save: 'before7',
       caption: { 'en-US': 'Ten levels, each in its own colours', 'tr-TR': 'On bölüm, her biri kendi renginde' },
       async run(g) {
-        await startMode(g, 'level', 6);
-        await fly(g, 'L6', 1e9, 200);
+        await startMode(g, 'level', 7);
+        await fly(g, 'L7', 1e9, 200);
         await g.until((s) => s.data.phase === 'finishing' || s.data.phase === 'finished', { step: 50, max: 5000, what: 'finish' });
-        await g.run(450, 50);
+        await g.run(330, 30);
       },
     },
     {
+      // Endless past 1,400 m (blue to violet): moving bars, the zigzag ribbon.
       id: 'endless',
       save: 'starLava',
       caption: { 'en-US': 'Endless mode: how high can you climb?', 'tr-TR': 'Sonsuz mod: ne kadar yükseğe çıkabilirsin?' },
       async run(g) {
         await startMode(g, 'endless');
-        await fly(g, 'endless', 3000);
+        await fly(g, 'endless', 3700);
       },
     },
     {
       id: 'skins',
       save: 'player',
-      caption: { 'en-US': 'Spend gems on new sparks and trails', 'tr-TR': 'Elmaslarla yeni kıvılcım ve iz al' },
+      caption: { 'en-US': 'Spend gems on new sparks and trails', 'tr-TR': 'Elmaslarla yeni kıvılcımlar ve izler al' },
       async run(g) {
         await g.run(600, 100);
         await g.act('skins');
@@ -263,8 +275,8 @@ export default {
   feature: {
     tagline: { 'en-US': 'Hold to go right, let go to go left', 'tr-TR': 'Bas sağa, bırak sola' },
     cards: [
-      ['flip', 120, 200, 480, 853],
-      ['gems', 120, 200, 480, 853],
+      ['flip', 120, 300, 480, 853],
+      ['mini', 120, 300, 480, 853],
     ],
   },
 };

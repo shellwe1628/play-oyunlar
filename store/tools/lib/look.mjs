@@ -74,7 +74,52 @@ function sparks(look, w, h, seed) {
   return s;
 }
 
-const PATTERNS = { strata, clouds, sparks };
+/**
+ * Neon shaft (Sparkrise): the game's diagonal letterbox stripes, a few faint zigzag ribbons
+ * climbing at 45° like the spark's trail, and small four-point glints.
+ */
+function neon(look, w, h, seed) {
+  const r = rng(seed);
+  const k = Math.min(w, h) / 1080;
+  let s = '';
+  // diagonal stripes, as on the game's sides
+  const gap = 64 * k;
+  for (let x = -h; x < w; x += gap) s += `<path d="M${f(x)} ${h} L${f(x + h)} 0" stroke="#ffffff" stroke-opacity="0.045" stroke-width="${f(22 * k)}"/>`;
+  // zigzag ribbons: dark under-stroke, coloured body, white core (the game's trail)
+  const cols = look.ribbons ?? [look.accent];
+  const n = Math.max(2, Math.round(w / (520 * k)));
+  for (let i = 0; i < n; i++) {
+    const x0 = ((i + 0.5) / n) * w + (r() - 0.5) * 120 * k;
+    let x = x0;
+    let y = h + 40 * k;
+    let dir = r() < 0.5 ? 1 : -1;
+    let d = `M${f(x)} ${f(y)}`;
+    while (y > -40 * k) {
+      const leg = (70 + r() * 150) * k;
+      const room = dir > 0 ? x0 + 150 * k - x : x - (x0 - 150 * k);
+      const step = Math.max(30 * k, Math.min(leg, room));
+      x += dir * step;
+      y -= step;
+      d += ` L${f(x)} ${f(y)}`;
+      dir = -dir;
+    }
+    const c = cols[i % cols.length];
+    s += `<path d="${d}" fill="none" stroke="${look.ink}" stroke-opacity="0.35" stroke-width="${f(26 * k)}" stroke-linejoin="round"/>`;
+    s += `<path d="${d}" fill="none" stroke="${c}" stroke-opacity="0.32" stroke-width="${f(16 * k)}" stroke-linejoin="round"/>`;
+    s += `<path d="${d}" fill="none" stroke="#ffffff" stroke-opacity="0.22" stroke-width="${f(5 * k)}" stroke-linejoin="round"/>`;
+  }
+  // four-point glints
+  for (let i = 0; i < Math.round((w * h) / 60000); i++) {
+    const cx = r() * w;
+    const cy = r() * h;
+    const R = (4 + r() * 10) * k;
+    const q = R * 0.28;
+    s += `<path d="M${f(cx)} ${f(cy - R)} L${f(cx + q)} ${f(cy - q)} L${f(cx + R)} ${f(cy)} L${f(cx + q)} ${f(cy + q)} L${f(cx)} ${f(cy + R)} L${f(cx - q)} ${f(cy + q)} L${f(cx - R)} ${f(cy)} L${f(cx - q)} ${f(cy - q)} Z" fill="${r() < 0.5 ? look.accent : '#ffffff'}" opacity="${f(0.25 + r() * 0.4)}"/>`;
+  }
+  return s;
+}
+
+const PATTERNS = { strata, clouds, sparks, neon };
 
 /** Full-bleed backdrop SVG: vertical gradient + pattern. */
 export function backdrop(look, w, h, seed = 7) {

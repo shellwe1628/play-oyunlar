@@ -12,6 +12,9 @@ import { Ambient, drawThemeBack, drawThemeLedge, drawThemeNear, LANTERN_Y } from
 const W = 720;
 const H = 1280;
 
+const MPAD = 40;
+const MPAD_TOP = 90;
+
 export class Arena {
   private readonly back: Phaser.GameObjects.Image[] = [];
   private readonly near: Phaser.GameObjects.Image[] = [];
@@ -19,6 +22,9 @@ export class Arena {
   private readonly ambientG: Phaser.GameObjects.Graphics;
   private readonly lantern: Phaser.GameObjects.Graphics;
   private readonly ledges: Phaser.GameObjects.Image;
+  /** moving ledges: each baked once per stage into its own small texture, then just moved */
+  private readonly movers: Phaser.GameObjects.Image[] = [];
+  private moverIdx: number[] = [];
   private readonly ambient = new Ambient(W, H);
   private slot = 0;
   private ledgeSlot = 0;
@@ -46,9 +52,11 @@ export class Arena {
     this.ambientG = scene.add.graphics();
     this.ledges = scene.add.image(0, 0, '__DEFAULT').setOrigin(0).setVisible(false);
     layer.add([this.lantern, this.ambientG, this.ledges]);
+    for (let i = 0; i < 4; i++) this.movers.push(scene.add.image(0, 0, '__DEFAULT').setOrigin(0).setVisible(false));
+    layer.add(this.movers);
     scene.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
       // textures are global: drop this arena's ledge bakes (theme bakes are reused next run)
-      for (const k of ['okcu-ledges-0', 'okcu-ledges-1']) if (scene.textures.exists(k)) scene.textures.remove(k);
+      for (const k of ['okcu-ledges-0', 'okcu-ledges-1', 'okcu-mover-0', 'okcu-mover-1', 'okcu-mover-2', 'okcu-mover-3']) if (scene.textures.exists(k)) scene.textures.remove(k);
     });
   }
 
@@ -118,6 +126,35 @@ export class Arena {
       if (!skip.includes(i)) drawThemeLedge(g, l, i + seed, th);
     }));
     this.ledges.setTexture(tex).setVisible(true);
+    // the moving ones: one small bake each
+    this.moverIdx = [...skip];
+    this.movers.forEach((img, k) => {
+      const i = skip[k];
+      const L = i !== undefined ? ledges[i] : undefined;
+      if (!L) {
+        img.setVisible(false);
+        return;
+      }
+      const key = `okcu-mover-${k}`;
+      img.setTexture('__DEFAULT');
+      if (this.scene.textures.exists(key)) this.scene.textures.remove(key);
+      const g = this.scene.make.graphics({}, false);
+      drawThemeLedge(g, { x: MPAD, y: MPAD_TOP, w: L.w, h: L.h }, i! + seed, th);
+      g.generateTexture(key, L.w + MPAD * 2, MPAD_TOP + L.h * 2.6 + L.w * 0.3 + 60);
+      g.destroy();
+      img.setTexture(key).setVisible(true);
+    });
+  }
+
+  /** Follow the moving ledges this frame (cut ones fall away). */
+  moveLedges(ledges: readonly Ledge[]): void {
+    for (let k = 0; k < this.movers.length; k++) {
+      const i = this.moverIdx[k];
+      const L = i !== undefined ? ledges[i] : undefined;
+      const img = this.movers[k]!;
+      if (!L || !img.visible) continue;
+      img.setPosition(L.x - MPAD, L.y - MPAD_TOP);
+    }
   }
 
   update(real: number, pushX: number, pushY: number): void {

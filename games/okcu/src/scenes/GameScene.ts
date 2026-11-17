@@ -50,7 +50,6 @@ import { HitNumbers } from './numbers';
 import { drawCardIcon } from './icons';
 import { DRAG_DEAD, DRAG_FULL, SCENES } from './keys';
 import { drawBarrel, drawOrb, drawPlate, drawRock, drawSwingRopes, drawTarget, drawWall, drawWind } from './props';
-import { drawThemeLedge } from './worlds';
 
 /** The world of a run that just ended, kept so the result screen can offer a revive. */
 let pendingWorld: World | null = null;
@@ -860,11 +859,10 @@ export class GameScene extends OyunScene {
     const th = this.arena.theme;
     const cos = cosmeticById(gameSave(this.oyun).data.cosmetic);
     // moving ledges (and the ropes of swinging ones) are drawn live; the rest are baked
+    this.arena.moveLedges(w.ledges);
     for (const m of w.movers) {
       const L = w.ledges[m.index]!;
-      if (L.y > 1450) continue;
-      if (m.kind === 'swing') drawSwingRopes(g, m, L);
-      drawThemeLedge(g, L, m.index + w.wave, th);
+      if (m.kind === 'swing' && L.y < 1450) drawSwingRopes(g, m, L);
     }
     for (const L of w.walls) drawWall(g, L, th);
     for (const p of w.props) {

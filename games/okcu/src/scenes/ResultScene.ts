@@ -124,6 +124,7 @@ export class ResultScene extends ResultShell {
     this.rank = rankOf(progressScore(save.data).total);
     this.badgeG = this.add.graphics().setDepth(6);
     label(this, L.right - 120, L.top + 134, this.t(`rank.${RANKS[this.rank]!.id}`), { size: 28, color: PALETTE.gold }).setStroke(cssColor(PALETTE.ink), 8).setDepth(6);
+    label(this, L.right - 120, L.top + 166, this.t('bow.name', { name: this.t(`bow.${bowTier(save.data.bow.level)}`), n: save.data.bow.level }), { size: 22, color: PALETTE.cream }).setStroke(cssColor(PALETTE.ink), 6).setDepth(6);
     const zone = this.add.zone(L.right - 120, L.top + 84, 180, 150).setInteractive({ useHandCursor: true });
     zone.on(Phaser.Input.Events.GAMEOBJECT_POINTER_UP, () => {
       if (!this.adPending && !this.ceremony) this.goTo(SCENES.ranks, { from: 'result' });

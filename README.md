@@ -42,7 +42,7 @@ Kapının tarayıcı adımı Chromium ister. Bu ortamda hazır geliyor; başka m
 - Üretim hattının aşamaları ve komutları: `docs/production/hat.md`
 - Tasarım belgesi: `docs/superpowers/specs/2026-11-16-uretim-sistemi-design.md`
 - Araştırma raporu: `docs/research/2026-11-16-crazygames-bosluk-raporu.md`
-- Onaylı üç konsept: `docs/production/concepts/` (`fener`, `murekkep`, `fosil`); oyun klasörleri `games/` altında
+- Konseptler: `docs/production/concepts/`; etkin oyunlar `games/` altında (`kivilcim`, `okcu`, `fosil`), rafa kalkan `fener` ve `murekkep` `archive/` altında
 - Rafa kalkan fikirler: `docs/production/backlog.md`
 - Yayın kontrol listesi: `docs/production/yayin-listesi.md`
 - Alt agent görev tanımları (İngilizce): `docs/production/roles/`

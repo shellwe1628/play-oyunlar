@@ -14,7 +14,7 @@ import { foregroundVector, adaptiveIconXml, ICON_BG, LEGACY_SIZES, legacyIconPng
 import { ROOT } from './template.mjs';
 
 /** Games in the APK, in launcher order (must match apps/test-paketi/src/games.ts). */
-export const SLUGS = ['fener', 'murekkep', 'fosil'];
+export const SLUGS = ['kivilcim', 'okcu', 'fosil'];
 const APP_ID = 'com.playoyunlar.testpaketi';
 const APP_NAME = 'Play Oyunlar Test';
 const APP = join(ROOT, 'apps', 'test-paketi');
@@ -200,9 +200,17 @@ function patchNative(info) {
       .replace(/<string name="title_activity_main">[^<]*<\/string>/, `<string name="title_activity_main">${APP_NAME}</string>`),
   );
 
-  // versionName shows the build in Settings → Apps; versionCode stays 1 so a newer test build
-  // installs over an older one with `adb install -r` or the package installer.
-  edit(join(ANDROID, 'app', 'build.gradle'), (g) => replaceOnce(g, /versionName "[^"]*"/, `versionName "test-${info.date}-${info.commit}"`, 'app/build.gradle versionName'));
+  // versionName shows the build in Settings → Apps. versionCode grows with build time (minutes
+  // since 2026-01-01 UTC), so every new test APK installs over an older one as an update (the
+  // first APK of 2026-11-17 had versionCode 1); Android's ceiling of 2.1e9 is ~4000 years away.
+  edit(join(ANDROID, 'app', 'build.gradle'), (g) =>
+    replaceOnce(
+      replaceOnce(g, /versionName "[^"]*"/, `versionName "test-${info.date}-${info.commit}"`, 'app/build.gradle versionName'),
+      /versionCode \d+/,
+      `versionCode ${info.versionCode}`,
+      'app/build.gradle versionCode',
+    ),
+  );
 
   // MainActivity: back button + edge to edge (see the comments in the source).
   const pkgDir = join(main, 'java', ...APP_ID.split('.'));
@@ -258,8 +266,13 @@ function deliver() {
 const { sdk } = preflight();
 const commit = git(['rev-parse', '--short', 'HEAD']) || 'unknown';
 const dirty = git(['status', '--porcelain']) !== '';
-const info = { date: new Date().toISOString().slice(0, 10), commit: dirty ? `${commit}-dirty` : commit };
-console.log(`build ${info.date} ${info.commit}`);
+const now = new Date();
+const info = {
+  date: now.toISOString().slice(0, 10),
+  commit: dirty ? `${commit}-dirty` : commit,
+  versionCode: Math.floor((now.getTime() - Date.UTC(2026, 0, 1)) / 60_000),
+};
+console.log(`build ${info.date} ${info.commit}, versionCode ${info.versionCode}`);
 buildWeb(info);
 checkWeb();
 capacitor();

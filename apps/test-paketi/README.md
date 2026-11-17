@@ -1,8 +1,13 @@
 # Test paketi (tek APK, üç oyun)
 
 Sahibin kendi telefonunda denemesi için **tek bir Android debug APK'sı**: açılışta bir seçici
-ekran ("Play Oyunlar — Test"), her gerçek oyun için bir kart (Fener Nöbeti, Mürekkep Seli,
-Fosil Şansı). Mağaza için değildir; debug anahtarıyla imzalanır, elle yüklenir.
+ekran ("Play Oyunlar — Test"), her gerçek oyun için bir kart, bu sırayla: Kıvılcım (Sparkrise,
+`kivilcim`), Sallanan Okçular (Noodle Archers, `okcu`), Fosil Şansı (Fossil Odds, `fosil`).
+Mağaza için değildir; debug anahtarıyla imzalanır, elle yüklenir. Oyun listesi iki yerde:
+`src/games.ts` (kartlar) ve `tools/apk.mjs` (`SLUGS`); ikisi aynı sırada tutulur.
+
+İlk sürüm (2026-11-17 sabahı, versionCode 1) Fener Nöbeti, Mürekkep Seli ve Fosil Şansı'nı
+içeriyordu; sahibi telefonda denedi, ilk ikisi `archive/` altına kaldırıldı.
 
 - Uygulama: `com.playoyunlar.testpaketi`, adı "Play Oyunlar Test", yalnız dikey.
 - Seçici ekran düz HTML/CSS/TS (`index.html`, `src/`); dil cihazdan: Türkçe, değilse İngilizce
@@ -70,28 +75,49 @@ node apps/test-paketi/tests/web-check.mjs
 Kurulumda çalışma zamanı izni sorulmaz (yalnız normal `INTERNET` izni manifestte var; Capacitor
 şablonunun parçası, oyunlar ağ kullanmaz). Android 7.0 (API 24) ve üstü.
 
+**Güncelleme:** önceki test APK'sının üzerine doğrudan kurulur (aynı uygulama kimliği, aynı
+debug imzası, daha büyük versionCode); kaldırmaya gerek yok. Fosil Şansı ilerlemesi korunur
+(aynı anahtar `oyun:fosil:save`, oyun ve çekirdek o sürümden beri değişmedi). Kaldırılan
+oyunların anahtarları (`oyun:fener:*`, `oyun:murekkep:*`) telefonda kalır ama hiçbir kod onları
+okumaz, yazmaz ya da silmez (her oyun yalnız kendi `oyun:<id>:save` / `:audio` anahtarını tam
+adıyla okur); birkaç KB'lık artıktır. Temiz başlangıç için: Ayarlar → Uygulamalar → Play
+Oyunlar Test → Depolama → Verileri temizle (Fosil ilerlemesi de gider).
+
 **Kullanım:** kart → oyun. Telefonun **geri** tuşu/hareketi oyundan seçici ekrana döner,
-seçici ekrandayken uygulamadan çıkar. Oyunların kendi "Menü/Çık" düğmeleri oyunun içinde kalır.
-Bir turun ortasında geri dönmek, sekmeyi kapatmak gibidir: Fosil Şansı ilerlemeyi kaydeder,
-Fener ve Mürekkep yarım kalan turu saymaz. Reklamlar simüledir: ödüllü reklam düğmeleri
-(Fener "ikinci nefes", Fosil "2× şans" ve "çift toz", Mürekkep "ek Blot") reklam göstermeden
-hemen ödül verir; geçiş reklamı hiç çıkmaz.
+seçici ekrandayken uygulamadan çıkar. Oyunların kendi ev/menü düğmeleri oyunun içinde kalır.
+- Kıvılcım: menü sahnesi yok; başlık ekranında ekrana ilk basış koşuyu başlatır (basılı tut =
+  sağa, bırak = sola). Ölünce bir dokunuş yeniden başlatır.
+- Sallanan Okçular: başlık ekranı ilk atıştır; bir yere dokunup geri çekip bırakmak oku atar
+  ve 1. dalgayı başlatır. Sadece dokunmak bir şey yapmaz ("Sürükle, dokunma!").
+- Fosil Şansı: menüde Oyna, sonra kazı alanına dokun.
+
+Bir turun ortasında geri dönmek, sekmeyi kapatmak gibidir: Fosil ve Okçular ilerlemeyi
+kaydeder (Okçular paraları ve en iyi dalgayı sayfa kapanırken bankalar), Kıvılcım yarım koşuyu
+saymaz. Reklamlar simüledir: ödüllü reklam düğmeleri (Kıvılcım "çift elmas" ve "son kapıdan
+devam", Okçular "canlan" ve "çift para", Fosil "2× şans" ve "çift toz") reklam göstermeden
+hemen ödül verir; geçiş reklamı hiç çıkmaz. Titreşim kapalı (web bağdaştırıcısı).
 
 ## Doğrulananlar / doğrulanmayanlar
 
-Doğrulandı (bu makinede, 2026-11-17):
-- `npm run apk` iki kez uçtan uca çalıştı (ikincisi hazır `android/` üzerinde); APK 5,3 MB.
-- APK içeriği: `assets/public/index.html` + `fener/`, `murekkep/`, `fosil/` (her biri
-  `index.html`, JS, CSS, Nunito fontları). `aapt dump badging`: paket, ad, minSdk 24,
-  targetSdk 36, `screenOrientation=portrait`, `debuggable=true`; `apksigner verify`:
-  "CN=Android Debug" ile v2 imzalı. Geri tuşu kodu dex içinde (`MainActivity$1`).
-- `web-check.mjs`: APK'dan çıkarılan web klasörü, 390×844 dokunmatik Chromium, sahte
-  `window.Capacitor` ile: üç kart (tr + en), her kart oyununu alt klasörden açıyor, font
-  yükleniyor, menüye ulaşılıyor, Play'e tek gerçek dokunuş menüden çıkarıyor ve sesi açıyor
-  (AudioContext `running`), oyun sahnesine geçiliyor, geçmişte geri seçici ekrana dönüyor,
-  Fosil kaydı diğer iki oyundan sonra duruyor; konsol hatası, başarısız istek ve dışarı giden
+Doğrulandı (bu makinede, 2026-11-17, yeni dizilimle):
+- `npm run apk` hazır `android/` üzerinde uçtan uca çalıştı (ilk dizilimde iki kez, temiz
+  durumdan ve hazır durumdan); APK 5,3 MB.
+- APK içeriği: `assets/public/index.html` + `kivilcim/`, `okcu/`, `fosil/` (her biri
+  `index.html`, JS, CSS, Nunito fontları), eski oyunlardan dosya yok. `aapt dump badging`:
+  paket, ad, minSdk 24, targetSdk 36, `screenOrientation=portrait`, `debuggable=true`,
+  versionCode büyüdü; `apksigner verify`: önceki APK'yla aynı "CN=Android Debug" sertifikası, v2.
+- `web-check.mjs` (APK'dan çıkarılan web klasörü, 390×844 Chromium, gerçek dokunuş Chrome
+  DevTools protokolüyle, `touchCancel` hiç gönderilmez, sahte `window.Capacitor`): üç kart
+  sırayla (tr + en); her kart oyununu alt klasörden açıyor, font yükleniyor; Kıvılcım'da tek
+  gerçek basış koşuyu başlatıyor ve kıvılcım hareket ediyor, parmak kalkınca tutuş bırakılıyor;
+  Okçular'da dokunuş ateş etmiyor, tek gerçek sürükleme ok atıyor ve 1. dalgayı başlatıyor;
+  Fosil'de Oyna'ya gerçek dokunuş kazıya götürüyor, bloğa dokunuş sayılıyor; her oyunda ses
+  açılıyor (AudioContext `running`); geçmişte geri her oyundan seçiciye dönüyor; önceki
+  APK'dan kalan `oyun:fener:*` / `oyun:murekkep:*` anahtarları önceden yazılıyken hiçbir hata
+  yok ve bu anahtarlar değişmeden kalıyor; Fosil kaydı diğer iki oyundan sonra duruyor; her oyun
+  kendi `oyun:<id>:save` anahtarını yazıyor; konsol hatası, başarısız istek ve dışarı giden
   istek yok.
-- `npm run gate` yeşil (çekirdek + dört oyun).
+- `npm run gate` yeşil (çekirdek + fosil, kivilcim, okcu, ornek).
 
 Doğrulanamadı: **APK hiçbir telefonda ya da emülatörde çalıştırılmadı** (burada cihaz/emülatör
 yok). Yani gerçek WebView'de açılış, geri tuşu davranışı, kenardan kenara görünüm ve güvenli
@@ -107,7 +133,8 @@ alan, dikey kilit, simge görünümü, ses ve dokunma tepkisi telefonda ilk kez 
 | Kayıt anahtarları değişmedi | Tek köken (`https://localhost`) paylaşılıyor ama tüm anahtarlar `oyun:<id>:…` (kayıt, `.bak`, `.corrupt`, ses ayarı); id'ler farklı. Çekirdeğin depolama sınaması `__oyun_probe__` yazıp hemen siler. Hiçbir kod `localStorage.clear()` çağırmıyor; seçici depolamaya dokunmuyor. |
 | Kenardan kenara + güvenli alan | `EdgeToEdge.enable` (her Android sürümünde) + Capacitor'ın yerleşik `SystemBars` eklentisi (`insetsHandling: css`, `style: DARK` = koyu zemine açık simgeler). WebView ≥ 140'ta boşluklar `env(safe-area-inset-*)` olarak sayfaya geçer (her sayfa `viewport-fit=cover`); daha eski WebView'de eklenti görünümü çubukların içine sığdırır. Oyunlar ve seçici zaten `env()` okuyor. |
 | Simge kodla üretilir | API 26+: vektör uyarlanabilir simge (+ tek renk/tema); API 24–25: `native/icon.mjs` ile üretilen PNG'ler. Açılış ekranı Capacitor logosu yerine düz lacivert. Depoda ikili dosya yok. |
-| `versionCode` 1, `versionName test-<tarih>-<commit>` | Yeni test APK'sı eskisinin üzerine kurulur; Ayarlar → Uygulamalar'da hangi derleme olduğu görünür. |
+| `versionCode` = 2026-01-01'den beri geçen dakika (UTC), `versionName test-<tarih>-<commit>` | Her yeni test APK'sı bir öncekinin üzerine güncelleme olarak kurulur (ilk APK versionCode 1'di); elle artırmayı unutmak mümkün değil. Ayarlar → Uygulamalar'da hangi derleme olduğu görünür. |
+| Gerçek dokunuş denetimde CDP ile | Kıvılcım basılı tutmayı, Okçular sürüklemeyi ister; Playwright'ın dokunmatik API'si sürükleme bilmiyor. Oyunların kendi e2e testleri gibi `Input.dispatchTouchEvent`; `touchCancel` gönderilmez (Chrome konsol hatası yazar; Kıvılcım Phaser 4.2.1'in iptal edilemez `touchcancel`'da `preventDefault` çağırmasını kendi içinde düzeltiyor). |
 | Gradle wrapper (8.14.3) varsayılan | Şablonun sabitlediği sürüm, her makinede aynı. `--no-daemon`: derlemeden sonra süreç kalmaz. |
 | `INTERNET` izni bırakıldı | Capacitor şablonunun parçası, sorulmayan normal izin. Kaldırmanın WebView yerel sunucusuna etkisi cihazda denenemedi. Çevrimdışı çalışma web klasörü denetimiyle güvenceye alındı (dış adres yok, tüm yollar göreli). |
 | `cleartext`/CSP ayarı yok | Varsayılan `https://localhost` şeması; düz HTTP isteği yok, `allowMixedContent: false`. Oyunlarda CSP yok, Capacitor'ın da gerektirdiği bir CSP yok. |

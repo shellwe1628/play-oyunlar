@@ -7,8 +7,8 @@ import { deflateSync } from 'node:zlib';
 export const ICON_BG = '#12142a';
 /** [cx, cy, r, colour] in the 108×108 adaptive-icon space (safe zone 21..87). */
 export const DOTS = [
-  [42, 46, 10, '#ffd36b'], // fener
-  [66, 46, 10, '#6f8ff0'], // murekkep
+  [42, 46, 10, '#ff4fa3'], // kivilcim
+  [66, 46, 10, '#4fc3ff'], // okcu
   [54, 66, 10, '#d99a3e'], // fosil
 ];
 

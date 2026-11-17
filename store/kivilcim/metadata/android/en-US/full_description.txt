@@ -1,0 +1,32 @@
+Hold to veer right, let go to veer left: one thumb steers a spark up a glowing neon shaft.
+Thread the zigzag, grab the gems, never touch the walls. Crash, tap, and you are flying again.
+
+Sparkrise is a fast one-touch reflex game. The whole screen is the button: the spark always climbs, and its direction changes the instant your finger goes down or comes up. No drifting, no gravity, just the line you draw.
+
+HOW IT PLAYS
+• Hold anywhere to fly up and right, let go to fly up and left. That is the whole control.
+• Walls, spiked blocks and moving bars close in. One touch and the spark shatters.
+• A tap after a crash restarts the level at once. No menus, no waiting.
+• Every run opens slowly in a wide chamber, so you can find the rhythm before it gets tight.
+• Your best percentage is kept, so every attempt shows how much further you got.
+
+GATES THAT CHANGE THE RULES
+• FAST and SLOW gates change your speed until a 1× gate sets it back.
+• MINI shrinks your spark to slip through tighter gaps; BIG brings it back.
+• FLIP swaps your controls (holding now goes left!) until the mint NORMAL gate puts them back. A "FLIPPED" tag rides under the spark the whole time.
+
+LEVELS AND MODES
+• Ten hand-built levels, each in its own colours, each one harder than the last.
+• Every level hides three gems on the riskier lines.
+• Endless mode (opens after level 3): the shaft never ends and the speed slowly creeps up. How high can you climb?
+• Daily shaft: one new shaft every day, with your best height for the day and your streak.
+
+SKINS
+• Spend gems on new spark shapes and trail colours: eight of each. Purely cosmetic.
+
+FEEL
+• A driving beat, made in code, keeps time with your speed. Skim a wall and it throws sparks.
+
+GOOD TO KNOW
+• Plays offline. No account needed.
+• Available in English and Turkish.

@@ -24,3 +24,6 @@ games/*/.readme-check-*/
 *.jks
 *.p12
 !tools/test-imza/debug.keystore
+
+# store listing metadata uses fastlane's "android" folder name: keep it tracked
+!store/*/metadata/android/

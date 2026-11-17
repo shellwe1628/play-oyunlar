@@ -1,0 +1,32 @@
+Bas sağa, bırak sola: tek parmağınla neon bir kuyuda yükselen kıvılcımı yönlendir.
+Zikzakları geç, elmasları topla, duvarlara değme. Çarparsan tek dokunuşla yeniden uçarsın.
+
+Kıvılcım, tek dokunuşla oynanan hızlı bir refleks oyunu. Bütün ekran tek bir düğme: kıvılcım hep yukarı tırmanır, parmağını bastığın ya da kaldırdığın anda yön değiştirir. Savrulma yok, yerçekimi yok; yalnızca senin çizdiğin çizgi var.
+
+NASIL OYNANIR
+• Ekranın herhangi bir yerine basılı tut, sağa doğru yüksel; bırak, sola doğru yüksel. Bütün kontrol bu.
+• Duvarlar, dikenli bloklar ve hareketli çubuklar yolu daraltır. En ufak temasta kıvılcım paramparça olur.
+• Çarptıktan sonra tek dokunuş bölümü anında yeniden başlatır. Menü yok, bekleme yok.
+• Her koşu geniş bir odada yavaşça başlar; yol daralmadan ritmi yakalarsın.
+• Oyun en iyi yüzdeni saklar; her denemede ne kadar ileri gittiğini görürsün.
+
+KURALLARI DEĞİŞTİREN KAPILAR
+• HIZLI ve YAVAŞ kapıları hızını değiştirir, 1× HIZ kapısı eski hâline döndürür.
+• MİNİ kapısı kıvılcımını küçültür, dar aralıklardan sıyrılırsın; BÜYÜK kapısı eski boyuna getirir.
+• TERS kapısı kontrolleri tersine çevirir (basınca artık sola gidersin!); nane yeşili DÜZ kapısına kadar böyle sürer. Bu sırada kıvılcımın altında "TERS" yazısı durur.
+
+BÖLÜMLER VE MODLAR
+• Elle tasarlanmış on bölüm; her biri kendi renklerinde ve bir öncekinden zor.
+• Her bölümde üç elmas, riskli yollarda seni bekler.
+• Sonsuz mod (3. bölümü bitirince açılır): kuyu hiç bitmez, hız yavaş yavaş artar. Ne kadar yükseğe çıkabilirsin?
+• Günlük kuyu: her gün yeni bir kuyu; günün en iyi yüksekliği ve gün serin kayıtta.
+
+GÖRÜNÜM
+• Elmaslarını yeni kıvılcım şekillerine ve iz renklerine harca: sekizer tane. Yalnızca görünüş içindir.
+
+HİS
+• Kodla üretilen tempolu bir ritim hızına ayak uydurur. Duvarı kıl payı sıyırınca kıvılcımlar saçılır.
+
+BİLMEKTE FAYDA VAR
+• İnternetsiz oynanır. Hesap gerekmez.
+• Türkçe ve İngilizce.

@@ -5,7 +5,7 @@
 # ---------------------------------------------------------------------------------------------
 # UNVERIFIED. THIS WORKFLOW HAS NEVER RUN. It was written where Google Play cannot be reached
 # and no credentials exist. What WAS checked locally (2026-11-17): the YAML parses; every secret,
-# path and script it names exists; `npm run aab` built signed release bundles for fosil and okcu
+# path and script it names exists; `npm run aab` built signed release bundles for all three games
 # with a throwaway keystore (bundletool validate passed); tools/play-metadata.mjs prepared the
 # release notes; the fastlane version below installs and knows every `supply` option used here.
 # NOT checked: anything that talks to Google (service-account login, access to the three apps,

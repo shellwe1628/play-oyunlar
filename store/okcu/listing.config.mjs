@@ -193,8 +193,8 @@ export default {
   feature: {
     tagline: { 'en-US': 'Pull back, let go, knock them off!', 'tr-TR': 'Geri çek, bırak, düşür!' },
     cards: [
-      ['volley', 0, 260, 480, 853],
-      ['headshot', 150, 150, 480, 853],
+      ['volley', 0, 220, 540, 960],
+      ['headshot', 100, 120, 560, 996],
     ],
   },
 };

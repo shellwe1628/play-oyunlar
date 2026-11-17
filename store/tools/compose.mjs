@@ -12,6 +12,8 @@ import { closeRenderer, fileUrl, FIT_SCRIPT, renderHtml } from './lib/render.mjs
 export const SHOT = { w: 1080, h: 1920, cardW: 864, cardH: 1536, cardY: 340 };
 
 const esc = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;');
+/** Escape, and keep hyphenated words ("one-in-a-million") on one line. */
+const captionHtml = (s) => esc(s).replace(/\S*-\S*/g, (w) => `<span style="white-space:nowrap">${w}</span>`);
 
 export function captionCss(look) {
   return `
@@ -27,7 +29,7 @@ export function captionCss(look) {
 
 export async function composeShot(look, raw, caption, out) {
   const body = `${backdrop(look, SHOT.w, SHOT.h, 11)}
-<div class="cap"><p data-fit="78" data-min="52" data-lines="2">${esc(caption)}</p></div>
+<div class="cap"><p data-fit="78" data-min="52" data-lines="2">${captionHtml(caption)}</p></div>
 <div class="bar"></div>
 <div class="card"><img src="${fileUrl(raw)}"></div>${FIT_SCRIPT}`;
   return renderHtml(body, { width: SHOT.w, height: SHOT.h, out, alpha: false, css: captionCss(look) });

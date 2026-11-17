@@ -6,7 +6,7 @@ olmayan biri) yapması gerekenleri sırasıyla anlatır. Teknik parça hazır: G
 
 > **Doğrulanmadı.** Bu iş akışı **hiç çalıştırılmadı**. Hazırlandığı ortamdan Google Play'e
 > ulaşılamıyordu ve hiçbir anahtar yoktu. Yerelde denenen: imzalı paketlerin (AAB) derlenmesi
-> (Fosil Şansı ve Sallanan Okçular, deneme anahtarıyla; Google'ın `bundletool` aracı paketleri geçerli
+> (üç oyun da, deneme anahtarıyla; Google'ın `bundletool` aracı paketleri geçerli
 > buldu), iş akışı dosyasının denetimi ve Google'a bağlanmayan her adımın kuru çalıştırması.
 > Google'la konuşan hiçbir şey (giriş, yükleme, mağaza kaydı gönderimi) denenmedi. İlk
 > çalıştırmada küçük düzeltmeler gerekebilir; bilinen hatalar aşağıda, "Sorun giderme"de.
@@ -175,7 +175,7 @@ değerlerini hiçbir issue, yorum ya da commit'e yapıştırmayın.
   gizlilik politikası buna dayanır), hedef API 36, en düşük Android 7.0 (API 24), tek izin
   `INTERNET` (+ AndroidX'in yalnız uygulamanın kendisinin kullanabildiği iç izni);
 - `bundleRelease` ile imzalı AAB üretir, bildirim dosyasını, içeriği ve imzayı denetler →
-  `build/<slug>-release.aab` (~3,2 MB) ve `build/<slug>-release.json` (sürüm kodu, SHA-256'lar).
+  `build/<slug>-release.aab` (3,2–3,7 MB) ve `build/<slug>-release.json` (sürüm kodu, SHA-256'lar).
 
 **Sürüm kodu (versionCode):** 1 Ocak 2026'dan (UTC) beri geçen dakika. Her derlemede büyür,
 yerelde ya da GitHub'da derlenmesi fark etmez, üç uygulamada aynı kural; saklanacak sayaç yok.
@@ -192,7 +192,10 @@ kaydı hazırlanırken `store/<slug>/icon/` doldurulmalı.
 gösterir; 2 saniye içinde ikinci basış uygulamayı **arka plana alır** (Ana ekran tuşu gibi):
 oyun duraklar, koşu kaybolmaz, geri dönünce kaldığı yerdedir. Oyundan çıkmanın asıl yolu
 oyunun kendi menü/duraklat düğmeleridir. (Tek dokunuşla uygulamayı kapatmak, yanlışlıkla
-basınca yarım koşuyu sessizce öldürüyordu.)
+basınca yarım koşuyu sessizce öldürüyordu.) Uygulama arka plana gidince oyunlar kendi
+duraklatma davranışını uygular: Kıvılcım duraklatma menüsünü açar ve koşu, oyuncunun sonraki
+basışında devam eder; Okçular paraları ve en iyi dalgayı hemen kaydeder; Fosil kaydeder. İlk
+basış (yalnız uyarı) oyunu durdurmaz. Bu davranış telefonda denenmedi.
 
 **Reklam düğmeleri (önemli):** Bu dahili test paketleri, telefona elle kurduğunuz test APK'sı
 gibi **web platform bağdaştırıcısıyla** derlenir (`store/apps.json` → `"platform": "web"`):

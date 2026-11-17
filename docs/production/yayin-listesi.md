@@ -40,7 +40,7 @@ Başka portallar (örn. Poki) için çekirdekte bağdaştırıcı yok; bu ancak 
 Android için Google Play yolu hazır ve bu bölümün 1–3, 5, 6 ve 9. maddelerinin yerini alır: **`npm run aab -- <slug>`**
 (`tools/aab.mjs`, ayarlar `store/apps.json`) her oyun için ayrı uygulama olarak imzalı release AAB üretir; GitHub
 Actions **"Play'e yükle"** (`.github/workflows/play-yukle.yml`) kapıyı çalıştırıp AAB'yi Play'e yükler. Doğrulanmış
-(bu makinede): fosil ve okcu AAB'leri derlendi, `bundletool validate` geçti, bildirim (paket, versionCode, hedef
+(bu makinede): üç oyunun AAB'leri derlendi, `bundletool validate` geçti, bildirim (paket, versionCode, hedef
 SDK 36, min SDK 24, debuggable değil, şifresiz HTTP kapalı, yalnız INTERNET izni), imza ve içerik denetlendi.
 Doğrulanmamış: `play-yukle.yml` ve `android.yml` hiç çalışmadı; hiçbir paket telefonda açılmadı; Play'e yükleme
 denenmedi. Aşağıdaki maddeler oyun klasöründen elle Capacitor projesi kurma yolunu anlatır (iOS ve debug için).

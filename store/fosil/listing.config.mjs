@@ -184,7 +184,7 @@ export default {
       caption: { 'en-US': 'Upgrade your pick, lucky charm and assistant', 'tr-TR': 'Kazmanı, uğur taşını ve yardımcını geliştir' },
       async run(g) {
         await toDig(g, 2);
-        await tapUntil(g, '(d) => d.blockDamage / d.blockHp > 0.2 && (d.blockHp - d.blockDamage) / d.digPower > 1.2', 400);
+        await tapUntil(g, '(d) => (d.blockHp - d.blockDamage) / d.digPower > 2.2', 400);
         await g.act('drawer');
         await g.run(800, 100);
       },
@@ -218,8 +218,8 @@ export default {
     tagline: { 'en-US': 'Every fossil shows its true odds', 'tr-TR': 'Her fosil gerçek şansını gösterir' },
     // [shot id, crop in logical 720×1280 px: x, y, w, h]
     cards: [
-      ['deep', 120, 120, 480, 853],
-      ['grand', 120, 250, 480, 853],
+      ['deep', 100, 120, 520, 924],
+      ['grand', 90, 230, 540, 960],
     ],
   },
 };

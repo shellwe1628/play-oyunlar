@@ -55,7 +55,7 @@ Kapının tarayıcı adımı Chromium ister. Bu ortamda hazır geliyor; başka m
 ## Doğrulanmayanlar
 
 - **Hiçbir Android paketi telefonda ya da emülatörde çalıştırılmadı.** Debug test APK'sı (`npm run apk`) ve
-  Play için imzalı AAB'ler (`npm run aab`, fosil ve okcu, deneme anahtarıyla) bu makinede derlendi ve
+  Play için imzalı AAB'ler (`npm run aab`, üç oyun, deneme anahtarıyla) bu makinede derlendi ve
   denetlendi; `android.yml` ve `play-yukle.yml` hiç çalışmadı, Google Play'e hiç yükleme yapılmadı.
   iOS için iş akışı yok, Mac gerekir.
 - **Reklam ve uygulama içi satın alma sağlayıcısı bağlı değil.** `platform` arayüzünde yalnızca

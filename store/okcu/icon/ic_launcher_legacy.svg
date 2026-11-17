@@ -5,7 +5,7 @@
 <rect width="512" height="512" fill="url(#ibg)"/>
 <circle cx="256" cy="256" r="240" fill="url(#iglow)"/>
 <circle cx="256" cy="256" r="222" fill="none" stroke="#ffffff" stroke-opacity="0.13" stroke-width="10"/></g><g transform="translate(256 256) scale(0.86)">
-<g transform="rotate(135) scale(0.9)">
+<g transform="rotate(135) scale(0.78)">
   <path d="M-6 -200 L70 0 L-6 200" stroke="#2a1838" stroke-width="20" fill="none" stroke-linejoin="round"/>
   <path d="M-6 -200 L70 0 L-6 200" stroke="#ffffff" stroke-width="8" fill="none" stroke-linejoin="round"/>
   <path d="M-6 -200 Q-210 0 -6 200" stroke="#2a1838" stroke-width="84" fill="none" stroke-linecap="round"/>

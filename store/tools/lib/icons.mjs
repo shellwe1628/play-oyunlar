@@ -45,7 +45,7 @@ function ammonite(c) {
 /** A drawn bow with its arrow pointing up-right (Noodle Archers). */
 function bow(c) {
   return `
-<g transform="rotate(135) scale(0.9)">
+<g transform="rotate(135) scale(0.78)">
   <path d="M-6 -200 L70 0 L-6 200" stroke="${c.ink}" stroke-width="20" fill="none" stroke-linejoin="round"/>
   <path d="M-6 -200 L70 0 L-6 200" stroke="${c.string}" stroke-width="8" fill="none" stroke-linejoin="round"/>
   <path d="M-6 -200 Q-210 0 -6 200" stroke="${c.ink}" stroke-width="84" fill="none" stroke-linecap="round"/>
@@ -59,7 +59,31 @@ function bow(c) {
 </g>`;
 }
 
+/** A four-point spark at the top of its zigzag trail (Sparkrise). */
+function spark(c) {
+  const star = (r, inner) => {
+    let d = '';
+    for (let i = 0; i < 8; i++) {
+      const a = (i * Math.PI) / 4 - Math.PI / 2;
+      const rr = i % 2 ? inner : r;
+      d += `${d ? 'L' : 'M'}${f(Math.cos(a) * rr + 34)} ${f(Math.sin(a) * rr - 40)} `;
+    }
+    return d + 'Z';
+  };
+  const trail = 'M-150 175 L-70 95 L-130 35 L-30 -60';
+  return `
+<path d="${trail}" stroke="${c.ink}" stroke-width="58" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+<path d="${trail}" stroke="${c.trail}" stroke-width="32" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+<path d="${star(150, 62)}" fill="${c.main}" stroke="${c.ink}" stroke-width="20" stroke-linejoin="round"/>
+<path d="${star(92, 40)}" fill="${c.light}"/>
+<circle cx="34" cy="-40" r="26" fill="${c.glint}"/>`;
+}
+
 export const EMBLEMS = {
+  spark: {
+    draw: spark,
+    colors: { ink: '#16032b', main: '#ffb02e', light: '#fff27a', glint: '#ffffff', trail: '#3ff6ff' },
+  },
   ammonite: {
     draw: ammonite,
     colors: { ink: '#2b1a0e', main: '#e9a948', light: '#ffe2a0', dark: '#a8662a', glint: '#fff6dc' },

@@ -41,7 +41,7 @@ describe('texts', () => {
   });
 
   it('the permission step explains Android’s screen before sending the user there', () => {
-    const s = [{ type: 'update' }, { type: 'permission', granted: false }].reduce(reduce as (s: State, e: never) => State, available);
+    const s: State = reduce(reduce(available, { type: 'update' }), { type: 'permission', granted: false });
     const en = describeState(s, 'en');
     expect(en?.body).toMatch(/Allow from this source/);
     expect(en?.actions.map((a) => a.event)).toEqual(['openSettings', 'later']);

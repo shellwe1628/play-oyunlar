@@ -35,6 +35,7 @@ interface BarVis {
   m: Phaser.GameObjects.Image;
   r: Phaser.GameObjects.Image;
   glow: Phaser.GameObjects.Image;
+  glint: Phaser.GameObjects.Image;
 }
 
 interface GateVis {
@@ -53,6 +54,15 @@ export class ShaftView {
   private readonly pool: Slot[] = [];
   private readonly gemPool: Phaser.GameObjects.Image[] = [];
   private readonly gemGlow: Phaser.GameObjects.Image[] = [];
+  private readonly gemGlint: Phaser.GameObjects.Image[] = [];
+  private readonly auras: Phaser.GameObjects.Image[] = [];
+  private readonly finishRings: Phaser.GameObjects.Image[] = [];
+  private readonly finishBeams: Phaser.GameObjects.Image[] = [];
+  /** Spark position (world) and gates already crossed: objects react to them (read-only). */
+  sparkX = 360;
+  gatesPassed = 0;
+  /** Presentation switch (off = the plain look; the sim never depends on it). */
+  fx = true;
   private readonly barPool: BarVis[] = [];
   private readonly gatePool: GateVis[] = [];
   private finishBand!: Phaser.GameObjects.TileSprite;
@@ -85,21 +95,29 @@ export class ShaftView {
     for (let i = 0; i < START_CHUNKS; i++) this.start.push(mk(`s${i}`));
     for (let i = 0; i < POOL; i++) this.pool.push(mk(`p${i}`));
 
+    for (let i = 0; i < 8; i++) {
+      const aura = scene.add.image(0, 0, 'block-aura').setBlendMode(Phaser.BlendModes.ADD).setVisible(false);
+      world.add(aura);
+      this.auras.push(aura);
+    }
     for (let i = 0; i < 6; i++) {
       const glow = scene.add.image(0, 0, 'glow').setBlendMode(Phaser.BlendModes.ADD).setScale(1.3).setTint(PALETTE.gem).setVisible(false);
       const g = scene.add.image(0, 0, 'gem').setVisible(false);
-      world.add([glow, g]);
+      const glint = scene.add.image(0, 0, 'w-star4').setBlendMode(Phaser.BlendModes.ADD).setVisible(false);
+      world.add([glow, g, glint]);
       this.gemGlow.push(glow);
       this.gemPool.push(g);
+      this.gemGlint.push(glint);
     }
     for (let i = 0; i < 6; i++) {
       const glow = scene.add.image(0, 0, 'glow').setBlendMode(Phaser.BlendModes.ADD).setAlpha(0.85);
       const l = scene.add.image(0, 0, 'bar-cap');
       const m = scene.add.image(0, 0, 'bar-mid');
       const r = scene.add.image(0, 0, 'bar-cap');
-      const root = scene.add.container(0, 0, [glow, l, m, r]).setVisible(false);
+      const glint = scene.add.image(0, 0, 'w-star4').setBlendMode(Phaser.BlendModes.ADD).setScale(0.55);
+      const root = scene.add.container(0, 0, [glow, l, m, r, glint]).setVisible(false);
       world.add(root);
-      this.barPool.push({ root, l, m, r, glow });
+      this.barPool.push({ root, l, m, r, glow, glint });
     }
     for (let i = 0; i < 3; i++) {
       const glow = scene.add.image(0, 0, 'glow').setBlendMode(Phaser.BlendModes.ADD).setVisible(false);
@@ -110,6 +128,13 @@ export class ShaftView {
         .setVisible(false);
       world.add([glow, band, text]);
       this.gatePool.push({ band, glow, text, idx: -1 });
+    }
+    for (let i = 0; i < 2; i++) {
+      const ring = scene.add.image(0, 0, 'ring-burst').setBlendMode(Phaser.BlendModes.ADD).setVisible(false);
+      const beam = scene.add.image(0, 0, 'w-beam').setBlendMode(Phaser.BlendModes.ADD).setVisible(false);
+      world.add([ring, beam]);
+      this.finishRings.push(ring);
+      this.finishBeams.push(beam);
     }
     this.finishGlow = scene.add.image(0, 0, 'glow').setBlendMode(Phaser.BlendModes.ADD).setVisible(false);
     this.finishBand = scene.add.tileSprite(0, 0, 400, 64, 'finish-band').setVisible(false);
@@ -185,6 +210,7 @@ export class ShaftView {
     void this.pending;
 
     this.placeGems(lo, hi, taken, pulse);
+    this.placeAuras(lo, hi, pulse);
     this.placeBars(lo, hi, t);
     this.placeGates(lo, hi, pulse);
     this.placeFinish(lo, hi, pulse);
@@ -199,14 +225,26 @@ export class ShaftView {
       if (taken[i]) continue;
       const img = this.gemPool[n]!;
       const glow = this.gemGlow[n]!;
-      const bob = Math.sin(this.scene.time.now / 260 + i) * 5;
-      img.setVisible(true).setPosition(g.x, -g.y + bob).setScale(0.9 + pulse * 0.12);
-      glow.setVisible(true).setPosition(g.x, -g.y + bob).setAlpha(0.55 + pulse * 0.3);
+      const now = this.scene.time.now;
+      const bob = Math.sin(now / 260 + i) * 5;
+      // React as the spark approaches: swell, brighten, lean toward it (drawing only).
+      const dx = this.sparkX - g.x;
+      const dy = this.sy - g.y;
+      const near = this.fx ? Math.max(0, 1 - Math.sqrt(dx * dx + dy * dy) / 260) : 0;
+      const lean = near * 8 * Math.sign(dx);
+      const spin = this.fx ? Math.max(0.25, Math.abs(Math.cos(now / 380 + i))) : 1;
+      const sc = 0.9 + pulse * 0.12 + near * 0.35;
+      img.setVisible(true).setPosition(g.x + lean, -g.y + bob).setScale(sc * spin, sc);
+      glow.setVisible(true).setPosition(g.x + lean, -g.y + bob).setAlpha(0.55 + pulse * 0.3 + near * 0.4).setScale(1.3 + near);
+      const glint = this.gemGlint[n]!;
+      const gp = ((now / 1300 + i * 0.37) % 1) * 6;
+      glint.setVisible(this.fx && gp < 1).setPosition(g.x + lean + 10, -g.y + bob - 14).setScale(0.4 + Math.sin(gp * Math.PI) * 0.7).setAngle(gp * 90);
       n++;
     }
     for (; n < this.gemPool.length; n++) {
       this.gemPool[n]!.setVisible(false);
       this.gemGlow[n]!.setVisible(false);
+      this.gemGlint[n]!.setVisible(false);
     }
   }
 
@@ -225,9 +263,29 @@ export class ShaftView {
       v.l.setPosition(-b.half, 0).setScale(s).setTint(this.pal.edge);
       v.r.setPosition(b.half, 0).setScale(s).setTint(this.pal.edge);
       v.m.setPosition(0, 0).setDisplaySize(w, 40 * s).setTint(this.pal.edge);
-      v.glow.setDisplaySize(w + 140, 120).setTint(this.pal.edge);
+      const now = this.scene.time.now;
+      v.glow.setDisplaySize(w + 140, 120).setTint(this.pal.edge).setAlpha(this.fx ? 0.7 + 0.25 * Math.sin(now / 180 + i) : 0.85);
+      // A glint slides along the bar (idle motion; the capsule itself never changes).
+      const gp = ((now / 900 + i * 0.3) % 1) * 2 - 1;
+      v.glint.setVisible(this.fx).setPosition(gp * b.half, 0).setAngle(now / 4);
     }
     for (; n < this.barPool.length; n++) this.barPool[n]!.root.setVisible(false);
+  }
+
+  /** Rotating auras around visible spike blocks (light, behind nothing lethal). */
+  private placeAuras(lo: number, hi: number, pulse: number): void {
+    const blocks = this.track.blocks;
+    let n = 0;
+    if (this.fx) {
+      const now = this.scene.time.now;
+      for (let i = lowerBound(blocks, lo - 80); i < blocks.length && n < this.auras.length; i++) {
+        const b = blocks[i]!;
+        if (b.y > hi + 80) break;
+        const a = this.auras[n++]!;
+        a.setVisible(true).setPosition(b.x, -b.y).setRotation(now / 1400 + i).setScale((b.s / 44) * (0.95 + 0.12 * pulse)).setTint(this.pal.edge).setAlpha(0.35 + 0.25 * pulse);
+      }
+    }
+    for (; n < this.auras.length; n++) this.auras[n]!.setVisible(false);
   }
 
   private corridorAt(y: number): [number, number] {
@@ -247,11 +305,20 @@ export class ShaftView {
       const color = GATE_COLORS[g.kind];
       const tex = g.kind === 'unflip' ? 'gate-band-plain' : g.kind === 'flip' ? 'gate-band-flip' : 'gate-band';
       if (v.band.texture.key !== tex) v.band.setTexture(tex);
-      v.band.setVisible(true).setPosition((l + r) / 2, -g.y).setSize(r - l, 72).setTint(color);
-      v.band.tilePositionX = this.scene.time.now / 6;
+      // Each kind moves its own way before the crossing; crossed gates dim and thin out.
+      const now = this.scene.time.now;
+      const passed = i < this.gatesPassed;
+      const k = !this.fx ? 0 : g.kind === 'fast' ? now / 2 : g.kind === 'slow' ? now / 30 : g.kind === 'flip' ? Math.sin(now / 200) * 60 : now / 8;
+      let sy = 1;
+      if (this.fx && !passed) {
+        if (g.kind === 'mini') sy = 0.75 + 0.25 * Math.abs(Math.sin(now / 180));
+        else if (g.kind === 'big') sy = 1 + 0.2 * Math.abs(Math.sin(now / 180));
+      }
+      v.band.setVisible(true).setPosition((l + r) / 2, -g.y).setSize(r - l, 72).setTint(color).setScale(1, passed ? 0.4 : sy).setAlpha(passed ? 0.35 : 1);
+      v.band.tilePositionX = k;
       if (g.kind === 'slow') v.band.setFlipY(true);
       else v.band.setFlipY(false);
-      v.glow.setVisible(true).setPosition((l + r) / 2, -g.y).setDisplaySize(r - l + 160, 220).setTint(color).setAlpha(0.55 + 0.35 * pulse);
+      v.glow.setVisible(true).setPosition((l + r) / 2, -g.y).setDisplaySize(r - l + 160, 220).setTint(color).setAlpha(passed ? 0.15 : 0.55 + 0.35 * pulse);
       if (v.idx !== i) {
         v.idx = i;
         v.text.setText(this.gateLabel(g.kind));
@@ -268,6 +335,20 @@ export class ShaftView {
 
   private placeFinish(lo: number, hi: number, pulse: number): void {
     const y = this.track.length;
+    // The finish announces itself from far off: halos and light beams build up as it nears.
+    const toGo = y - this.sy;
+    const build = this.showFinish && this.fx && toGo < 1600 && toGo > -400 ? Math.min(1, 1 - toGo / 1600) : 0;
+    for (let i = 0; i < 2; i++) {
+      const ring = this.finishRings[i]!;
+      const beam = this.finishBeams[i]!;
+      ring.setVisible(build > 0);
+      beam.setVisible(build > 0);
+      if (build <= 0) continue;
+      const [l0, r0] = this.corridorAt(Math.min(y, Math.max(lo, y)));
+      const now = this.scene.time.now;
+      ring.setPosition((l0 + r0) / 2, -y).setScale((1.4 + i * 0.9) * (0.7 + 0.3 * pulse) * (0.6 + build * 0.6)).setRotation(now / (900 + i * 400) * (i ? -1 : 1)).setAlpha(0.35 * build).setTint(i ? PALETTE.gold : 0xffffff);
+      beam.setPosition(i ? r0 - 40 : l0 + 40, -y - 300).setScale(1.6, 3.2 + pulse).setAlpha(0.45 * build).setTint(PALETTE.gold);
+    }
     const show = this.showFinish && y >= lo - 80 && y <= hi + 80;
     this.finishBand.setVisible(show);
     this.finishGlow.setVisible(show);

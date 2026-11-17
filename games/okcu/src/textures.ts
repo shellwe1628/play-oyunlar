@@ -85,14 +85,6 @@ export const PALETTE = {
   shieldScarf: 0x2a4fa0,
 } as const;
 
-/** Sky palettes (top, bottom, far hills, near hills, sun), switching every five waves. */
-export const SKIES = [
-  { top: 0x3fb4ff, bottom: 0xc8f2ff, far: 0x9fd8f0, near: 0x7ac7a0, sun: 0xfff2a8, stars: false },
-  { top: 0xff7a59, bottom: 0xffd08a, far: 0xf2a07a, near: 0xc86c7c, sun: 0xfff0b0, stars: false },
-  { top: 0x6b4ca8, bottom: 0xff9ab0, far: 0xb07ab8, near: 0x7d5a9c, sun: 0xffd3e0, stars: false },
-  { top: 0x18245c, bottom: 0x4e5fa8, far: 0x34407a, near: 0x262f60, sun: 0xf4f1d0, stars: true },
-  { top: 0x2fc6a0, bottom: 0xdaf8e0, far: 0x8adfc0, near: 0x56b98a, sun: 0xfffbd0, stars: false },
-] as const;
 
 /** Textures are drawn with code at boot, at the size they are shown (logical px). */
 export const TEXTURES: readonly TextureRecipe[] = [

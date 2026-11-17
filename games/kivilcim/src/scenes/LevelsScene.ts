@@ -3,6 +3,7 @@ import { OyunScene, toast, touchHitSize } from '@oyun/core';
 import Phaser from 'phaser';
 import { Backdrop } from '../render/Backdrop';
 import { ensureCanvasArt } from '../render/canvasArt';
+import { ensureWorldArt, MOTIFS } from '../render/worldArt';
 import { gameSave } from '../save';
 import { LEVEL_COUNT, levelInfo } from '../sim/levels';
 import { PALETTE, PALETTES } from '../textures';
@@ -14,6 +15,7 @@ export class LevelsScene extends OyunScene {
   private backdrop!: Backdrop;
   private back!: IconTile;
   private cards: Phaser.GameObjects.Container[] = [];
+  private previews: Phaser.GameObjects.TileSprite[] = [];
   private t0 = 0;
   private lockedTaps = 0;
 
@@ -23,8 +25,10 @@ export class LevelsScene extends OyunScene {
 
   create(): void {
     ensureCanvasArt(this);
+    ensureWorldArt(this);
     const L = this.layout;
     this.cards = [];
+    this.previews = [];
     this.backdrop = new Backdrop(this, PALETTES[7]!, L.width, L.height);
     fitText(bigText(this, L.cx, L.top + 80, this.t('levels.title'), 76), 2 * (L.right - 210 - L.cx));
     this.back = new IconTile(this, L.left + 70, L.top + 76, 'ic-back', null, () => this.goHome(), { radius: 46 });
@@ -46,12 +50,22 @@ export class LevelsScene extends OyunScene {
       const pal = PALETTES[levelInfo(id).theme]!;
       const rec = save.levels[i]!;
       const locked = id > save.unlocked;
+      // Each card is a little window into its level's world, alive even when locked (dimmed).
+      const dim = (c: number): number => (locked ? Phaser.Display.Color.GetColor(((c >> 16) & 255) * 0.5, ((c >> 8) & 255) * 0.5, (c & 255) * 0.5) : c);
       const g = this.add.graphics();
       g.fillStyle(PALETTE.ink, 0.6).fillRoundedRect(-cw / 2, -ch / 2 + 8, cw, ch, 30);
-      g.fillStyle(locked ? 0x5a4a7a : pal.top, 1).fillRoundedRect(-cw / 2, -ch / 2, cw, ch, 30);
-      g.fillStyle(locked ? 0x3e3260 : pal.bottom, 1).fillRoundedRect(-cw / 2, 0, cw, ch / 2, { tl: 0, tr: 0, bl: 30, br: 30 });
-      g.lineStyle(6, locked ? 0x9a8ac0 : pal.edge, 1).strokeRoundedRect(-cw / 2, -ch / 2, cw, ch, 30);
-      const parts: Phaser.GameObjects.GameObject[] = [g];
+      g.fillStyle(dim(pal.top), 1).fillRoundedRect(-cw / 2, -ch / 2, cw, ch, 30);
+      g.fillStyle(dim(pal.bottom), 1).fillRoundedRect(-cw / 2, 0, cw, ch / 2, { tl: 0, tr: 0, bl: 30, br: 30 });
+      const motif = MOTIFS[levelInfo(id).theme % MOTIFS.length]!;
+      const preview = this.add
+        .tileSprite(0, 0, cw - 20, ch - 20, `wp-${motif}`)
+        .setBlendMode(Phaser.BlendModes.ADD)
+        .setTint(0xffffff)
+        .setAlpha(locked ? 0.22 : 0.45);
+      this.previews.push(preview);
+      const frame = this.add.graphics();
+      frame.lineStyle(6, locked ? dim(pal.edge) : pal.edge, 1).strokeRoundedRect(-cw / 2, -ch / 2, cw, ch, 30);
+      const parts: Phaser.GameObjects.GameObject[] = [g, preview, frame];
       parts.push(bigText(this, -cw / 2 + 64, -6, `${id}`, 84));
       if (locked) {
         parts.push(this.add.image(cw / 2 - 70, -6, 'ic-lock').setScale(0.9));
@@ -68,13 +82,18 @@ export class LevelsScene extends OyunScene {
       card.on(Phaser.Input.Events.GAMEOBJECT_POINTER_UP, () => this.pick(id));
       card.setData('id', id);
       card.setScale(0.6).setAlpha(0);
-      this.tweens.add({ targets: card, scale: 1, alpha: locked ? 0.75 : 1, delay: i * 30, duration: 260, ease: 'Back.easeOut' });
+      this.tweens.add({ targets: card, scale: 1, alpha: locked ? 0.85 : 1, delay: i * 30, duration: 260, ease: 'Back.easeOut' });
       this.cards.push(card);
     }
   }
 
   override update(_t: number, delta: number): void {
     this.t0 += delta;
+    for (let i = 0; i < this.previews.length; i++) {
+      const p = this.previews[i]!;
+      p.tilePositionY -= delta * (0.04 + i * 0.006);
+      p.tilePositionX += delta * 0.01 * (i % 2 ? 1 : -1);
+    }
     this.backdrop.update(0.5 + 0.5 * Math.sin(this.t0 / 3000), delta * 0.12, Math.pow(1 - ((this.t0 / 500) % 1), 3), 400, delta / 1000);
   }
 

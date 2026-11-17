@@ -215,7 +215,7 @@ export class World {
           if (this.sy[i]! < -140) this.sy[i] = h + 100;
           break;
       }
-      if (sp.motion !== 'radiate') s.setPosition(this.sx[i]!, this.sy[i]!);
+      if (sp.motion !== 'radiate') s.setPosition(this.sx[i], this.sy[i]);
       s.setScale(sp.sprite === 'streak' || sp.sprite === 'w-beam' ? sc * 0.8 : sc * (1 + 0.25 * pulse), sp.sprite === 'streak' ? sc * 1.6 : sp.sprite === 'w-beam' ? sc * 2.4 : sc * (1 + 0.25 * pulse));
       s.setAlpha(Math.max(0, a) * energy);
       if (sp.spin) s.setRotation(this.time * sp.spin + this.sph[i]!);

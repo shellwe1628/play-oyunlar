@@ -9,7 +9,7 @@ import type { BowSkin, Cosmetic } from '../sim/meta';
 import type { AnimOut } from '../anim/anim';
 import { PT } from '../sim/ragdoll';
 import type { Archer, Arrow } from '../sim/world';
-import { PALETTE, SKIES } from '../textures';
+import { PALETTE } from '../textures';
 
 type G = Phaser.GameObjects.Graphics;
 
@@ -778,87 +778,5 @@ export function drawShield(g: G, x0: number, y0: number, x1: number, y1: number,
   if (hits >= 2) g.lineBetween(m.x, m.y, m.x - ux * 26 - px * 12, m.y - uy * 26 - py * 12);
 }
 
-/** Floating island: grass cap, soil block, rocky underside. */
-export function drawLedge(g: G, L: Ledge, seed: number): void {
-  const { x, y, w, h } = L;
-  // underside
-  const depth = h * 1.1 + w * 0.18;
-  const under = [
-    { x: x + 4, y: y + h - 6 },
-    { x: x + w - 4, y: y + h - 6 },
-    { x: x + w * 0.72, y: y + h + depth * 0.55 },
-    { x: x + w * 0.52, y: y + h + depth },
-    { x: x + w * 0.3, y: y + h + depth * 0.62 },
-  ];
-  g.fillStyle(PALETTE.ink, 1);
-  poly(g, under.map((p, i) => ({ x: p.x + (i === 0 ? -6 : i === 1 ? 6 : 0), y: p.y + (i >= 2 ? 7 : 0) })));
-  g.fillStyle(PALETTE.rock, 1);
-  poly(g, under);
-  g.fillStyle(PALETTE.rockDark, 1).fillTriangle(x + w * 0.52, y + h + depth, x + w * 0.72, y + h + depth * 0.55, x + w * 0.56, y + h);
-  // soil block
-  g.fillStyle(PALETTE.ink, 1).fillRoundedRect(x - 6, y + 2, w + 12, h + 4, 16);
-  g.fillStyle(PALETTE.soil, 1).fillRoundedRect(x, y + 6, w, h - 6, 12);
-  // pebbles
-  for (let i = 0; i < 4; i++) {
-    const k = ((seed * 7 + i * 13) % 10) / 10;
-    g.fillStyle(PALETTE.soilDark, 1).fillCircle(x + 16 + k * (w - 32), y + 24 + ((i * 11 + seed) % 3) * 9, 4 + (i % 2) * 2);
-  }
-  // grass cap with droops
-  g.fillStyle(PALETTE.ink, 1).fillRoundedRect(x - 10, y - 8, w + 20, 30, 15);
-  g.fillStyle(PALETTE.grass, 1).fillRoundedRect(x - 5, y - 4, w + 10, 22, 11);
-  for (let gx = x + 4; gx < x + w - 2; gx += 18) {
-    g.fillStyle(PALETTE.ink, 1).fillCircle(gx + 6, y + 19, 8);
-    g.fillStyle(PALETTE.grass, 1).fillCircle(gx + 6, y + 16, 6);
-  }
-  g.fillStyle(PALETTE.grassLight, 1).fillRoundedRect(x + 4, y - 1, w - 8, 6, 3);
-  // tufts
-  for (let i = 0; i < 3; i++) {
-    const k = ((seed * 5 + i * 31) % 9) / 9;
-    const tx = x + 14 + k * (w - 28);
-    g.fillStyle(PALETTE.grassDark, 1).fillTriangle(tx - 6, y, tx + 6, y, tx - 2, y - 12).fillTriangle(tx, y, tx + 9, y, tx + 6, y - 9);
-  }
-}
 
-/** Sky gradient, sun, stars and two hill layers. `t` = time for twinkles. */
-export function drawSky(g: G, sky: number, width: number, height: number): void {
-  const S = SKIES[sky % SKIES.length]!;
-  g.fillGradientStyle(S.top, S.top, S.bottom, S.bottom, 1).fillRect(-120, -160, width + 240, height + 320);
-  if (S.stars) {
-    for (let i = 0; i < 46; i++) {
-      const x = (i * 157) % width;
-      const y = ((i * 97) % (height * 0.55)) + 20;
-      g.fillStyle(PALETTE.white, 0.5 + (i % 3) * 0.2).fillCircle(x, y, 1.5 + (i % 3));
-    }
-  }
-  // sun / moon with soft rings
-  const sx = width * 0.74;
-  const sy = height * 0.17;
-  g.fillStyle(S.sun, 0.18).fillCircle(sx, sy, 120);
-  g.fillStyle(S.sun, 0.3).fillCircle(sx, sy, 84);
-  g.fillStyle(S.sun, 1).fillCircle(sx, sy, 56);
-  if (S.stars) g.fillStyle(S.top, 1).fillCircle(sx + 24, sy - 14, 46);
-}
 
-export function drawHills(g: G, sky: number, width: number, height: number, layer: 0 | 1): void {
-  const S = SKIES[sky % SKIES.length]!;
-  const col = layer === 0 ? S.far : S.near;
-  const base = layer === 0 ? height * 0.6 : height * 0.74;
-  const amp = layer === 0 ? 70 : 52;
-  const pts: Pt[] = [{ x: -140, y: height + 200 }];
-  for (let x = -140; x <= width + 140; x += 40) {
-    const y = base - Math.abs(Math.sin(x * (layer === 0 ? 0.006 : 0.009) + layer)) * amp - Math.sin(x * 0.021) * 10;
-    pts.push({ x, y });
-  }
-  pts.push({ x: width + 140, y: height + 200 });
-  g.fillStyle(col, 1);
-  poly(g, pts);
-  if (layer === 1) {
-    // little round trees on the near hills
-    for (let i = 0; i < 6; i++) {
-      const x = 40 + i * 128 + (i % 2) * 30;
-      const y = base - Math.abs(Math.sin(x * 0.009 + 1)) * amp - Math.sin(x * 0.021) * 10 + 10;
-      g.fillStyle(shadeOf(col), 1).fillRect(x - 4, y - 10, 8, 22);
-      g.fillStyle(shadeOf(col), 1).fillCircle(x, y - 22, 20);
-    }
-  }
-}

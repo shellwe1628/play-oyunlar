@@ -586,6 +586,11 @@ export class GameScene extends OyunScene {
     const t0 = performance.now();
     // real-time effects (slow motion, zoom, shake-free pops) scale with the capture aid too
     const real = (Math.min(delta, 200) / 1000) * this.debugScale;
+    if (this.debugScale !== 1) {
+      // capture aid: tweens and timers slow down with everything else (juice set them this frame)
+      this.tweens.timeScale *= this.debugScale;
+      this.time.timeScale *= this.debugScale;
+    }
     // headshot slow motion runs on real time: deep slow, then a quick ramp back
     let scale = 1;
     if (this.slowT > 0) {

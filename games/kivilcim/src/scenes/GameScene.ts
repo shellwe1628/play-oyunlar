@@ -13,9 +13,12 @@ import { Music } from '../audio/Music';
 import { HoldInput } from '../input/HoldInput';
 import { fixTouchCancel } from '../input/touchCancelFix';
 import { Backdrop } from '../render/Backdrop';
+import { EdgeFx } from '../render/EdgeFx';
+import { World } from '../render/World';
+import { ensureWorldArt } from '../render/worldArt';
 import { ensureCanvasArt } from '../render/canvasArt';
 import { ShaftView } from '../render/Shaft';
-import { Trail } from '../render/Trail';
+import { Trail, TRAIL_STYLES } from '../render/Trail';
 import { gameSave } from '../save';
 import { BEAT_PX, DT, MINI_R, SPARK_R, START_X } from '../sim/constants';
 import { EdgeQueue } from '../sim/input';
@@ -53,6 +56,20 @@ const NEXT_LOCK_MS = 700;
  * cap is used, because the build machine renders at ~5 fps and game time must follow the clock.
  */
 const PLAYER_FRAME_CAP_MS = 100;
+/** Endless milestones (m). */
+const MILESTONE_M = 250;
+
+/** Shatter per spark shape: piece texture, speed range, gravity. */
+const SHATTER: readonly { tex: string; speed: [number, number]; gravity: number; count: number }[] = [
+  { tex: 'oyun-dot', speed: [200, 760], gravity: 900, count: 30 },
+  { tex: 'shard-diamond', speed: [260, 820], gravity: 900, count: 26 },
+  { tex: 'oyun-star', speed: [220, 700], gravity: 600, count: 24 },
+  { tex: 'shard', speed: [300, 900], gravity: 1000, count: 26 },
+  { tex: 'shard-hex', speed: [200, 700], gravity: 800, count: 26 },
+  { tex: 'shard-plus', speed: [260, 760], gravity: 900, count: 24 },
+  { tex: 'shard-arc', speed: [430, 470], gravity: 250, count: 28 },
+  { tex: 'shard-streak', speed: [500, 1000], gravity: 0, count: 26 },
+];
 
 function mix(a: number, b: number, t: number): number {
   const r = ((a >> 16) & 255) + (((b >> 16) & 255) - ((a >> 16) & 255)) * t;
@@ -123,6 +140,16 @@ export class GameScene extends OyunScene {
   private tutorialStep = -1;
   private planEnd = 0;
   private lastAutoSwitch = 0;
+  /** Presentation on (?fx=0 turns the new animated layers off; the sim never depends on it). */
+  private fx = true;
+  /** Running hash of the sim state, tick by tick (test: presentation cannot change the sim). */
+  private simHash = 2166136261;
+  private speedK = 1;
+  private lastMilestone = 0;
+  private shapeIdx = 0;
+  private demoX = 360;
+  private demoY = 0;
+  private demoDir = 1;
 
   // timing (performance.now)
   private deathAt = 0;
@@ -148,6 +175,15 @@ export class GameScene extends OyunScene {
 
   // view
   private world!: Phaser.GameObjects.Container;
+  private worldFx!: World;
+  private edgeFx!: EdgeFx;
+  private demoTrail!: Trail;
+  private charge!: Phaser.GameObjects.Particles.ParticleEmitter;
+  private fallSparks!: Phaser.GameObjects.Particles.ParticleEmitter;
+  private milestones: Phaser.GameObjects.Text[] = [];
+  private milestoneBands: Phaser.GameObjects.TileSprite[] = [];
+  private logoLetters: Phaser.GameObjects.Text[] = [];
+  private finishRays!: Phaser.GameObjects.Image;
   private shaft!: ShaftView;
   private backdrop!: Backdrop;
   private trail!: Trail;
@@ -226,7 +262,14 @@ export class GameScene extends OyunScene {
 
   create(data: GameStart = {}): void {
     ensureCanvasArt(this);
+    ensureWorldArt(this);
     const save = gameSave(this.oyun).data;
+    this.fx = new URLSearchParams(location.search).get('fx') !== '0';
+    this.simHash = 2166136261;
+    this.speedK = 1;
+    this.milestones = [];
+    this.milestoneBands = [];
+    this.logoLetters = [];
     this.mode = data.mode ?? 'level';
     this.level = data.level ?? levelToPlay(save);
     this.phase = data.phase ?? 'title';
@@ -248,12 +291,25 @@ export class GameScene extends OyunScene {
     const { width, height } = this.layout;
     this.pal = PALETTES[0]!;
     this.backdrop = new Backdrop(this, this.pal, width, height);
+    this.worldFx = new World(this, width, height);
+    this.worldFx.setVisible(this.fx);
     this.world = this.add.container(0, SPARK_Y).setDepth(0);
     this.shaft = new ShaftView(this, this.world);
+    this.shaft.fx = this.fx;
+    this.edgeFx = new EdgeFx(this, this.world);
+    for (let i = 0; i < 2; i++) {
+      const band = this.add.tileSprite(0, 0, 400, 24, 'gate-band-plain').setVisible(false).setAlpha(0.6);
+      const text = bigText(this, 0, 0, '', 40, PALETTE.gold).setVisible(false);
+      this.world.add([band, text]);
+      this.milestoneBands.push(band);
+      this.milestones.push(text);
+    }
     this.shaft.gateLabel = (k: GateKind) => this.t(`gate.${k}`);
     this.shaft.finishLabel = this.t('gate.finish');
     this.trail = new Trail(this.add.graphics());
     this.world.add(this.trail.g);
+    this.demoTrail = new Trail(this.add.graphics().setDepth(9));
+    this.demoTrail.length = 260;
 
     this.embers = this.add.particles(0, 0, 'oyun-dot', {
       lifespan: { min: 260, max: 520 },
@@ -293,7 +349,32 @@ export class GameScene extends OyunScene {
       blendMode: Phaser.BlendModes.ADD,
       emitting: false,
     });
-    this.world.add([this.embers, this.sparks, this.shards, this.stars]);
+    this.fallSparks = this.add.particles(0, 0, 'oyun-dot', {
+      lifespan: { min: 400, max: 800 },
+      speed: { min: 40, max: 160 },
+      angle: { min: 60, max: 120 },
+      gravityY: -900,
+      scale: { start: 0.45, end: 0 },
+      alpha: { start: 1, end: 0 },
+      frequency: 30,
+      blendMode: Phaser.BlendModes.ADD,
+      emitting: false,
+    });
+    this.world.add([this.embers, this.fallSparks, this.sparks, this.shards, this.stars]);
+    // Charge-up in the start chamber: motes drawn into the waiting spark.
+    this.charge = this.add
+      .particles(0, SPARK_Y, 'oyun-dot', {
+        lifespan: 520,
+        emitZone: { type: 'edge', source: new Phaser.Geom.Circle(0, 0, 130), quantity: 24 },
+        moveToX: 0,
+        moveToY: 0,
+        scale: { start: 0.2, end: 0.7 },
+        alpha: { start: 0, end: 1 },
+        frequency: 45,
+        blendMode: Phaser.BlendModes.ADD,
+        emitting: false,
+      })
+      .setDepth(10);
 
     this.sparkGlow = this.add.image(0, SPARK_Y, 'glow').setBlendMode(Phaser.BlendModes.ADD).setDepth(10);
     this.sparkHalo = this.add.image(0, SPARK_Y, 'bg-ring').setBlendMode(Phaser.BlendModes.ADD).setDepth(10).setScale(0.22).setAlpha(0);
@@ -397,15 +478,31 @@ export class GameScene extends OyunScene {
   private buildTitle(): void {
     const L = this.layout;
     const c = this.add.container(0, 0).setDepth(200);
-    const logo = bigText(this, L.cx, L.top + 250, this.t('title.logo'), 112, PALETTE.white).setAngle(-5);
-    logo.setStroke('#14062b', 22);
-    const grad = logo.context.createLinearGradient(0, 20, 0, logo.height - 20);
-    grad.addColorStop(0, '#fffbe0');
-    grad.addColorStop(0.45, '#ffe14d');
-    grad.addColorStop(1, '#ff7a1a');
-    logo.setFill(grad);
+    // Animated logo: each letter its own text, riding a wave and catching a travelling shine.
+    const word = this.t('title.logo');
+    const size = Math.min(112, Math.floor((L.width - 90) / (word.length * 0.66)));
+    const logo = this.add.container(L.cx, L.top + 250).setAngle(-5);
+    let total = 0;
+    const widths: number[] = [];
+    for (const ch of word) {
+      const t = bigText(this, 0, 0, ch, size, PALETTE.white);
+      t.setStroke('#14062b', 22);
+      const grad = t.context.createLinearGradient(0, 20, 0, t.height - 20);
+      grad.addColorStop(0, '#fffbe0');
+      grad.addColorStop(0.45, '#ffe14d');
+      grad.addColorStop(1, '#ff7a1a');
+      t.setFill(grad);
+      widths.push(t.width - 18);
+      total += t.width - 18;
+      this.logoLetters.push(t);
+    }
+    let lx = -total / 2;
+    this.logoLetters.forEach((t, i) => {
+      t.setX(lx + widths[i]! / 2);
+      lx += widths[i]!;
+    });
+    logo.add(this.logoLetters);
     const logoGlow = this.add.image(L.cx, L.top + 250, 'glow').setBlendMode(Phaser.BlendModes.ADD).setDisplaySize(760, 300).setAlpha(0.55);
-    this.tweens.add({ targets: logo, scale: 1.05, yoyo: true, repeat: -1, duration: 470, ease: 'Sine.easeInOut' });
     const tag = fitText(bigText(this, L.cx, L.top + 360, this.t('title.tagline'), 36), L.width - 140);
     this.titleLevel = bigText(this, L.cx, L.cy + 60, '', 48, PALETTE.gold);
     const tap = fitText(bigText(this, L.cx, L.cy + 150, this.t('title.tap'), 66), L.width - 170);
@@ -484,6 +581,7 @@ export class GameScene extends OyunScene {
     band.fillStyle(PALETTE.ink, 0.72).fillRect(0, L.cy - 470, L.width, 540);
     band.fillStyle(PALETTE.gold, 1).fillRect(0, L.cy - 478, L.width, 10).fillRect(0, L.cy + 66, L.width, 10);
     this.finishTitle = bigText(this, L.cx, L.cy - 390, this.t('finish.title'), 72, PALETTE.gold);
+    this.finishRays = this.add.image(L.cx, L.cy - 240, 'w-rays').setBlendMode(Phaser.BlendModes.ADD).setScale(1.1).setTint(PALETTE.gold).setAlpha(0.6);
     const pct = bigText(this, L.cx, L.cy - 240, '100%', 170);
     this.finishGems = bigText(this, L.cx + 30, L.cy - 60, '', 56, PALETTE.gem);
     const gemIcon = this.add.image(L.cx - 60, L.cy - 60, 'gem').setScale(0.9);
@@ -493,7 +591,7 @@ export class GameScene extends OyunScene {
     this.doubleBtn = button(this, L.cx, L.bottom - 170, this.t('finish.double'), () => void this.doubleGems(), { width: 440, height: 104, fontSize: 40 });
     const adIcon = this.add.image(-180, 0, 'ic-ad').setScale(0.6).setTint(PALETTE.ink);
     this.doubleBtn.add(adIcon);
-    c.add([band, this.finishTitle, pct, gemIcon, this.finishGems, this.finishStyle, this.finishNext, this.doubleBtn]);
+    c.add([band, this.finishRays, this.finishTitle, pct, gemIcon, this.finishGems, this.finishStyle, this.finishNext, this.doubleBtn]);
     this.finishUi = c;
   }
 
@@ -531,6 +629,8 @@ export class GameScene extends OyunScene {
     this.planEnd = 0;
     this.lastAutoSwitch = 0;
     this.backdrop.setPalette(this.pal);
+    this.worldFx.setTheme(this.mode === 'level' ? levelInfo(this.level).theme : ENDLESS_THEMES[0], this.pal);
+    this.edgeFx.color = this.pal.edge;
     this.shaft.setTrack(this.track, this.pal);
     this.shaft.showFinish = this.mode === 'level';
     this.music.theme = this.mode === 'level' ? levelInfo(this.level).theme : 4;
@@ -545,6 +645,13 @@ export class GameScene extends OyunScene {
     this.trail.head0 = tr.head;
     this.trail.tail0 = tr.tail;
     this.trail.rainbow = tr.id === 'rainbow';
+    this.trail.style = this.fx ? (TRAIL_STYLES[s.trail] ?? 'ribbon') : 'ribbon';
+    this.demoTrail.head0 = tr.head;
+    this.demoTrail.tail0 = tr.tail;
+    this.demoTrail.rainbow = this.trail.rainbow;
+    this.demoTrail.style = this.trail.style;
+    this.fallSparks.setParticleTint(tr.head);
+    this.shapeIdx = s.shape;
     this.sparkGlow.setTint(tr.tail);
     this.embers.setParticleTint(tr.tail);
     void SHAPES;
@@ -577,6 +684,9 @@ export class GameScene extends OyunScene {
     for (const g of this.gemSlots) g.setTexture('gem-empty').setScale(0.62);
     this.edgeText.setAlpha(0);
     this.cameras.main.setZoom(1);
+    this.edgeFx.clear();
+    this.lastMilestone = 0;
+    this.speedK = 1;
   }
 
   // ───────────────────────────────────────────────────────────── phases
@@ -742,6 +852,12 @@ export class GameScene extends OyunScene {
     this.heldTicks = 0;
     this.tickLogAt = 0;
     this.attemptId++;
+    this.simHash = 2166136261;
+    // The attract-mode spark hands over to the real one.
+    this.demoTrail.g.clear();
+    this.charge.emitting = false;
+    this.prevX = this.rx = this.sim.x;
+    this.prevY = this.ry = this.sim.y;
     const save = gameSave(this.oyun);
     if (!save.data.played) save.update((d) => void (d.played = true));
     this.hintShown = this.mode === 'level' && this.level === 1 && this.attempts < 3;
@@ -862,10 +978,15 @@ export class GameScene extends OyunScene {
     this.spark.setVisible(false).clearTint().setScale(1);
     this.sparkGlow.setVisible(false);
     const tr = TRAILS[gameSave(this.oyun).data.skin.trail] ?? TRAILS[0]!;
+    // Each shape breaks its own way.
+    const sh = SHATTER[this.fx ? this.shapeIdx : 3] ?? SHATTER[3]!;
+    this.shards.setTexture(sh.tex);
+    this.shards.setParticleSpeed(sh.speed[0], sh.speed[1]);
+    this.shards.setParticleGravity(0, sh.gravity);
     this.shards.setParticleTint(0xffffff);
-    this.shards.explode(14, x, y);
+    this.shards.explode(Math.floor(sh.count * 0.45), x, y);
     this.shards.setParticleTint(tr.tail);
-    this.shards.explode(18, x, y);
+    this.shards.explode(Math.ceil(sh.count * 0.55), x, y);
     this.sparks.setParticleTint(tr.head);
     this.sparks.explode(24, x, y);
     this.juice.shake(0.75);
@@ -880,10 +1001,33 @@ export class GameScene extends OyunScene {
       ],
       { jitter: 0 },
     );
-    // Death overlay slams in.
+    // Death overlay slams in: the card slides, the number counts up, the bar fills. Purely
+    // visual; the retry is accepted from RETRY_LOCK_MS whatever is still animating.
     this.showPhase('dead');
+    this.deadUi.setX(-80);
+    this.tweens.add({ targets: this.deadUi, x: 0, duration: 160, ease: 'Cubic.easeOut' });
     this.deadPct.setScale(2.2).setAlpha(0);
     this.tweens.add({ targets: this.deadPct, scale: 1, alpha: 1, duration: 260, ease: 'Back.easeOut' });
+    const finalText = this.deadPct.text;
+    const target = parseInt(finalText, 10);
+    if (Number.isFinite(target) && target > 0) {
+      const counter = { v: 0 };
+      this.tweens.add({
+        targets: counter,
+        v: target,
+        duration: 240,
+        ease: 'Cubic.easeOut',
+        onUpdate: () => this.deadPct.setText(finalText.replace(String(target), String(Math.round(counter.v)))),
+        onComplete: () => this.deadPct.setText(finalText),
+      });
+    }
+    const barW = this.deadBarNow.displayWidth;
+    this.deadBarNow.setDisplaySize(2, 32);
+    this.tweens.add({ targets: this.deadBarNow, displayWidth: barW, duration: 300, delay: 60, ease: 'Cubic.easeOut' });
+    if (this.newBest) {
+      this.stars.setParticleTint(PALETTE.gold);
+      this.stars.explode(18, this.rx, -this.ry);
+    }
     this.deadRetry.setAlpha(0);
     this.tweens.add({ targets: this.deadRetry, alpha: 1, delay: RETRY_LOCK_MS - FREEZE_MS, duration: 120 });
   }
@@ -1022,7 +1166,16 @@ export class GameScene extends OyunScene {
     cam.setZoom(kind === 'fast' ? 1.05 : kind === 'slow' ? 0.97 : 1.03);
     this.tweens.add({ targets: cam, zoom: 1, duration: 300, ease: 'Cubic.easeOut' });
     this.stars.setParticleTint(color);
-    this.stars.explode(14, this.sim.x, -this.sim.y);
+    this.stars.explode(10, this.sim.x, -this.sim.y);
+    if (this.fx) {
+      // The gate bursts along its whole width as you pass through it.
+      const tr = this.track;
+      const gy = this.sim.y;
+      const si = segmentAt(tr.wy, gy);
+      const l = wallXAt(tr.wy, tr.lx, si, gy);
+      const r = wallXAt(tr.wy, tr.rx, si, gy);
+      for (let k = 0; k <= 4; k++) this.sparks.explode(5, l + ((r - l) * k) / 4, -gy);
+    }
     if (kind === 'mini' || kind === 'big') this.squash = 0.5;
     if (this.mode === 'level') this.gateSnap = this.sim.clone();
   }
@@ -1081,6 +1234,7 @@ export class GameScene extends OyunScene {
     const cy = sim.y - (gy / len) * (d0 + 4);
     this.sparks.setParticleTint(this.pal.edge);
     this.sparks.explode(8 + Math.min(16, sim.edge * 3), cx, -cy);
+    if (this.fx) this.edgeFx.ripple(cy, cx < sim.x ? -1 : 1);
     this.oyun.audio.playPreset([{ wave: 'square', freq: 1100, freqEnd: 1700, duration: 0.06, gain: 0.1 }], { pitch: Math.min(14, sim.edge * 2), jitter: 0 });
     if (sim.edge >= 2) {
       this.edgeText.setText(this.t('hud.edge', { n: sim.edge })).setAlpha(1).setScale(1.5);
@@ -1150,6 +1304,33 @@ export class GameScene extends OyunScene {
     const ph = ((beatY - speed * this.music.latency()) / BEAT_PX) % 1;
     const pulse = Math.pow(1 - (ph < 0 ? ph + 1 : ph), 3);
 
+    // Title / ready: an attract-mode spark zigzags in place, drawing a short trail.
+    const idlePhase = this.phase === 'title' || this.phase === 'ready';
+    if (idlePhase && this.fx) {
+      const v = 170;
+      const ox = this.demoX;
+      const oy = this.demoY;
+      this.demoX += this.demoDir * v * realDt;
+      this.demoY += v * realDt;
+      let corner = false;
+      if (Math.abs(this.demoX - 360) > 105) {
+        this.demoDir = this.demoX > 360 ? -1 : 1;
+        corner = true;
+      }
+      this.demoTrail.sample(ox, oy, corner);
+      this.demoTrail.g.setPosition(0, SPARK_Y + this.demoY);
+      this.demoTrail.draw(this.demoX, this.demoY, 0.85);
+      this.rx = this.demoX;
+    }
+    this.charge.emitting = idlePhase && this.fx;
+    this.charge.setPosition(this.rx, SPARK_Y);
+
+    // Speed gates make the world run faster or calmer (smoothed).
+    const targetK = this.phase === 'playing' || this.phase === 'resume' ? sim.speedMult : 1;
+    this.speedK += (targetK - this.speedK) * Math.min(1, realDt * 3);
+    this.shaft.sparkX = this.rx;
+    this.shaft.gatesPassed = sim.gateIndex;
+
     // World scroll and the shaft.
     this.world.y = SPARK_Y + this.ry;
     if (this.mode !== 'level') this.updateEndlessTheme();
@@ -1159,6 +1340,8 @@ export class GameScene extends OyunScene {
     const trailAlpha = this.phase === 'dead' ? Math.max(0, 1 - (now - this.deathAt) / 500) : 1;
     this.trail.boost = 1 + Math.min(0.6, sim.edge * 0.12);
     this.trail.draw(this.rx, this.ry, trailAlpha);
+    if (this.fx) this.edgeFx.update(this.track, this.ry, this.ry - 380, this.ry + 1000, pulse, realDt, this.speedK);
+    this.updateMilestones();
 
     // Spark.
     const idle = this.phase === 'title' || this.phase === 'ready';
@@ -1169,26 +1352,71 @@ export class GameScene extends OyunScene {
     const sx = base * (1 + this.squash * 0.6);
     const sy = base * (1 - this.squash * 0.4);
     if (this.phase !== 'dead') {
-      this.spark.setPosition(this.rx, SPARK_Y + bob).setScale(sx, sy).setAngle(idle ? 0 : sim.dir * 30);
+      // Each shape has its own idle life (drawing only).
+      let ang = idle ? 0 : sim.dir * 30;
+      let k = 1;
+      let a = 1;
+      if (this.fx) {
+        switch (this.shapeIdx) {
+          case 0:
+            k = 1 + 0.07 * Math.sin(now / 110);
+            break;
+          case 1:
+            ang += now * 0.09;
+            break;
+          case 2:
+            ang += now * 0.2;
+            break;
+          case 3:
+            ang += Math.sin(now / 55) * 7;
+            break;
+          case 4:
+            ang = Math.floor(beatY / BEAT_PX) * 60;
+            break;
+          case 5:
+            ang += now * 0.13;
+            break;
+          case 6:
+            k = 1 + 0.16 * pulse;
+            break;
+          case 7:
+            a = 0.82 + 0.18 * Math.sin(now / 37);
+            break;
+        }
+      }
+      this.spark.setPosition(this.rx, SPARK_Y + bob).setScale(sx * k, sy * k).setAngle(ang).setAlpha(a);
       if (sim.flipped) this.spark.setTint(GATE_COLORS.flip);
       else this.spark.clearTint();
     } else if (!this.shattered) {
       this.spark.setPosition(this.rx, SPARK_Y);
     }
     this.sparkGlow.setPosition(this.rx, SPARK_Y + bob).setScale((r / SPARK_R) * (1.25 + pulse * 0.35 + Math.min(0.8, sim.edge * 0.15)));
-    this.sparkHalo.setPosition(this.rx, SPARK_Y + bob).setAlpha(idle ? 0.5 + pulse * 0.4 : 0).setScale(0.22 + pulse * 0.06);
+    // Charge-up: rings keep closing in on the waiting spark; during the launch ramp the glow builds.
+    const charge = idle ? 1 - ((now / 650) % 1) : 0;
+    this.sparkHalo.setPosition(this.rx, SPARK_Y + bob).setAlpha(idle ? (0.3 + 0.6 * (1 - charge)) * (0.7 + pulse * 0.3) : 0).setScale(0.12 + charge * 0.3);
     this.edgeText.setX(Math.min(this.layout.width - 150, Math.max(150, this.rx)));
     this.flipTag.setVisible(sim.flipped && (this.phase === 'playing' || this.phase === 'resume')).setX(Math.min(this.layout.width - 90, Math.max(90, this.rx)));
     if (this.phase === 'playing') {
       this.embers.emitting = true;
       this.embers.setPosition(this.rx, -this.ry);
     }
+    this.fallSparks.emitting = this.phase === 'playing' && this.trail.style === 'sparks';
+    this.fallSparks.setPosition(this.rx, -this.ry);
 
     // Backdrop and music.
     const dyScreen = this.ry - this.lastRy + (idle ? speed * 0.3 * realDt : 0);
     this.lastRy = this.ry;
     const prog = this.mode === 'level' ? sim.progress : (this.ry % 6000) / 6000;
     this.backdrop.update(prog, dyScreen, pulse, speed, realDt);
+    if (this.fx) this.worldFx.update(realDt, dyScreen, pulse, this.speedK);
+    if (this.phase === 'title' && this.fx) {
+      for (let i = 0; i < this.logoLetters.length; i++) {
+        const t = this.logoLetters[i]!;
+        const w = Math.sin(now / 260 - i * 0.55);
+        t.setY(w * 12).setScale(1 + 0.05 * pulse + Math.max(0, w) * 0.06);
+      }
+    }
+    if (this.phase === 'finished') this.finishRays.rotation += realDt * 0.6;
     if (this.phase === 'playing') {
       this.music.intensity = this.mode === 'level' ? (sim.progress < 0.06 ? 1 : sim.progress < 0.3 ? 2 : 3) : Math.min(3, 1 + Math.floor(sim.y / 4000));
       if (sim.edge >= 2) this.music.intensity = 3;
@@ -1223,6 +1451,7 @@ export class GameScene extends OyunScene {
     const py = sim.y;
     const pdir = sim.dir;
     const ev = sim.step(held);
+    this.simHash = Math.imul(this.simHash ^ Math.round(sim.x * 1000) ^ (sim.tick << 8) ^ (sim.alive ? 0 : 0x55555), 16777619) >>> 0;
     this.prevX = px;
     this.prevY = py;
     if (sim.dir !== pdir) {
@@ -1321,12 +1550,49 @@ export class GameScene extends OyunScene {
 
   private cueDir = 0;
 
+  /** Endless milestone markers across the shaft every MILESTONE_M metres, and a banner on passing. */
+  private updateMilestones(): void {
+    const on = this.mode !== 'level' && this.fx;
+    const step = MILESTONE_M * 10;
+    const first = Math.max(1, Math.ceil((this.ry - 380) / step));
+    for (let i = 0; i < this.milestones.length; i++) {
+      const k = first + i;
+      const y = k * step;
+      const text = this.milestones[i]!;
+      const band = this.milestoneBands[i]!;
+      const vis = on && y < this.ry + 1000;
+      text.setVisible(vis);
+      band.setVisible(vis);
+      if (!vis) continue;
+      const tr = this.track;
+      const si = segmentAt(tr.wy, y);
+      const l = wallXAt(tr.wy, tr.lx, si, y);
+      const r = wallXAt(tr.wy, tr.rx, si, y);
+      band.setPosition((l + r) / 2, -y).setSize(r - l, 24).setTint(PALETTE.gold);
+      band.tilePositionX = this.time.now / 12;
+      const label = this.t('hud.height', { n: k * MILESTONE_M });
+      if (text.text !== label) text.setText(label);
+      text.setPosition(r - 70, -y - 34);
+    }
+    if (this.mode !== 'level' && this.phase === 'playing') {
+      const m = Math.floor(this.sim.y / step);
+      if (m > this.lastMilestone) {
+        this.lastMilestone = m;
+        this.flashGateText(this.t('hud.height', { n: m * MILESTONE_M }), '', PALETTE.gold, 58);
+        this.oyun.audio.play('coin', { pitch: 7 });
+        this.oyun.platform.haptic('light');
+      }
+    }
+  }
+
   private updateEndlessTheme(): void {
     const idx = Math.floor(this.ry / 6000) % ENDLESS_THEMES.length;
     if (idx === this.endlessThemeIdx) return;
     this.endlessThemeIdx = idx;
     this.pal = PALETTES[ENDLESS_THEMES[idx]!]!;
     this.backdrop.setPalette(this.pal);
+    this.worldFx.setTheme(ENDLESS_THEMES[idx]!, this.pal);
+    this.edgeFx.color = this.pal.edge;
     this.shaft.setPalette(this.pal);
     this.setLetterbox();
   }
@@ -1391,6 +1657,9 @@ export class GameScene extends OyunScene {
       tick: sim.tick,
       t: Math.round(sim.t * 1000) / 1000,
       heldTicks: this.heldTicks,
+      simHash: this.simHash,
+      fx: this.fx,
+      motif: this.worldFx.motif,
       tickLog: Array.from({ length: Math.min(32, this.tickLogAt) }, (_, k) => {
         const i = (this.tickLogAt - Math.min(32, this.tickLogAt) + k) % 32;
         return [this.tickIds[i]!, Math.round(this.tickTimes[i]! * 1000) / 1000, this.tickHeld[i]!];

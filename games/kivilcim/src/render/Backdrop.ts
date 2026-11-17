@@ -6,7 +6,7 @@
 import Phaser from 'phaser';
 import type { Palette } from '../textures';
 
-const SHAPES = 7;
+const SHAPES = 0; // the level worlds (World.ts) replaced the generic outline shapes
 const STREAKS = 14;
 
 function mix(a: number, b: number, t: number): number {

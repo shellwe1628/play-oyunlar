@@ -19,10 +19,6 @@ export function layoutFor(wave: number, rot = 0): readonly Ledge[] {
   return wave % 5 === 0 ? BOSS_LAYOUT : LAYOUTS[(wave - 1 + rot) % LAYOUTS.length]!;
 }
 
-/** Sky palette index: changes every five waves. */
-export function skyIndex(wave: number, palettes: number): number {
-  return Math.floor((Math.max(1, wave) - 1) / 5) % palettes;
-}
 
 const POOL: readonly { type: EnemyType; weight: number }[] = [
   { type: 'archer', weight: 5 },

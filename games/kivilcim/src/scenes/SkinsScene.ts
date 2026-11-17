@@ -63,20 +63,21 @@ export class SkinsScene extends OyunScene {
     // the trail stays inside the stage.
     const sx = L.cx - 300;
     const stage = this.add.graphics().setDepth(0);
-    stage.fillStyle(PALETTE.ink, 0.55).fillRoundedRect(sx, L.top + 140, 600, 360, 40);
-    stage.lineStyle(4, 0xffffff, 0.35).strokeRoundedRect(sx, L.top + 140, 600, 360, 40);
-    const mask = this.make.graphics({}, false).fillRect(sx + 8, L.top + 148, 584, 344);
+    stage.fillStyle(PALETTE.ink, 0.55).fillRoundedRect(sx, L.top + 130, 600, 330, 40);
+    stage.lineStyle(4, 0xffffff, 0.35).strokeRoundedRect(sx, L.top + 130, 600, 330, 40);
+    const mask = this.make.graphics({}, false).fillRect(sx + 8, L.top + 138, 584, 314);
     const pg = this.add.graphics().setDepth(1);
     pg.setMask(mask.createGeometryMask());
     this.trail = new Trail(pg);
-    this.trail.length = 220;
-    this.previewGlow = this.add.image(L.cx, L.top + 270, 'glow').setBlendMode(Phaser.BlendModes.ADD).setScale(1.6).setDepth(2);
-    this.preview = this.add.image(L.cx, L.top + 270, 'spark-0').setScale(1.3).setDepth(2);
+    this.trail.length = 300;
+    this.trail.boost = 1.35;
+    this.previewGlow = this.add.image(L.cx, L.top + 190, 'glow').setBlendMode(Phaser.BlendModes.ADD).setScale(1.6).setDepth(2);
+    this.preview = this.add.image(L.cx, L.top + 190, 'spark-0').setScale(1.3).setDepth(2);
     this.trail.reset(this.px, 0);
-    this.nameText = bigText(this, L.cx, L.top + 372, '', 44).setDepth(3);
-    this.tierText = bigText(this, L.cx, L.top + 414, '', 28).setDepth(3);
-    this.actBtn = button(this, L.cx - 140, L.top + 466, '', () => this.act(), { width: 260, height: 76, fontSize: 32 });
-    this.tryBtn = button(this, L.cx + 140, L.top + 466, this.t('shop.try'), () => this.tryIt(), { width: 260, height: 76, fontSize: 30, variant: 'secondary' });
+    this.nameText = bigText(this, L.cx, L.top + 392, '', 44).setDepth(3);
+    this.tierText = bigText(this, L.cx, L.top + 432, '', 28).setDepth(3);
+    this.actBtn = button(this, L.cx - 140, L.top + 505, '', () => this.act(), { width: 260, height: 76, fontSize: 32 });
+    this.tryBtn = button(this, L.cx + 140, L.top + 505, this.t('shop.try'), () => this.tryIt(), { width: 260, height: 76, fontSize: 30, variant: 'secondary' });
     this.actBtn.setDepth(3);
     this.tryBtn.setDepth(3);
 
@@ -85,7 +86,7 @@ export class SkinsScene extends OyunScene {
       const x = L.cx + (n === 0 ? -130 : 130);
       const g = this.add.graphics();
       const label = bigText(this, 0, 0, this.t(k === 'trail' ? 'skins.trails' : 'skins.shapes'), 36);
-      const tab = this.add.container(x, L.top + 568, [g, label]);
+      const tab = this.add.container(x, L.top + 588, [g, label]);
       tab.setData('g', g);
       const hit = touchHitSize(240, 70);
       tab.setSize(hit.width, hit.height).setInteractive({ useHandCursor: true });
@@ -117,10 +118,10 @@ export class SkinsScene extends OyunScene {
     const cols = 5;
     const cw = 126;
     const chh = 128;
-    const top = L.top + 660;
+    const top = L.top + 680;
     for (let i = 0; i < list.length; i++) {
       const x = L.cx + ((i % cols) - (cols - 1) / 2) * (cw + 8);
-      const y = top + Math.floor(i / cols) * (chh + 10);
+      const y = top + Math.floor(i / cols) * 124;
       const ring = this.add.graphics();
       const parts: Phaser.GameObjects.GameObject[] = [ring];
       if (kind === 'shape') parts.push(this.add.image(0, -14, `spark-${i}`).setScale(0.8));
@@ -166,7 +167,7 @@ export class SkinsScene extends OyunScene {
     this.previewGlow.setTint(tr.tail);
     const owned = (this.ownedMask() & (1 << this.sel)) !== 0;
     const on = (isTrail ? d.skin.trail : d.skin.shape) === this.sel;
-    const name = isTrail ? this.t(`trail.${tr.id}` as 'trail.white') : SHAPES[this.sel]!.id.toUpperCase();
+    const name = isTrail ? this.t(`trail.${tr.id}` as 'trail.white') : this.t(`shape.${SHAPES[this.sel]!.id}` as 'shape.orb');
     fitText(this.nameText.setText(name), 540, 44);
     if (isTrail) {
       const tierCol = TIER_COLOR[tr.tier];
@@ -199,7 +200,7 @@ export class SkinsScene extends OyunScene {
       t.ring.fillStyle(tierCol, 0.9).fillRoundedRect(-62, 42, 124, 18, { tl: 0, tr: 0, bl: 22, br: 22 });
       const s = t.i === this.sel;
       t.ring.lineStyle(s ? 7 : eq ? 6 : 3, s ? 0xffffff : eq ? PALETTE.gold : tierCol, s || eq ? 1 : 0.7).strokeRoundedRect(-62, -64, 124, 124, 22);
-      t.root.setScale(s ? 1.06 : 1);
+      t.root.setScale(s ? 1 : 0.93);
     }
   }
 
@@ -264,18 +265,18 @@ export class SkinsScene extends OyunScene {
   override update(_t: number, delta: number): void {
     this.t0 += delta;
     const dt = delta / 1000;
-    const v = 420;
+    const v = 520;
     // Preview zigzag around the centre, scrolling in place.
-    if (Math.abs(this.px - 360) > 150) this.pdir = this.px > 360 ? -1 : 1;
+    if (Math.abs(this.px - 360) > 110) this.pdir = this.px > 360 ? -1 : 1;
     const ox = this.px;
     const oy = this.py;
     this.px += this.pdir * v * dt;
     this.py += v * dt;
-    this.trail.sample(ox, oy, Math.abs(this.px - 360) > 149);
+    this.trail.sample(ox, oy, Math.abs(this.px - 360) > 109);
     const L = this.layout;
     const pulse = Math.pow(1 - ((this.t0 / 520) % 1), 3);
     this.trail.pulse = pulse;
-    this.trail.g.setPosition(L.cx - 360, L.top + 270 + this.py);
+    this.trail.g.setPosition(L.cx - 360, L.top + 190 + this.py);
     this.trail.draw(this.px, this.py, 0.95);
     this.preview.setX(L.cx - 360 + this.px).setAngle(this.pdir * 30);
     const tr = TRAILS[this.kind === 'trail' ? this.sel : gameSave(this.oyun).data.skin.trail]!;

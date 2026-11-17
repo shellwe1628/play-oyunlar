@@ -63,8 +63,8 @@ export function ensureCanvasArt(scene: Phaser.Scene): void {
   make('dark-hole', 256, 256, (c) => {
     const g = c.createRadialGradient(128, 128, 0, 128, 128, 128);
     g.addColorStop(0, 'rgba(6,2,18,0)');
-    g.addColorStop(0.32, 'rgba(6,2,18,0)');
-    g.addColorStop(0.62, 'rgba(6,2,18,0.93)');
+    g.addColorStop(0.26, 'rgba(6,2,18,0)');
+    g.addColorStop(0.52, 'rgba(6,2,18,0.95)');
     g.addColorStop(1, 'rgba(6,2,18,0.97)');
     c.fillStyle = g;
     c.fillRect(0, 0, 256, 256);

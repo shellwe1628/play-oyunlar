@@ -261,6 +261,55 @@ practised player: it knows the line from the first attempt, so a first-timer wil
 level 1's 100 % for the first few tries. Endless: 70 seeds × 14 segments at creeping, minimum and
 maximum speed and 8 deep runs, solved with 1 px to spare and replayed (tested).
 
+Worlds 2-4 (`tests/unit/world*.test.ts`, same model, 200 attempts, seed 1000+id). Margin and
+window shrink strictly inside each world; each world opens easier than the boss before it but
+harder than the previous world's first level, and each boss is harder than the last.
+
+| Level | Len | Margin | Window | Speed | Human | | Level | Len | Margin | Window | Speed | Human |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| 11 split | 35.5 s | 39.45 | 391.7 | 500 | 99.0 % | | 31 portal | 35.6 s | 30.27 | 333.3 | 530 | 75.5 % |
+| 12 | 41.0 s | 36.52 | 375.0 | 510 | 93.5 % | | 32 | 37.1 s | 28.32 | 316.7 | 540 | 63.0 % |
+| 13 laser | 38.1 s | 33.79 | 350.0 | 520 | 92.5 % | | 33 | 36.3 s | 25.98 | 300.0 | 550 | 46.5 % |
+| 14 | 38.2 s | 31.45 | 333.3 | 530 | 76.0 % | | 34 mirror | 37.9 s | 24.22 | 283.3 | 560 | 36.5 % |
+| 15 | 38.2 s | 29.30 | 316.7 | 540 | 64.0 % | | 35 | 37.3 s | 22.27 | 275.0 | 570 | 34.5 % |
+| 16 spin | 35.4 s | 26.17 | 291.7 | 550 | 62.5 % | | 36 | 36.8 s | 20.12 | 258.3 | 580 | 20.0 % |
+| 17 | 36.4 s | 23.83 | 275.0 | 560 | 35.5 % | | 37 | 35.6 s | 18.36 | 233.3 | 590 | 21.5 % |
+| 18 | 36.2 s | 21.48 | 250.0 | 570 | 31.5 % | | 38 | 35.8 s | 16.41 | 216.7 | 600 | 9.5 % |
+| 19 | 35.5 s | 18.95 | 233.3 | 580 | 20.0 % | | 39 | 36.6 s | 14.06 | 200.0 | 610 | 8.5 % |
+| 20 boss | 42.4 s | 16.21 | 208.3 | 590 | 8.5 % | | 40 boss | 42.0 s | 12.70 | 183.3 | 620 | 2.0 % |
+| 21 wind | 40.0 s | 34.57 | 358.3 | 515 | 94.5 % | | | | | | | |
+| 22 | 38.0 s | 32.81 | 341.7 | 525 | 89.5 % | | | | | | | |
+| 23 piston | 36.7 s | 30.47 | 325.0 | 535 | 84.5 % | | | | | | | |
+| 24 | 38.2 s | 27.93 | 308.3 | 545 | 61.0 % | | | | | | | |
+| 25 | 36.4 s | 25.00 | 291.7 | 555 | 53.0 % | | | | | | | |
+| 26 dark | 36.2 s | 22.07 | 275.0 | 565 | 44.0 % | | | | | | | |
+| 27 | 36.7 s | 20.51 | 250.0 | 575 | 35.0 % | | | | | | | |
+| 28 | 35.8 s | 18.55 | 233.3 | 585 | 22.0 % | | | | | | | |
+| 29 | 36.0 s | 16.41 | 216.7 | 595 | 15.5 % | | | | | | | |
+| 30 boss | 38.3 s | 14.26 | 200.0 | 605 | 5.5 % | | | | | | | |
+
+Every level of worlds 2-4 also has a finishing plan with margin above NEAR_PX (the "no near
+miss" star is possible) and a finishing all-gems plan (tested).
+
+Progress score (`meta.ts`, pure, tested): 10 per star + 15 per level finished + endless best/10
+(cap 400) + 10 per best-streak day (cap 30) + 4 per daily day (cap 100) + 10 per trail and 5 per
+shape owned beyond the free one + 15 per feat. Ranks at 0, 60, 150, 280, 450, 650, 900, 1200,
+1550, 1950, 2400, 2900: Ember, Flicker, Spark, Glow, Flare, Blaze, Torch, Beacon, Comet, Nova,
+Pulsar, Supernova.
+
+Gem income against prices. One-time income: level gems 120, stars 240 (2 each), world clears
+140, feats 425 = 925; repeating: daily streak 5-20 a day plus the day's gems, endless 1 per
+250 m. Prices: trails 3, 6, 10 (common), 15, 20, 26, 32 (rare), 40, 48, 56, 64 (epic), 80, 95,
+110, 125 (legendary), 160, 200 (mythic) = 1090, shapes 6-32 = 120; 4 trails are earned only.
+
+| Stage (one ~15 min session) | Typical income | Next trail costs |
+|---|---|---|
+| First session, world 1 levels 1-5 | ~35 (3 gems + ~3 stars/level, First Light 5) | 3 / 6 / 10 / 15 |
+| Finishing world 1 | ~60-80 (stars, world clear 20, Ignited 15, Starlit 15) | 20-32 |
+| World 2 | ~40-60 + world clear 30, Prism Breaker 25 | 40-64 (epic) |
+| World 3 | ~40-60 + daily 5-12 + clear 40 | 64-95 |
+| World 4 / replaying for stars | ~40-60 + daily + endless + clear 50 | 110-200 |
+
 ### Measured
 
 - Retry (smoke test, in the page from the death): tap accepted 262 ms after death, run restarted
@@ -274,8 +323,15 @@ maximum speed and 8 deep runs, solved with 1 px to spare and replayed (tested).
 - Animation round, level 10 autopilot, the old and new builds run back to back twice (load ~6):
   own update avg 1.65 / 1.64 ms before → 2.09 / 1.89 ms after (p95 7.5 / 7.3 → 8.4 / 8.1, max
   18.3 / 10.9 → 12.5 / 12.6); step+render avg 3.82 / 3.99 → 5.49 / 3.92 ms. About +0.3-0.45 ms.
-- Presentation test (`tests/e2e/presentation.spec.ts`): level 6 autopilot under a stepped clock
-  with `fx=1` and `fx=0` gives the same sim hash, tick, position and gems.
+- Presentation test (`tests/e2e/presentation.spec.ts`): levels 6 and 34 (mirror twin, portals,
+  dark section) on autopilot under a stepped clock with `fx=1` and `fx=0` give the same sim
+  hash, tick, position and gems.
+- Retry latency on the game clock (stepped, so machine load cannot affect it): tap taken
+  264 ms after death, run advancing at 297 ms (33 ms frames, fx on and off), 272 / 289 ms at
+  17 ms frames; identical for the build before the animation round.
+- Content round, own update per frame, autopilot, load ~4: level 10 avg 2.35 ms (max 14.3),
+  level 40 avg 2.29 (max 13.1), level 30 avg 2.04 (max 9.6), level 20 avg 1.83 (max 8.0). New
+  hazards are drawn with one Graphics per frame (no baking), so no mid-run hitch.
 - Human model and seeds: the streams the table uses (seed 1000+id) start with finishes on
   levels 8-10 (L8 `FFF.......F.`, L9 `F......F.F..`, L10 `.F.F........`); over 200 attempts they
   give the table's 29.0 / 26.5 / 10.0 %, fresh seeds 32.0 / 22.5 / 13.5 %. Lucky starts, not a

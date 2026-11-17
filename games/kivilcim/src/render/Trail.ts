@@ -114,13 +114,15 @@ export class Trail {
         this.drawWalk(hx, hy, alpha, now, 'tongue');
         return;
       case 'prism':
-        // Layered: rainbow ribbon, a neon core, glitter.
+        // Layered: a wide rainbow aura, rainbow ribbon, a neon core, glitter.
+        this.drawRibbon(hx, hy, alpha * 0.5, now, 'aura', 0);
         this.drawRibbon(hx, hy, alpha, now, 'rainbow', 0);
         this.drawRibbon(hx, hy, alpha * 0.9, now, 'neon', 0);
         this.drawWalk(hx, hy, alpha, now, 'glint');
         return;
       case 'nova':
-        // Layered: flame, a cycling core, galaxy dust.
+        // Layered: a wide pulsing aura, flame, a cycling core, galaxy dust.
+        this.drawRibbon(hx, hy, alpha * 0.5, now, 'aura', 0);
         this.drawRibbon(hx, hy, alpha, now, 'flame', 0);
         this.drawWalk(hx, hy, alpha, now, 'tongue');
         this.drawRibbon(hx, hy, alpha * 0.8, now, 'cycle', 0);
@@ -139,9 +141,10 @@ export class Trail {
     const flame = kind === 'flame';
     const aurora = kind === 'aurora';
     const galaxy = kind === 'galaxy';
+    const aura = kind === 'aura';
     const len = comet ? this.length * 0.45 : flame ? this.length * 0.7 : this.length;
-    const widen = comet ? 1.9 : thin ? 0.55 : neon ? 0.8 : aurora ? 1.5 : flame ? 1.25 : 1;
-    const passes = neon ? 4 : 3;
+    const widen = comet ? 1.9 : thin ? 0.55 : neon ? 0.8 : aurora ? 1.5 : flame ? 1.25 : aura ? 3.2 * (0.85 + 0.3 * this.pulse) : 1;
+    const passes = neon ? 4 : aura ? 1 : 3;
     for (let pass = 0; pass < passes; pass++) {
       let px = hx;
       let py = hy;
@@ -157,7 +160,8 @@ export class Trail {
         const fade = (comet || flame ? (1 - tm) * (1 - tm) : 1 - tm) * alpha;
         let w = (5 + 19 * (1 - tm)) * this.boost * widen;
         if (flame) w *= 0.8 + 0.4 * hash(n, Math.floor(now / 50));
-        if (pass === 0) {
+        if (aura) g.lineStyle(w, this.colorAt(tm, now), 0.22 * fade);
+        else if (pass === 0) {
           if (neon) g.lineStyle(w + 26, this.tail0, 0.16 * fade);
           else if (aurora) g.lineStyle(w + 18, this.colorAt(tm, now), 0.12 * fade);
           else g.lineStyle(w + 12, galaxy ? 0x0a0418 : 0x14062b, 0.45 * fade);
@@ -181,7 +185,7 @@ export class Trail {
   private drawWalk(hx: number, hy: number, alpha: number, now: number, style: string): void {
     const g = this.g;
     const step =
-      style === 'pixels' ? 15 : style === 'dots' ? 22 : style === 'lightning' || style === 'fork' ? 26 : style === 'bars' ? 18 : style === 'glint' ? 30 : style === 'dust' ? 14 : style === 'tongue' ? 20 : 10;
+      style === 'pixels' ? 15 : style === 'dots' ? 22 : style === 'lightning' || style === 'fork' ? 26 : style === 'bars' ? 18 : style === 'glint' ? 30 : style === 'dust' ? 9 : style === 'tongue' ? 16 : 10;
     const len = style === 'tongue' ? this.length * 0.6 : this.length;
     let px = hx;
     let py = hy;
@@ -252,23 +256,23 @@ export class Trail {
             const off = (hash(k, 3) - 0.5) * 30;
             const cx = qx + nx * off;
             const cy = qy + ny * off;
-            const s = (6 + 10 * tw) * (1 - tm * 0.5);
+            const s = (8 + 14 * tw) * (1 - tm * 0.5) * this.boost;
             g.lineStyle(3, 0xffffff, tw * fade).lineBetween(cx - s, -cy, cx + s, -cy).lineBetween(cx, -cy - s, cx, -cy + s);
             g.fillStyle(this.head0, tw * fade).fillCircle(cx, -cy, 3);
           }
         } else if (style === 'dust') {
           // Galaxy dust: specks orbiting the path, twinkling.
           const a = now / 700 + k * 1.9;
-          const rr = (8 + 26 * hash(k, 11)) * (0.6 + tm);
+          const rr = (10 + 34 * hash(k, 11)) * (0.6 + tm) * this.boost;
           const cx = qx + Math.cos(a) * rr;
           const cy = qy + Math.sin(a) * rr * 0.6;
           const tw = 0.5 + 0.5 * Math.sin(now / 90 + k);
-          g.fillStyle(k % 3 === 0 ? 0xffffff : lerpColor(this.head0, this.tail0, hash(k, 5)), fade * tw).fillCircle(cx, -cy, 1.5 + 2.5 * hash(k, 9));
+          g.fillStyle(k % 3 === 0 ? 0xffffff : lerpColor(this.head0, this.tail0, hash(k, 5)), fade * tw).fillCircle(cx, -cy, 2 + 3.5 * hash(k, 9));
         } else if (style === 'tongue') {
           // Flame tongues licking out sideways.
           const wob = Math.sin(now / 45 + k * 1.3);
-          const hl = (10 + 16 * hash(k, flick)) * (1 - tm);
-          g.lineStyle(6 * (1 - tm) + 2, lerpColor(0xffe066, 0xff3d12, tm * 1.5 > 1 ? 1 : tm * 1.5), 0.7 * fade).lineBetween(qx, -qy, qx + nx * hl * wob, -(qy + ny * hl * wob + 10));
+          const hl = (16 + 26 * hash(k, flick)) * (1 - tm) * this.boost;
+          g.lineStyle(9 * (1 - tm) + 3, lerpColor(0xffe066, 0xff3d12, tm * 1.5 > 1 ? 1 : tm * 1.5), 0.7 * fade).lineBetween(qx, -qy, qx + nx * hl * wob, -(qy + ny * hl * wob + 10));
         } else {
           // Helix: two strands twisting around the path.
           const ph = (hy - qy) / 40 - now / 160;

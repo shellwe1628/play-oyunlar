@@ -171,7 +171,7 @@ export class RanksScene extends OyunScene {
         g.fillStyle(PALETTE.ink, i % 2 ? 0.25 : 0.45).fillRoundedRect(L.left + 24, y - 21, L.width - 48, 42, 14);
         add(bigText(this, L.left + 44, y, `${id}`, 26, id % 10 === 0 ? PALETTE.gold : PALETTE.white).setOrigin(0, 0.5));
         const stars = '★'.repeat(((rec.stars & 1) > 0 ? 1 : 0) + ((rec.stars & 2) > 0 ? 1 : 0) + ((rec.stars & 4) > 0 ? 1 : 0));
-        add(bigText(this, L.left + 100, y, rec.attempts ? `${rec.best}%` : '—', 26, rec.done ? PALETTE.gold : PALETTE.white).setOrigin(0, 0.5));
+        add(bigText(this, L.left + 100, y, rec.attempts ? this.t('levels.best', { n: rec.best }) : '—', 26, rec.done ? PALETTE.gold : PALETTE.white).setOrigin(0, 0.5));
         add(bigText(this, L.left + 200, y, stars, 24, PALETTE.gold).setOrigin(0, 0.5));
         add(bigText(this, L.left + 300, y, rec.attempts ? this.t('records.tries', { n: rec.attempts }) : '', 22, 0xd8c8ff).setOrigin(0, 0.5));
         add(bigText(this, L.right - 44, y, rec.bestDate, 22, 0xb8a8d8).setOrigin(1, 0.5));

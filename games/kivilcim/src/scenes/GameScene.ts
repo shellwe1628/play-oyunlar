@@ -422,7 +422,7 @@ export class GameScene extends OyunScene {
       .setDepth(10);
 
     // Dark sections: darkness with a hole of light around (and ahead of) the spark.
-    this.dark = this.add.image(0, 0, 'dark-hole').setDepth(9.5).setDisplaySize(1500, 2600).setVisible(false);
+    this.dark = this.add.image(0, 0, 'dark-hole').setDepth(9.5).setDisplaySize(1700, 2400).setVisible(false);
     // Mirror sections: the twin flies mirrored.
     this.twinGlow = this.add.image(0, SPARK_Y, 'glow').setBlendMode(Phaser.BlendModes.ADD).setDepth(10).setVisible(false).setTint(0xc8b8ff);
     this.twin = this.add.image(0, SPARK_Y, 'spark-0').setDepth(11).setVisible(false).setAlpha(0.85).setTint(0xd8ccff);
@@ -1664,7 +1664,7 @@ export class GameScene extends OyunScene {
     this.mech.update(this.ry, this.rx, drawT, speed, pulse, now);
     // Dark sections: the light travels with the spark (and reaches well ahead of it).
     const dk = this.mech.darkness(this.ry);
-    this.dark.setVisible(dk > 0.01).setAlpha(dk).setPosition(this.rx, SPARK_Y - 150);
+    this.dark.setVisible(dk > 0.01).setAlpha(dk).setPosition(this.rx, SPARK_Y - 170);
     // Mirror sections: the twin.
     const twinOn = (this.phase === 'playing' || this.phase === 'resume' || (this.phase === 'dead' && !this.shattered)) && this.mech.inMirror(this.ry);
     this.twin.setVisible(twinOn);

@@ -2,12 +2,11 @@ import { button, cssColor, hashSeed, iconButton, label, muteButton, OyunScene, t
 import Phaser from 'phaser';
 import { gameSave } from '../save';
 import { planShot, solveShot, CAREFUL, type Profile } from '../sim/aimbot';
-import { countCards } from '../sim/cards';
+import { countCards, statsFor, type CardId } from '../sim/cards';
 import type { EnemyType } from '../sim/combat';
 import { bankDaily, bankProgress, bankStart, cosmeticById, dailyKey, newBank, NO_META, runOutcome } from '../sim/meta';
 import { PT } from '../sim/ragdoll';
 import { TUNING } from '../sim/tuning';
-import { skyIndex } from '../sim/waves';
 import {
   addExtraCard,
   advance,
@@ -21,6 +20,7 @@ import {
   playerOrigin,
   reroll,
   revive,
+  jumpToWave,
   shoot,
   takeEvents,
   targetPoint,
@@ -30,8 +30,12 @@ import {
   type World,
 } from '../sim/world';
 import { SFX } from '../sfx';
-import { PALETTE, SKIES } from '../textures';
-import { createScarf, drawArcher, drawArrow, drawHills, drawLedge, drawShield, drawSky, lookFor, stepScarf, type Scarf } from './art';
+import { PALETTE } from '../textures';
+import { dailyThemeOffset, themeIndex } from '../anim/themes';
+import { animate, newAnimOut, posePoint, posePoints, type AnimInput, type AnimOut } from '../anim/anim';
+import { Arena } from './arena';
+import { Trails } from './trails';
+import { createScarf, drawArcher, drawArrow, drawShield, lookFor, stepScarf, type Scarf } from './art';
 import { Fx } from './fx';
 import { HitNumbers } from './numbers';
 import { drawCardIcon } from './icons';
@@ -44,6 +48,20 @@ export const session = { finishedRuns: 0 };
 
 export function hasRevive(): boolean {
   return pendingWorld !== null && !pendingWorld.revived;
+}
+
+interface Track {
+  vx: Float64Array;
+  vy: Float64Array;
+  /** same arrays, for the renderer's view shape */
+  x: Float64Array;
+  y: Float64Array;
+  out: AnimOut;
+  release: number;
+  land: number;
+  cheer: number;
+  taunt: number;
+  brain: string;
 }
 
 export interface GameData {
@@ -88,13 +106,10 @@ export class GameScene extends OyunScene {
   private daily = false;
   private layer!: Phaser.GameObjects.Container;
   private overlay!: Phaser.GameObjects.Container;
-  private hillsFar!: Phaser.GameObjects.Graphics;
-  private hillsNear!: Phaser.GameObjects.Graphics;
+  private arena!: Arena;
+  /** theme offset: 0 for normal runs, picked from the date for the daily */
+  private themeOffset = 0;
   private sky!: Phaser.GameObjects.Graphics;
-  private skyShown = -1;
-  private clouds: Phaser.GameObjects.Image[] = [];
-  private ledgeG!: Phaser.GameObjects.Graphics;
-  private ledgeKey = '';
   private dyn!: Phaser.GameObjects.Graphics;
   private aimG!: Phaser.GameObjects.Graphics;
   private pullG!: Phaser.GameObjects.Graphics;
@@ -129,7 +144,6 @@ export class GameScene extends OyunScene {
   /** wave-start events handled */
   private waveFx = 0;
   private skyT = 0;
-  private skyLife!: Phaser.GameObjects.Graphics;
   // hud
   private hud!: Phaser.GameObjects.Container;
   private hpG!: Phaser.GameObjects.Graphics;
@@ -153,6 +167,13 @@ export class GameScene extends OyunScene {
   private rerollBtn: Button | null = null;
   private extraBtn: Button | null = null;
   private seen = new Set<string>();
+  /** per-archer animation tracks (by archer id) */
+  private tracks = new Map<number, Track>();
+  private animIn: AnimInput = { kind: 'player', id: 0, alive: true, t: 0, scale: 1, facing: 1, draw: 0, brain: '', sinceHit: 99, sinceRelease: 99, sinceLand: 99, sinceCheer: 99, sinceTaunt: 99, hp: 1, lookX: 0, lookY: 0, title: false, mood: 0 };
+  private animT = 0;
+  private lastStomp = 0;
+  private tmpPt = { x: 0, y: 0 };
+  private trails = new Trails(80);
   private numbers!: HitNumbers;
   private hintText: Phaser.GameObjects.Text | null = null;
   private lastTeach = 0;
@@ -179,9 +200,9 @@ export class GameScene extends OyunScene {
     this.cardUi = null;
     this.titleUi = null;
     this.scarves.clear();
+    this.tracks.clear();
+    this.animT = 0;
     this.seen.clear();
-    this.skyShown = -1;
-    this.ledgeKey = '';
     this.dragId = -1;
     this.buffered = null;
     this.slowT = 0;
@@ -225,27 +246,12 @@ export class GameScene extends OyunScene {
     for (const e of this.w.enemies) this.seen.add(e.type);
 
     // ---- world layer (zoomable)
-    this.cameras.main.setBackgroundColor(SKIES[0].top);
     this.layer = this.add.container(0, 0);
-    this.sky = this.add.graphics();
-    this.hillsFar = this.add.graphics();
-    this.hillsNear = this.add.graphics();
-    this.layer.add([this.sky, this.hillsFar]);
-    this.clouds = [];
-    for (let i = 0; i < 5; i++) {
-      const c = this.add.image(Math.random() * W, 120 + i * 150 + Math.random() * 60, 'cloud').setAlpha(0.75).setScale(0.5 + Math.random() * 0.7);
-      c.setData('v', 8 + Math.random() * 16);
-      this.clouds.push(c);
-      this.layer.add(c);
-    }
-    // far-off life in the upper sky: tiny birds and drifting balloons, pale so they never read as targets
-    this.skyLife = this.add.graphics();
-    this.layer.add(this.skyLife);
-    this.layer.add(this.hillsNear);
-    this.ledgeG = this.add.graphics();
+    this.arena = new Arena(this, this.layer);
+    this.themeOffset = this.daily ? dailyThemeOffset(this.todayKey()) : 0;
     this.dyn = this.add.graphics();
     this.aimG = this.add.graphics();
-    this.layer.add([this.ledgeG, this.dyn, this.aimG]);
+    this.layer.add([this.dyn, this.aimG]);
     this.appleImgs = this.w.apples.map(() => {
       const img = this.add.image(0, 0, 'apple').setVisible(false);
       this.layer.add(img);
@@ -259,8 +265,8 @@ export class GameScene extends OyunScene {
     this.vignette = this.add.image(W / 2, H / 2, 'okcu-vignette').setScale(2).setTint(PALETTE.danger).setAlpha(0).setDepth(45);
     this.flash = this.add.rectangle(W / 2, H / 2, W + 200, H + 200, PALETTE.white, 1).setAlpha(0).setDepth(46);
     this.buildHud();
-    this.refreshSky();
-    this.refreshLedges();
+    this.arena.setTheme(themeIndex(this.w.wave, this.themeOffset), true);
+    this.arena.setLedges(this.w.ledges, this.w.wave);
 
     // ---- input: drag anywhere; buttons win
     this.input.addPointer(2);
@@ -356,10 +362,26 @@ export class GameScene extends OyunScene {
     const c = this.add.container(0, 0).setDepth(70);
     const save = gameSave(this.oyun).data;
     if (!quick) {
-      const logo = label(this, L.cx, L.top + 190, this.t('title.name'), { size: 72, color: PALETTE.cream, wrap: 690 }).setStroke(cssColor(PALETTE.ink), 18);
+      const box = this.add.container(L.cx, L.top + 190);
+      const logo = label(this, 0, 0, this.t('title.name'), { size: 72, color: PALETTE.cream, wrap: 690 }).setStroke(cssColor(PALETTE.ink), 18);
       logo.setShadow(0, 10, cssColor(PALETTE.inkSoft), 0, true, true);
-      c.add(logo);
-      this.tweens.add({ targets: logo, angle: { from: -2.5, to: 2.5 }, yoyo: true, repeat: -1, duration: 1100, ease: 'Sine.easeInOut' });
+      // living detail: an arrow stuck in the last letter that boings every few seconds
+      const arrow = this.add.graphics().setPosition(logo.width / 2 - 70, -logo.height / 2 + 22).setScale(1.3);
+      arrow.lineStyle(9, PALETTE.ink, 1).lineBetween(0, 0, 54, -40);
+      arrow.lineStyle(5, PALETTE.shaftLight, 1).lineBetween(0, 0, 54, -40);
+      arrow.fillStyle(PALETTE.ink, 1).fillTriangle(42, -40, 60, -27, 64, -56);
+      arrow.fillStyle(PALETTE.fletch, 1).fillTriangle(45, -39, 58, -30, 61, -51);
+      box.add([logo, arrow]);
+      c.add(box);
+      this.tweens.add({ targets: box, angle: { from: -2.5, to: 2.5 }, yoyo: true, repeat: -1, duration: 1100, ease: 'Sine.easeInOut' });
+      this.time.addEvent({
+        delay: 3200,
+        loop: true,
+        callback: () => {
+          arrow.setAngle(-14);
+          this.tweens.add({ targets: arrow, angle: 0, duration: 700, ease: 'Elastic.easeOut', easeParams: [1.4, 0.25] });
+        },
+      });
       this.juice.pop(logo, 1.25, 500);
     }
     const subY = L.top + (quick ? 170 : 290);
@@ -580,6 +602,7 @@ export class GameScene extends OyunScene {
       this.release(b.angle, b.power);
     }
     advance(this.w, dt);
+    this.animT += dt;
     // every event since the last frame (including a shot fired before this step), exactly once
     this.handleEvents(takeEvents(this.w));
     this.fx.update(dt);
@@ -588,8 +611,8 @@ export class GameScene extends OyunScene {
     this.coinPop = Math.max(0, this.coinPop - real * 5);
     this.hurtFlash = Math.max(0, this.hurtFlash - real * 2.5);
     this.updateCamera(real);
-    this.refreshSky();
-    this.refreshLedges();
+    this.arena.setTheme(themeIndex(this.w.wave, this.themeOffset), false);
+    this.arena.setLedges(this.w.ledges, this.w.wave);
     this.render(dt);
     this.syncHud();
     this.frameMs.push(performance.now() - t0);
@@ -610,12 +633,7 @@ export class GameScene extends OyunScene {
     this.layer.setScale(z);
     this.layer.setPosition(fx * (1 - z) + (360 - fx) * k + this.pushX, fy * (1 - z) + (640 - fy) * k + this.pushY);
     // parallax: hills shift opposite to the push
-    this.hillsFar.setPosition(-this.pushX * 0.5, -this.pushY * 0.3);
-    this.hillsNear.setPosition(-this.pushX * 0.25, -this.pushY * 0.15);
-    for (const c of this.clouds) {
-      c.x += (c.getData('v') as number) * real;
-      if (c.x > W + 160) c.x = -160;
-    }
+    this.arena.update(real, this.pushX, this.pushY);
     // red vignette on damage; white flash on a headshot
     this.vignette.setAlpha(this.hurtFlash * 0.85);
     this.flash.setAlpha(this.flashA);
@@ -625,27 +643,6 @@ export class GameScene extends OyunScene {
     return { x: this.layer.x + x * this.layer.scaleX, y: this.layer.y + y * this.layer.scaleY };
   }
 
-  private refreshSky(): void {
-    const s = skyIndex(this.w.wave, SKIES.length);
-    if (s === this.skyShown) return;
-    this.skyShown = s;
-    this.sky.clear();
-    drawSky(this.sky, s, W, H);
-    this.hillsFar.clear();
-    drawHills(this.hillsFar, s, W, H, 0);
-    this.hillsNear.clear();
-    drawHills(this.hillsNear, s, W, H, 1);
-    this.cameras.main.setBackgroundColor(SKIES[s]!.top);
-  }
-
-  private refreshLedges(): void {
-    const key = this.w.ledges.map((l) => `${l.x},${l.y}`).join('|');
-    if (key === this.ledgeKey) return;
-    this.ledgeKey = key;
-    this.ledgeG.clear();
-    this.w.ledges.forEach((l, i) => drawLedge(this.ledgeG, l, i + this.w.wave));
-  }
-
   private render(dt: number): void {
     const w = this.w;
     const g = this.dyn;
@@ -653,17 +650,22 @@ export class GameScene extends OyunScene {
     const time = w.time;
     const cos = cosmeticById(gameSave(this.oyun).data.cosmetic);
     // arrows in ledges sit behind bodies
-    for (const a of w.arrows) if (a.active && a.state === 1) drawArrow(g, a, time);
-    const archers: Archer[] = [...w.enemies, w.player];
-    for (const a of archers) {
+    const multi = w.stats.volleys > 1 || w.stats.splitPairs > 0;
+    const halo = this.arena.theme.dark;
+    for (const a of w.arrows) if (a.active && a.state === 1) drawArrow(g, a, time, multi, halo);
+    this.trails.update(w.arrows);
+    this.trails.draw(g, w.arrows, time);
+    for (let k = 0; k <= w.enemies.length; k++) {
+      const a = k < w.enemies.length ? w.enemies[k]! : w.player;
       if (a.gone) continue;
+      const tr = this.animate(a);
       let scarf = this.scarves.get(a.id);
       if (!scarf) {
-        scarf = createScarf(a.body.x[PT.neck]!, a.body.y[PT.neck]!);
+        scarf = createScarf(tr.vx[PT.neck]!, tr.vy[PT.neck]!);
         this.scarves.set(a.id, scarf);
       }
       const wind = a.type === 'player' ? -520 : 520;
-      stepScarf(scarf, a.body.x[PT.neck]! - a.facing * 4, a.body.y[PT.neck]! + 4, wind, Math.max(1 / 240, Math.min(dt, 1 / 30)), time);
+      stepScarf(scarf, tr.vx[PT.neck]! - a.facing * 4, tr.vy[PT.neck]! + 4, wind, Math.max(1 / 240, Math.min(dt, 1 / 30)), time, tr.out.scarfLift);
       const shield = a.shield;
       if (shield && a.shieldOn) drawShield(g, shield.x[0]!, shield.y[0]!, shield.x[1]!, shield.y[1]!, TUNING.shieldHits - a.shieldHp, a.hurt < 0.06 ? 0.6 : 0);
       drawArcher(g, a, lookFor(a, cos), {
@@ -673,15 +675,41 @@ export class GameScene extends OyunScene {
         hpBar: a.type !== 'player' && a.hp < a.maxHp,
         telegraph: a.alive && a.type !== 'player' && a.brain === 'draw' && a.draw > 0.15,
         weakHint: a.type === 'boss',
+        view: tr,
+        face: tr.out,
       });
       if (shield && !a.shieldOn) drawShield(g, shield.x[0]!, shield.y[0]!, shield.x[1]!, shield.y[1]!, 3, 0);
     }
-    for (const a of w.arrows) if (a.active && a.state !== 1) drawArrow(g, a, time);
+    for (const a of w.arrows) {
+      if (!a.active || a.state === 1) continue;
+      if (a.state === 2) {
+        // stuck in a body: ride along with that archer's animation (drawn position only)
+        const tr = this.tracks.get(a.host);
+        const host = tr ? (a.host === w.player.id ? w.player : w.enemies.find((e) => e.id === a.host)) : undefined;
+        if (tr && host && host.alive) {
+          posePoint(host.body.x, host.body.y, tr.out, a.x, a.y, this.tmpPt);
+          const ox = a.x;
+          const oy = a.y;
+          a.x = this.tmpPt.x;
+          a.y = this.tmpPt.y;
+          drawArrow(g, a, time, multi, halo);
+          a.x = ox;
+          a.y = oy;
+          continue;
+        }
+      }
+      drawArrow(g, a, time, multi, halo);
+    }
     // apples
     w.apples.forEach((ap, i) => {
       const img = this.appleImgs[i]!;
       img.setVisible(ap.active);
-      if (ap.active) img.setPosition(ap.x, ap.y).setRotation(Math.sin(ap.t * 3) * 0.25).setScale(w.stats.appleRadiusMul > 1 ? 1.25 : 1);
+      if (ap.active) {
+        // a jelly wobble while it drifts
+        const base = w.stats.appleRadiusMul > 1 ? 1.25 : 1;
+        const wob = Math.sin(ap.t * 7) * 0.07;
+        img.setPosition(ap.x, ap.y).setRotation(Math.sin(ap.t * 3) * 0.25).setScale(base * (1 + wob), base * (1 - wob));
+      }
     });
     // reload ring around the bow hand
     const p = w.player;
@@ -693,8 +721,117 @@ export class GameScene extends OyunScene {
       g.lineStyle(4, PALETTE.white, 1).beginPath().arc(hx, hy, 30, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * k, false).strokePath();
     }
     this.drawBubble();
-    this.drawSkyLife();
     this.renderAim();
+  }
+
+  /** Animation state for one archer this frame (pure layer in src/anim; never written back to the sim). */
+  private animate(a: Archer): Track {
+    let tr = this.tracks.get(a.id);
+    if (!tr) {
+      tr = { vx: new Float64Array(11), vy: new Float64Array(11), x: new Float64Array(0), y: new Float64Array(0), out: newAnimOut(), release: -99, land: -99, cheer: -99, taunt: -99, brain: a.brain };
+      tr.x = tr.vx;
+      tr.y = tr.vy;
+      this.tracks.set(a.id, tr);
+    }
+    // landing from a drop-in or a hop
+    if ((tr.brain === 'spawn' || tr.brain === 'jump') && a.brain !== 'spawn' && a.brain !== 'jump') {
+      tr.land = this.animT;
+      if (a.type === 'boss' && tr.brain === 'spawn') {
+        // the boss's entry beat: thud, roar, shake, dust
+        this.oyun.audio.playPreset(SFX.roar);
+        this.juice.shake(0.6);
+        this.fx.puffs(a.body.x[PT.pelvis]!, a.body.y[PT.footF]!, 8, PALETTE.dust, 240);
+      }
+    }
+    tr.brain = a.brain;
+    const w = this.w;
+    const inp = this.animIn;
+    inp.kind = a.type;
+    inp.id = a.id;
+    inp.alive = a.alive;
+    inp.t = this.animT;
+    inp.scale = a.scale;
+    inp.facing = a.facing;
+    inp.draw = a.draw;
+    inp.brain = a.type === 'player' ? 'player' : a.brain;
+    inp.sinceHit = a.hurt < 9 ? a.hurt : 99;
+    inp.sinceRelease = this.animT - tr.release;
+    inp.sinceLand = this.animT - tr.land;
+    inp.sinceCheer = this.animT - tr.cheer;
+    inp.sinceTaunt = this.animT - tr.taunt;
+    inp.hp = a.maxHp > 0 ? a.hp / a.maxHp : 1;
+    inp.title = w.phase === 'title' && a.type === 'player';
+    inp.mood = 0;
+    this.lookFor(a, inp);
+    animate(inp, tr.out);
+    posePoints(a.body.x, a.body.y, a.body.n, tr.out, tr.vx, tr.vy);
+    if (tr.out.stomp > 0 && this.animT - this.lastStomp > 0.5) {
+      this.lastStomp = this.animT;
+      this.juice.shake(0.12);
+      this.fx.puffs(tr.vx[PT.footF]!, tr.vy[PT.footF]!, 3, PALETTE.dust, 90);
+    }
+    return tr;
+  }
+
+  private track(id: number): Track {
+    let tr = this.tracks.get(id);
+    if (!tr) {
+      tr = { vx: new Float64Array(11), vy: new Float64Array(11), x: new Float64Array(0), y: new Float64Array(0), out: newAnimOut(), release: -99, land: -99, cheer: -99, taunt: -99, brain: '' };
+      tr.x = tr.vx;
+      tr.y = tr.vy;
+      this.tracks.set(id, tr);
+    }
+    return tr;
+  }
+
+  /** Eyes track the nearest threat: an incoming arrow, else the other side. */
+  private lookFor(a: Archer, inp: AnimInput): void {
+    const hx = a.body.x[PT.head]!;
+    const hy = a.body.y[PT.head]!;
+    let best = 600 * 600;
+    let lx = 0;
+    let ly = 0;
+    const want = a.type === 'player' ? 'enemy' : 'player';
+    for (const ar of this.w.arrows) {
+      if (!ar.active || ar.state !== 0 || ar.owner !== want) continue;
+      const dx = ar.x - hx;
+      const dy = ar.y - hy;
+      const d2 = dx * dx + dy * dy;
+      if (d2 < best) {
+        best = d2;
+        lx = dx;
+        ly = dy;
+      }
+    }
+    if (lx === 0 && ly === 0) {
+      // nothing in the air: watch the other side (the player watches the nearest enemy)
+      let tx = 0;
+      let ty = 0;
+      if (a.type === 'player') {
+        let bd = Infinity;
+        for (const e of this.w.enemies) {
+          if (!e.alive) continue;
+          const d = Math.abs(e.body.x[PT.head]! - hx) + Math.abs(e.body.y[PT.head]! - hy);
+          if (d < bd) {
+            bd = d;
+            tx = e.body.x[PT.head]!;
+            ty = e.body.y[PT.head]!;
+          }
+        }
+        if (bd === Infinity) {
+          tx = hx + 100;
+          ty = hy;
+        }
+      } else {
+        tx = this.w.player.body.x[PT.head]!;
+        ty = this.w.player.body.y[PT.head]!;
+      }
+      lx = tx - hx;
+      ly = ty - hy;
+    }
+    const l = Math.hypot(lx, ly) || 1;
+    inp.lookX = lx / l;
+    inp.lookY = ly / l;
   }
 
   /** The bubble card made visible: a wobbling soap bubble around the archer while a block is left. */
@@ -710,32 +847,6 @@ export class GameScene extends OyunScene {
     g.lineStyle(6, PALETTE.bubble, 0.9).strokeCircle(cx, cy, r);
     g.fillStyle(PALETTE.white, 0.7).fillEllipse(cx - r * 0.45, cy - r * 0.5, r * 0.32, r * 0.16);
     if (this.w.shieldLeft > 1) g.lineStyle(3, PALETTE.white, 0.5).strokeCircle(cx, cy, r - 12);
-  }
-
-  private drawSkyLife(): void {
-    const g = this.skyLife;
-    g.clear();
-    const t = this.skyT;
-    const sky = SKIES[this.skyShown % SKIES.length]!;
-    // two hot-air balloons, far away (small, hazy)
-    for (let i = 0; i < 2; i++) {
-      const x = ((t * (6 + i * 3) + i * 380) % (W + 120)) - 60;
-      const y = 170 + i * 120 + Math.sin(t * 0.6 + i * 2) * 14;
-      g.fillStyle(i === 0 ? PALETTE.pink : PALETTE.powerMid, 0.38).fillCircle(x, y, 17).fillTriangle(x - 15, y + 8, x + 15, y + 8, x, y + 26);
-      g.fillStyle(sky.far, 0.6).fillRect(x - 5, y + 27, 10, 8);
-    }
-    // a little flock crossing now and then
-    const cycle = 26;
-    const k = (t % cycle) / cycle;
-    if (k < 0.55) {
-      const bx = -60 + (k / 0.55) * (W + 160);
-      for (let i = 0; i < 4; i++) {
-        const x = bx - i * 26;
-        const y = 250 + i * 9 + Math.sin(t * 2 + i) * 6;
-        const f = Math.sin(t * 12 + i * 1.7) * 6;
-        g.lineStyle(3, sky.near, 0.75).lineBetween(x - 9, y - f, x, y).lineBetween(x, y, x + 9, y - f);
-      }
-    }
   }
 
   /** Dotted arc preview (world layer) + the rubber band under the thumb (screen). */
@@ -785,6 +896,7 @@ export class GameScene extends OyunScene {
       switch (e.t) {
         case 'shot': {
           this.shotFx += 1;
+          this.track(this.w.player.id).release = this.animT;
           audio.playPreset(SFX.snap, { pitch: e.power * 3 });
           audio.playPreset(SFX.whistle, { volume: 0.6 + e.power * 0.4, pitch: e.power * 2 });
           this.oyun.platform.haptic('light');
@@ -838,6 +950,7 @@ export class GameScene extends OyunScene {
           this.fx.sparks(e.x, e.y, 3, PALETTE.white, 200);
           break;
         case 'playerHit': {
+          if (e.by >= 0) this.track(e.by).taunt = this.animT;
           audio.playPreset(SFX.ouch);
           audio.playPreset(SFX.thunk, { volume: 0.7, pitch: -3 });
           this.juice.shake(0.5);
@@ -868,6 +981,7 @@ export class GameScene extends OyunScene {
           if (word) this.numbers.word(e.id, s.x, s.y, word, PALETTE.cream, 60);
           this.flyCoins(s.x, s.y, e.coins);
           if (e.enemy === 'boss') {
+            this.treasure(e.x, e.y, s.x, s.y);
             this.juice.feedback('large', s.x, s.y, PALETTE.gold);
             this.slowT = 0.3;
             this.zoom = 0.14;
@@ -878,14 +992,16 @@ export class GameScene extends OyunScene {
         }
         case 'poof': {
           audio.playPreset(SFX.poof);
+          this.fx.poof(e.x, e.y, ENEMY_TINT[e.enemy], e.enemy === 'boss' ? 1.6 : 1);
           this.fx.feathers(e.x, e.y, ENEMY_TINT[e.enemy], e.enemy === 'boss' ? 30 : 16);
           this.scarves.delete(e.id);
           break;
         }
         case 'thunk':
           audio.playPreset(SFX.thock, { volume: e.owner === 'player' ? 1 : 0.5 });
-          this.fx.shards(e.x, e.y, -Math.PI / 2, PALETTE.soil, 4, 260);
-          this.fx.puffs(e.x, e.y, 2, PALETTE.dust, 60);
+          // the ledge throws up its own stuff: dirt, snow, sand or stone chips
+          this.fx.shards(e.x, e.y, -Math.PI / 2, this.arena.theme.debris, 6, 280);
+          this.fx.puffs(e.x, e.y, 3, this.arena.theme.ambient === 'snow' ? PALETTE.white : PALETTE.dust, 70);
           break;
         case 'bounce':
           audio.playPreset(SFX.thock, { pitch: 7 });
@@ -894,15 +1010,20 @@ export class GameScene extends OyunScene {
         case 'shieldHit': {
           audio.playPreset(SFX.clang, { pitch: e.broke ? -4 : 0 });
           this.fx.sparks(e.x, e.y, e.broke ? 14 : 6, PALETTE.gold, 380);
+          this.fx.ring(e.x, e.y, PALETTE.metalLight, e.broke ? 1.8 : 1.1, 0.22);
           this.fx.shards(e.x, e.y, Math.PI, PALETTE.shieldWood, e.broke ? 12 : 4);
           this.juice.shake(e.broke ? 0.4 : 0.15);
           break;
         }
         case 'bomb': {
           audio.playPreset(SFX.boom, { volume: e.popped ? 0.7 : 1 });
-          this.fx.ring(e.x, e.y, PALETTE.fire, 2.4, 0.35);
+          // shockwave, fireball, smoke and debris
+          this.fx.ring(e.x, e.y, PALETTE.fire, 2.6, 0.35);
+          this.fx.ring(e.x, e.y, PALETTE.white, 1.6, 0.2);
+          this.fx.spawn('puff', e.x, e.y, 0, -30, { life: 0.35, scale: 1.6, scaleEnd: 3.2, tint: PALETTE.fireCore, alpha: 0.95 });
           this.fx.sparks(e.x, e.y, 16, PALETTE.fire, 520);
           this.fx.puffs(e.x, e.y, 8, PALETTE.smoke, 220);
+          this.fx.shards(e.x, e.y, -Math.PI / 2, PALETTE.bomb, 8, 420);
           this.juice.shake(e.hurt ? 0.7 : 0.35);
           if (e.popped) {
             const s = this.toScreen(e.x, e.y);
@@ -912,8 +1033,11 @@ export class GameScene extends OyunScene {
         }
         case 'apple': {
           audio.playPreset(SFX.crunch);
-          this.fx.shards(e.x, e.y, 0, PALETTE.apple, 10, 300);
-          this.fx.sparks(e.x, e.y, 6, PALETTE.heal, 200);
+          // juicy pop: a flash, red juice drops, a spinning leaf, green sparkles
+          this.fx.ring(e.x, e.y, PALETTE.white, 1.3, 0.2);
+          this.fx.shards(e.x, e.y, 0, PALETTE.apple, 14, 340);
+          this.fx.shards(e.x, e.y, Math.PI / 2, PALETTE.leaf, 2, 200);
+          this.fx.sparks(e.x, e.y, 8, PALETTE.heal, 220);
           const s = this.toScreen(e.x, e.y);
           this.float(s.x, s.y - 40, `+${e.heal}`, { size: 52, color: PALETTE.heal });
           break;
@@ -928,6 +1052,7 @@ export class GameScene extends OyunScene {
           audio.playPreset(SFX.enemyDraw, { volume: 0.8 });
           break;
         case 'enemyShot':
+          this.track(e.id).release = this.animT;
           audio.playPreset(SFX.enemySnap);
           if (e.kind === 'bomb') audio.playPreset(SFX.fuse);
           break;
@@ -936,6 +1061,7 @@ export class GameScene extends OyunScene {
           this.onWaveStart(e.wave);
           break;
         case 'waveClear': {
+          this.track(this.w.player.id).cheer = this.animT;
           // bank at every wave clear: nothing earned is lost if the app dies at the card pick
           this.bank(e.wave + 1);
           // let the knockout land first
@@ -967,6 +1093,27 @@ export class GameScene extends OyunScene {
     }
   }
 
+  /** A boss falls: golden rays, a coin fountain and confetti. */
+  private treasure(x: number, y: number, sx: number, sy: number): void {
+    const rays = this.add.graphics().setDepth(48);
+    rays.setPosition(sx, sy);
+    const draw = (): void => {
+      rays.clear();
+      for (let i = 0; i < 12; i++) {
+        const a = (i / 12) * Math.PI * 2;
+        rays.fillStyle(i % 2 ? PALETTE.gold : PALETTE.cream, 0.5).fillTriangle(0, 0, Math.cos(a - 0.12) * 260, Math.sin(a - 0.12) * 260, Math.cos(a + 0.12) * 260, Math.sin(a + 0.12) * 260);
+      }
+    };
+    draw();
+    rays.setScale(0.2).setAlpha(0.9);
+    this.tweens.add({ targets: rays, scale: 1.2, angle: 70, duration: 1500, ease: 'Cubic.easeOut' });
+    this.tweens.add({ targets: rays, alpha: 0, delay: 900, duration: 700, onComplete: () => rays.destroy() });
+    const colors = [PALETTE.gold, PALETTE.pink, PALETTE.bubble, PALETTE.leaf, PALETTE.white];
+    for (let i = 0; i < 5; i++) this.fx.shards(x, y - 20, -Math.PI / 2, colors[i]!, 6, 560);
+    this.oyun.audio.play('win');
+    this.flyCoins(sx, sy, 24);
+  }
+
   private flyCoins(x: number, y: number, amount: number): void {
     const target = this.coinTarget();
     const n = Math.min(12, Math.max(3, Math.round(amount / 2)));
@@ -994,8 +1141,6 @@ export class GameScene extends OyunScene {
       this.seen.add(t);
     }
     if (types.has('boss')) {
-      audio.playPreset(SFX.roar);
-      this.juice.shake(0.5);
       this.showBanner(this.t('hud.bossWave'), intro ?? this.t('hud.new.boss'));
     } else {
       audio.playPreset(SFX.drum);
@@ -1114,7 +1259,10 @@ export class GameScene extends OyunScene {
       g.fillStyle(PALETTE.cardEdge, 1).fillRoundedRect(-cw / 2, -ch / 2, cw, ch, 26);
       g.fillStyle(PALETTE.card, 1).fillRoundedRect(-cw / 2 + 8, -ch / 2 + 8, cw - 16, ch - 16, 20);
       g.fillStyle(PALETTE.cardIcon, 1).fillCircle(-cw / 2 + 96, 0, 70);
-      drawCardIcon(g, id, -cw / 2 + 96, 0);
+      // the icon lives in its own graphics so it can sway, squash on press and spin on pick
+      const icon = this.add.graphics().setPosition(-cw / 2 + 96, 0);
+      drawCardIcon(icon, id, 0, 0);
+      card.setData('icon', icon);
       const held = countCards(this.w.cards, id);
       // name and description measured and stacked as one block, centred in the card
       const name = label(this, -cw / 2 + 190, 0, this.t(`card.${id}.name`), { size: 44, color: PALETTE.ink }).setOrigin(0, 0);
@@ -1125,7 +1273,8 @@ export class GameScene extends OyunScene {
       const blockH = (name.height + 8 + desc.height) * fitK;
       name.setY(-blockH / 2);
       desc.setY(-blockH / 2 + (name.height + 8) * fitK);
-      card.add([g, name, desc]);
+      card.add([g, icon, name, desc]);
+      this.tweens.add({ targets: icon, angle: { from: -7, to: 7 }, y: { from: 3, to: -3 }, yoyo: true, repeat: -1, duration: 900 + i * 130, ease: 'Sine.easeInOut', delay: i * 160 });
       if (held > 0) {
         const badge = this.add.graphics();
         badge.fillStyle(PALETTE.ink, 1).fillCircle(cw / 2 - 44, -ch / 2 + 38, 36);
@@ -1153,6 +1302,11 @@ export class GameScene extends OyunScene {
       });
       const zone = this.add.zone(L.cx, y, cw, ch).setInteractive({ useHandCursor: true });
       zone.on(Phaser.Input.Events.GAMEOBJECT_POINTER_UP, () => this.onPickCard(i));
+      zone.on(Phaser.Input.Events.GAMEOBJECT_POINTER_DOWN, () => {
+        icon.setScale(0.78, 0.9);
+        this.tweens.add({ targets: icon, scaleX: 1.15, scaleY: 1.15, duration: 160, ease: 'Back.easeOut' });
+      });
+      zone.on(Phaser.Input.Events.GAMEOBJECT_POINTER_OUT, () => this.tweens.add({ targets: icon, scaleX: 1, scaleY: 1, duration: 120 }));
       c.add(zone);
       this.cardHits.push(zone);
       this.cardRects[`card${i}`] = [L.cx - cw / 2, y - ch / 2, cw, ch];
@@ -1177,6 +1331,11 @@ export class GameScene extends OyunScene {
     cards.forEach((card, k) => {
       this.tweens.killTweensOf(card);
       if (k === i) {
+        const icon = card.getData('icon') as Phaser.GameObjects.Graphics | undefined;
+        if (icon) {
+          this.tweens.killTweensOf(icon);
+          this.tweens.add({ targets: icon, angle: 360, scaleX: 1.5, scaleY: 1.5, duration: 420, ease: 'Back.easeOut' });
+        }
         this.tweens.add({ targets: card, scale: 1.12, duration: 120, yoyo: true, ease: 'Quad.easeOut' });
         this.tweens.add({ targets: card, y: this.layout.top + 40, scale: 0.2, alpha: 0, delay: 260, duration: 260, ease: 'Cubic.easeIn' });
       } else {
@@ -1306,6 +1465,20 @@ export class GameScene extends OyunScene {
       'perf-reset': () => {
         this.frameMs = [];
         this.stepMs = [];
+      },
+      // capture aids (screenshots of later waves and card looks); never used by the gate
+      'jump-wave': (p: unknown) => {
+        if (this.w.phase === 'title') this.release(-1.45, 0.2);
+        const n = typeof p === 'object' && p !== null ? (p as { wave: number; drop?: boolean }) : { wave: Number(p) || 1 };
+        jumpToWave(this.w, Math.max(1, n.wave), n.drop === true);
+        this.tracks.clear();
+      },
+      god: () => {
+        this.w.player.maxHp = this.w.player.hp = 1e6;
+      },
+      'give-cards': (p: unknown) => {
+        for (const id of p as CardId[]) this.w.cards.push(id);
+        this.w.stats = statsFor(this.w.cards, this.w.meta);
       },
       timescale: (p: unknown) => {
         this.debugScale = Number(p) || 1;

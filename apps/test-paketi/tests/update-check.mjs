@@ -206,7 +206,9 @@ async function open(browser, { locale = 'en-US', native = {}, scenario = {}, vie
   const page = await context.newPage();
   const errors = [];
   page.on('pageerror', (e) => errors.push(e.message));
-  page.on('console', (m) => m.type() === 'error' && errors.push(m.text()));
+  // The fake bridge's own fetch of a 404 manifest logs "Failed to load resource" for the fake
+  // release URL; on the phone that request is native and invisible to the page.
+  page.on('console', (m) => m.type() === 'error' && !m.location().url?.startsWith(releaseUrl) && errors.push(m.text()));
   const cdp = await context.newCDPSession(page);
   return { context, page, errors, cdp };
 }
@@ -218,7 +220,7 @@ const visible = (page) =>
     const h = document.getElementById('oyun-test-update');
     return !!h && h.style.display !== 'none' && h.style.visibility !== 'hidden' && h.getBoundingClientRect().height > 0;
   });
-const text = (page) => page.evaluate(() => document.getElementById('oyun-test-update')?.shadowRoot?.textContent ?? '');
+const text = (page) => page.evaluate(() => document.getElementById('oyun-test-update')?.shadowRoot?.querySelector('.b')?.textContent ?? '');
 const calls = (page) => page.evaluate(() => window.__nativeCalls.slice());
 const shot = (page, name) => page.screenshot({ path: join(SHOTS, `${name}.png`) });
 
@@ -357,14 +359,14 @@ try {
   });
 
   await scenario('Update: download with progress → SHA-256 ok → installer; double tap starts nothing twice; backing out', async () => {
-    const { context, page } = await open(browser, { scenario: { chunkDelay: 60 } });
+    const { context, page } = await open(browser, { scenario: { chunkDelay: 150 } });
     await page.goto(`${base}/`);
     await waitState(page, 'available');
     const btn = page.locator('#oyun-test-update button[data-event="update"]');
     await btn.tap();
     await btn.tap({ timeout: 300 }).catch(() => undefined); // second tap: button already gone
     await waitState(page, 'downloading');
-    await page.waitForTimeout(1500);
+    await page.waitForTimeout(1200);
     const t = await text(page);
     const pct = /(\d+)%/.exec(t)?.[1];
     check(pct !== undefined && Number(pct) > 0 && Number(pct) < 100, `progress shown (${pct}%)`);

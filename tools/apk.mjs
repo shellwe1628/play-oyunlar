@@ -354,7 +354,9 @@ function patchNative(t, work, info) {
   ];
   const kept = pristine('app/src/main/res/values/strings.xml')
     .split('\n')
-    .filter((l) => !/name="(app_name|title_activity_main|back_again_to_leave)"/.test(l));
+    .filter((l) => !/name="(app_name|title_activity_main|back_again_to_leave)"/.test(l))
+    // Capacitor's identifiers are not texts: without this, values-tr makes lint report them untranslated.
+    .map((l) => (/name="(package_name|custom_url_scheme)"/.test(l) && !l.includes('translatable=') ? l.replace('<string ', '<string translatable="false" ') : l));
   kept.splice(
     kept.findIndex((l) => l.includes('</resources>')),
     0,

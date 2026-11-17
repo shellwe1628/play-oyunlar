@@ -21,7 +21,7 @@
 // A fake `window.Capacitor` (isNativePlatform → true) is injected like the APK's native bridge.
 // Screenshots: apps/test-paketi/tests/artifacts/.
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { dirname, extname, join, normalize, resolve } from 'node:path';
@@ -284,8 +284,9 @@ const HOOKED = {
 const dir = webDir();
 const server = await serve(dir);
 const base = `http://127.0.0.1:${server.address().port}`;
-rmSync(SHOTS, { recursive: true, force: true }); // no stale screenshots of an older line-up
+// No stale screenshots of an older line-up; update-check.mjs keeps its own in artifacts/update/.
 mkdirSync(SHOTS, { recursive: true });
+for (const f of readdirSync(SHOTS)) if (f.endsWith('.png')) rmSync(join(SHOTS, f));
 const browser = await launch();
 try {
   // --- launcher in English

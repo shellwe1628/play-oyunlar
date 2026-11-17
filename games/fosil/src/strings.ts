@@ -81,6 +81,7 @@ export const STRINGS = defineStrings({
     'museum.locked': 'Reach {n} power to open',
     'museum.power': 'Power {n} each',
     'museum.back': 'Dig',
+    'museum.rarest': 'Rarest',
     'museum.detailGrades': 'Plain {a} · Bronze {b} · Silver {c} · Gold {d}',
     'museum.fuseRule': 'Three copies fuse into the next grade.',
 
@@ -242,6 +243,7 @@ export const STRINGS = defineStrings({
     'museum.locked': 'Açmak için {n} güç',
     'museum.power': 'Tanesi {n} güç',
     'museum.back': 'Kaz',
+    'museum.rarest': 'En nadir',
     'museum.detailGrades': 'Sade {a} · Bronz {b} · Gümüş {c} · Altın {d}',
     'museum.fuseRule': 'Üç kopya birleşip bir üst dereceye çıkar.',
 

@@ -1,6 +1,7 @@
 import { starTexture, type TextureRecipe } from '@oyun/core';
 import Phaser from 'phaser';
 import { drawFossil, FOSSIL_SIZE } from './art/fossils';
+import { FX_TEXTURES } from './art/fxTextures';
 import { FOSSILS } from './sim/data';
 
 /**
@@ -40,6 +41,7 @@ const fossilTextures: TextureRecipe[] = FOSSILS.map((f) => ({
 /** Textures are drawn with code at boot. Draw at the size you display (logical px). */
 export const TEXTURES: readonly TextureRecipe[] = [
   ...fossilTextures,
+  ...FX_TEXTURES,
   starTexture('spark', 18, 4, 0xffffff, 0.28),
   {
     // rock chip debris

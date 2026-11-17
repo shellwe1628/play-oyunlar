@@ -5,7 +5,8 @@
  */
 import type Phaser from 'phaser';
 import type { Ledge } from '../sim/body';
-import type { Cosmetic } from '../sim/meta';
+import type { BowSkin, Cosmetic } from '../sim/meta';
+import type { AnimOut } from '../anim/anim';
 import { PT } from '../sim/ragdoll';
 import type { Archer, Arrow } from '../sim/world';
 import { PALETTE, SKIES } from '../textures';
@@ -17,22 +18,23 @@ export interface Look {
   shade: number;
   hat: Cosmetic['hat'] | 'hood' | 'helmet' | 'band' | 'goggles' | 'horns-boss';
   scarf: number;
+  bow: BowSkin;
 }
 
 export function lookFor(a: Archer, cosmetic: Cosmetic): Look {
   switch (a.type) {
     case 'player':
-      return { body: PALETTE.player, shade: PALETTE.playerShade, hat: cosmetic.hat, scarf: cosmetic.scarf };
+      return { body: PALETTE.player, shade: PALETTE.playerShade, hat: cosmetic.hat, scarf: cosmetic.scarf, bow: cosmetic.bow };
     case 'archer':
-      return { body: PALETTE.archer, shade: PALETTE.archerShade, hat: 'hood', scarf: PALETTE.archerScarf };
+      return { body: PALETTE.archer, shade: PALETTE.archerShade, hat: 'hood', scarf: PALETTE.archerScarf, bow: 'wood' };
     case 'shield':
-      return { body: PALETTE.shield, shade: PALETTE.shieldShade, hat: 'helmet', scarf: PALETTE.shieldScarf };
+      return { body: PALETTE.shield, shade: PALETTE.shieldShade, hat: 'helmet', scarf: PALETTE.shieldScarf, bow: 'wood' };
     case 'jumper':
-      return { body: PALETTE.jumper, shade: PALETTE.jumperShade, hat: 'band', scarf: PALETTE.fireCore };
+      return { body: PALETTE.jumper, shade: PALETTE.jumperShade, hat: 'band', scarf: PALETTE.fireCore, bow: 'wood' };
     case 'bomber':
-      return { body: PALETTE.bomber, shade: PALETTE.bomberShade, hat: 'goggles', scarf: PALETTE.bomberGoggle };
+      return { body: PALETTE.bomber, shade: PALETTE.bomberShade, hat: 'goggles', scarf: PALETTE.bomberGoggle, bow: 'wood' };
     case 'boss':
-      return { body: PALETTE.boss, shade: PALETTE.bossShade, hat: 'horns-boss', scarf: PALETTE.bossScarf };
+      return { body: PALETTE.boss, shade: PALETTE.bossShade, hat: 'horns-boss', scarf: PALETTE.bossScarf, bow: 'dark' };
   }
 }
 
@@ -95,13 +97,15 @@ export function createScarf(x: number, y: number): Scarf {
 }
 
 /** Cosmetic rope: pinned at the neck, trails in the wind (scene-side, real time). */
-export function stepScarf(s: Scarf, ax: number, ay: number, wind: number, dt: number, time: number): void {
+export function stepScarf(s: Scarf, ax: number, ay: number, wind: number, dt: number, time: number, lift = 0): void {
   const n = s.x.length;
   s.x[0] = ax;
   s.y[0] = ay;
   s.px[0] = ax;
   s.py[0] = ay;
-  const g = 900 * dt * dt;
+  // drawing the bow lifts the scarf: less weight, more wind
+  const g = 900 * dt * dt * (1 - 0.85 * lift);
+  wind *= 1 + lift * 1.5;
   for (let i = 1; i < n; i++) {
     const vx = (s.x[i]! - s.px[i]!) * 0.9;
     const vy = (s.y[i]! - s.py[i]!) * 0.9;
@@ -171,10 +175,14 @@ export interface DrawOpts {
   telegraph: boolean;
   /** pulsing ring on the boss's weak spot */
   weakHint: boolean;
+  /** animated point positions to draw instead of the sim's (the sim's are never changed) */
+  view?: { x: Float64Array; y: Float64Array };
+  /** expressions and extras from the animation layer */
+  face?: AnimOut;
 }
 
 export function drawArcher(g: G, a: Archer, look: Look, o: DrawOpts): void {
-  const b = a.body;
+  const b = o.view ?? a.body;
   const s = a.scale;
   const X = b.x;
   const Y = b.y;
@@ -232,7 +240,7 @@ export function drawArcher(g: G, a: Archer, look: Look, o: DrawOpts): void {
   // head
   drawHead(g, a, look, skin, o);
   // bow + string + nocked arrow
-  drawBow(g, a);
+  drawBow(g, a, o, look.bow);
   // front (bow) arm on top
   noodle(g, nx, ny + 4 * s, X[PT.elbowF]!, Y[PT.elbowF]!, X[PT.handF]!, Y[PT.handF]!, limb, body);
   g.fillStyle(PALETTE.ink, 1).fillCircle(X[PT.handF]!, Y[PT.handF]!, 8 * s + 2);
@@ -242,6 +250,7 @@ export function drawArcher(g: G, a: Archer, look: Look, o: DrawOpts): void {
   // hp pill and telegraph
   const hx = X[PT.head]!;
   const hy = Y[PT.head]!;
+  if (o.face && a.alive) drawExtras(g, a, o.face, X, Y, o.time);
   if (o.hpBar && a.alive) {
     const w = 64 * s;
     const k = Math.max(0, Math.min(1, a.hp / a.maxHp));
@@ -263,13 +272,55 @@ export function drawArcher(g: G, a: Archer, look: Look, o: DrawOpts): void {
   }
 }
 
+/** Dizzy stars, sweat, laugh marks and the bomber's juggled bomb. */
+function drawExtras(g: G, a: Archer, f: AnimOut, X: ArrayLike<number>, Y: ArrayLike<number>, t: number): void {
+  const s = a.scale;
+  const hx = X[PT.head]!;
+  const hy = Y[PT.head]!;
+  if (f.dizzy > 0.05) {
+    for (let i = 0; i < 3; i++) {
+      const ang = t * 5 + (i * Math.PI * 2) / 3;
+      const x = hx + Math.cos(ang) * 26 * s;
+      const y = hy - 36 * s + Math.sin(ang) * 7 * s;
+      const k = 6 * s * f.dizzy;
+      g.fillStyle(PALETTE.ink, 1).fillTriangle(x - k - 2, y, x + k + 2, y, x, y - k - 3).fillTriangle(x - k - 2, y, x + k + 2, y, x, y + k + 3);
+      g.fillStyle(PALETTE.coin, 1).fillTriangle(x - k, y, x + k, y, x, y - k).fillTriangle(x - k, y, x + k, y, x, y + k);
+    }
+  }
+  if (f.sweat) {
+    const x = hx - a.facing * 24 * s;
+    const y = hy - 8 * s + ((t * 30) % 14);
+    g.fillStyle(PALETTE.ink, 1).fillCircle(x, y, 6 * s).fillTriangle(x - 6 * s, y, x + 6 * s, y, x, y - 12 * s);
+    g.fillStyle(PALETTE.bubble, 1).fillCircle(x, y, 4 * s).fillTriangle(x - 4 * s, y, x + 4 * s, y, x, y - 9 * s);
+  }
+  if (f.laugh) {
+    g.lineStyle(4, PALETTE.ink, 1);
+    for (let i = 0; i < 3; i++) {
+      const ang = -1.2 + i * 0.5;
+      const r0 = 34 * s + Math.sin(t * 20 + i) * 3;
+      const x0 = hx + a.facing * Math.cos(ang) * r0;
+      const y0 = hy + Math.sin(ang) * r0;
+      g.lineBetween(x0, y0, x0 + a.facing * Math.cos(ang) * 10 * s, y0 + Math.sin(ang) * 10 * s);
+    }
+  }
+  if (f.juggle >= 0) {
+    const x = X[PT.handB]! - a.facing * 4 * s;
+    const y = Y[PT.handB]! - 14 * s - f.juggle;
+    g.fillStyle(PALETTE.ink, 1).fillCircle(x, y, 11 * s);
+    g.fillStyle(PALETTE.bomb, 1).fillCircle(x, y, 7.5 * s);
+    g.fillStyle(PALETTE.white, 0.5).fillCircle(x - 2.5 * s, y - 3 * s, 2.2 * s);
+    const fl = 3 * s + Math.sin(t * 40) * 1.5;
+    g.fillStyle(PALETTE.fire, 1).fillCircle(x + 6 * s, y - 9 * s, fl);
+  }
+}
+
 function boot(g: G, x: number, y: number, f: number, s: number, color: number): void {
   g.fillStyle(PALETTE.ink, 1).fillEllipse(x + f * 4 * s, y + 1, 26 * s, 14 * s);
   g.fillStyle(color, 1).fillEllipse(x + f * 4 * s, y, 18 * s, 8 * s);
 }
 
 function drawHead(g: G, a: Archer, look: Look, skin: number, o: DrawOpts): void {
-  const b = a.body;
+  const b = o.view ?? a.body;
   const s = a.scale;
   const hx = b.x[PT.head]!;
   const hy = b.y[PT.head]!;
@@ -362,48 +413,116 @@ function drawHead(g: G, a: Archer, look: Look, skin: number, o: DrawOpts): void 
     g.fillStyle(PALETTE.blush, 1).fillCircle(mx - ux * 3 * s, my - uy * 3 * s, 4 * s);
     return;
   }
+  const f = o.face;
   if (a.type === 'boss') {
+    const wide = f?.eyes === 'wide' || f?.eyes === 'dizzy';
     const glow = 0.75 + Math.sin(o.time * 8) * 0.25;
-    g.fillStyle(PALETTE.bossEye, glow).fillCircle(e1x, e1y, 6 * s).fillCircle(e2x, e2y, 6 * s);
+    const er = (wide ? 8 : 6) * s;
+    g.fillStyle(PALETTE.bossEye, glow).fillCircle(e1x, e1y, er).fillCircle(e2x, e2y, er);
     g.fillStyle(PALETTE.white, 1).fillCircle(e1x, e1y, 2.5 * s).fillCircle(e2x, e2y, 2.5 * s);
     g.lineStyle(5, PALETTE.ink, 1).lineBetween(e1x - rx * 8 + ux * 9, e1y - ry * 8 + uy * 9, e2x + rx * 8 + ux * 4, e2y + ry * 8 + uy * 4);
+    if (f?.mouth === 'roar' || f?.mouth === 'laugh' || f?.mouth === 'grin') {
+      const mx = ex - ux * r * 0.5;
+      const my = ey - uy * r * 0.5;
+      const big = f.mouth === 'roar' ? 1.4 : 1;
+      g.fillStyle(PALETTE.ink, 1).fillEllipse(mx, my, 18 * s * big, 12 * s * big);
+      g.fillStyle(PALETTE.white, 1).fillTriangle(mx - 6 * s, my - 5 * s * big, mx - 2 * s, my - 5 * s * big, mx - 4 * s, my - s);
+      g.fillTriangle(mx + 2 * s, my - 5 * s * big, mx + 6 * s, my - 5 * s * big, mx + 4 * s, my - s);
+    }
     return;
   }
-  const hurt = a.hurt < 0.35;
-  const looking = a.draw > 0.1;
-  if (hurt) {
-    g.lineStyle(4, PALETTE.ink, 1);
-    g.lineBetween(e1x - rx * 4 - ux * 4, e1y - ry * 4 - uy * 4, e1x + rx * 4, e1y + ry * 4);
-    g.lineBetween(e1x + rx * 4, e1y + ry * 4, e1x - rx * 4 + ux * 4, e1y - ry * 4 + uy * 4);
-    g.lineBetween(e2x + rx * 4 - ux * 4, e2y + ry * 4 - uy * 4, e2x - rx * 4, e2y - ry * 4);
-    g.lineBetween(e2x - rx * 4, e2y - ry * 4, e2x + rx * 4 + ux * 4, e2y + ry * 4 + uy * 4);
-    const mx = ex - ux * r * 0.5;
-    const my = ey - uy * r * 0.5;
-    g.fillStyle(PALETTE.ink, 1).fillEllipse(mx, my, 10 * s, 12 * s);
-    return;
-  }
-  // eyes: white with pupils pushed toward the aim
-  const lx = Math.cos(a.aim) * 2.2 * s;
-  const ly = Math.sin(a.aim) * 2.2 * s;
-  g.fillStyle(PALETTE.ink, 1).fillEllipse(e1x, e1y, 14 * s, 17 * s).fillEllipse(e2x, e2y, 14 * s, 17 * s);
-  g.fillStyle(PALETTE.white, 1).fillEllipse(e1x, e1y, 9.5 * s, 12.5 * s).fillEllipse(e2x, e2y, 9.5 * s, 12.5 * s);
-  g.fillStyle(PALETTE.ink, 1).fillCircle(e1x + lx, e1y + ly, 3.6 * s).fillCircle(e2x + lx, e2y + ly, 3.6 * s);
-  g.fillStyle(PALETTE.white, 1).fillCircle(e1x + lx - 1.2 * s, e1y + ly - 1.4 * s, 1.2 * s).fillCircle(e2x + lx - 1.2 * s, e2y + ly - 1.4 * s, 1.2 * s);
-  if (looking) {
-    // determined brows
-    g.lineStyle(4, PALETTE.ink, 1);
-    g.lineBetween(e1x - rx * 6 + ux * 9, e1y - ry * 6 + uy * 9, e1x + rx * 5 + ux * 6, e1y + ry * 5 + uy * 6);
-    g.lineBetween(e2x - rx * 5 + ux * 6, e2y - ry * 5 + uy * 6, e2x + rx * 6 + ux * 9, e2y + ry * 6 + uy * 9);
+  // expression: from the animation layer, else from the sim's state
+  let eyes: string = f ? f.eyes : a.hurt < 0.35 ? 'closed' : a.draw > 0.1 ? 'squint' : 'open';
+  const mouth: string = f ? f.mouth : a.hurt < 0.35 ? 'o' : a.draw > 0.1 ? 'flat' : 'smile';
+  if (!f && a.hurt < 0.35) eyes = 'pain';
+  if (eyes === 'closed' && f && a.hurt < 0.35) eyes = 'pain';
+  const lookX = f ? f.lookX : Math.cos(a.aim);
+  const lookY = f ? f.lookY : Math.sin(a.aim);
+  const ll = Math.hypot(lookX, lookY);
+  const lx = ll > 0.01 ? (lookX / Math.max(1, ll)) * 2.6 * s : 0;
+  const ly = ll > 0.01 ? (lookY / Math.max(1, ll)) * 2.6 * s : 0;
+  g.lineStyle(4, PALETTE.ink, 1);
+  for (const [x, y, side] of [
+    [e1x, e1y, -1],
+    [e2x, e2y, 1],
+  ] as const) {
+    switch (eyes) {
+      case 'blink':
+      case 'closed':
+        g.beginPath().arc(x, y, 5 * s, Math.atan2(-uy, -ux) - 1.2, Math.atan2(-uy, -ux) + 1.2, false).strokePath();
+        break;
+      case 'happy':
+        g.beginPath().arc(x - ux * 3 * s, y - uy * 3 * s, 5 * s, Math.atan2(uy, ux) - 1.3, Math.atan2(uy, ux) + 1.3, false).strokePath();
+        break;
+      case 'pain':
+        g.lineBetween(x - rx * 4 * side - ux * 4, y - ry * 4 * side - uy * 4, x + rx * 4 * side, y + ry * 4 * side);
+        g.lineBetween(x + rx * 4 * side, y + ry * 4 * side, x - rx * 4 * side + ux * 4, y - ry * 4 * side + uy * 4);
+        break;
+      case 'dizzy': {
+        const rot = o.time * 9 * side;
+        g.lineStyle(3, PALETTE.ink, 1).beginPath().arc(x, y, 5.5 * s, rot, rot + 4.6, false).strokePath();
+        g.beginPath().arc(x, y, 2.5 * s, rot + 2, rot + 6, false).strokePath();
+        g.lineStyle(4, PALETTE.ink, 1);
+        break;
+      }
+      default: {
+        const wide = eyes === 'wide';
+        const sq = eyes === 'squint';
+        const ew = (wide ? 16 : 14) * s;
+        const eh = (wide ? 21 : sq ? 9 : 17) * s;
+        g.fillStyle(PALETTE.ink, 1).fillEllipse(x, y, ew, eh);
+        g.fillStyle(PALETTE.white, 1).fillEllipse(x, y, ew - 4.5 * s, eh - 4.5 * s);
+        const pr = (wide ? 2.6 : sq ? 2.8 : 3.6) * s;
+        g.fillStyle(PALETTE.ink, 1).fillCircle(x + lx, y + ly * (sq ? 0.3 : 1), pr);
+        if (!sq) g.fillStyle(PALETTE.white, 1).fillCircle(x + lx - 1.2 * s, y + ly - 1.4 * s, 1.2 * s);
+        if (sq) {
+          // determined brows
+          g.lineStyle(4, PALETTE.ink, 1).lineBetween(x - rx * 6 * side * -1 + ux * 8, y - ry * 6 * side * -1 + uy * 8, x + rx * 6 * side * -1 + ux * 5, y + ry * 6 * side * -1 + uy * 5);
+        }
+        g.lineStyle(4, PALETTE.ink, 1);
+      }
+    }
   }
   // blush + mouth
-  g.fillStyle(PALETTE.blush, 0.7).fillCircle(e2x + rx * 6 - ux * 9, e2y + ry * 6 - uy * 9, 4 * s);
+  g.fillStyle(PALETTE.blush, eyes === 'happy' ? 1 : 0.7).fillCircle(e2x + rx * 6 - ux * 9, e2y + ry * 6 - uy * 9, (eyes === 'happy' ? 5 : 4) * s);
   const mx = ex - ux * r * 0.48 + rx * 2;
   const my = ey - uy * r * 0.48 + ry * 2;
+  const down = Math.atan2(-uy, -ux);
   g.lineStyle(3.5, PALETTE.ink, 1);
-  if (looking) g.lineBetween(mx - rx * 5, my - ry * 5, mx + rx * 5, my + ry * 5);
-  else g.beginPath().arc(mx, my, 5 * s, Math.atan2(-uy, -ux) - 1.1, Math.atan2(-uy, -ux) + 1.1, false).strokePath();
+  switch (mouth) {
+    case 'flat':
+      g.lineBetween(mx - rx * 5, my - ry * 5, mx + rx * 5, my + ry * 5);
+      break;
+    case 'o':
+      g.fillStyle(PALETTE.ink, 1).fillEllipse(mx, my, 9 * s, 11 * s);
+      break;
+    case 'frown':
+      g.beginPath().arc(mx - ux * 5 * s, my - uy * 5 * s, 5 * s, down + Math.PI - 1.0, down + Math.PI + 1.0, false).strokePath();
+      break;
+    case 'grin':
+    case 'laugh':
+    case 'roar': {
+      const k = mouth === 'grin' ? 1 : 1.35;
+      g.fillStyle(PALETTE.ink, 1).slice(mx, my, 7 * s * k, down - 1.5, down + 1.5, false).fillPath();
+      g.fillStyle(PALETTE.blush, 1).fillCircle(mx - ux * 3 * s * k, my - uy * 3 * s * k, 3 * s);
+      break;
+    }
+    default:
+      g.beginPath().arc(mx, my, 5 * s, down - 1.1, down + 1.1, false).strokePath();
+  }
   // player cosmetics on top
   drawHat(g, look.hat, hx, hy, r, ux, uy, rx, ry, look.scarf);
+}
+
+/** A head with this cosmetic's hat and scarf, for menu tiles. */
+export function drawHeadIcon(g: G, x: number, y: number, r: number, cos: Cosmetic, unlocked: boolean): void {
+  const skin = unlocked ? PALETTE.skin : PALETTE.locked;
+  g.lineStyle(r * 0.5 + 6, PALETTE.ink, 1).lineBetween(x - r, y + r * 1.15, x + r, y + r * 0.95);
+  g.lineStyle(r * 0.5, unlocked ? cos.scarf : PALETTE.locked, 1).lineBetween(x - r, y + r * 1.15, x + r, y + r * 0.95);
+  g.fillStyle(PALETTE.ink, 1).fillCircle(x, y, r + 5);
+  g.fillStyle(skin, 1).fillCircle(x, y, r);
+  g.fillStyle(PALETTE.ink, 1).fillCircle(x - r * 0.3, y + r * 0.05, r * 0.12).fillCircle(x + r * 0.3, y + r * 0.05, r * 0.12);
+  if (unlocked) drawHat(g, cos.hat, x, y, r, 0, -1, 1, 0, cos.scarf);
 }
 
 function drawHat(g: G, hat: Look['hat'], hx: number, hy: number, r: number, ux: number, uy: number, rx: number, ry: number, accent: number): void {
@@ -448,6 +567,64 @@ function drawHat(g: G, hat: Look['hat'], hx: number, hy: number, r: number, ux: 
       }
       break;
     }
+    case 'flower': {
+      // a daisy chain around the crown
+      for (let i = 0; i < 5; i++) {
+        const k = -1 + i * 0.5;
+        const x = hx + ux * r * 0.78 + rx * k * r * 0.95;
+        const y = hy + uy * r * 0.78 + ry * k * r * 0.95;
+        g.fillStyle(PALETTE.ink, 1).fillCircle(x, y, 8);
+        g.fillStyle(i % 2 ? PALETTE.pink : PALETTE.white, 1).fillCircle(x, y, 6);
+        g.fillStyle(PALETTE.coin, 1).fillCircle(x, y, 2.5);
+      }
+      break;
+    }
+    case 'party': {
+      const b0 = { x: hx + ux * r * 0.7, y: hy + uy * r * 0.7 };
+      const tip = { x: hx + ux * r * 2.1 + rx * 6, y: hy + uy * r * 2.1 + ry * 6 };
+      g.fillStyle(PALETTE.ink, 1).fillTriangle(b0.x - rx * r * 0.75, b0.y - ry * r * 0.75, b0.x + rx * r * 0.75, b0.y + ry * r * 0.75, tip.x + ux * 6, tip.y + uy * 6);
+      g.fillStyle(accent, 1).fillTriangle(b0.x - rx * r * 0.6, b0.y - ry * r * 0.6, b0.x + rx * r * 0.6, b0.y + ry * r * 0.6, tip.x, tip.y);
+      g.fillStyle(PALETTE.white, 0.85).fillCircle((b0.x + tip.x) / 2, (b0.y + tip.y) / 2, 3.5).fillCircle(b0.x + ux * 10 + rx * 8, b0.y + uy * 10 + ry * 8, 3);
+      g.fillStyle(PALETTE.coin, 1).fillCircle(tip.x, tip.y, 6);
+      break;
+    }
+    case 'bandana': {
+      g.fillStyle(PALETTE.ink, 1).slice(hx, hy, r + 5, Math.atan2(uy, ux) - 1.45, Math.atan2(uy, ux) + 1.45, false).fillPath();
+      g.fillStyle(accent, 1).slice(hx, hy, r + 1, Math.atan2(uy, ux) - 1.35, Math.atan2(uy, ux) + 1.35, false).fillPath();
+      g.fillStyle(PALETTE.white, 0.9).fillCircle(hx + ux * r * 0.6 - rx * 8, hy + uy * r * 0.6 - ry * 8, 2.5).fillCircle(hx + ux * r * 0.6 + rx * 6, hy + uy * r * 0.6 + ry * 6, 2.5);
+      const kx = hx - rx * r * 1.0 + ux * r * 0.3;
+      const ky = hy - ry * r * 1.0 + uy * r * 0.3;
+      g.fillStyle(PALETTE.ink, 1).fillTriangle(kx, ky, kx - rx * 20 - ux * 6, ky - ry * 20 - uy * 6, kx - rx * 16 + ux * 12, ky - ry * 16 + uy * 12);
+      g.fillStyle(accent, 1).fillTriangle(kx, ky, kx - rx * 16 - ux * 4, ky - ry * 16 - uy * 4, kx - rx * 13 + ux * 9, ky - ry * 13 + uy * 9);
+      break;
+    }
+    case 'wizard': {
+      const b0 = { x: hx + ux * r * 0.75, y: hy + uy * r * 0.75 };
+      const tip = { x: hx + ux * r * 2.5 - rx * 18, y: hy + uy * r * 2.5 - ry * 18 };
+      g.fillStyle(PALETTE.ink, 1).fillEllipse(b0.x, b0.y, r * 2.6, r * 0.8);
+      g.fillStyle(accent, 1).fillEllipse(b0.x, b0.y, r * 2.3, r * 0.55);
+      g.fillStyle(PALETTE.ink, 1).fillTriangle(b0.x - rx * r * 0.8, b0.y - ry * r * 0.8, b0.x + rx * r * 0.8, b0.y + ry * r * 0.8, tip.x + ux * 5, tip.y + uy * 5);
+      g.fillStyle(accent, 1).fillTriangle(b0.x - rx * r * 0.65, b0.y - ry * r * 0.65, b0.x + rx * r * 0.65, b0.y + ry * r * 0.65, tip.x, tip.y);
+      g.fillStyle(PALETTE.coin, 1).fillCircle((b0.x * 2 + tip.x) / 3, (b0.y * 2 + tip.y) / 3, 3.5).fillCircle((b0.x + tip.x * 2) / 3, (b0.y + tip.y * 2) / 3, 2.5);
+      break;
+    }
+    case 'beret': {
+      const c = top(0.75);
+      g.fillStyle(PALETTE.ink, 1).fillEllipse(c.x - rx * 6, c.y - ry * 6, r * 2.3, r * 1.0);
+      g.fillStyle(accent, 1).fillEllipse(c.x - rx * 6, c.y - ry * 6, r * 2.0, r * 0.75);
+      g.fillStyle(PALETTE.ink, 1).fillCircle(c.x + ux * 12, c.y + uy * 12, 4);
+      break;
+    }
+    case 'laurel': {
+      for (let i = 0; i < 7; i++) {
+        const k = -1.1 + i * (2.2 / 6);
+        const x = hx + ux * r * 0.72 + rx * k * r * 0.95;
+        const y = hy + uy * r * 0.72 + ry * k * r * 0.95;
+        g.fillStyle(PALETTE.ink, 1).fillEllipse(x, y, 13, 9);
+        g.fillStyle(PALETTE.gold, 1).fillEllipse(x, y, 9, 5.5);
+      }
+      break;
+    }
     case 'crown': {
       const c = top(0.85);
       const pts = [-1, -0.5, 0, 0.5, 1];
@@ -467,8 +644,19 @@ function drawHat(g: G, hat: Look['hat'], hx: number, hy: number, r: number, ux: 
   }
 }
 
-function drawBow(g: G, a: Archer): void {
-  const b = a.body;
+const BOW_SKIN: Record<BowSkin, [number, number]> = {
+  wood: [PALETTE.bow, PALETTE.string],
+  leaf: [PALETTE.leaf, PALETTE.string],
+  candy: [PALETTE.pink, PALETTE.white],
+  dark: [PALETTE.inkSoft, PALETTE.locked],
+  ice: [PALETTE.bubble, PALETTE.white],
+  gold: [PALETTE.gold, PALETTE.cream],
+};
+
+function drawBow(g: G, a: Archer, o: DrawOpts, skin: BowSkin): void {
+  const b = o.view ?? a.body;
+  const draw = o.face && o.face.drawOverride >= 0 ? o.face.drawOverride : a.draw;
+  const [bowColor, stringColor] = BOW_SKIN[skin];
   const s = a.scale;
   const hx = b.x[PT.handF]!;
   const hy = b.y[PT.handF]!;
@@ -480,18 +668,20 @@ function drawBow(g: G, a: Archer): void {
   dy /= dl;
   const px = -dy;
   const py = dx;
-  const bend = (10 + 10 * a.draw) * s;
+  const bend = (10 + 10 * draw) * s;
   const L = 40 * s;
   const t1x = hx + px * L - dx * bend;
   const t1y = hy + py * L - dy * bend;
   const t2x = hx - px * L - dx * bend;
   const t2y = hy - py * L - dy * bend;
-  noodle(g, t1x, t1y, hx + dx * 5 * s, hy + dy * 5 * s, t2x, t2y, 7 * s, PALETTE.bow);
+  noodle(g, t1x, t1y, hx + dx * 5 * s, hy + dy * 5 * s, t2x, t2y, 7 * s, bowColor);
+  if (skin === 'candy') g.lineStyle(3, PALETTE.white, 0.9).lineBetween(t1x, t1y, (t1x + hx) / 2, (t1y + hy) / 2);
+  if (skin === 'gold') g.fillStyle(PALETTE.white, 0.8).fillCircle(hx + dx * 5 * s, hy + dy * 5 * s, 3 * s);
   // string: to the drawing hand while alive and drawing, else straight
-  const sx = a.alive && a.draw > 0.02 ? b.x[PT.handB]! : (t1x + t2x) / 2;
-  const sy = a.alive && a.draw > 0.02 ? b.y[PT.handB]! : (t1y + t2y) / 2;
-  g.lineStyle(3, PALETTE.string, 1).lineBetween(t1x, t1y, sx, sy).lineBetween(t2x, t2y, sx, sy);
-  if (a.alive && a.draw > 0.02) {
+  const sx = a.alive && draw > 0.02 ? b.x[PT.handB]! : (t1x + t2x) / 2;
+  const sy = a.alive && draw > 0.02 ? b.y[PT.handB]! : (t1y + t2y) / 2;
+  g.lineStyle(3, stringColor, 1).lineBetween(t1x, t1y, sx, sy).lineBetween(t2x, t2y, sx, sy);
+  if (a.alive && draw > 0.02) {
     // nocked arrow
     const tipx = hx + dx * 16 * s;
     const tipy = hy + dy * 16 * s;
@@ -501,7 +691,7 @@ function drawBow(g: G, a: Archer): void {
   }
 }
 
-export function drawArrow(g: G, a: Arrow, time: number): void {
+export function drawArrow(g: G, a: Arrow, time: number, multi = false, halo = false): void {
   const alpha = a.state === 1 ? Math.min(1, a.life / 1.2) : 1;
   if (a.kind === 'bomb') {
     const r = 15;
@@ -518,25 +708,43 @@ export function drawArrow(g: G, a: Arrow, time: number): void {
   }
   const dx = Math.cos(a.angle);
   const dy = Math.sin(a.angle);
-  const len = 50;
+  const heavy = a.owner === 'player' && a.impulseMul > 1.01;
+  const len = heavy ? 56 : 50;
   const tx = a.x - dx * len;
   const ty = a.y - dy * len;
   const px = -dy;
   const py = dx;
+  if (halo && a.state === 0) {
+    // dark arenas: a soft light halo keeps every arrow readable
+    g.lineStyle(14, PALETTE.white, 0.22).lineBetween(tx, ty, a.x, a.y);
+  }
   if (a.fire && a.state === 0) {
     const fl = 9 + Math.sin(time * 50 + a.seq) * 3;
     g.fillStyle(PALETTE.fire, 0.8).fillCircle(a.x - dx * 6, a.y - dy * 6, fl);
     g.fillStyle(PALETTE.fireCore, 0.9).fillCircle(a.x - dx * 4, a.y - dy * 4, fl * 0.5);
   }
-  g.lineStyle(8, PALETTE.ink, alpha).lineBetween(tx, ty, a.x, a.y);
-  g.lineStyle(4, a.owner === 'player' ? PALETTE.shaftLight : PALETTE.shaft, alpha).lineBetween(tx, ty, a.x, a.y);
-  // head
+  g.lineStyle(heavy ? 11 : 8, PALETTE.ink, alpha).lineBetween(tx, ty, a.x, a.y);
+  g.lineStyle(heavy ? 6 : 4, a.owner === 'player' ? (heavy ? PALETTE.weight : PALETTE.shaftLight) : PALETTE.shaft, alpha).lineBetween(tx, ty, a.x, a.y);
   const hx = a.x + dx * 4;
   const hy = a.y + dy * 4;
-  g.fillStyle(PALETTE.ink, alpha).fillTriangle(hx + dx * 15, hy + dy * 15, hx - dx * 6 + px * 10, hy - dy * 6 + py * 10, hx - dx * 6 - px * 10, hy - dy * 6 - py * 10);
-  g.fillStyle(PALETTE.arrowHead, alpha).fillTriangle(hx + dx * 10, hy + dy * 10, hx - dx * 3 + px * 6, hy - dy * 3 + py * 6, hx - dx * 3 - px * 6, hy - dy * 3 - py * 6);
-  // fletching
-  const fc = a.owner === 'player' ? PALETTE.fletch : PALETTE.enemyFletch;
+  if (a.owner === 'player' && a.bounces > 0) {
+    // bouncy: a rubber ball tip
+    g.fillStyle(PALETTE.ink, alpha).fillCircle(hx + dx * 4, hy + dy * 4, 10);
+    g.fillStyle(PALETTE.leaf, alpha).fillCircle(hx + dx * 4, hy + dy * 4, 7);
+    g.fillStyle(PALETTE.white, alpha * 0.7).fillCircle(hx + dx * 2 - px * 2, hy + dy * 2 - py * 2, 2.5);
+  } else if (a.owner === 'player' && a.pierce > 0) {
+    // piercing: a long glowing needle
+    if (a.state === 0) g.fillStyle(PALETTE.bubble, 0.35).fillCircle(hx + dx * 10, hy + dy * 10, 12);
+    g.fillStyle(PALETTE.ink, alpha).fillTriangle(hx + dx * 26, hy + dy * 26, hx - dx * 6 + px * 8, hy - dy * 6 + py * 8, hx - dx * 6 - px * 8, hy - dy * 6 - py * 8);
+    g.fillStyle(PALETTE.bubble, alpha).fillTriangle(hx + dx * 21, hy + dy * 21, hx - dx * 3 + px * 4.5, hy - dy * 3 + py * 4.5, hx - dx * 3 - px * 4.5, hy - dy * 3 - py * 4.5);
+  } else {
+    const k = heavy ? 1.35 : 1;
+    g.fillStyle(PALETTE.ink, alpha).fillTriangle(hx + dx * 15 * k, hy + dy * 15 * k, hx - dx * 6 + px * 10 * k, hy - dy * 6 + py * 10 * k, hx - dx * 6 - px * 10 * k, hy - dy * 6 - py * 10 * k);
+    g.fillStyle(heavy ? PALETTE.metalLight : PALETTE.arrowHead, alpha).fillTriangle(hx + dx * 10 * k, hy + dy * 10 * k, hx - dx * 3 + px * 6 * k, hy - dy * 3 + py * 6 * k, hx - dx * 3 - px * 6 * k, hy - dy * 3 - py * 6 * k);
+    if (heavy) g.fillStyle(PALETTE.ink, alpha).fillCircle(hx - dx * 8, hy - dy * 8, 5);
+  }
+  // fletching: blue on multi-shot arrows
+  const fc = a.owner === 'player' ? (multi ? PALETTE.sky2 : PALETTE.fletch) : PALETTE.enemyFletch;
   g.fillStyle(PALETTE.ink, alpha).fillTriangle(tx + dx * 16, ty + dy * 16, tx - dx * 2 + px * 11, ty - dy * 2 + py * 11, tx - dx * 2, ty - dy * 2);
   g.fillStyle(PALETTE.ink, alpha).fillTriangle(tx + dx * 16, ty + dy * 16, tx - dx * 2 - px * 11, ty - dy * 2 - py * 11, tx - dx * 2, ty - dy * 2);
   g.fillStyle(fc, alpha).fillTriangle(tx + dx * 13, ty + dy * 13, tx + px * 8, ty + py * 8, tx + dx * 2, ty + dy * 2);

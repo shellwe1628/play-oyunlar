@@ -415,8 +415,12 @@ Dahili test bu şartı karşılamaz.
 5. Üç uygulama ayrı olduğu için her biri için ayrı bağlantı vardır; aynı e-posta listesi üçünde
    de seçilebilir.
 
-Not: Telefona elle kurulmuş test APK'sı (`Play Oyunlar Test`, `com.playoyunlar.testpaketi`) ayrı
-bir uygulamadır; Play'den kurulan oyunlarla çakışmaz, kayıtlar da ayrıdır.
+Not: Telefona elle kurulmuş test APK'ları (`Play Oyunlar Test`, `com.playoyunlar.testpaketi`, ve
+oyun başına `com.playoyunlar.<ad>.test`, adı "… (Test)") ayrı uygulamalardır; Play'den kurulan
+oyunlarla çakışmaz, kayıtlar da ayrıdır. Kendilerini GitHub'daki `test-latest` sürümünden
+günceller (`apps/test-paketi/README.md`). Bu güncelleyici, kurulum izni ve herkese açık test
+anahtarı (`tools/test-imza/`) Play paketlerinde **yoktur**: `tools/aab.mjs` onları hiç kullanmaz ve
+test anahtarıyla imzalamayı reddeder.
 
 ## F. Kararlar (kayıt)
 

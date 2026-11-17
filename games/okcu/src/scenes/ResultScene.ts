@@ -1,7 +1,11 @@
 import { button, iconButton, ResultScene as ResultShell, toast, type Button, type ResultData } from '@oyun/core';
 import { gameSave } from '../save';
-import { PALETTE, SKIES } from '../textures';
-import { drawHills, drawSky } from './art';
+import { PALETTE } from '../textures';
+import { dailyThemeOffset, themeIndex, THEMES } from '../anim/themes';
+import { cosmeticById } from '../sim/meta';
+import { drawThemeBack, drawThemeNear } from './worlds';
+import { Puppet } from './puppet';
+import type Phaser from 'phaser';
 import { hasRevive, session, type RunResult } from './GameScene';
 import { SCENES } from './keys';
 
@@ -24,6 +28,8 @@ export class ResultScene extends ResultShell {
   private reviveBtn: Button | null = null;
   private doubleBtn: Button | null = null;
   private shownAt = 0;
+  private puppet: Puppet | null = null;
+  private puppetG: Phaser.GameObjects.Graphics | null = null;
   /** bumped on every create: an ad answer from an earlier visit is ignored */
   private visits = 0;
 
@@ -57,12 +63,12 @@ export class ResultScene extends ResultShell {
   }
 
   protected override drawBackground(): void {
-    const sky = Math.floor((Math.max(1, this.run.wave) - 1) / 5) % SKIES.length;
-    this.cameras.main.setBackgroundColor(SKIES[sky]!.top);
+    // the arena the run ended in
+    const th = THEMES[themeIndex(this.run.wave, this.run.daily ? dailyThemeOffset(this.run.dailyKey) : 0)]!;
+    this.cameras.main.setBackgroundColor(th.skyTop);
     const g = this.add.graphics();
-    drawSky(g, sky, 720, 1280);
-    drawHills(g, sky, 720, 1280, 0);
-    drawHills(g, sky, 720, 1280, 1);
+    drawThemeBack(g, th, 720, 1280);
+    drawThemeNear(g, th, 720, 1280);
     // a few feathers drifting down
     for (let i = 0; i < 10; i++) {
       const f = this.add.image(Math.random() * 720, -40 - Math.random() * 600, 'feather').setTint(i % 2 ? PALETTE.archer : PALETTE.white).setScale(1.2);
@@ -92,6 +98,11 @@ export class ResultScene extends ResultShell {
     iconButton(this, this.layout.left + 70, this.layout.top + 70, 'home', () => {
       if (!this.adPending) this.goTo(this.gameScene, {});
     }, 96);
+    // the archer stands on the score card and reacts to the run
+    const at = this.cardPosition();
+    this.puppet = new Puppet('player', at.x + 200, at.y - 280, -1, 1);
+    this.puppet.setMood(this.run.newBest ? 1 : this.run.wave <= 2 ? -1 : 0);
+    this.puppetG = this.add.graphics().setDepth(5);
     const p2 = this.buttonPosition(2);
     const p3 = this.buttonPosition(3);
     const canRevive = hasRevive();
@@ -108,6 +119,13 @@ export class ResultScene extends ResultShell {
       this.doubleBtn = button(this, at.x, at.y, this.t('result.double'), () => void this.double(), { width: 440, height: 100, fontSize: 40, variant: 'secondary' });
     }
     if (this.doubled) toast(this, this.t('result.doubled'), { position: (slots[0] ?? p3).y });
+  }
+
+  override update(_time: number, delta: number): void {
+    if (!this.puppet || !this.puppetG) return;
+    this.puppet.step(Math.min(delta, 100) / 1000);
+    this.puppetG.clear();
+    this.puppet.draw(this.puppetG, cosmeticById(gameSave(this.oyun).data.cosmetic));
   }
 
   private setButtons(enabled: boolean): void {

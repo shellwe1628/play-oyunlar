@@ -7,10 +7,14 @@ import type { DigSim } from '../sim/dig';
 import { layerFossils } from '../sim/loot';
 import { fossilKey, PALETTE } from '../textures';
 import type { PauseReason } from '@oyun/core/pure';
+import { addCardLife } from '../fx/CardLife';
+import { Particles } from '../fx/Particles';
 import { SCENES } from './keys';
 import { big, fitText, fossilName, hitZone, mult, oddsText, rarityCard } from './ui';
 
 const CARD_W = 322;
+/** Presentation-only memory (not the game save): which set celebrations were already shown. */
+const FX_KEY = 'oyun:fosil:fx-sets';
 
 /**
  * The museum: one grid per layer with silhouettes for undiscovered fossils, the printed odds,
@@ -18,6 +22,7 @@ const CARD_W = 322;
  * close, back.
  */
 export class MuseumScene extends OyunScene {
+  private confetti!: Particles;
   protected override autoPause = true;
   private sim!: DigSim;
   private tab = 0;
@@ -41,6 +46,7 @@ export class MuseumScene extends OyunScene {
     this.detail = null;
     this.tabs = [];
     this.gridKey = '';
+    this.confetti = new Particles(this, 90, 950);
     const L = this.layout;
     this.cameras.main.setBackgroundColor(PALETTE.cream);
     const g = this.add.graphics();
@@ -70,7 +76,47 @@ export class MuseumScene extends OyunScene {
     this.drawGrid(true);
   }
 
+  /** Set completion gets its own celebration the first time you see the finished shelf. */
+  private celebrated(layer: number): boolean {
+    try {
+      const raw = this.oyun.storage.getItem(FX_KEY);
+      return raw !== null && (JSON.parse(raw) as number[]).includes(layer);
+    } catch {
+      return false;
+    }
+  }
+
+  private celebrateSet(): void {
+    const layer = this.tab;
+    if (this.celebrated(layer)) return;
+    try {
+      const raw = this.oyun.storage.getItem(FX_KEY);
+      const list = raw ? (JSON.parse(raw) as number[]) : [];
+      this.oyun.storage.setItem(FX_KEY, JSON.stringify([...list, layer]));
+    } catch {
+      /* presentation-only memory: losing it just means celebrating again */
+    }
+    const L = this.layout;
+    const cards = this.grid.list.filter((o): o is Phaser.GameObjects.Container => o instanceof Phaser.GameObjects.Container);
+    cards.forEach((c, i) => {
+      this.time.delayedCall(i * 70, () => {
+        this.juice.pop(c, 1.12, 260);
+        this.confetti.emit(c.x, c.y, 4, { texture: 'spark', tint: 0xffd23f, speed: [80, 200], life: [0.4, 0.7], scale: [0.5, 0.9] });
+      });
+    });
+    this.time.delayedCall(cards.length * 70, () => {
+      for (let k = 0; k < 6; k++) this.confetti.emit(L.left + 60 + k * 120, L.top + 120, 6, { texture: k % 2 ? 'spark' : 'chip', tint: [0xffd23f, 0xf0445f, 0x3d8bf0, 0x4fbf6a][k % 4], speed: [120, 380], angle: Math.PI / 2, spread: 1.6, gravity: 500, life: [1.6, 2.4], scale: [0.6, 1.1], spin: 8, fadeTail: 0.4 });
+      const banner = label(this, L.cx, L.cy - 40, this.t('dig.setDone', { name: this.t(`layer.${at(LAYERS, layer).id}`) }), { size: 52, color: 0xffd23f, wrap: L.width - 80 }).setDepth(960);
+      banner.setStroke(cssColor(PALETTE.ink), 12);
+      this.juice.pop(banner, 0.3, 420);
+      this.oyun.audio.playPreset(SFX.fanfare);
+      this.oyun.platform.haptic('success');
+      this.tweens.add({ targets: banner, alpha: 0, delay: 1800, duration: 400, onComplete: () => banner.destroy() });
+    });
+  }
+
   override update(_t: number, delta: number): void {
+    this.confetti.update(Math.min(delta, 250) / 1000);
       // Every find is saved at once and its reveal waits for the dig screen (nothing arrives silently).
     const ses = session(this.oyun);
     const r = this.sim.tick(Math.min(delta, 250) / 1000);
@@ -136,13 +182,40 @@ export class MuseumScene extends OyunScene {
     const avail = L.bottom - 128 - top;
     const step = Math.min(150, avail / 6);
     const cardH = step - 12;
+    // the room: a back wall tinted by the layer, a wooden shelf under every row of display cases
+    const room = this.add.graphics();
+    const tint = at(at(LAYERS, this.tab).bands, 1);
+    room.fillStyle(tint, 0.1).fillRect(0, top - 24, L.width, 6 * step + 30);
+    for (let r = 0; r < 6; r++) {
+      const sy = top + r * step + cardH + 2;
+      room.fillStyle(0x000000, 0.12).fillRect(L.left + 14, sy + 12, L.right - L.left - 28, 6);
+      room.fillStyle(0x8a5a35, 1).fillRect(L.left + 14, sy, L.right - L.left - 28, 12);
+      room.fillStyle(0xb07a4a, 1).fillRect(L.left + 14, sy, L.right - L.left - 28, 4);
+      room.fillStyle(0x6d4123, 1).fillTriangle(L.left + 40, sy + 12, L.left + 64, sy + 12, L.left + 40, sy + 30).fillTriangle(L.right - 40, sy + 12, L.right - 64, sy + 12, L.right - 40, sy + 30);
+    }
+    this.grid.add(room);
+    // a spotlight on the rarest find of this layer
+    const rarest = locked ? undefined : [...fs].reverse().find((f) => this.sim.discovered(f.id));
+    const spotAt = rarest ? fs.indexOf(rarest) : -1;
     fs.forEach((f, i) => {
       const col = i % 2;
       const row = Math.floor(i / 2);
       const x = L.cx + (col === 0 ? -1 : 1) * (CARD_W / 2 + 8);
       const y = top + row * step + cardH / 2;
+      if (i === spotAt) {
+        const beam = this.add.image(x, top - 40, 'ray').setOrigin(0.5, 0).setTint(0xfff3c0).setAlpha(0.32).setScale(3.2, (y - top + 80) / 360);
+        this.grid.add(beam);
+        this.tweens.add({ targets: beam, alpha: 0.18, duration: 1600, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' });
+        beam.once('destroy', () => this.tweens.killTweensOf(beam));
+      }
       this.grid.add(this.card(f, x, y, cardH, locked));
+      if (i === spotAt) {
+        const tag = label(this, x - CARD_W / 2 + 14, y - cardH / 2 - 2, this.t('museum.rarest'), { size: 22, color: PALETTE.ink }).setOrigin(0, 0.5);
+        tag.setBackgroundColor('#ffd23f').setPadding(8, 2, 8, 2);
+        this.grid.add(tag);
+      }
     });
+    if (done && !this.celebrated(this.tab)) this.time.delayedCall(350, () => this.celebrateSet());
     if (locked) {
       const msg = label(this, L.cx, top + 3 * step - 6, this.t('museum.locked', { n: big(this, at(LAYERS, this.tab).unlockPower) }), { size: 40, color: PALETTE.ink });
       msg.setStroke(cssColor(PALETTE.cream), 10);
@@ -192,6 +265,13 @@ export class MuseumScene extends OyunScene {
     zone.on(Phaser.Input.Events.GAMEOBJECT_POINTER_UP, () => this.openDetail(f));
     c.add(zone);
     c.setData('fossil', f.id);
+    if (found) {
+      // a display case: glass glint across the top-left corner, and the card's idle life by rarity
+      const glass = this.add.graphics();
+      glass.fillStyle(0xffffff, 0.22).fillTriangle(-CARD_W / 2 + 10, -h / 2 + 10, -CARD_W / 2 + 70, -h / 2 + 10, -CARD_W / 2 + 10, -h / 2 + 50);
+      c.addAt(glass, c.list.length - 1);
+      addCardLife(this, c, f.tier, CARD_W, h);
+    }
     return c;
   }
 
@@ -206,6 +286,7 @@ export class MuseumScene extends OyunScene {
     closer.on(Phaser.Input.Events.GAMEOBJECT_POINTER_UP, () => this.closeDetail());
     box.add([shade, closer]);
     const card = rarityCard(this, f, 420, 560).setPosition(L.cx, L.cy - 120);
+    if (found) addCardLife(this, card, f.tier, 420, 560);
     if (!found) {
       const art = card.getData('art') as Phaser.GameObjects.Image;
       art.setTint(PALETTE.silhouette).setTintMode(Phaser.TintModes.FILL).setAlpha(0.6);

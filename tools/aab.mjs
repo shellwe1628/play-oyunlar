@@ -140,6 +140,9 @@ function preflight() {
   const list = spawnSync('keytool', ['-list', '-v', '-keystore', ks, '-storepass:env', 'OYUN_UPLOAD_KEYSTORE_PASSWORD', '-alias', process.env.OYUN_UPLOAD_KEY_ALIAS], { encoding: 'utf8' });
   if (list.status !== 0) fail('keytool cannot open the upload keystore with OYUN_UPLOAD_KEYSTORE_PASSWORD and OYUN_UPLOAD_KEY_ALIAS (wrong password, wrong alias or not a keystore)');
   const sha = /SHA256:\s*([0-9A-F:]+)/.exec(list.stdout)?.[1] ?? '?';
+  // The public test-only key (tools/test-imza/, used by tools/apk.mjs) must never sign a Play
+  // build, not even a copy of it placed outside the repository.
+  if (sha === 'BD:03:C5:F1:66:FD:A1:A6:BD:14:71:C1:A7:87:BF:A8:43:80:E7:11:E3:2E:EE:60:92:05:F0:3A:E0:FB:8C:64') fail('the upload keystore is the PUBLIC test key from tools/test-imza/ (see its README): never use it for Google Play');
   console.log(`node ${process.versions.node}, java ${jv[1]}, SDK ${sdk}`);
   console.log(`upload key: alias ok, certificate SHA-256 ${sha}`);
   return { sdk, signEnv: env, uploadCertSha256: sha };

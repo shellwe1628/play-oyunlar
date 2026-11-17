@@ -1,83 +1,146 @@
 import { button, cssColor, label, OyunScene, touchHitSize, type Button } from '@oyun/core';
 import Phaser from 'phaser';
+import { THEMES } from '../anim/themes';
 import { gameSave } from '../save';
-import { buyUpgrade, COSMETICS, UPGRADE_IDS, UPGRADES, upgradeCost, type UpgradeId } from '../sim/meta';
+import { buyUpgrade, COSMETICS, isUnlocked, UPGRADE_IDS, UPGRADES, upgradeCost, type UpgradeId } from '../sim/meta';
 import { SFX } from '../sfx';
 import { PALETTE } from '../textures';
-import { drawHills, drawSky } from './art';
+import { drawHeadIcon } from './art';
 import { drawCoin, drawUpgradeIcon } from './icons';
 import { SCENES } from './keys';
+import { Puppet } from './puppet';
+import { drawThemeBack, drawThemeLedge, drawThemeNear } from './worlds';
+
+type Tab = 'upgrades' | 'looks';
 
 /**
- * Permanent upgrades (coins) and cosmetics (best-wave milestones). One tap away from the title
- * and the result screen. Test actions: buy <id>, wear <index>, back.
+ * Permanent upgrades (coins) and looks (milestones), on two tabs. The looks tab previews the
+ * chosen cosmetic on a small animated archer. One tap away from the title and the result.
+ * Test actions: buy <id>, wear <index>, tab <name>, back.
  */
 export class ShopScene extends OyunScene {
   private from: 'game' | 'result' = 'game';
+  private tab: Tab = 'upgrades';
   private buyBtns = new Map<UpgradeId, Button>();
   private coinText!: Phaser.GameObjects.Text;
   private rowG!: Phaser.GameObjects.Graphics;
-  private cosG!: Phaser.GameObjects.Graphics;
   private backBtn!: Button;
   private maxLabels = new Map<UpgradeId, Phaser.GameObjects.Text>();
+  private upgradeUi!: Phaser.GameObjects.Container;
+  private looksUi!: Phaser.GameObjects.Container;
+  private tabBtns = new Map<Tab, Button>();
+  private tileG!: Phaser.GameObjects.Graphics;
+  private puppet!: Puppet;
+  private puppetG!: Phaser.GameObjects.Graphics;
+  private previewName!: Phaser.GameObjects.Text;
+  private previewNote!: Phaser.GameObjects.Text;
+  private preview = 0;
 
   constructor() {
     super(SCENES.shop);
   }
 
-  init(data: { from?: 'game' | 'result' }): void {
+  init(data: { from?: 'game' | 'result'; tab?: Tab }): void {
     this.from = data?.from ?? 'game';
+    this.tab = data?.tab ?? 'upgrades';
   }
 
   create(): void {
     const L = this.layout;
-    this.cameras.main.setBackgroundColor(PALETTE.skyDay);
+    const th = THEMES[0]!;
+    this.cameras.main.setBackgroundColor(th.skyTop);
     const bg = this.add.graphics();
-    drawSky(bg, 0, 720, 1280);
-    drawHills(bg, 0, 720, 1280, 0);
-    drawHills(bg, 0, 720, 1280, 1);
+    drawThemeBack(bg, th, 720, 1280);
+    drawThemeNear(bg, th, 720, 1280);
     this.add.rectangle(L.cx, L.cy, 720, 1280, PALETTE.ink, 0.35);
-    label(this, L.cx, L.top + 80, this.t('shop.title'), { size: 64, color: PALETTE.cream }).setStroke(cssColor(PALETTE.ink), 14);
+    label(this, L.cx, L.top + 70, this.t('shop.title'), { size: 60, color: PALETTE.cream }).setStroke(cssColor(PALETTE.ink), 14);
     const cg = this.add.graphics();
-    drawCoin(cg, L.cx - 50, L.top + 160, 20);
-    this.coinText = label(this, L.cx - 20, L.top + 160, '', { size: 46, color: PALETTE.coin }).setOrigin(0, 0.5).setStroke(cssColor(PALETTE.ink), 10);
+    drawCoin(cg, L.cx - 50, L.top + 140, 20);
+    this.coinText = label(this, L.cx - 20, L.top + 140, '', { size: 46, color: PALETTE.coin }).setOrigin(0, 0.5).setStroke(cssColor(PALETTE.ink), 10);
+    this.tabBtns.clear();
+    (['upgrades', 'looks'] as const).forEach((t, i) => {
+      const b = button(this, L.cx + (i === 0 ? -160 : 160), L.top + 225, this.t(t === 'upgrades' ? 'shop.tabUpgrades' : 'shop.tabLooks'), () => this.setTab(t), { width: 300, height: 88, fontSize: 38, variant: 'secondary' });
+      this.tabBtns.set(t, b);
+    });
+
+    // ---- upgrades tab
+    this.upgradeUi = this.add.container(0, 0);
     this.rowG = this.add.graphics();
+    this.upgradeUi.add(this.rowG);
     this.buyBtns.clear();
     this.maxLabels.clear();
     UPGRADE_IDS.forEach((id, i) => {
       const y = this.rowY(i);
-      label(this, 158, y - 24, this.t(`up.${id}.name`), { size: 36, color: PALETTE.cream }).setOrigin(0, 0.5).setStroke(cssColor(PALETTE.ink), 8);
-      label(this, 158, y + 20, this.t(`up.${id}.desc`), { size: 34, color: PALETTE.white, wrap: 380, align: 'left' }).setOrigin(0, 0.5);
+      this.upgradeUi.add(label(this, 158, y - 24, this.t(`up.${id}.name`), { size: 36, color: PALETTE.cream }).setOrigin(0, 0.5).setStroke(cssColor(PALETTE.ink), 8));
+      this.upgradeUi.add(label(this, 158, y + 20, this.t(`up.${id}.desc`), { size: 34, color: PALETTE.white, wrap: 380, align: 'left' }).setOrigin(0, 0.5));
       const b = button(this, 612, y, '', () => this.buy(id), { width: 150, height: 88, fontSize: 36 });
       this.buyBtns.set(id, b);
-      this.maxLabels.set(id, label(this, 612, y, this.t('shop.max'), { size: 36, color: PALETTE.heal }).setStroke(cssColor(PALETTE.ink), 8).setVisible(false));
+      const max = label(this, 612, y, this.t('shop.max'), { size: 36, color: PALETTE.heal }).setStroke(cssColor(PALETTE.ink), 8).setVisible(false);
+      this.maxLabels.set(id, max);
+      this.upgradeUi.add([b, max]);
     });
-    label(this, L.cx, this.cosPos(0).y - 92, this.t('shop.looks'), { size: 44, color: PALETTE.cream }).setStroke(cssColor(PALETTE.ink), 10);
-    this.cosG = this.add.graphics();
+
+    // ---- looks tab: animated preview on a little ledge + a 4×3 grid
+    this.looksUi = this.add.container(0, 0);
+    const stand = this.add.graphics();
+    const footY = L.top + 560;
+    drawThemeLedge(stand, { x: L.cx - 110, y: footY, w: 220, h: 50 }, 3, th);
+    this.looksUi.add(stand);
+    this.puppet = new Puppet('player', L.cx, footY, 1, 1.5);
+    this.puppet.setMood(0, true);
+    this.puppetG = this.add.graphics();
+    this.looksUi.add(this.puppetG);
+    this.previewName = label(this, L.cx, footY + 110, '', { size: 44, color: PALETTE.cream }).setStroke(cssColor(PALETTE.ink), 10);
+    this.previewNote = label(this, L.cx, footY + 160, '', { size: 34, color: PALETTE.white }).setStroke(cssColor(PALETTE.ink), 8);
+    this.tileG = this.add.graphics();
+    this.looksUi.add([this.previewName, this.previewNote, this.tileG]);
     COSMETICS.forEach((_c, i) => {
-      const { x, y } = this.cosPos(i);
-      const zone = this.add.zone(x, y, 110, 110);
-      const hit = touchHitSize(110, 110);
-      zone.setSize(hit.width, hit.height).setInteractive({ useHandCursor: true });
+      const { x, y } = this.tilePos(i);
+      const hit = touchHitSize(118, 118);
+      const zone = this.add.zone(x, y, hit.width, hit.height).setInteractive({ useHandCursor: true });
       zone.on(Phaser.Input.Events.GAMEOBJECT_POINTER_UP, () => this.wear(i));
+      this.looksUi.add(zone);
     });
+    const save = gameSave(this.oyun).data;
+    this.preview = Math.max(0, COSMETICS.findIndex((c) => c.id === save.cosmetic));
+
     this.backBtn = button(this, L.cx, L.bottom - 70, this.t('shop.back'), () => this.back(), { width: 360, height: 100, variant: 'secondary', hotkey: 'ESC' });
+    this.setTab(this.tab);
+  }
+
+  private tilePos(i: number): { x: number; y: number } {
+    const L = this.layout;
+    const col = i % 4;
+    const row = Math.floor(i / 4);
+    return { x: 135 + col * 150, y: L.bottom - 520 + row * 136 };
+  }
+
+  /** Upgrade rows below the tabs. */
+  private rowY(i: number): number {
+    const L = this.layout;
+    const top = L.top + 340;
+    const bottom = L.bottom - 170;
+    return top + i * Math.min(124, (bottom - top) / (UPGRADE_IDS.length - 1));
+  }
+
+  private setTab(t: Tab): void {
+    this.tab = t;
+    this.upgradeUi.setVisible(t === 'upgrades');
+    this.looksUi.setVisible(t === 'looks');
+    for (const [k, b] of this.tabBtns) b.setAlpha(k === t ? 1 : 0.55);
+    // hidden buttons must not take taps
+    for (const b of this.buyBtns.values()) {
+      if (t === 'upgrades') b.setInteractive();
+      else b.disableInteractive();
+    }
     this.refresh();
   }
 
-  /** Cosmetic tiles: two rows of three, anchored above the Back button. */
-  private cosPos(i: number): { x: number; y: number } {
-    const L = this.layout;
-    const row = Math.floor(i / 3);
-    return { x: 160 + (i % 3) * 200, y: L.bottom - 400 + row * 160 };
-  }
-
-  /** Upgrade rows fill the space between the coin line and the cosmetics. */
-  private rowY(i: number): number {
-    const L = this.layout;
-    const top = L.top + 250;
-    const bottom = this.cosPos(0).y - 92 - 90; // above the "Looks" heading
-    return top + i * Math.min(118, (bottom - top) / (UPGRADE_IDS.length - 1));
+  override update(_time: number, delta: number): void {
+    if (this.tab !== 'looks') return;
+    this.puppet.step(Math.min(delta, 100) / 1000);
+    this.puppetG.clear();
+    this.puppet.draw(this.puppetG, COSMETICS[this.preview]!);
   }
 
   private refresh(): void {
@@ -92,13 +155,10 @@ export class ShopScene extends OyunScene {
       drawUpgradeIcon(g, id, 84, y - 10);
       const lvl = save.upgrades[id];
       const max = UPGRADES[id].max;
-      // level bar under the icon: one chunky segment per level
       const bw = 84;
       const seg = bw / max;
       g.fillStyle(PALETTE.ink, 1).fillRoundedRect(84 - bw / 2 - 4, y + 32, bw + 8, 20, 8);
-      for (let k = 0; k < max; k++) {
-        g.fillStyle(k < lvl ? PALETTE.gold : PALETTE.pipOff, 1).fillRoundedRect(84 - bw / 2 + k * seg + 1, y + 35, seg - 2, 14, 4);
-      }
+      for (let k = 0; k < max; k++) g.fillStyle(k < lvl ? PALETTE.gold : PALETTE.pipOff, 1).fillRoundedRect(84 - bw / 2 + k * seg + 1, y + 35, seg - 2, 14, 4);
       const cost = upgradeCost(id, lvl);
       const b = this.buyBtns.get(id)!;
       const maxed = cost === null;
@@ -106,36 +166,31 @@ export class ShopScene extends OyunScene {
       this.maxLabels.get(id)!.setVisible(maxed);
       if (!maxed) {
         b.setLabel(String(cost));
-        // affordable: bright and live; too dear: dimmed with the price still readable
         b.setEnabled(save.coins >= cost);
       }
     });
-    const c = this.cosG;
-    c.clear();
+    // looks
+    const t = this.tileG;
+    t.clear();
     COSMETICS.forEach((cos, i) => {
-      const { x, y } = this.cosPos(i);
-      const unlocked = save.best >= cos.wave;
+      const { x, y } = this.tilePos(i);
+      const unlocked = isUnlocked(cos, save.best, save.runs);
       const worn = save.cosmetic === cos.id;
-      c.fillStyle(PALETTE.ink, 1).fillRoundedRect(x - 56, y - 56, 112, 112, 24);
-      c.fillStyle(worn ? PALETTE.gold : unlocked ? PALETTE.cream : PALETTE.pipOff, 1).fillRoundedRect(x - 49, y - 49, 98, 98, 20);
-      // mini archer head + scarf preview
-      c.fillStyle(PALETTE.ink, 1).fillCircle(x, y + 4, 30);
-      c.fillStyle(unlocked ? PALETTE.skin : PALETTE.locked, 1).fillCircle(x, y + 4, 24);
-      c.lineStyle(14, PALETTE.ink, 1).lineBetween(x - 28, y + 38, x + 28, y + 33);
-      c.lineStyle(8, unlocked ? cos.scarf : PALETTE.locked, 1).lineBetween(x - 28, y + 38, x + 28, y + 33);
-      if (cos.hat !== 'none') {
-        c.fillStyle(PALETTE.ink, 1).fillRoundedRect(x - 28, y - 34, 56, 20, 9);
-        c.fillStyle(unlocked ? cos.scarf : PALETTE.locked, 1).fillRoundedRect(x - 24, y - 31, 48, 14, 7);
+      const sel = i === this.preview;
+      t.fillStyle(PALETTE.ink, 1).fillRoundedRect(x - 59, y - 59, 118, 118, 24);
+      t.fillStyle(worn ? PALETTE.gold : sel ? PALETTE.cream : unlocked ? PALETTE.cardIcon : PALETTE.pipOff, 1).fillRoundedRect(x - 52, y - 52, 104, 104, 20);
+      drawHeadIcon(t, x, y + 6, 26, cos, unlocked);
+      if (!unlocked) {
+        // padlock
+        t.fillStyle(PALETTE.ink, 1).fillRoundedRect(x + 18, y + 18, 28, 24, 6);
+        t.lineStyle(5, PALETTE.ink, 1).beginPath().arc(x + 32, y + 18, 9, Math.PI, 0, false).strokePath();
+        t.fillStyle(PALETTE.coin, 1).fillCircle(x + 32, y + 29, 4);
       }
-      if (!unlocked) c.fillStyle(PALETTE.ink, 0.55).fillRoundedRect(x - 49, y - 49, 98, 98, 20);
     });
-    this.children.list.filter((o) => o.getData('cosLabel') === true).forEach((o) => o.destroy());
-    COSMETICS.forEach((cos, i) => {
-      const { x, y } = this.cosPos(i);
-      const unlocked = save.best >= cos.wave;
-      const txt = unlocked ? (save.cosmetic === cos.id ? this.t('shop.worn') : this.t(`cos.${cos.id}`)) : this.t('shop.unlock', { n: cos.wave });
-      label(this, x, y + 76, txt, { size: 30, color: unlocked ? PALETTE.white : PALETTE.cream, wrap: 190 }).setStroke(cssColor(PALETTE.ink), 6).setData('cosLabel', true);
-    });
+    const cos = COSMETICS[this.preview]!;
+    const unlocked = isUnlocked(cos, save.best, save.runs);
+    this.previewName.setText(this.t(`cos.${cos.id}`));
+    this.previewNote.setText(save.cosmetic === cos.id ? this.t('shop.worn') : unlocked ? '' : cos.runs > 0 ? this.t('shop.runs', { n: cos.runs }) : this.t('shop.unlock', { n: cos.wave }));
   }
 
   private buy(id: UpgradeId): void {
@@ -152,18 +207,23 @@ export class ShopScene extends OyunScene {
     this.refresh();
   }
 
+  /** Tap a look: preview it on the archer; wear it if it is unlocked. */
   private wear(i: number): void {
     const cos = COSMETICS[i];
     if (!cos) return;
+    this.preview = i;
     const save = gameSave(this.oyun);
-    if (save.data.best < cos.wave) {
+    if (!isUnlocked(cos, save.data.best, save.data.runs)) {
       this.oyun.audio.playPreset(SFX.cancel);
+      this.refresh();
       return;
     }
     save.update((d) => {
       d.cosmetic = cos.id;
     });
     this.oyun.audio.play('pop');
+    this.puppet.setMood(1);
+    this.time.delayedCall(900, () => this.puppet.setMood(0, true));
     this.refresh();
   }
 
@@ -173,13 +233,14 @@ export class ShopScene extends OyunScene {
 
   protected override testState() {
     const save = gameSave(this.oyun).data;
-    return { coins: save.coins, upgrades: { ...save.upgrades }, cosmetic: save.cosmetic, from: this.from };
+    return { coins: save.coins, upgrades: { ...save.upgrades }, cosmetic: save.cosmetic, from: this.from, tab: this.tab, preview: COSMETICS[this.preview]?.id ?? '' };
   }
 
   protected override testActions() {
     return {
       buy: (p: unknown) => this.buyBtns.get(p as UpgradeId)?.fire(),
       wear: (p: unknown) => this.wear(Number(p)),
+      tab: (p: unknown) => this.tabBtns.get(p === 'looks' ? 'looks' : 'upgrades')?.fire(),
       back: () => this.backBtn.fire(),
     };
   }

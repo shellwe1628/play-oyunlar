@@ -13,12 +13,12 @@ Görseller kodla çizilir, sesler WebAudio ile üretilir; indirilmiş varlık yo
 | `packages/core/` | `@oyun/core`: tüm oyunların ortak çekirdeği (açılış, sahne kabukları, kayıt, ses, his, arayüz, dil, `platform` arayüzü, test kancası). Sözleşme: `packages/core/README.md` |
 | `templates/game/` | Yeni oyun iskeleti (küçük, çalışan bir referans oyun) |
 | `games/<slug>/` | Her oyun ayrı bir Vite uygulaması. `games/ornek` şablonun değiştirilmemiş çıktısıdır, elle düzenlenmez |
-| `tools/` | `gate.mjs` (kalite kapısı), `new-game.mjs` (oyun üretir), `apk.mjs` (test APK'sı), `aab.mjs` + `aab/` (Play için imzalı AAB), `play-metadata.mjs` (sürüm notları), `gizlilik.mjs` (gizlilik sayfaları), `research/` (CrazyGames veri çekme ve mağaza arama) |
+| `tools/` | `gate.mjs` (kalite kapısı), `new-game.mjs` (oyun üretir), `apk.mjs` + `test-apk/` + `test-imza/` (test APK'ları, uygulama içi güncelleme, herkese açık test anahtarı), `aab.mjs` + `aab/` (Play için imzalı AAB), `play-metadata.mjs` (sürüm notları), `gizlilik.mjs` (gizlilik sayfaları), `research/` (CrazyGames veri çekme ve mağaza arama) |
 | `store/` | `apps.json`: Play'deki üç uygulamanın kimlikleri, adları, sürüm adı; `store/<slug>/` mağaza kaydı metinleri, görselleri, simgesi |
 | `docs/superpowers/specs/` | Üretim sisteminin onaylı tasarım belgesi |
 | `docs/research/` | Boşluk araştırma raporu ve veri anlık görüntüsü |
 | `docs/production/` | İşletme belgeleri: `hat.md`, `backlog.md`, `yayin-listesi.md`, `concepts/`, `roles/` |
-| `.github/workflows/` | `ci.yml` (her push'ta `npm run gate`), `play-yukle.yml` (elle: imzalı AAB → Google Play, hiç çalışmadı), `android.yml` (elle tetiklenen debug APK, hiç çalışmadı) |
+| `.github/workflows/` | `ci.yml` (her push'ta `npm run gate`), `play-yukle.yml` (elle: imzalı AAB → Google Play, hiç çalışmadı), `android.yml` (elle tetiklenen debug APK, hiç çalışmadı), `test-apk.yml` (dört test APK'sını `test-latest` GitHub ön sürümüne koyar; uygulamalar oradan güncellenir; hiç çalışmadı) |
 | `docs/gizlilik/` | Gizlilik politikası sayfaları (GitHub Pages, `main` dalı `/docs`) |
 
 ## Komutlar
@@ -31,7 +31,7 @@ npm run dev -w games/<slug>                         # oyunu yerelde çalıştır
 npm run gate -- <slug>                              # kalite kapısı: çekirdek + bu oyun (slug'sız: hepsi)
 npm run new-game -- <slug> "<Başlık>" [portrait|landscape]   # yeni oyun iskeleti, npm install çalıştırır
 cd tools/research && python3 scrape.py              # CrazyGames verisini yenile (~1,5 dk)
-npm run apk                                         # üç oyun + seçici ekran tek debug APK: build/play-oyunlar-test.apk (apps/test-paketi/README.md)
+npm run apk [-- <slug> | all]                       # test APK'ları (paket / tek oyun / dördü): build/test-apk/ (apps/test-paketi/README.md)
 npm run aab -- <slug>                               # Play için imzalı release AAB: build/<slug>-release.aab (imza yalnız ortam değişkenlerinden; docs/production/play-yayin.md)
 node tools/gizlilik.mjs                             # docs/gizlilik/ gizlilik sayfalarını store/apps.json'dan yeniden yazar
 ```
@@ -56,7 +56,9 @@ Kapının tarayıcı adımı Chromium ister. Bu ortamda hazır geliyor; başka m
 
 - **Hiçbir Android paketi telefonda ya da emülatörde çalıştırılmadı.** Debug test APK'sı (`npm run apk`) ve
   Play için imzalı AAB'ler (`npm run aab`, üç oyun, deneme anahtarıyla) bu makinede derlendi ve
-  denetlendi; `android.yml` ve `play-yukle.yml` hiç çalışmadı, Google Play'e hiç yükleme yapılmadı.
+  denetlendi; `android.yml`, `play-yukle.yml` ve `test-apk.yml` hiç çalışmadı, Google Play'e hiç yükleme
+  yapılmadı. Test APK'larının uygulama içi güncellemesi (indirme, izin ekranı, Android kurucusu) hiçbir
+  cihazda denenmedi; yalnız arayüzü tarayıcıda sahte yerel köprüyle sınandı.
   iOS için iş akışı yok, Mac gerekir.
 - **Reklam ve uygulama içi satın alma sağlayıcısı bağlı değil.** `platform` arayüzünde yalnızca
   geçiş ve ödüllü reklam var; Capacitor bağdaştırıcısı ikisi için de `'unavailable'` döner.

@@ -6,6 +6,12 @@ import { SFX } from '../sfx';
 import { at, FOSSIL_BY_ID, GRADE_COLORS, LAYERS, LUCK_BOOST, TIERS, UPGRADE_ORDER, type UpgradeId } from '../sim/data';
 import type { DigSim, Find, OfflineHaul } from '../sim/dig';
 import { fossilKey, PALETTE } from '../textures';
+import { shade } from '../art/fossils';
+import { addCardLife } from '../fx/CardLife';
+import { Helper } from '../fx/Helper';
+import { Particles } from '../fx/Particles';
+import { Pickaxe } from '../fx/Pickaxe';
+import { Scenery } from '../fx/Scenery';
 import { StratumBlock } from './Block';
 import { Drawer } from './Drawer';
 import { SCENES } from './keys';
@@ -54,8 +60,16 @@ export class DigScene extends OyunScene {
   private museumButton!: Button;
   private upgradesButton!: Button;
   private boostButton!: Button;
-  private bg!: Phaser.GameObjects.Graphics;
-  private motes: { o: Phaser.GameObjects.Image; vy: number }[] = [];
+  private scenery!: Scenery;
+  private fx!: Particles;
+  private rubble!: Particles;
+  private pick!: Pickaxe;
+  private helper!: Helper;
+  private glintSparks: Phaser.GameObjects.Image[] = [];
+  private fxClock = 0;
+  private travelling = false;
+  private blockH = 0;
+  private napUntil = 0;
   private hint: Phaser.GameObjects.Text | null = null;
   private popup: { box: Phaser.GameObjects.Container; haul: OfflineHaul; claim: Button; double: Button; doubled: boolean } | null = null;
   private tip: { box: Phaser.GameObjects.Container; id: string; until: number } | null = null;
@@ -74,7 +88,9 @@ export class DigScene extends OyunScene {
   create(): void {
     this.ses = session(this.oyun);
     this.sim = this.ses.sim;
-    this.motes = [];
+    this.travelling = false;
+    this.fxClock = 0;
+    this.napUntil = 0;
     this.popup = null;
     this.tip = null;
     this.tipQueue = [];
@@ -93,18 +109,21 @@ export class DigScene extends OyunScene {
     const blockH = Math.max(260, Math.min(400, siteH - 140));
     this.blockY = this.site.top + 24 + blockH / 2;
 
-    this.bg = this.add.graphics().setDepth(-10);
-    this.drawBackground();
-    for (let i = 0; i < 22; i++) {
-      const o = this.add.image(Math.random() * L.width, this.site.top + Math.random() * siteH, 'oyun-dot').setDepth(-5).setAlpha(0.12 + Math.random() * 0.15).setScale(0.3 + Math.random() * 0.5);
-      this.motes.push({ o, vy: 6 + Math.random() * 14 });
-    }
+    this.blockH = blockH;
+    this.scenery = new Scenery(this, { top: this.site.top, bottom: this.site.bottom, left: L.left, right: L.right });
+    this.scenery.setLayer(this.sim.layer);
+    this.rubble = new Particles(this, 36, 45);
+    this.fx = new Particles(this, 120, 250);
 
     this.block = new StratumBlock(this, L.cx, this.blockY, BLOCK_W, blockH).setLayer(this.sim.layer);
     this.hpY = this.blockY + blockH / 2 + 42;
     this.hpBar = progressBar(this, L.cx, this.hpY, 400, 30, { color: PALETTE.ochre });
     this.hpText = outlined(this, L.cx, this.hpY, '', 24, 0xffffff, 5);
 
+    this.pick = new Pickaxe(this, 255);
+    this.pick.setTier(this.sim.level('pick'));
+    this.pick.setRest(L.cx + BLOCK_W / 2 + 64, this.blockY + blockH / 2 - 10);
+    this.helper = new Helper(this, L.left + 64, this.hpY + 6, 1, this.fx, { x: L.cx - BLOCK_W / 2 + 6, y: this.hpY - 60 });
     this.buildHeader();
     this.buildGlint();
     this.buildFooter();
@@ -144,19 +163,6 @@ export class DigScene extends OyunScene {
   }
 
   // ------------------------------------------------------------------ layout
-
-  private drawBackground(): void {
-    const L = this.layout;
-    const layer = at(LAYERS, this.sim.layer);
-    const g = this.bg.clear();
-    this.cameras.main.setBackgroundColor(layer.sky);
-    g.fillStyle(layer.sky, 1).fillRect(0, 0, L.width, L.height);
-    g.fillStyle(PALETTE.dirtDark, 0.55).fillRoundedRect(L.left + 14, this.site.top - 10, L.right - L.left - 28, this.site.bottom - this.site.top + 20, 30);
-    for (let i = 0; i < 9; i++) {
-      const y = this.site.top + 20 + i * ((this.site.bottom - this.site.top - 40) / 8);
-      g.lineStyle(3, at(layer.bands, i % layer.bands.length), 0.18).lineBetween(L.left + 30, y, L.right - 30, y + Math.sin(i) * 8);
-    }
-  }
 
   private buildHeader(): void {
     const L = this.layout;
@@ -217,14 +223,20 @@ export class DigScene extends OyunScene {
   }
 
   private buildGlint(): void {
+    // something glittering in the rock: a soft glow, a main star and a ring of tiny twinkles
     const c = this.add.container(0, 0).setDepth(300).setVisible(false);
-    const halo = this.add.circle(0, 0, 60, PALETTE.glint, 0.25);
-    const star = this.add.image(0, 0, 'spark').setScale(3.2).setTint(PALETTE.glint);
-    const star2 = this.add.image(0, 0, 'spark').setScale(1.8).setTint(0xffffff).setAngle(45);
+    const halo = this.add.image(0, 0, 'glow').setTint(PALETTE.glint).setScale(1.3).setAlpha(0.55);
+    const star = this.add.image(0, 0, 'spark').setScale(2.6).setTint(PALETTE.glint);
+    const star2 = this.add.image(0, 0, 'spark').setScale(1.5).setTint(0xffffff).setAngle(45);
+    this.glintSparks = [0, 1, 2, 3, 4, 5, 6].map((i) => {
+      const a = (i / 7) * Math.PI * 2;
+      const r = 26 + (i % 3) * 12;
+      return this.add.image(Math.cos(a) * r, Math.sin(a) * r * 0.8, 'spark').setTint(i % 2 ? 0xffffff : PALETTE.glint).setScale(0.6);
+    });
     this.glintLabel = outlined(this, 0, -82, '', 30, PALETTE.glint, 6); // above the glint, clear of the HP bar
-    c.add([halo, star, star2, this.glintLabel]);
+    c.add([halo, ...this.glintSparks, star, star2, this.glintLabel]);
     this.tweens.add({ targets: [star, star2], angle: '+=360', duration: 2400, repeat: -1 });
-    this.tweens.add({ targets: halo, scale: 1.35, alpha: 0.08, yoyo: true, repeat: -1, duration: 420 });
+    this.tweens.add({ targets: halo, scale: 1.7, alpha: 0.25, yoyo: true, repeat: -1, duration: 520 });
     this.glint = c;
     this.glintZone = hitZone(this, 0, 0, 140, 140, () => this.onGlintTap());
     this.glintZone.setDepth(301);
@@ -249,7 +261,13 @@ export class DigScene extends OyunScene {
     const r = this.sim.tap();
     const layer = at(LAYERS, this.sim.layer);
     this.oyun.audio.playPreset(SFX.dig, { pitch: Math.round(this.sim.combo * 7), volume: 0.8 });
-    this.juice.burst(x, y, { count: 3, color: at(layer.bands, 2), texture: 'chip', distance: 70, duration: 300 });
+    // the strike lands where you tapped (on the block face): pick swing, chips, dust, cracks from there
+    const bx = Phaser.Math.Clamp(x, this.block.x - BLOCK_W / 2 + 20, this.block.x + BLOCK_W / 2 - 20);
+    const by = Phaser.Math.Clamp(y, this.block.y - this.blockH / 2 + 20, this.block.y + this.blockH / 2 - 20);
+    this.pick.strike(bx, by);
+    this.block.hit(bx - this.block.x, by - this.block.y);
+    this.fx.emit(bx, by, 4, { texture: 'chip', tint: at(layer.bands, 2), speed: [160, 340], angle: -Math.PI / 2, spread: 2.6, gravity: 1500, life: [0.35, 0.6], scale: [0.6, 1.1], endScale: 0.6, spin: 14 });
+    this.fx.emit(bx, by, 2, { tint: PALETTE.sand, speed: [20, 70], life: [0.5, 0.8], scale: [1, 1.8], endScale: 2.2, alpha: 0.3 });
     if (r.find) this.onBlockBroken(r.find);
     else {
       this.juice.squash(this.block, 0.035, 140);
@@ -262,10 +280,9 @@ export class DigScene extends OyunScene {
   private onBlockBroken(find: Find): void {
     const layer = at(LAYERS, this.sim.layer);
     this.oyun.audio.playPreset(SFX.crack);
-    this.juice.feedback('small', this.block.x, this.block.y, at(layer.bands, 1));
-    this.juice.burst(this.block.x, this.block.y, { count: 12, color: at(layer.bands, 3), texture: 'chip', distance: 230, duration: 480 });
-    this.block.regenerate();
-    this.juice.pop(this.block, 0.82, 200);
+    this.juice.shake(0.15);
+    this.oyun.platform.haptic('light');
+    this.breakBlock(at(layer.bands, 1), at(layer.bands, 3));
     this.onFind(find);
   }
 
@@ -291,13 +308,17 @@ export class DigScene extends OyunScene {
       this.juice.shake(0.12);
       return;
     }
+    if (this.travelling) return;
+    const from = this.sim.layer;
     if (!this.sim.travel(layer)) return;
     this.oyun.audio.playPreset(SFX.flip);
     this.oyun.platform.haptic('light');
-    this.drawBackground();
-    this.block.setLayer(layer);
-    this.juice.pop(this.block, 0.6, 280);
-    this.cameras.main.flash(160, 0, 0, 0);
+    this.travelFx(layer > from ? 1 : -1, () => {
+      this.scenery.setLayer(layer);
+      this.block.setLayer(layer);
+      this.rubble.clear();
+      this.fx.clear();
+    });
     this.refreshHud(true);
     this.refreshStrip();
     this.ses.flush();
@@ -312,6 +333,7 @@ export class DigScene extends OyunScene {
     this.oyun.platform.haptic('light');
     const btn = this.drawer.buyButton(id);
     this.juice.burst(btn.x, this.drawer.y + btn.y, { count: 8, color: PALETTE.dust, texture: 'spark', distance: 90 });
+    this.drawer.celebrate(id);
     this.oyun.platform.track('upgrade_bought', { id, level: this.sim.level(id) });
     this.refreshHud(true);
     this.drawer.refresh();
@@ -336,11 +358,14 @@ export class DigScene extends OyunScene {
 
   private onFind(find: Find, from?: { x: number; y: number }): void {
     this.reveal.show(find, from);
+    if (find.fossil.odds >= 100) this.helper.cheer();
+    else if (find.source === 'assistant') this.helper.found();
     if (find.fusions > 0) this.showFusion(find);
     if (find.source === 'assistant') this.showTip('assistant', this.t('tip.assistant', { n: mult(this, find.luck) }));
     if (find.setCompleted !== null) {
       const name = this.t(`layer.${at(LAYERS, find.setCompleted).id}`);
       this.time.delayedCall(900, () => {
+        for (let k = 0; k < 5; k++) this.fx.emit(this.layout.left + 80 + k * 140, this.site.top + 20, 6, { texture: k % 2 ? 'spark' : 'chip', tint: [0xffd23f, 0xf0445f, 0x3d8bf0, 0x4fbf6a, 0xa257f2][k]!, speed: [100, 320], angle: Math.PI / 2, spread: 1.4, gravity: 600, life: [1.2, 1.8], scale: [0.6, 1.1], spin: 8, fadeTail: 0.4 });
         this.note(this.t('dig.setDone', { name }), { duration: 2400, color: at(TIERS, 3).color });
         this.oyun.audio.playPreset(SFX.fanfare);
         this.oyun.platform.haptic('success');
@@ -367,6 +392,76 @@ export class DigScene extends OyunScene {
     this.showTip('odds', this.t('tip.odds', { odds: oddsText(this, find.fossil.odds) }));
   }
 
+  /**
+   * The block splits into chunks that tumble, bounce and settle at its foot, in a puff of dust,
+   * while the next block rises into place. Pooled: rapid breaks reuse the oldest chunks.
+   */
+  private breakBlock(c1: number, c2: number, chunks = 10): void {
+    const bx = this.block.x;
+    const by = this.block.y;
+    const floor = by + this.blockH / 2 + 4;
+    for (let k = 0; k < 4; k++) {
+      this.rubble.emit(bx + (k - 1.5) * 70, by + 20, Math.ceil(chunks / 4), {
+        texture: `chunk-${k}`,
+        tint: shade(k % 2 ? c1 : c2, 0.22),
+        speed: [180, 460],
+        angle: -Math.PI / 2 + (k - 1.5) * 0.35,
+        spread: 1.6,
+        gravity: 1900,
+        floor,
+        bounce: 0.35,
+        life: [1.2, 1.7],
+        scale: [0.9, 1.7],
+        endScale: 0.8,
+        fadeTail: 0.35,
+        spin: 9,
+      });
+    }
+    this.fx.emit(bx, floor - 30, 8, { tint: PALETTE.sand, speed: [40, 160], angle: -Math.PI / 2, spread: 2.8, life: [0.6, 1], scale: [1.4, 2.6], endScale: 1.8, alpha: 0.28, drag: 1.5 });
+    this.block.regenerate();
+    this.tweens.killTweensOf(this.block);
+    this.block.setAlpha(0.2).setY(by + 36).setScale(0.92);
+    this.tweens.add({ targets: this.block, y: by, alpha: 1, scale: 1, duration: 170, ease: 'Back.easeOut', onComplete: () => this.block.setY(this.blockY).setScale(1) });
+  }
+
+  /** Short descent (deeper) or ascent between layers: strata rush past, the new place appears. */
+  private travelFx(dir: 1 | -1, swap: () => void): void {
+    const L = this.layout;
+    this.travelling = true;
+    const g = this.add.graphics().setDepth(1400);
+    const from = at(LAYERS, Math.max(0, this.sim.layer - Math.max(0, dir)));
+    const to = at(LAYERS, this.sim.layer);
+    const h = L.height;
+    for (let i = 0; i < 18; i++) {
+      const src = i < 9 ? (dir > 0 ? from : to) : dir > 0 ? to : from;
+      g.fillStyle(at(src.bands, i % src.bands.length), 1).fillRect(-20, i * (h / 6), L.width + 40, h / 6 + 2);
+      g.fillStyle(0x000000, 0.15).fillRect(-20, i * (h / 6) + h / 6 - 10, L.width + 40, 10);
+    }
+    // bands enter from the bottom when going down, from the top when going up
+    g.setY(dir > 0 ? h : -3 * h);
+    this.oyun.audio.playPreset(SFX.flip, { pitch: dir > 0 ? -5 : 5 });
+    this.tweens.add({
+      targets: g,
+      y: dir > 0 ? -2 * h : 0,
+      duration: 260,
+      ease: 'Cubic.easeIn',
+      onComplete: () => {
+        swap();
+        this.tweens.add({
+          targets: g,
+          y: dir > 0 ? -3 * h : h,
+          duration: 280,
+          ease: 'Cubic.easeOut',
+          onComplete: () => {
+            g.destroy();
+            this.travelling = false;
+            this.juice.pop(this.block, 0.7, 260);
+          },
+        });
+      },
+    });
+  }
+
   /** Three copies merge into one of the next grade, with the power it adds. */
   private showFusion(find: Find): void {
     this.oyun.audio.playPreset(SFX.fuse, { pitch: find.grade * 3 });
@@ -381,34 +476,59 @@ export class DigScene extends OyunScene {
     this.fuseBusy = true;
     this.showTip('fuse', this.t('tip.fuse'));
     const prev = find.grade - 1;
-    const parts = [-110, 0, 110].map((dx) => {
+    const color = at(GRADE_COLORS, find.grade);
+    const parts = [-120, 0, 120].map((dx, i) => {
       const c = this.add.container(cx + dx, cy).setDepth(650);
       c.add(this.add.circle(0, 0, 40, at(GRADE_COLORS, prev), 1).setStrokeStyle(4, PALETTE.ink, 0.6));
       c.add(this.add.image(0, 0, fossilKey(find.fossil.id)).setScale(0.42));
       c.setScale(0.2);
-      this.tweens.add({ targets: c, scale: 1, duration: 160, ease: 'Back.easeOut' });
+      this.tweens.add({ targets: c, scale: 1, duration: 160, delay: i * 60, ease: 'Back.easeOut' });
       return c;
     });
+    // the three are pulled together, spinning, with sparks trailing
     this.tweens.add({
       targets: parts,
       x: cx,
-      delay: 260,
-      duration: 220,
-      ease: 'Cubic.easeIn',
+      angle: 360,
+      delay: 320,
+      duration: 260,
+      ease: 'Back.easeIn',
+      onUpdate: () => {
+        for (const p of parts) this.fx.emit(p.x, p.y, 1, { texture: 'spark', tint: color, speed: [10, 40], life: [0.25, 0.4], scale: [0.4, 0.7] });
+      },
       onComplete: () => {
         for (const p of parts) p.destroy();
         const merged = this.add.container(cx, cy).setDepth(651);
-        merged.add(this.add.circle(0, 0, 50, at(GRADE_COLORS, find.grade), 1).setStrokeStyle(5, PALETTE.ink, 0.6));
+        merged.add(this.add.image(0, 0, 'glow').setTint(color).setScale(1.8).setAlpha(0.8));
+        merged.add(this.add.circle(0, 0, 50, color, 1).setStrokeStyle(5, PALETTE.ink, 0.6));
         merged.add(this.add.image(0, 0, fossilKey(find.fossil.id)).setScale(0.55));
-        this.juice.pop(merged, 1.6, 260);
-        this.juice.burst(cx, cy, { count: 12, color: at(GRADE_COLORS, find.grade), texture: 'spark', distance: 120 });
+        this.juice.pop(merged, 1.7, 300);
+        // shockwave ring + sparks + a thump
+        const ring = this.add.circle(cx, cy, 50).setStrokeStyle(8, color, 1).setDepth(649);
+        this.tweens.add({ targets: ring, scale: 2.6, alpha: 0, duration: 420, ease: 'Cubic.easeOut', onComplete: () => ring.destroy() });
+        this.fx.emit(cx, cy, 16, { texture: 'spark', tint: color, speed: [120, 300], life: [0.4, 0.7], scale: [0.6, 1.1] });
+        this.juice.shake(0.22);
+        this.oyun.platform.haptic('medium');
         this.oyun.audio.playPreset(SFX.fuse, { pitch: find.grade * 3 + 5 });
-        const t = outlined(this, cx, cy - 74, gainText, 32, at(GRADE_COLORS, find.grade), 7).setDepth(652);
+        this.oyun.audio.play('hit', { volume: 0.35 });
+        // the power gain counts up
+        const t = outlined(this, cx, cy - 78, gainText, 34, color, 7).setDepth(652);
         fitText(t, this.layout.width - 60);
+        const target = find.powerGain;
+        this.tweens.addCounter({
+          from: 0,
+          to: 1,
+          duration: 420,
+          onUpdate: (tw) => {
+            const v = target * (tw.getValue() ?? 1);
+            t.setText(this.t('reveal.fusedGain', { grade: gradeName, n: big(this, Math.round(v)) }));
+          },
+          onComplete: () => t.setText(gainText),
+        });
         this.tweens.add({
           targets: [merged, t],
           alpha: 0,
-          delay: 900,
+          delay: 1100,
           duration: 260,
           onComplete: () => {
             merged.destroy();
@@ -538,6 +658,7 @@ export class DigScene extends OyunScene {
     if (!p) return;
     this.popup = null;
     if (!p.doubled) this.sim.clearOfflineBonus();
+    this.napUntil = this.fxClock + 2.5;
     this.tweens.add({ targets: p.box, alpha: 0, duration: 180, onComplete: () => p.box.destroy() });
     this.refreshHud(true);
     this.refreshStrip();
@@ -560,9 +681,18 @@ export class DigScene extends OyunScene {
 
   override update(_time: number, delta: number): void {
     const real = Math.min(delta, 250) / 1000;
-    for (const m of this.motes) {
-      m.o.y -= m.vy * real * this.slowmo;
-      if (m.o.y < this.site.top) m.o.y = this.site.bottom;
+    this.fxClock += real;
+    this.scenery.update(real, this.slowmo);
+    this.fx.update(real * this.slowmo);
+    this.rubble.update(real * this.slowmo);
+    this.pick.update(real);
+    // the helper sleeps through the away time, and a little after you come back, then stretches
+    this.helper.update(real, this.sim.level('assistant'), this.popup !== null || this.fxClock < this.napUntil);
+    if (this.glint.visible) {
+      this.glintSparks.forEach((sp, i) => {
+        const tw = Math.max(0, Math.sin(this.fxClock * 7 + i * 1.9));
+        sp.setScale(0.15 + tw * 0.75).setAlpha(0.3 + tw * 0.7);
+      });
     }
     if (!this.reveal.blocking && !this.popup) {
       this.step(this.juice.scaledDelta(Math.min(delta, 250)) / 1000);
@@ -572,6 +702,7 @@ export class DigScene extends OyunScene {
     if (this.tip && this.time.now > this.tip.until) this.closeTip();
     this.refreshHud();
     this.drawer.refresh();
+    this.drawer.animate(real, this.fxClock);
     this.ses.autosave();
   }
 
@@ -579,8 +710,10 @@ export class DigScene extends OyunScene {
   private step(dt: number): void {
     if (dt <= 0) return;
     const r = this.sim.tick(dt);
+    this.helper.hits(r.assistantHits);
     for (const f of r.finds) {
-      this.block.regenerate();
+      const layer = at(LAYERS, this.sim.layer);
+      this.breakBlock(at(layer.bands, 1), at(layer.bands, 3), 5);
       this.onFind(f);
     }
     if (r.finds.length) this.ses.markDirty();
@@ -668,6 +801,7 @@ export class DigScene extends OyunScene {
     this.arrows.lock.setVisible(deeper && s.layer >= s.unlocked);
     // keep nudging towards an open layer the player has not dug in yet
     this.arrows.nudge.setVisible(s.layer < s.unlocked && s.setProgress(s.layer + 1).found === 0);
+    this.pick.setTier(s.level('pick'));
     const hp = s.blockHp;
     this.hpBar.setValue(1 - s.blockDamage / hp);
     const left = Math.max(1, Math.ceil((hp - s.blockDamage) / s.digPower));
@@ -697,7 +831,9 @@ export class DigScene extends OyunScene {
     const tier = at(TIERS, f.tier);
     g.lineStyle(6, tier.color, 1).strokeRoundedRect(-320, -52, 600, 100, 24);
     g.fillStyle(at(GRADE_COLORS, last.grade), 1).fillCircle(-252, 30, 11);
-    this.strip.add(this.add.image(-262, -2, fossilKey(f.id)).setScale(0.52));
+    const icon = this.add.container(-262, -2, [this.add.image(0, 0, fossilKey(f.id)).setScale(0.52)]);
+    addCardLife(this, icon, f.tier, 90, 90);
+    this.strip.add(icon);
     const name = label(this, -196, -24, fossilName(this, f), { size: 30, color: 0xffffff }).setOrigin(0, 0.5);
     fitText(name, 460, 0.8);
     const odds = label(this, -196, 18, `${oddsText(this, f.odds)}  ·  ${luckLine(this, last.source, last.luck)}`, { size: 26, color: f.tier === 0 ? PALETTE.sand : tier.color }).setOrigin(0, 0.5);
@@ -753,6 +889,7 @@ export class DigScene extends OyunScene {
         buy: Object.fromEntries(UPGRADE_ORDER.map((id) => [id, pos(this.drawer.buyButton(id), this.drawer.y)])),
         tip: this.tip ? pos(this.tip.box) : null,
         drawerClose: pos(this.drawer.close, this.drawer.y),
+        pick: this.pick.state,
       },
     };
   }

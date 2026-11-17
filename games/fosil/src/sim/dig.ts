@@ -118,6 +118,8 @@ export interface TapResult {
 
 export interface TickResult {
   finds: Find[];
+  /** Assistant hits this tick (read-only, for the helper's animation). */
+  assistantHits: number;
   glintAppeared: boolean;
   glintExpired: boolean;
 }
@@ -407,7 +409,7 @@ export class DigSim {
 
   /** Advance time: combo drain, glint timer, boost timer, assistant digging. */
   tick(dt: number): TickResult {
-    const out: TickResult = { finds: [], glintAppeared: false, glintExpired: false };
+    const out: TickResult = { finds: [], assistantHits: 0, glintAppeared: false, glintExpired: false };
     if (!(dt > 0)) return out;
     this.s.stats.playSeconds += dt;
     // combo
@@ -438,6 +440,7 @@ export class DigSim {
       this.s.assistantAcc += rate * dt;
       while (this.s.assistantAcc >= 1) {
         this.s.assistantAcc -= 1;
+        out.assistantHits += 1;
         const r = this.hit('assistant', this.baseLuck);
         if (r.find) out.finds.push(r.find);
       }

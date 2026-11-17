@@ -659,3 +659,15 @@ describe('card pick is calm', () => {
     expect(w.player.hp).toBe(hp);
   });
 });
+
+describe('read-only hooks for the animation layer', () => {
+  it("a player hit names the archer who loosed the arrow", () => {
+    const w = createWorld({ seed: 6 });
+    shoot(w, -1.4, 0.1);
+    w.player.hp = w.player.maxHp = 1e6;
+    const hits = of(run(w, 20), 'playerHit');
+    expect(hits.length).toBeGreaterThan(0);
+    const ids = new Set(w.enemies.map((e) => e.id));
+    for (const h of hits) expect(ids.has(h.by)).toBe(true);
+  });
+});

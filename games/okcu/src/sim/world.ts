@@ -105,6 +105,8 @@ export interface Arrow {
   seq: number;
   /** an enemy's first volley of a wave: a head hit counts as a body hit */
   soft: boolean;
+  /** id of the archer who loosed it (read by the animation layer for taunts) */
+  by: number;
 }
 
 export interface Apple {
@@ -122,7 +124,7 @@ export type GameEvent =
   | { t: 'enemyShot'; id: number; kind: 'arrow' | 'bomb'; x: number; y: number }
   | { t: 'hit'; id: number; part: HitPart; x: number; y: number; dmg: number; ko: boolean; slowmo: boolean; vx: number; vy: number; fire: boolean; enemy: EnemyType }
   | { t: 'bodyThunk'; id: number; x: number; y: number }
-  | { t: 'playerHit'; part: HitPart; x: number; y: number; dmg: number; vx: number; vy: number }
+  | { t: 'playerHit'; part: HitPart; x: number; y: number; dmg: number; vx: number; vy: number; by: number }
   | { t: 'blocked'; x: number; y: number }
   | { t: 'ko'; id: number; x: number; y: number; cause: KoCause; coins: number; enemy: EnemyType }
   | { t: 'poof'; id: number; x: number; y: number; enemy: EnemyType }
@@ -232,6 +234,7 @@ function newArrow(): Arrow {
     fade: 0,
     seq: 0,
     soft: false,
+    by: -1,
   };
 }
 
@@ -437,10 +440,10 @@ function startRun(w: World): void {
  * Start wave `wave` right now with archers already standing (no drop-in, no card pick).
  * For tests and tools only: real runs reach a wave by clearing the one before.
  */
-export function jumpToWave(w: World, wave: number): void {
+export function jumpToWave(w: World, wave: number, dropIn = false): void {
   w.phase = 'play';
   w.phaseT = 0;
-  spawnWave(w, wave, true);
+  spawnWave(w, wave, !dropIn);
 }
 
 // ---------------------------------------------------------------- player input
@@ -557,6 +560,7 @@ function spawnArrow(w: World, owner: 'player' | 'enemy', kind: 'arrow' | 'bomb',
   a.fade = 0;
   a.seq = w.arrowSeq++;
   a.soft = false;
+  a.by = -1;
   return a;
 }
 
@@ -1057,7 +1061,10 @@ function release(w: World, a: Archer): void {
   for (const s of spread) {
     const ang = a.aimGoal + s;
     const ar = spawnArrow(w, 'enemy', kind, o.x, o.y, Math.cos(ang) * a.speedGoal, Math.sin(ang) * a.speedGoal);
-    if (ar) ar.soft = a.shotsFired === 0;
+    if (ar) {
+      ar.soft = a.shotsFired === 0;
+      ar.by = a.id;
+    }
     w.run.enemyShots += 1;
   }
   a.shotsFired += 1;
@@ -1217,7 +1224,7 @@ function explode(w: World, a: Arrow, x: number, y: number): void {
         w.shieldLeft -= 1;
         w.events.push({ t: 'blocked', x, y });
       } else {
-        damagePlayer(w, 'body', TUNING.bombDamage * enemyDamageMul(w.wave), x, y, (dx || 1) * 8, -300);
+        damagePlayer(w, 'body', TUNING.bombDamage * enemyDamageMul(w.wave), x, y, (dx || 1) * 8, -300, a.by);
       }
     }
   }
@@ -1380,7 +1387,7 @@ function stickOrPierce(w: World, a: Arrow, e: Archer, part: Part, hx: number, hy
   trimStuck(w, e.id);
 }
 
-function damagePlayer(w: World, part: HitPart, dmg: number, x: number, y: number, vx: number, vy: number): void {
+function damagePlayer(w: World, part: HitPart, dmg: number, x: number, y: number, vx: number, vy: number, by = -1): void {
   const p = w.player;
   const out = resolveHit('player', part, 1);
   p.hp -= dmg;
@@ -1390,7 +1397,7 @@ function damagePlayer(w: World, part: HitPart, dmg: number, x: number, y: number
   if (out.stagger > 0) p.stagger = Math.max(p.stagger, out.stagger);
   w.run.playerHitsTaken += 1;
   pushBody(p.body, x, y, vx, vy, 0.3, 70);
-  w.events.push({ t: 'playerHit', part, x, y, dmg, vx, vy });
+  w.events.push({ t: 'playerHit', part, x, y, dmg, vx, vy, by });
   if (p.hp <= 0) knockOut(w, p, part === 'head' ? 'head' : 'shot');
 }
 
@@ -1420,7 +1427,7 @@ function enemyArrowHits(w: World, a: Arrow, x0: number, y0: number): void {
     }
     const vx = a.vx;
     const vy = a.vy;
-    if (p.alive) damagePlayer(w, part.kind, resolveHit('player', part.kind, enemyDamageMul(w.wave)).damage, hx, hy, vx, vy);
+    if (p.alive) damagePlayer(w, part.kind, resolveHit('player', part.kind, enemyDamageMul(w.wave)).damage, hx, hy, vx, vy, a.by);
     else pushBody(p.body, hx, hy, vx, vy, 0.3, 70);
     stickTo(a, p, p.body, part, hx, hy, 2);
     trimStuck(w, p.id);

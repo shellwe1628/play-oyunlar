@@ -144,10 +144,13 @@ describe('permanent upgrades', () => {
     expect(applyRunResult(s, 1, 0)).toEqual({ best: 1, newBest: false });
   });
   it('cosmetics unlock by best wave milestones', () => {
-    expect(COSMETICS.length).toBe(6);
+    expect(COSMETICS.length).toBe(12);
+    expect(new Set(COSMETICS.map((c) => c.id)).size).toBe(12);
     expect(unlockedCosmetics(0).length).toBe(1);
     expect(unlockedCosmetics(5).length).toBe(2);
     expect(unlockedCosmetics(25).length).toBe(6);
+    expect(unlockedCosmetics(0, 3).map((c) => c.id)).toEqual(['classic', 'flower']);
+    expect(unlockedCosmetics(30, 25).length).toBe(12);
   });
 });
 
@@ -246,7 +249,7 @@ describe('exact values (so a changed number fails a test)', () => {
     }
   });
   it('cosmetic thresholds and the daily key', () => {
-    expect(COSMETICS.map((c) => c.wave)).toEqual([0, 5, 10, 15, 20, 25]);
+    expect(COSMETICS.map((c) => (c.runs > 0 ? `r${c.runs}` : `w${c.wave}`))).toEqual(['w0', 'w5', 'w10', 'w15', 'w20', 'w25', 'r3', 'r6', 'r10', 'r15', 'r25', 'w30']);
     expect(dailyKey(2026, 3, 7)).toBe('2026-03-07');
     expect(dailyKey(2026, 11, 17)).toBe('2026-11-17');
   });

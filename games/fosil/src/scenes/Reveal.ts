@@ -4,6 +4,7 @@ import { SFX } from '../sfx';
 import { LAYERS, TIERS, at } from '../sim/data';
 import type { Find } from '../sim/dig';
 import { fossilKey, PALETTE } from '../textures';
+import { addCardLife } from '../fx/CardLife';
 import { cardBack, fitText, fossilName, luckLine, oddsText, outlined, rarityCard } from './ui';
 
 /** Odds at which the ceremony escalates (GAME.md "Feel"). */
@@ -131,9 +132,9 @@ export class Reveal {
     }
     this.pops++;
     const slot = this.host.slot();
-    const img = s.add.image(o.x, o.y, fossilKey(find.fossil.id)).setDepth(600).setScale(0.15);
+    const img = s.add.image(o.x, o.y + 70, fossilKey(find.fossil.id)).setDepth(600).setScale(0.15);
     const tierColor = at(TIERS, find.fossil.tier).color;
-    const ring = s.add.circle(o.x, o.y, 58, tierColor, 0.35).setDepth(599).setScale(0.2);
+    const ring = s.add.circle(o.x, o.y + 70, 58, tierColor, 0.35).setDepth(599).setScale(0.2);
     const odds = outlined(s, o.x, o.y + 70, oddsText(s, find.fossil.odds), 34, find.fossil.tier === 0 ? 0xffffff : tierColor, 7).setDepth(601).setAlpha(0);
     const luck = outlined(s, o.x, o.y + 110, luckLine(s, find.source, find.luck), 24, find.source === 'assistant' ? PALETTE.sand : PALETTE.luck, 5).setDepth(601).setAlpha(0);
     // alternate sides so back-to-back finds never print their odds on top of each other
@@ -189,13 +190,25 @@ export class Reveal {
     const rays = s.add.container(pos.x, pos.y).setDepth(700).setAlpha(0);
     // short rays: they stay inside the dig site, clear of the HUD and the combo bar
     for (let i = 0; i < 10; i++) rays.add(s.add.image(0, 0, 'ray').setOrigin(0.5, 0).setAngle(i * 36).setTint(tierColor).setAlpha(0.7).setScale(1, 0.62));
-    const back = cardBack(s, CARD_W, CARD_H, at(at(LAYERS, find.fossil.layer).bands, 1)).setDepth(710).setPosition(o.x, o.y).setScale(0.2);
+    const back = cardBack(s, CARD_W, CARD_H, at(at(LAYERS, find.fossil.layer).bands, 1)).setDepth(710).setPosition(o.x, o.y).setScale(0.2).setAlpha(0);
     const front = rarityCard(s, find.fossil, CARD_W, CARD_H).setDepth(710).setPosition(pos.x, pos.y).setVisible(false);
+    addCardLife(s, front, find.fossil.tier, CARD_W, CARD_H);
 
-    s.oyun.audio.playPreset(SFX.flip);
-    s.tweens.add({ targets: back, x: pos.x, y: pos.y, scale: 1, duration: 260, ease: 'Back.easeOut' });
-    s.tweens.add({ targets: back, scaleX: 0, delay: 300, duration: 110, ease: 'Quad.easeIn' });
-    s.time.delayedCall(410, () => {
+    // the fossil rises out of the rubble, glowing, before its card turns up
+    const PRE = 320;
+    const glow = s.add.image(o.x, o.y + 90, 'glow').setTint(tierColor).setScale(0.4).setAlpha(0).setDepth(705);
+    const rising = s.add.image(o.x, o.y + 90, fossilKey(find.fossil.id)).setScale(0.45).setAlpha(0).setDepth(706);
+    s.tweens.add({ targets: [rising, glow], y: o.y - 10, alpha: 1, duration: PRE, ease: 'Cubic.easeOut' });
+    s.tweens.add({ targets: glow, scale: 2.2, duration: PRE });
+    s.tweens.add({ targets: rising, scale: 0.85, duration: PRE, ease: 'Back.easeOut' });
+    s.tweens.add({ targets: [rising, glow], alpha: 0, delay: PRE, duration: 160, onComplete: () => {
+      rising.destroy();
+      glow.destroy();
+    } });
+    s.time.delayedCall(PRE, () => s.oyun.audio.playPreset(SFX.flip));
+    s.tweens.add({ targets: back, x: pos.x, y: pos.y, scale: 1, alpha: 1, delay: PRE, duration: 260, ease: 'Back.easeOut' });
+    s.tweens.add({ targets: back, scaleX: 0, delay: PRE + 300, duration: 110, ease: 'Quad.easeIn' });
+    s.time.delayedCall(PRE + 410, () => {
       back.destroy();
       // the front pops in whole (never squashed mid-flip, so the odds are never half drawn)
       front.setVisible(true).setScale(0.7);
@@ -215,7 +228,7 @@ export class Reveal {
       if (find.source === 'assistant') this.badge(pos.x - CARD_W / 2 + 80, pos.y + CARD_H / 2 - 14, s.t('reveal.assistantFind'));
     });
     const hold = big ? 1900 : 1450;
-    s.time.delayedCall(410 + hold, () => {
+    s.time.delayedCall(PRE + 410 + hold, () => {
       const slot = this.host.slot();
       s.tweens.add({ targets: rays, alpha: 0, duration: 200, onComplete: () => rays.destroy() });
       s.tweens.add({
@@ -285,7 +298,15 @@ export class Reveal {
     s.tweens.add({ targets: back, x: pos.x, y: pos.y, scale: 1, alpha: 1, duration: 950, ease: 'Sine.easeInOut' });
     s.tweens.add({ targets: back, angle: { from: -3, to: 3 }, duration: 90, yoyo: true, repeat: 9, delay: 300 });
 
+    // a dark silhouette lifts out of the rubble in a halo of its tier colour, ahead of the card
+    const halo = s.add.image(o.x, o.y + 80, 'glow').setTint(tier.color).setScale(0.5).setAlpha(0).setDepth(815);
+    const shape = s.add.image(o.x, o.y + 80, fossilKey(find.fossil.id)).setTint(0x000000).setTintMode(Phaser.TintModes.FILL).setScale(0.5).setAlpha(0).setDepth(816);
+    objects.push(halo, shape);
+    s.tweens.add({ targets: [halo, shape], y: o.y - 40, alpha: 1, duration: 650, ease: 'Sine.easeOut' });
+    s.tweens.add({ targets: halo, scale: 3, duration: 900 });
+    s.tweens.add({ targets: [halo, shape], alpha: 0, delay: 700, duration: 260 });
     const front = rarityCard(s, find.fossil, CARD_W, CARD_H).setDepth(820).setPosition(pos.x, pos.y).setVisible(false);
+    addCardLife(s, front, find.fossil.tier, CARD_W, CARD_H);
     front.setData('card', true);
     objects.push(front);
     const cardOdds = front.getData('odds') as Phaser.GameObjects.Text;

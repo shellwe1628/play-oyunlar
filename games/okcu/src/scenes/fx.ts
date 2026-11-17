@@ -100,6 +100,16 @@ export class Fx {
     }
   }
 
+  /** Cartoon poof: a ring of puffs that swell and drift up, with a few stars. */
+  poof(x: number, y: number, tint: number, size = 1): void {
+    for (let i = 0; i < 9; i++) {
+      const a = (i / 9) * Math.PI * 2;
+      this.spawn('puff', x + Math.cos(a) * 18 * size, y + Math.sin(a) * 14 * size, Math.cos(a) * 90 * size, Math.sin(a) * 70 * size - 40, { life: 0.55, drag: 4, scale: 0.8 * size, scaleEnd: 1.9 * size, alpha: 1 });
+    }
+    this.spawn('puff', x, y, 0, -30, { life: 0.5, scale: 1.4 * size, scaleEnd: 2.4 * size, alpha: 1 });
+    this.sparks(x, y, 6, tint, 260 * size);
+  }
+
   /** Splinters along the arrow's direction at a hit. */
   shards(x: number, y: number, dir: number, tint: number, n: number, speed = 420): void {
     for (let i = 0; i < n; i++) {

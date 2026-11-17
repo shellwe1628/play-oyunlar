@@ -23,25 +23,42 @@ export function upgradeCost(id: UpgradeId, level: number): number | null {
   return Math.round(u.base * u.growth ** level);
 }
 
+export type Hat = 'none' | 'beanie' | 'feather' | 'crown' | 'tophat' | 'horns' | 'flower' | 'party' | 'bandana' | 'wizard' | 'beret' | 'laurel';
+export type BowSkin = 'wood' | 'leaf' | 'candy' | 'dark' | 'ice' | 'gold';
+
 export interface Cosmetic {
   id: string;
-  /** best wave needed */
+  /** unlocked at this best wave … */
   wave: number;
-  hat: 'none' | 'beanie' | 'feather' | 'crown' | 'tophat' | 'horns';
+  /** … or after this many runs played (0 = by wave only) */
+  runs: number;
+  hat: Hat;
   scarf: number;
+  bow: BowSkin;
 }
 
+/** Looks only: unlocked by milestones the save already tracks (best wave, runs played). */
 export const COSMETICS: readonly Cosmetic[] = [
-  { id: 'classic', wave: 0, hat: 'none', scarf: 0xff4d5e },
-  { id: 'beanie', wave: 5, hat: 'beanie', scarf: 0x2ec4f0 },
-  { id: 'feather', wave: 10, hat: 'feather', scarf: 0x7ee05a },
-  { id: 'tophat', wave: 15, hat: 'tophat', scarf: 0xb06bff },
-  { id: 'horns', wave: 20, hat: 'horns', scarf: 0xff9a3c },
-  { id: 'crown', wave: 25, hat: 'crown', scarf: 0xffd23f },
+  { id: 'classic', wave: 0, runs: 0, hat: 'none', scarf: 0xff4d5e, bow: 'wood' },
+  { id: 'beanie', wave: 5, runs: 0, hat: 'beanie', scarf: 0x2ec4f0, bow: 'wood' },
+  { id: 'feather', wave: 10, runs: 0, hat: 'feather', scarf: 0x7ee05a, bow: 'wood' },
+  { id: 'tophat', wave: 15, runs: 0, hat: 'tophat', scarf: 0xb06bff, bow: 'dark' },
+  { id: 'horns', wave: 20, runs: 0, hat: 'horns', scarf: 0xff9a3c, bow: 'wood' },
+  { id: 'crown', wave: 25, runs: 0, hat: 'crown', scarf: 0xffd23f, bow: 'gold' },
+  { id: 'flower', wave: 0, runs: 3, hat: 'flower', scarf: 0x7ee05a, bow: 'leaf' },
+  { id: 'party', wave: 0, runs: 6, hat: 'party', scarf: 0xff7ac0, bow: 'candy' },
+  { id: 'bandana', wave: 0, runs: 10, hat: 'bandana', scarf: 0xff4d5e, bow: 'dark' },
+  { id: 'wizard', wave: 0, runs: 15, hat: 'wizard', scarf: 0x6b4ca8, bow: 'ice' },
+  { id: 'beret', wave: 0, runs: 25, hat: 'beret', scarf: 0x2ec4f0, bow: 'wood' },
+  { id: 'laurel', wave: 30, runs: 0, hat: 'laurel', scarf: 0xfff3d6, bow: 'gold' },
 ];
 
-export function unlockedCosmetics(best: number): Cosmetic[] {
-  return COSMETICS.filter((c) => best >= c.wave);
+export function isUnlocked(c: Cosmetic, best: number, runs: number): boolean {
+  return c.runs > 0 ? runs >= c.runs : best >= c.wave;
+}
+
+export function unlockedCosmetics(best: number, runs = 0): Cosmetic[] {
+  return COSMETICS.filter((c) => isUnlocked(c, best, runs));
 }
 
 export function cosmeticById(id: string): Cosmetic {

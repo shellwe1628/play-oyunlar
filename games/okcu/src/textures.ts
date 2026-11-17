@@ -60,6 +60,8 @@ export const PALETTE = {
   card: 0xfff3d6,
   cardEdge: 0xff9f43,
   gold: 0xffc93c,
+  lantern: 0xffb84a,
+  firefly: 0xe8ff7a,
   powerLow: 0x7cf29c,
   powerMid: 0xffd23f,
   bubble: 0x8fe3ff,

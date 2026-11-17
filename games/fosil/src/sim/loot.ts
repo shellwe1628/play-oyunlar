@@ -6,14 +6,14 @@
  * uncommons always keep at least 10 % between them, so no printed fossil ever becomes impossible.
  */
 import type { Rng } from '@oyun/core/pure';
-import { FOSSILS, TOTAL_WEIGHT, type Fossil, at } from './data';
+import { at, FOSSILS, LAYERS, TOTAL_WEIGHT, type Fossil } from './data';
 
 /** Tiers at or above this index are boosted by luck ("1 in 100 or rarer"). */
 export const LUCKY_TIER = 2;
 /** Share of the table that commons + uncommons always keep. */
 export const MIN_COMMON_SHARE = 0.1;
 
-const BY_LAYER: readonly (readonly Fossil[])[] = [0, 1, 2, 3].map((l) => FOSSILS.filter((f) => f.layer === l));
+const BY_LAYER: readonly (readonly Fossil[])[] = LAYERS.map((_, l) => FOSSILS.filter((f) => f.layer === l));
 const RARE_MASS: readonly number[] = BY_LAYER.map((fs) => fs.reduce((s, f) => s + (f.tier >= LUCKY_TIER ? f.weight : 0), 0) / TOTAL_WEIGHT);
 
 export function layerFossils(layer: number): readonly Fossil[] {
@@ -58,4 +58,25 @@ export function rollFossil(layer: number, luck: number, rng: Rng): Fossil {
     if (u < acc) return at(fs, i);
   }
   return at(fs, 0); // float rounding at the very top: give the most common one
+}
+
+/**
+ * The lucky-streak roll (shown on screen with its rule): one fossil among the layer's fossils at
+ * 1 in 100 or rarer, in proportion to their printed odds (exact integer weights). Luck multiplies
+ * all of these equally, so it does not change the proportions.
+ */
+export function rollRare(layer: number, rng: Rng): Fossil {
+  const rare = at(BY_LAYER, layer).filter((f) => f.tier >= LUCKY_TIER);
+  const total = rare.reduce((s, f) => s + f.weight, 0);
+  let r = Math.floor(rng.next() * total);
+  for (const f of rare) {
+    if (r < f.weight) return f;
+    r -= f.weight;
+  }
+  return at(rare, rare.length - 1);
+}
+
+/** Total weight of the rare-or-rarer fossils of a layer (for the streak-roll odds shown). */
+export function rareWeight(layer: number): number {
+  return at(BY_LAYER, layer).reduce((s, f) => s + (f.tier >= LUCKY_TIER ? f.weight : 0), 0);
 }

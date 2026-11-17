@@ -157,8 +157,8 @@ export class World {
     this.near.tilePositionX += sp.driftX * dt * speedK;
     this.far.tilePositionY -= dy * sp.scrollFar * 0.45;
     this.far.tilePositionX -= sp.driftX * 0.5 * dt * speedK;
-    this.near.setAlpha(sp.near * (0.75 + 0.6 * pulse) * energy);
-    this.far.setAlpha(sp.far * (0.8 + 0.3 * pulse) * energy);
+    this.near.setAlpha(sp.near * 1.45 * (0.75 + 0.6 * pulse) * energy);
+    this.far.setAlpha(sp.far * 1.3 * (0.8 + 0.3 * pulse) * energy);
     if (sp.rays) this.rays.setRotation(this.time * 0.12).setAlpha(0.18 + 0.12 * pulse);
     if (sp.ribbons) {
       for (let i = 0; i < 3; i++) {
@@ -217,7 +217,7 @@ export class World {
       }
       if (sp.motion !== 'radiate') s.setPosition(this.sx[i], this.sy[i]);
       s.setScale(sp.sprite === 'streak' || sp.sprite === 'w-beam' ? sc * 0.8 : sc * (1 + 0.25 * pulse), sp.sprite === 'streak' ? sc * 1.6 : sp.sprite === 'w-beam' ? sc * 2.4 : sc * (1 + 0.25 * pulse));
-      s.setAlpha(Math.max(0, a) * energy);
+      s.setAlpha(Math.min(1, Math.max(0, a) * energy * 1.25));
       if (sp.spin) s.setRotation(this.time * sp.spin + this.sph[i]!);
     }
   }

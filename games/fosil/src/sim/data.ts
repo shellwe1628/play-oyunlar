@@ -49,8 +49,12 @@ export const FUSE_AT = 3;
 
 export type SetBonusKind = 'luck' | 'assistant' | 'offlineCap' | 'power';
 
+/** What makes a layer play differently (introduced one per layer, each with a one-time tip). */
+export type Twist = 'none' | 'vein' | 'unstable' | 'twin' | 'relic' | 'cavein' | 'boss';
+
 export interface Layer {
-  id: 'topsoil' | 'iceage' | 'cretaceous' | 'deepsea';
+  id: 'topsoil' | 'iceage' | 'cretaceous' | 'deepsea' | 'coalswamp' | 'amberforest' | 'saltcaves' | 'geode' | 'magma' | 'firstseas';
+  twist: Twist;
   /**
    * Block HP = hp × (1 + hpRamp × k)², k = blocks already broken in this layer: the stratum gets
    * denser as you dig. Quadratic, so taps per block stay roughly level while power grows.
@@ -73,6 +77,7 @@ export interface Layer {
 export const LAYERS: readonly Layer[] = [
   {
     id: 'topsoil',
+    twist: 'none',
     hp: 4,
     hpRamp: 0.28,
     powerScale: 1,
@@ -85,6 +90,7 @@ export const LAYERS: readonly Layer[] = [
   },
   {
     id: 'iceage',
+    twist: 'none',
     hp: 6000,
     hpRamp: 0.009,
     powerScale: 6,
@@ -97,6 +103,7 @@ export const LAYERS: readonly Layer[] = [
   },
   {
     id: 'cretaceous',
+    twist: 'none',
     hp: 150000,
     hpRamp: 0.004,
     powerScale: 40,
@@ -109,6 +116,7 @@ export const LAYERS: readonly Layer[] = [
   },
   {
     id: 'deepsea',
+    twist: 'none',
     hp: 4500000,
     hpRamp: 0.003,
     powerScale: 250,
@@ -118,6 +126,84 @@ export const LAYERS: readonly Layer[] = [
     setBonus: { kind: 'power', value: 2 },
     bands: [0x3b5f73, 0x2e4d61, 0x46708a, 0x253f52, 0x355a6e],
     sky: 0x0f1c26,
+  },
+  {
+    id: 'coalswamp',
+    twist: 'vein',
+    hp: 1.2e8,
+    hpRamp: 0.003,
+    powerScale: 1.6e4,
+    dust: 1e6,
+    dustCurve: 0.5,
+    unlockPower: 6e7,
+    setBonus: { kind: 'luck', value: 1.25 },
+    bands: [0x2e3a24, 0x23301c, 0x3a4a2c, 0x1c2416, 0x2a3620],
+    sky: 0x0e140a,
+  },
+  {
+    id: 'amberforest',
+    twist: 'unstable',
+    hp: 6e9,
+    hpRamp: 0.003,
+    powerScale: 1.2e5,
+    dust: 3e7,
+    dustCurve: 0.5,
+    unlockPower: 3e9,
+    setBonus: { kind: 'power', value: 1.5 },
+    bands: [0xc0782a, 0xa8641c, 0xd8923a, 0x8a4e16, 0xb87026],
+    sky: 0x2a1404,
+  },
+  {
+    id: 'saltcaves',
+    twist: 'twin',
+    hp: 3e11,
+    hpRamp: 0.003,
+    powerScale: 9e5,
+    dust: 9e8,
+    dustCurve: 0.5,
+    unlockPower: 1.5e11,
+    setBonus: { kind: 'assistant', value: 1.5 },
+    bands: [0xe8dcd8, 0xd8c4c4, 0xf2eaea, 0xc8b0b4, 0xe0d0d0],
+    sky: 0x2a2228,
+  },
+  {
+    id: 'geode',
+    twist: 'relic',
+    hp: 1.5e13,
+    hpRamp: 0.003,
+    powerScale: 7e6,
+    dust: 2.7e10,
+    dustCurve: 0.5,
+    unlockPower: 7.5e12,
+    setBonus: { kind: 'luck', value: 1.25 },
+    bands: [0x6a4a8a, 0x553a74, 0x7e5aa0, 0x452e60, 0x5e4280],
+    sky: 0x140a20,
+  },
+  {
+    id: 'magma',
+    twist: 'cavein',
+    hp: 7.5e14,
+    hpRamp: 0.003,
+    powerScale: 5e7,
+    dust: 8e11,
+    dustCurve: 0.5,
+    unlockPower: 3.8e14,
+    setBonus: { kind: 'power', value: 1.5 },
+    bands: [0x3a1a14, 0x5a2014, 0x2a1210, 0x7a2a12, 0x401812],
+    sky: 0x120404,
+  },
+  {
+    id: 'firstseas',
+    twist: 'boss',
+    hp: 4e16,
+    hpRamp: 0.003,
+    powerScale: 4e8,
+    dust: 2.4e13,
+    dustCurve: 0.5,
+    unlockPower: 2e16,
+    setBonus: { kind: 'power', value: 2 },
+    bands: [0x1f5a5a, 0x184a4a, 0x2a6e6a, 0x123c3c, 0x206060],
+    sky: 0x041414,
   },
 ];
 
@@ -207,6 +293,96 @@ const TABLE: readonly (readonly Row[])[] = [
     [250_000, 'trilobite', 0xbfefff, 0x3fa8d8, 'glow', 2],
     [1_000_000, 'skull', 0xfff6d6, 0x30e0d0, 'glow', 2],
   ],
+  // Coal Swamp: dark greens and coal
+  [
+    [2, 'leaf', 0x3a5a2a, 0x1a2a12, 'veins', 2],
+    [5, 'bone', 0x6a6a5a, 0x2a2a22, 'stripes', 1],
+    [6, 'trilobite', 0x4a3a2a, 0xb08a5a, 'bands', 1],
+    [10, 'footprint', 0x2a2a2a, 0x8a8a7a, 'plain', 0],
+    [64, 'shell', 0x5a7a4a, 0x2a3a1a, 'rim', 1],
+    [80, 'claw', 0x1a1a1a, 0x6aaa5a, 'stripes', 1],
+    [300, 'leaf', 0x2f6a3a, 0xd0e08a, 'dots', 1],
+    [800, 'tooth', 0x3a3a4a, 0x9a9aba, 'rim', 0],
+    [2_500, 'trilobite', 0x6a8a3a, 0xe0f08a, 'glow', 2],
+    [5_000, 'skull', 0x4a5a3a, 0xd0d0a0, 'bands', 1],
+    [50_000, 'claw', 0x2a4a2a, 0x9aff7a, 'glow', 2],
+    [200_000, 'shell', 0x1a1a1a, 0x7affd0, 'glow', 2],
+  ],
+  // Amber Forest: amber, gold and orange
+  [
+    [2, 'leaf', 0xb07a2a, 0x6a3a10, 'veins', 0],
+    [3, 'shell', 0xd09a4a, 0x8a5a1a, 'bands', 0],
+    [10, 'trilobite', 0xe0a040, 0x7a4010, 'stripes', 0],
+    [25, 'bone', 0xc0a070, 0x6a4a20, 'speckle', 2],
+    [48, 'footprint', 0x8a5a2a, 0xf0c070, 'plain', 1],
+    [250, 'claw', 0x6a3a10, 0xffc060, 'rim', 0],
+    [800, 'leaf', 0xffb030, 0x8a4a00, 'glow', 1],
+    [2_500, 'tooth', 0xfff0c0, 0xd08a20, 'bands', 1],
+    [8_000, 'skull', 0xe8b060, 0x7a3a10, 'glow', 1],
+    [25_000, 'trilobite', 0xffd060, 0xffffff, 'glow', 1],
+    [60_000, 'shell', 0xff9a20, 0xfff0a0, 'dots', 2],
+    [600_000, 'skull', 0xffe08a, 0xff6a00, 'glow', 0],
+  ],
+  // Salt Caves: white, rose and pale blue
+  [
+    [2, 'shell', 0xf0e8e0, 0xb0a0a0, 'bands', 0],
+    [3, 'bone', 0xe8e0d8, 0xa09080, 'plain', 2],
+    [12, 'leaf', 0xe0c0c8, 0x9a6a7a, 'veins', 2],
+    [25, 'tooth', 0xf8f0f0, 0xc08090, 'stripes', 2],
+    [32, 'trilobite', 0xd8d0e8, 0x7a6a9a, 'bands', 0],
+    [120, 'footprint', 0xc0b0b0, 0xffffff, 'dots', 0],
+    [300, 'claw', 0xf0d0d8, 0x8a3a5a, 'rim', 2],
+    [5_000, 'skull', 0xffffff, 0xc06a8a, 'speckle', 1],
+    [8_000, 'shell', 0xffe0f0, 0xd04a8a, 'glow', 1],
+    [20_000, 'tooth', 0xe8f8ff, 0x6ab0ff, 'glow', 0],
+    [30_000, 'bone', 0xfff8ff, 0xff8ac0, 'glow', 1],
+    [120_000, 'skull', 0xf0f0ff, 0x9a7aff, 'glow', 2],
+  ],
+  // Crystal Geode: violet and clear crystal
+  [
+    [2, 'shell', 0x8a6aaa, 0x4a2a6a, 'bands', 1],
+    [3, 'leaf', 0x6a4a8a, 0xc0a0ff, 'veins', 0],
+    [10, 'bone', 0xb0a0c8, 0x5a4a7a, 'stripes', 0],
+    [30, 'trilobite', 0x5a3a7a, 0xd0b0ff, 'dots', 2],
+    [40, 'footprint', 0x4a3a5a, 0xe0c0ff, 'plain', 2],
+    [250, 'tooth', 0xe0d0ff, 0x7a5aaa, 'rim', 2],
+    [300, 'claw', 0x7a4aaa, 0xffffff, 'stripes', 2],
+    [1_500, 'skull', 0xc8b0f0, 0x4a2a7a, 'bands', 2],
+    [4_000, 'shell', 0xd0a0ff, 0xffffff, 'glow', 0],
+    [15_000, 'leaf', 0xa070ff, 0xffe0ff, 'glow', 2],
+    [100_000, 'trilobite', 0xf0e0ff, 0xa040ff, 'glow', 2],
+    [150_000, 'claw', 0xffffff, 0xc080ff, 'glow', 1],
+  ],
+  // Magma Vents: ash, basalt and fire
+  [
+    [2, 'bone', 0x3a2a2a, 0xff6a30, 'stripes', 0],
+    [3, 'shell', 0x5a2a1a, 0xff8a40, 'bands', 2],
+    [10, 'footprint', 0x2a1a1a, 0xff4a20, 'dots', 1],
+    [25, 'tooth', 0x4a3a3a, 0xffa060, 'rim', 1],
+    [40, 'leaf', 0x6a2a1a, 0xffb070, 'veins', 1],
+    [800, 'trilobite', 0x8a2a10, 0xffd080, 'stripes', 1],
+    [5_000, 'claw', 0xc03a10, 0xffe0a0, 'glow', 0],
+    [8_000, 'skull', 0x3a2a2a, 0xff5a20, 'glow', 0],
+    [15_000, 'shell', 0xff5a20, 0xffe060, 'glow', 2],
+    [50_000, 'tooth', 0x1a1010, 0xff3000, 'glow', 0],
+    [250_000, 'bone', 0xffd0a0, 0xff2000, 'glow', 1],
+    [1_000_000, 'skull', 0xff8a30, 0xfff0a0, 'glow', 1],
+  ],
+  // First Seas: the oldest water, teal and glow
+  [
+    [2, 'leaf', 0x3a8a8a, 0x1a4a4a, 'bands', 1],
+    [3, 'shell', 0x6ab0a0, 0x2a6a5a, 'dots', 0],
+    [10, 'trilobite', 0x4a7a8a, 0x9af0e0, 'stripes', 1],
+    [16, 'footprint', 0x2a4a4a, 0x7ae0d0, 'glow', 2],
+    [500, 'bone', 0x9ad0c0, 0x2a6a6a, 'speckle', 1],
+    [800, 'claw', 0x2a6a6a, 0xb0fff0, 'rim', 1],
+    [1_500, 'tooth', 0xc0fff0, 0x2a8a8a, 'stripes', 0],
+    [8_000, 'skull', 0x5ac0b0, 0x0a3a3a, 'rim', 2],
+    [10_000, 'shell', 0x8afff0, 0x0a5a5a, 'glow', 1],
+    [50_000, 'trilobite', 0x2af0d0, 0xffffff, 'glow', 0],
+    [250_000, 'leaf', 0xb0fff8, 0x00a0a0, 'glow', 2],
+    [1_000_000, 'skull', 0xffffff, 0x00ffd0, 'glow', 2],
+  ],
 ];
 
 export const FOSSILS: readonly Fossil[] = TABLE.flatMap((rows, layer) =>
@@ -286,3 +462,114 @@ export const OFFLINE = {
 
 /** Rewarded ad: 2x luck for 60 s. */
 export const LUCK_BOOST = { mult: 2, seconds: 60 } as const;
+
+/** Lucky streak: after this many rolls without a find at 1 in 100 or rarer, the next roll is one. */
+export const PITY = 150;
+
+/** Combo fever: at a full combo, taps hit twice as hard and dust doubles for a while. */
+export const FEVER = { seconds: 8, damage: 2, dust: 2, comboAfter: 0.5 } as const;
+
+/** Blocks broken within `window` seconds of each other chain: +10 % dust per link, up to ×2. */
+export const CHAIN = { window: 1.5, step: 0.1, max: 2 } as const;
+
+/** Golden blocks (any layer, shown before you break them): ×5 dust and two rolls. */
+export const GOLDEN = { chance: 1 / 20, hp: 1.5, dust: 5, rolls: 2 } as const;
+
+/** Layer twists. */
+export const VEIN = { chance: 0.35, weak: 0.25, maxCharge: 5, fullHold: 0.8 } as const;
+export const UNSTABLE = { chance: 0.35, window: 6 } as const;
+export const TWIN = { hp: 1.7, rolls: 2 } as const;
+export const RELIC = { chance: 1 / 6, fragments: 5, max: 3, power: 1.15 } as const;
+export const CAVEIN = { chance: 1 / 8, hp: 0.4, dust: 3 } as const;
+export const BOSS = { every: 20, hp: 6, phases: 3, luck: 3, dust: 5 } as const;
+
+/**
+ * Expedition (prestige): open the deepest layer, then restart from Topsoil keeping the museum,
+ * set bonuses, relics and records; every expedition adds a permanent dig power and dust bonus.
+ */
+export const EXPEDITION = { power: 0.6, dust: 0.6, needLayer: 9 } as const;
+
+/** Daily dig: one bonus per calendar day; the streak grows the reward up to 7 days. */
+export const DAILY = { maxStreak: 7, boostSeconds: 180, dustBlocks: 15 } as const;
+
+export type AchievementKind = 'finds' | 'tier' | 'sets' | 'depth' | 'gold' | 'expeditions' | 'relics' | 'species';
+export interface Achievement {
+  id: string;
+  kind: AchievementKind;
+  /** For 'tier': the tier index; otherwise unused. */
+  tier?: number;
+  target: number;
+  /** Reward in blocks' worth of dust at your deepest layer. */
+  reward: number;
+}
+
+export const ACHIEVEMENTS: readonly Achievement[] = [
+  { id: 'finds-10', kind: 'finds', target: 10, reward: 5 },
+  { id: 'finds-100', kind: 'finds', target: 100, reward: 10 },
+  { id: 'finds-1000', kind: 'finds', target: 1000, reward: 20 },
+  { id: 'finds-10000', kind: 'finds', target: 10000, reward: 40 },
+  { id: 'species-12', kind: 'species', target: 12, reward: 10 },
+  { id: 'species-48', kind: 'species', target: 48, reward: 25 },
+  { id: 'species-96', kind: 'species', target: 96, reward: 50 },
+  { id: 'tier-2', kind: 'tier', tier: 2, target: 1, reward: 5 },
+  { id: 'tier-3', kind: 'tier', tier: 3, target: 1, reward: 10 },
+  { id: 'tier-4', kind: 'tier', tier: 4, target: 1, reward: 20 },
+  { id: 'tier-5', kind: 'tier', tier: 5, target: 1, reward: 40 },
+  { id: 'tier-6', kind: 'tier', tier: 6, target: 1, reward: 80 },
+  { id: 'sets-1', kind: 'sets', target: 1, reward: 10 },
+  { id: 'sets-3', kind: 'sets', target: 3, reward: 20 },
+  { id: 'sets-6', kind: 'sets', target: 6, reward: 40 },
+  { id: 'depth-3', kind: 'depth', target: 3, reward: 10 },
+  { id: 'depth-5', kind: 'depth', target: 5, reward: 20 },
+  { id: 'depth-7', kind: 'depth', target: 7, reward: 30 },
+  { id: 'depth-10', kind: 'depth', target: 10, reward: 50 },
+  { id: 'gold-1', kind: 'gold', target: 1, reward: 10 },
+  { id: 'gold-10', kind: 'gold', target: 10, reward: 30 },
+  { id: 'relics-1', kind: 'relics', target: 1, reward: 20 },
+  { id: 'relics-3', kind: 'relics', target: 3, reward: 50 },
+  { id: 'expeditions-1', kind: 'expeditions', target: 1, reward: 50 },
+  { id: 'expeditions-3', kind: 'expeditions', target: 3, reward: 100 },
+];
+
+/**
+ * Progress score (personal ladder). Every discovered species is worth its tier's points, every
+ * species' best grade adds, completed sets, the deepest layer ever reached and expeditions add.
+ */
+export const SCORE = {
+  species: [10, 20, 40, 80, 150, 300, 600] as readonly number[],
+  grade: 15,
+  set: 150,
+  depth: 100,
+  expedition: 1500,
+  relic: 200,
+} as const;
+
+export interface Rank {
+  id: string;
+  score: number;
+  color: number;
+}
+
+/** Twelve ranks from first dig to master of every layer (names live in strings.ts: rank.<id>). */
+export const RANKS: readonly Rank[] = [
+  { id: 'pebble', score: 0, color: 0x9a8f80 },
+  { id: 'sifter', score: 100, color: 0xb07a4a },
+  { id: 'digger', score: 400, color: 0x6aa84f },
+  { id: 'finder', score: 1000, color: 0x4fbf6a },
+  { id: 'reader', score: 2200, color: 0x3d8bf0 },
+  { id: 'scout', score: 4000, color: 0x2fc0d0 },
+  { id: 'hunter', score: 6500, color: 0xa257f2 },
+  { id: 'curator', score: 10000, color: 0xd05ad0 },
+  { id: 'delver', score: 15000, color: 0xf2a81d },
+  { id: 'master', score: 22000, color: 0xf06a2a },
+  { id: 'grand', score: 32000, color: 0xf0445f },
+  { id: 'legend', score: 46000, color: 0x3fe3e0 },
+];
+
+export function rankOf(score: number): number {
+  let r = 0;
+  RANKS.forEach((k, i) => {
+    if (score >= k.score) r = i;
+  });
+  return r;
+}

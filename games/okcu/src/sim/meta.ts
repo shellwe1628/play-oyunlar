@@ -71,14 +71,61 @@ export function buyUpgrade(save: SaveData, id: UpgradeId): boolean {
   return true;
 }
 
-/** Record a finished run (wave reached = waves cleared + 1). */
-export function applyRunResult(save: SaveData, wave: number, coins: number): { best: number; newBest: boolean } {
+/**
+ * What one run has already written to the save. Progress is banked at every wave clear, on
+ * quit/hide and at death, always as a delta from this record, so nothing earned is lost when
+ * the app is killed mid-run and nothing is ever counted twice.
+ */
+export interface RunBank {
+  /** run coins already added to the save */
+  coins: number;
+  /** best wave in the save when the run started (for the "new best" badge) */
+  startBest: number;
+  /** the run was counted in `runs` */
+  started: boolean;
+}
+
+export function newBank(save: SaveData): RunBank {
+  return { coins: 0, startBest: save.best, started: false };
+}
+
+/** Count the run once, when its first arrow flies. */
+export function bankStart(save: SaveData, bank: RunBank): void {
+  if (bank.started) return;
+  bank.started = true;
   save.runs += 1;
-  save.coins += coins;
-  // dying on wave 1 is not a record worth a badge
-  const newBest = wave > save.best && wave > 1;
-  if (wave > save.best) save.best = wave;
-  return { best: save.best, newBest };
+}
+
+/** Write what the run has earned so far: coins as a delta, best wave as a maximum. */
+export function bankProgress(save: SaveData, bank: RunBank, reached: number, runCoins: number): void {
+  const delta = runCoins - bank.coins;
+  if (delta > 0) {
+    save.coins += delta;
+    bank.coins = runCoins;
+  }
+  if (reached > save.best) save.best = reached;
+}
+
+/** The daily run's best for today (a new day starts from zero). */
+export function bankDaily(save: SaveData, key: string, reached: number): void {
+  if (save.dailyDate !== key) {
+    save.dailyDate = key;
+    save.dailyBest = 0;
+  }
+  save.dailyBest = Math.max(save.dailyBest, reached);
+}
+
+/** Result of a run against the best it started with. Dying on wave 1 earns no badge. */
+export function runOutcome(save: SaveData, bank: RunBank, reached: number): { best: number; newBest: boolean } {
+  return { best: save.best, newBest: reached > bank.startBest && reached > 1 };
+}
+
+/** Record a finished run in one go (start, bank, outcome). */
+export function applyRunResult(save: SaveData, wave: number, coins: number): { best: number; newBest: boolean } {
+  const bank = newBank(save);
+  bankStart(save, bank);
+  bankProgress(save, bank, wave, coins);
+  return runOutcome(save, bank, wave);
 }
 
 /** Calendar key for the daily run (local date). */

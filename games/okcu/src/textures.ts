@@ -60,6 +60,27 @@ export const PALETTE = {
   card: 0xfff3d6,
   cardEdge: 0xff9f43,
   gold: 0xffc93c,
+  powerLow: 0x7cf29c,
+  powerMid: 0xffd23f,
+  bubble: 0x8fe3ff,
+  locked: 0x9a8aa8,
+  pipOff: 0x6b5a7a,
+  hair: 0x6b3a1f,
+  sky2: 0x3fa9f5,
+  cardIcon: 0xffe2b0,
+  pink: 0xff6fb5,
+  powerHigh: 0xff6b4a,
+  dust: 0xe8d3b0,
+  metalLight: 0xdddddd,
+  helm: 0xb8c0cc,
+  smoke: 0x8a7a8a,
+  weight: 0x8892a6,
+  bossScarf: 0x7a1424,
+  archerScarf: 0x5b2c9a,
+  skyDay: 0x3fb4ff,
+  capGreen: 0x3f7e3a,
+  topHat: 0x2b2b3a,
+  shieldScarf: 0x2a4fa0,
 } as const;
 
 /** Sky palettes (top, bottom, far hills, near hills, sun), switching every five waves. */
@@ -73,6 +94,20 @@ export const SKIES = [
 
 /** Textures are drawn with code at boot, at the size they are shown (logical px). */
 export const TEXTURES: readonly TextureRecipe[] = [
+  {
+    // soft edge glow for the damage vignette (tinted and faded by the scene): nested frames
+    // whose alpha falls off toward the middle
+    key: 'okcu-vignette',
+    width: 360,
+    height: 640,
+    draw(g) {
+      const bands = 26;
+      for (let i = 0; i < bands; i++) {
+        const k = 1 - i / bands;
+        g.lineStyle(8, 0xffffff, k * k * 0.5).strokeRoundedRect(4 + i * 6, 4 + i * 6, 352 - i * 12, 632 - i * 12, 40);
+      }
+    },
+  },
   {
     key: 'feather',
     width: 40,

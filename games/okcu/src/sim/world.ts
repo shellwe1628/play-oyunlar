@@ -9,7 +9,7 @@ import { addVelocity, createBody, stepBody, translateBody, type Body, type Ledge
 import { drawOffer, statsFor, type CardId, type PlayerStats } from './cards';
 import { resolveHit, type EnemyType, type HitPart } from './combat';
 import { clamp, solveLaunchAngle, sweepAabb } from './geom';
-import { NO_META, type MetaLevels } from './meta';
+import { NO_META, type MetaLevels, type RunBank } from './meta';
 import { BOSS_PARTS, bowOrigin, createRagdoll, LEG_HEIGHT, PARTS, PT, setPose, type Part } from './ragdoll';
 import { PLAYER_LEDGE, PLAYER_SCALE, PLAYER_X, TUNING } from './tuning';
 import { enemyAccuracy, enemyDamageMul, enemyHp, enemyScale, enemyTiming, graceStep, helmetChance, layoutFor, waveEnemies, waveGrace } from './waves';
@@ -71,6 +71,8 @@ export interface Archer {
   shieldHp: number;
   shieldOn: boolean;
   bob: number;
+  /** arrows released this wave (the first volley never lands a headshot) */
+  shotsFired: number;
 }
 
 export interface Arrow {
@@ -101,6 +103,8 @@ export interface Arrow {
   /** visual: fades out when > 0 */
   fade: number;
   seq: number;
+  /** an enemy's first volley of a wave: a head hit counts as a body hit */
+  soft: boolean;
 }
 
 export interface Apple {
@@ -182,13 +186,23 @@ export interface World {
   nextId: number;
   arrowSeq: number;
   run: RunStats;
+  /** events since the scene last called takeEvents (kept until then, delivered exactly once) */
   events: GameEvent[];
+  spareEvents: GameEvent[];
+  /** layout rotation chosen per run (seeded) */
+  layoutRot: number;
+  /** coins/best already written to the save by the scene (survives a revive) */
+  bank: RunBank | null;
 }
 
 const ARROW_POOL = 72;
 const NO_LEDGES: Ledge[] = [];
+/** the boss looses a fan of three arrows */
+const BOSS_SPREAD = [-0.05, 0, 0.05] as const;
+const ONE_ARROW = [0] as const;
 const DT = TUNING.dt;
 const SHIELD_PARTS: readonly Part[] = [{ a: 0, b: 1, r: 15, kind: 'body' }];
+const BODY_PART: Part = PARTS.find((p) => p.kind === 'body')!;
 
 function newArrow(): Arrow {
   return {
@@ -217,6 +231,7 @@ function newArrow(): Arrow {
     hrel: 0,
     fade: 0,
     seq: 0,
+    soft: false,
   };
 }
 
@@ -276,6 +291,7 @@ function makeArcher(w: World, type: ArcherType, x: number, ledgeTop: number, fac
     shield: null,
     shieldHp: 0,
     shieldOn: false,
+    shotsFired: 0,
     bob: (w.nextId * 1.7) % 6.28,
   };
   if (type === 'shield') {
@@ -290,7 +306,7 @@ function makeArcher(w: World, type: ArcherType, x: number, ledgeTop: number, fac
     });
     a.shield.pin[0] = 1;
     a.shield.pin[1] = 1;
-    a.shieldHp = 3;
+    a.shieldHp = TUNING.shieldHits;
     a.shieldOn = true;
   }
   poseArcher(a, 0);
@@ -339,7 +355,11 @@ export function createWorld(opts: WorldOptions): World {
     arrowSeq: 0,
     run: { shots: 0, hits: 0, kos: 0, headshots: 0, firstKoShot: 0, coins: 0, playerHitsTaken: 0, enemyShots: 0 },
     events: [],
+    spareEvents: [],
+    layoutRot: 0,
+    bank: null,
   } as unknown as World;
+  w.layoutRot = w.waveRng.int(0, 2);
   if (w.stats.starterCard) {
     const [card] = drawOffer(w.cardRng, [], 1);
     if (card) w.cards.push(card);
@@ -356,7 +376,7 @@ export function createWorld(opts: WorldOptions): World {
 
 function spawnWave(w: World, wave: number, instant: boolean): void {
   w.wave = wave;
-  w.layout = layoutFor(wave);
+  w.layout = wave === 1 ? firstLayout(w) : layoutFor(wave, w.layoutRot);
   w.ledges = [{ ...PLAYER_LEDGE }, ...w.layout.map((l) => ({ ...l }))];
   // leftover bodies of the last wave poof now
   for (const e of w.enemies) if (!e.gone) poof(w, e);
@@ -383,13 +403,44 @@ function spawnWave(w: World, wave: number, instant: boolean): void {
     w.enemies.push(e);
   });
   w.shieldLeft = w.stats.shieldCharges;
-  w.events.push({ t: 'waveStart', wave });
+  // the title's wave is announced by startRun when the first arrow flies
+  if (!instant) w.events.push({ t: 'waveStart', wave });
+}
+
+/**
+ * Wave 1's layout: the run's rotation, with the target ledge nudged to a seeded spot so the
+ * opening shot is never the same rote shot (it stays an easy, close target).
+ */
+function firstLayout(w: World): Ledge[] {
+  const base = layoutFor(1, w.layoutRot).map((l) => ({ ...l }));
+  const t = base[0]!;
+  // never lower than y 845: a target near the player's height is masked by its own bow arm
+  const fits = (m: Ledge) => base.slice(1).every((o) => m.x + m.w + 40 < o.x || o.x + o.w + 40 < m.x || m.y + 150 < o.y || o.y + 150 < m.y);
+  for (let i = 0; i < 6; i++) {
+    const m = { ...t, x: clamp(t.x + w.waveRng.range(-60, 40), 330, 720 - t.w - 10), y: Math.min(845, t.y + w.waveRng.range(-90, 0)) };
+    if (fits(m)) {
+      base[0] = m;
+      return base;
+    }
+  }
+  base[0] = { ...t, y: Math.min(845, t.y) };
+  return base;
 }
 
 function startRun(w: World): void {
   w.phase = 'play';
   w.phaseT = 0;
   w.events.push({ t: 'waveStart', wave: w.wave });
+}
+
+/**
+ * Start wave `wave` right now with archers already standing (no drop-in, no card pick).
+ * For tests and tools only: real runs reach a wave by clearing the one before.
+ */
+export function jumpToWave(w: World, wave: number): void {
+  w.phase = 'play';
+  w.phaseT = 0;
+  spawnWave(w, wave, true);
 }
 
 // ---------------------------------------------------------------- player input
@@ -400,6 +451,15 @@ export function aimAt(w: World, angle: number, power: number): void {
   if (!p.alive) return;
   p.aim = clamp(angle, -Math.PI * 0.62, Math.PI * 0.3);
   p.draw = clamp(power, 0, 1);
+}
+
+/** A tap on the title: the archer twitches (cosmetic nudge that teaches "drag, don't tap"). */
+export function twitch(w: World): void {
+  const p = w.player;
+  if (!p.alive) return;
+  addVelocity(p.body, PT.head, -90, -160, DT);
+  addVelocity(p.body, PT.handF, 60, -120, DT);
+  p.body.muscle = Math.min(p.body.muscle, 0.5);
 }
 
 /** The angle actually fired for an intended angle (arm hits make the aim wobble). */
@@ -496,6 +556,7 @@ function spawnArrow(w: World, owner: 'player' | 'enemy', kind: 'arrow' | 'bomb',
   a.host = -1;
   a.fade = 0;
   a.seq = w.arrowSeq++;
+  a.soft = false;
   return a;
 }
 
@@ -565,23 +626,34 @@ export function revive(w: World): boolean {
 
 // ---------------------------------------------------------------- step
 
-/** Advance by `seconds` of game time in fixed ticks. Clears and refills `w.events`. */
+/** Longest stretch of game time one `advance` call may cover (a hitch never launches bodies). */
+export const MAX_ADVANCE = 0.25;
+/** Safety cap when nobody drains events (headless runs); the scene drains every frame. */
+const EVENT_CAP = 4000;
+
+/**
+ * Advance by `seconds` of game time in fixed ticks. Events accumulate in `w.events` until
+ * `takeEvents` hands them over, so input handled before the step (a shot) is never lost.
+ */
 export function advance(w: World, seconds: number): void {
-  w.events.length = 0;
-  w.acc += Math.min(seconds, 0.25);
+  w.acc += Math.min(seconds, MAX_ADVANCE);
   while (w.acc >= DT) {
     w.acc -= DT;
     tick(w);
   }
+  if (w.events.length > EVENT_CAP) w.events.splice(0, w.events.length - EVENT_CAP);
 }
 
-/** Same as advance but keeps earlier events (for scripted players and tests). */
-export function advanceKeep(w: World, seconds: number): void {
-  w.acc += Math.min(seconds, 0.25);
-  while (w.acc >= DT) {
-    w.acc -= DT;
-    tick(w);
-  }
+/**
+ * All events since the previous call, exactly once. The returned array is reused by the call
+ * after next, so consume it before calling again (the scene does, every frame).
+ */
+export function takeEvents(w: World): GameEvent[] {
+  const out = w.events;
+  w.events = w.spareEvents;
+  w.events.length = 0;
+  w.spareEvents = out;
+  return out;
 }
 
 function tick(w: World): void {
@@ -978,13 +1050,15 @@ function beginDraw(w: World, a: Archer, _draw: number): void {
 
 function release(w: World, a: Archer): void {
   const kind = a.type === 'bomber' ? 'bomb' : 'arrow';
-  const spread = a.type === 'boss' ? [-0.045, 0.045] : [0];
+  const spread = a.type === 'boss' ? BOSS_SPREAD : ONE_ARROW;
   const o = bowOrigin(a.stanceX, a.anchorY, a.aim, a.scale);
   for (const s of spread) {
     const ang = a.aimGoal + s;
-    spawnArrow(w, 'enemy', kind, o.x, o.y, Math.cos(ang) * a.speedGoal, Math.sin(ang) * a.speedGoal);
+    const ar = spawnArrow(w, 'enemy', kind, o.x, o.y, Math.cos(ang) * a.speedGoal, Math.sin(ang) * a.speedGoal);
+    if (ar) ar.soft = a.shotsFired === 0;
     w.run.enemyShots += 1;
   }
+  a.shotsFired += 1;
   a.draw = 0;
   w.events.push({ t: 'enemyShot', id: a.id, kind, x: o.x, y: o.y });
 }
@@ -1248,7 +1322,7 @@ function hitEnemy(w: World, a: Arrow, e: Archer, part: Part, hx: number, hy: num
     return;
   }
   w.run.hits += 1;
-  const out = resolveHit(e.type, part.kind, a.dmgMul);
+  const out = resolveHit(e.type, part.kind, a.dmgMul, e.helmet);
   e.hurt = 0;
   e.body.muscle = Math.min(e.body.muscle, e.type === 'boss' ? 0.35 : TUNING.hitMuscle);
   e.aimPenalty += out.aimPenalty;
@@ -1327,7 +1401,9 @@ function enemyArrowHits(w: World, a: Arrow, x0: number, y0: number): void {
   }
   const h = p.gone ? null : hitParts(p.body, p.scale, PARTS, x0, y0, a.x, a.y);
   if (h && h.t <= ledgeT) {
-    const part = PARTS[h.part]!;
+    const hitPart = PARTS[h.part]!;
+    // a wave's opening volley never lands a headshot: it counts as a body hit
+    const part = a.soft && hitPart.kind === 'head' ? BODY_PART : hitPart;
     const hx = h.x;
     const hy = h.y;
     if (a.kind === 'bomb') {

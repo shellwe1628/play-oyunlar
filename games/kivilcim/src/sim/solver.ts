@@ -95,6 +95,12 @@ export interface SolveOptions {
   gems?: boolean;
   /** Force the input of the first tick (a real run starts with the finger that started it). */
   startHeld?: 0 | 1;
+  /**
+   * Plan from a mid-run state instead of the start: the spark is at x after `tick` ticks with
+   * input `held`, which has just changed (it is kept for minHoldTicks before the next change).
+   * Ticks before `tick` are filled with `held` in the result.
+   */
+  from?: { tick: number; x: number; held: 0 | 1; since?: number };
 }
 
 export interface Plan {
@@ -154,17 +160,20 @@ export function solve(track: Track | Prepared, opts: SolveOptions): Plan | null 
   const gems = p.track.gems;
   const d = table.d;
 
-  const x0 = p.track.startX;
+  const from = opts.from;
+  const j0 = from ? Math.min(n, Math.max(0, from.tick)) : 0;
+  const x0 = from ? from.x : p.track.startX;
   const b0 = Math.floor(x0 / BIN_W);
   for (let hb = 0; hb < 2; hb++) {
+    if (from && hb !== from.held) continue;
     has[b0 * 2 + hb] = 1;
     xs[b0 * 2 + hb] = x0;
-    since[b0 * 2 + hb] = K;
+    since[b0 * 2 + hb] = from ? Math.min(K, Math.max(1, from.since ?? 1)) : K;
   }
   let curLo = b0;
   let curHi = b0;
 
-  for (let j = 0; j < n; j++) {
+  for (let j = j0; j < n; j++) {
     const v = tl.v[j]! * DT;
     const flip = tl.flipped[j]!;
     const r1 = tl.r[j + 1]!;
@@ -186,7 +195,7 @@ export function solve(track: Track | Prepared, opts: SolveOptions): Plan | null 
         const sn = since[s]!;
         for (let c = 0; c < 2; c++) {
           const h2 = c === 0 ? hb : 1 - hb;
-          if (j === 0 && opts.startHeld !== undefined && h2 !== opts.startHeld) continue;
+          if (j === j0 && opts.startHeld !== undefined && h2 !== opts.startHeld) continue;
           let sn2: number;
           if (h2 === hb) sn2 = sn < K ? sn + 1 : K;
           else {
@@ -241,11 +250,12 @@ export function solve(track: Track | Prepared, opts: SolveOptions): Plan | null 
   for (let b = curLo; b <= curHi && s < 0; b++) for (let hb = 0; hb < 2; hb++) if (has[b * 2 + hb]) s = b * 2 + hb;
   if (s < 0) return null;
   const held = new Uint8Array(n);
-  for (let j = n; j >= 1; j--) {
+  for (let j = n; j > j0; j--) {
     held[j - 1] = s & 1;
     s = back[j * BINS * 2 + s]!;
-    if (s < 0 && j > 1) return null;
+    if (s < 0 && j > j0 + 1) return null;
   }
+  if (from) held.fill(from.held, 0, j0);
   return { held };
 }
 

@@ -37,6 +37,9 @@ test('title → wave 1 cleared → card → stop shooting → result, coins save
   expect(cleared.data.kos).toBeGreaterThanOrEqual(1);
   expect(cleared.data.firstKoShot).toBeLessThanOrEqual(3);
   expect((cleared.data.offer as string[]).length).toBe(3);
+  // progress is banked at the wave clear, not only at death
+  expect(cleared.data.savedCoins).toBe(cleared.data.coins);
+  expect(cleared.data.best).toBe(2);
   await page.waitForTimeout(800); // cards slam in
   await shot(page, gameDir, 'cards');
   await act(page, 'pick-card', 0);
@@ -167,6 +170,10 @@ test('real touch: drag to knock out an archer, tap to pick a card', async ({ pag
   await page.waitForTimeout(300);
   expect((await state(page)).data.shots).toBe(0);
 
+  const hapticsBefore = await page.evaluate(() => {
+    const calls = window.__OYUN__!.state().meta.platformCalls as string[];
+    return calls.filter((c) => c === 'haptic').length;
+  });
   for (let attempt = 0; attempt < 6 && ((await state(page)).data.kos as number) < 1; attempt++) {
     const d = (await state(page)).data;
     const sol = d.solution as { angle: number; power: number };
@@ -176,10 +183,26 @@ test('real touch: drag to knock out an archer, tap to pick a card', async ({ pag
     await t.drag(startX, startY, -Math.cos(sol.angle) * len, -Math.sin(sol.angle) * len);
     if (attempt === 0) await shot(page, gameDir, 'touch-release');
     await page.waitForFunction((n) => (window.__OYUN__?.state().data.shots as number) > n, d.shots as number, { timeout: 5000 });
+    if (attempt === 0) {
+      // the release's feedback really plays: a haptic through the platform, and wave 1 is announced
+      await page.waitForFunction(
+        (n) => {
+          // core lists the web adapter's call names: a new 'haptic' (the release) and the
+          // run's analytics ('track' for run_start / wave_start) must have happened
+          const calls = window.__OYUN__!.state().meta.platformCalls as string[];
+          return calls.filter((c) => c === 'haptic').length > n && calls.includes('track');
+        },
+        hapticsBefore,
+        { timeout: 5000 },
+      );
+    }
     await page.waitForTimeout(1500);
   }
   const s = await state(page);
   expect(s.data.kos).toBeGreaterThanOrEqual(1);
+  // every release played its feedback (snap, whistle, push, puffs, haptic) and wave 1 was announced once
+  expect(s.data.shotFx).toBe(s.data.shots);
+  expect(s.data.waveFx).toBe(1);
   expect(s.data.shots as number).toBeGreaterThanOrEqual(1);
 
   await page.waitForFunction(() => window.__OYUN__?.state().data.phase === 'cards', null, { timeout: 20_000 });
@@ -191,5 +214,14 @@ test('real touch: drag to knock out an archer, tap to pick a card', async ({ pag
   await page.waitForFunction(() => window.__OYUN__?.state().data.phase === 'play', null, { timeout: 10_000 });
   expect((await state(page)).data.cards).toEqual([offer[1]]);
   expect((await state(page)).data.wave).toBe(2);
+
+  // quitting mid-run from the pause menu keeps what was earned
+  const earned = (await state(page)).data.coins as number;
+  expect(earned).toBeGreaterThan(0);
+  await act(page, 'pause');
+  await waitForScene(page, 'pause');
+  await act(page, 'quit');
+  await page.waitForFunction(() => window.__OYUN__?.state().scene === 'game' && window.__OYUN__?.state().data.phase === 'title', null, { timeout: 10_000 });
+  expect((await state(page)).data.savedCoins).toBe(earned);
   expect(errors).toEqual([]);
 });

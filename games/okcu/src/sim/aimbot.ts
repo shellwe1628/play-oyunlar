@@ -7,7 +7,7 @@ import type { CardId } from './cards';
 import { clamp, minLaunchSpeed, solveLaunchAngle } from './geom';
 import type { MetaLevels } from './meta';
 import { TUNING } from './tuning';
-import { advanceKeep, aliveEnemies, arcClear, arrowSpeed, canShoot, createWorld, pickCard, playerOrigin, shoot, targetPoint, type Archer, type World } from './world';
+import { advance, aliveEnemies, arcClear, arrowSpeed, canShoot, createWorld, pickCard, playerOrigin, shoot, takeEvents, targetPoint, type Archer, type World } from './world';
 
 export interface Profile {
   /** std dev of the launch angle error, radians */
@@ -16,8 +16,9 @@ export interface Profile {
   powerError: number;
   /** aim at heads (true) or chests (false) */
   heads: boolean;
-  /** seconds between being able to shoot and shooting */
+  /** seconds between being able to shoot and shooting (plus up to `thinkJitter`) */
   think: number;
+  thinkJitter?: number;
   /** launch speed as a multiple of the minimum needed (lower = loftier arc that drops onto heads) */
   loft: number;
   /** card preference order (first available wins); empty = always the first card */
@@ -25,6 +26,8 @@ export interface Profile {
 }
 
 export const CARELESS: Profile = { angleError: 0.08, powerError: 0.25, heads: false, think: 0.6, loft: 1.18, prefer: [] };
+/** A clumsy first-timer: one shot every 2.5–3 s, rough aim, no dodging. */
+export const SLOW_HUMAN: Profile = { angleError: 0.08, powerError: 0.15, heads: false, think: 2.0, thinkJitter: 0.5, loft: 1.18, prefer: [] };
 export const CAREFUL: Profile = {
   angleError: 0.012,
   powerError: 0.02,
@@ -105,6 +108,7 @@ export interface RunReport {
 export function playRun(seed: number, rng: Rng, p: Profile, meta?: MetaLevels, maxTime = 1200): RunReport {
   const w = createWorld({ seed, ...(meta ? { meta } : {}) });
   let wait = 0;
+  let need = p.think + rng.next() * (p.thinkJitter ?? 0);
   const step = 1 / 30;
   while (w.time < maxTime && w.phase !== 'over') {
     if (w.phase === 'cards') {
@@ -120,13 +124,16 @@ export function playRun(seed: number, rng: Rng, p: Profile, meta?: MetaLevels, m
     }
     if (canShoot(w) && (w.phase === 'title' || w.phase === 'play')) {
       wait += step;
-      if (wait >= p.think || w.phase === 'title') {
+      if (wait >= need || w.phase === 'title') {
         const s = planShot(w, rng, p);
-        if (s && shoot(w, s.angle, s.power)) wait = 0;
+        if (s && shoot(w, s.angle, s.power)) {
+          wait = 0;
+          need = p.think + rng.next() * (p.thinkJitter ?? 0);
+        }
       }
     }
-    advanceKeep(w, step);
-    if (w.events.length > 200) w.events.length = 0;
+    advance(w, step);
+    takeEvents(w);
   }
   return { wave: w.wave, firstKoShot: w.run.firstKoShot, shots: w.run.shots, kos: w.run.kos, coins: w.run.coins, time: w.time, cards: [...w.cards] };
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { kineticEnergy, maxStickError, stepBody } from '../../src/sim/body';
+import { createBody, kineticEnergy, maxStickError, stepBody } from '../../src/sim/body';
 import { createRagdoll, PT, setPose } from '../../src/sim/ragdoll';
 import type { Ledge } from '../../src/sim/body';
 
@@ -90,5 +90,67 @@ describe('ragdoll stability', () => {
     const dx = (b.x[PT.footF] as number) - (b.x[PT.pelvis] as number);
     const dy = (b.y[PT.footF] as number) - (b.y[PT.pelvis] as number);
     expect(Math.hypot(dx, dy)).toBeGreaterThan(14);
+  });
+});
+
+describe('ragdoll tuning that matters', () => {
+  const limp = (x: number, y: number) => {
+    const b = createRagdoll(x, y, 1, 1);
+    b.muscle = 0;
+    for (let i = 0; i < b.n; i++) b.pin[i] = 0;
+    return b;
+  };
+
+  it('constraints hold within 6 % one tick after a violent kick (needs several solver iterations)', () => {
+    const b = createRagdoll(200, 548, 1, 1);
+    for (let s = 0; s < 120; s++) {
+      setPose(b, 200, 548, 1, -0.3, 0, 1, 0);
+      stepBody(b, DT, [floor]);
+    }
+    b.px[PT.head] = (b.x[PT.head] as number) - 4000 * DT;
+    b.px[PT.handB] = (b.x[PT.handB] as number) + 4000 * DT;
+    b.muscle = 0.05;
+    stepBody(b, DT, [floor]);
+    expect(maxStickError(b)).toBeLessThan(0.06);
+  });
+
+  it('friction stops a body sliding along a ledge', () => {
+    const b = limp(200, 548);
+    for (let s = 0; s < 240; s++) stepBody(b, DT, [floor]);
+    const x0 = b.x[PT.pelvis] as number;
+    for (let i = 0; i < b.n; i++) b.px[i] = (b.x[i] as number) - 500 * DT;
+    for (let s = 0; s < 120; s++) stepBody(b, DT, [floor]);
+    expect((b.x[PT.pelvis] as number) - x0).toBeLessThan(90);
+  });
+
+  it('contacts are inelastic: a dropped point rebounds to under 15 % of its drop', () => {
+    const p = createBody({ points: [{ x: 100, y: 300, r: 6, kp: 0 }], sticks: [], limits: [] });
+    let landed = false;
+    let top = Infinity;
+    for (let s = 0; s < 600; s++) {
+      stepBody(p, DT, [floor]);
+      const y = p.y[0] as number;
+      if (!landed && y > 590) landed = true;
+      if (landed) top = Math.min(top, y);
+    }
+    expect(landed).toBe(true);
+    const drop = 594 - 300;
+    expect(594 - top).toBeLessThan(drop * 0.15);
+  });
+
+  it('the neck limit keeps the head from folding into the pelvis', () => {
+    const b = limp(200, 400);
+    b.gravity = 0;
+    // fold the head straight down the spine (both sticks still satisfied)
+    const nx = b.x[PT.neck] as number;
+    const ny = b.y[PT.neck] as number;
+    const dx = (b.x[PT.pelvis] as number) - nx;
+    const dy = (b.y[PT.pelvis] as number) - ny;
+    const d0 = Math.hypot(dx, dy);
+    b.x[PT.head] = b.px[PT.head] = nx + (dx / d0) * 29;
+    b.y[PT.head] = b.py[PT.head] = ny + (dy / d0) * 29;
+    for (let s = 0; s < 120; s++) stepBody(b, DT, []);
+    const d = Math.hypot((b.x[PT.head] as number) - (b.x[PT.pelvis] as number), (b.y[PT.head] as number) - (b.y[PT.pelvis] as number));
+    expect(d).toBeGreaterThan(58);
   });
 });

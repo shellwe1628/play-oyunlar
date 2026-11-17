@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { TrackBuilder } from '../../src/sim/builder';
 import { DT, SPARK_R } from '../../src/sim/constants';
 import { RunSim } from '../../src/sim/run';
-import { analyse, kinematics, reactionWindow, replay, safetyMargin, solve, K_REF } from '../../src/sim/solver';
+import { analyse, kinematics, prepare, reactionWindow, replay, safetyMargin, solve, K_REF } from '../../src/sim/solver';
 
 describe('kinematics timeline', () => {
   it('matches a RunSim tick for tick (y never depends on input)', () => {
@@ -55,6 +55,33 @@ describe('solve', () => {
     expect(replay(track, plan.held).finished).toBe(true);
     const plan0 = solve(track, { minClear: 0, minHoldTicks: K_REF, startHeld: 0 })!;
     expect(plan0.held[0]).toBe(0);
+  });
+
+  it('can plan from a mid-run state (re-planning after an off-plan input)', () => {
+    const track = new TrackBuilder({ speed: 500 }).straight(200, 220).zig(4, 300, 100).straight(300, 220).finish();
+    const p = prepare(track);
+    // Play 20 ticks held (off any plan), then plan the rest from where the spark really is.
+    // (After 40 held ticks it is only recoverable with sub-100 ms taps, and the solver says so.)
+    const sim = new RunSim(track);
+    for (let j = 0; j < 20; j++) sim.step(true);
+    const rest = solve(p, { minClear: 0, minHoldTicks: K_REF, from: { tick: sim.tick, x: sim.x, held: 1 } })!;
+    expect(rest).not.toBeNull();
+    expect(rest.held.subarray(0, 20).every((h) => h === 1)).toBe(true);
+    // The first K_REF ticks after the hand-over keep the current input (it has just been pressed).
+    expect(rest.held.subarray(20, 20 + K_REF).every((h) => h === 1)).toBe(true);
+    for (let j = 20; j < rest.held.length && sim.alive && !sim.finished; j++) sim.step(rest.held[j] === 1);
+    expect(sim.finished).toBe(true);
+  });
+
+  it('from a state held long enough, the plan may switch at once', () => {
+    const track = new TrackBuilder({ speed: 500 }).straight(1200, 120).finish();
+    const sim = new RunSim(track);
+    for (let j = 0; j < 20; j++) sim.step(true); // x = 360 + 83: 24 px from the right wall
+    const p = prepare(track);
+    expect(solve(p, { minClear: 0, minHoldTicks: K_REF, from: { tick: 20, x: sim.x, held: 1, since: 1 } })).toBeNull();
+    const r = solve(p, { minClear: 0, minHoldTicks: K_REF, from: { tick: 20, x: sim.x, held: 1, since: 20 } })!;
+    expect(r).not.toBeNull();
+    expect(r.held[20]).toBe(0);
   });
 
   it('can be required to take every gem, and the replay takes them', () => {

@@ -5,7 +5,7 @@ import { K_REF, prepare, reactionWindow, solve, switchTicks } from '../../src/si
 
 const gameDir = new URL('../..', import.meta.url).pathname.replace(/\/$/, '');
 
-type Data = Record<string, unknown> & { phase: string; tick: number; dir: number; held: boolean; progress: number; retryReady: boolean; attempts: number };
+type Data = Record<string, unknown> & { phase: string; tick: number; dir: number; held: boolean; progress: number; retryReady: boolean; attempts: number; x: number };
 const data = async (page: Page): Promise<Data> => (await state(page)).data as Data;
 
 /** Real touch through Chrome's input pipeline (trusted touch → pointer events → the game). */
@@ -67,9 +67,21 @@ test('real touch: press/release steer, past 30 % of level 1, multi-touch and can
   const frame = (): Promise<void> => page.clock.runFor(17);
   const cdp = await page.context().newCDPSession(page);
   const f = fingers(cdp);
+  /**
+   * A CDP touch can resolve before the page has handled it. Never advance the clock until the
+   * page reports the hold state the touch should produce (it is set inside the pointer handler,
+   * so this needs no frame).
+   */
+  const landed = async (held: boolean): Promise<void> => {
+    for (let k = 0; k < 200; k++) {
+      if ((await data(page)).held === held) return;
+    }
+    throw new Error(`touch did not land (held should be ${held})`);
+  };
 
   // 1. Press on the title: the run starts, the spark goes right.
   await f.down(1);
+  await landed(true);
   await frame();
   let d = await data(page);
   let frames = 1;
@@ -84,28 +96,55 @@ test('real touch: press/release steer, past 30 % of level 1, multi-touch and can
   expect(d.dir).toBe(1);
   expect(d.tick).toBeGreaterThan(0);
 
-  // 2-3. Follow the plan: run the clock up to one frame before each switch, then touch.
-  let i = 1;
+  // 2-3. Follow the solver with real touches, closed loop: before each move, plan from where the
+  // spark really is (tick, x, input, time since the last change) and act when the plan says the
+  // input changes now. Frames are whole, so a touch lands up to a tick or two off; re-planning
+  // absorbs that instead of letting the errors add up.
+  let held: 0 | 1 = 1;
+  let lastSwitch = 0;
+  let switches = 0;
   let sawRelease = false;
-  while (i < sw.length) {
+  const nextChange = (tick: number, x: number, h: 0 | 1, since: number): number => {
+    // Prefer the planned tempo and clearance; accept quicker inputs and less room if needed.
+    for (const k of [hold, 24, K_REF]) {
+      for (const c of [lo, lo / 2, 0]) {
+        const r = solve(p, { minClear: c, minHoldTicks: k, from: { tick, x, held: h, since } });
+        if (r) {
+          for (let j = tick; j < r.held.length; j++) if (r.held[j] !== h) return j;
+          return Infinity;
+        }
+      }
+    }
+    throw new Error(`no plan from tick ${tick} x ${x}`);
+  };
+  for (;;) {
     d = await data(page);
     if (d.phase !== 'playing' || d.progress > 31) break;
-    const due = sw[i]! - d.tick;
-    if (due > 2) {
-      await page.clock.runFor(Math.max(17, Math.min(1500, Math.floor(((due - 2) * 1000) / 120 / 17) * 17)));
+    const next = nextChange(d.tick, d.x, held, d.tick - lastSwitch);
+    if (!Number.isFinite(next)) break;
+    if (next - d.tick > 1) {
+      await page.clock.runFor(Math.max(17, Math.min(1500, Math.floor(((next - d.tick - 2) * 1000) / 120 / 17) * 17)));
       continue;
     }
-    if (i % 2 === 1) await f.up();
+    held = held === 1 ? 0 : 1;
+    if (held === 0) await f.up();
     else await f.down(1);
+    await landed(held === 1);
+    lastSwitch = d.tick;
     await frame();
-    if (i === 1) {
-      d = await data(page);
-      expect(d.held).toBe(false);
-      expect(d.dir).toBe(-1);
+    switches++;
+    if (process.env.TOUCH_DEBUG) {
+      const a = await data(page);
+      console.warn(`switch ${switches}: due ${next}, sent at ${d.tick}, after frame tick ${a.tick} dir ${a.dir} x ${a.x}`);
+    }
+    if (switches === 1) {
+      const a = await data(page);
+      expect(a.held).toBe(false);
+      expect(a.dir).toBe(-1);
       sawRelease = true;
     }
-    i++;
   }
+  const i = switches + 1;
   d = await data(page);
   console.warn(`real touch: ${i - 1} switches sent, reached ${d.progress} % of level 1 (phase ${d.phase}); plan holds ≥ ${hold} ticks, clearance ${lo} px`);
   expect(sawRelease).toBe(true);
@@ -115,20 +154,16 @@ test('real touch: press/release steer, past 30 % of level 1, multi-touch and can
 
   // 4. Two fingers, lift one: still held. Lift the other: released. A cancel releases too.
   await f.down(1, 2);
-  await frame();
-  expect((await data(page)).held).toBe(true);
+  await landed(true);
   await f.up(2);
   await frame();
-  expect((await data(page)).held).toBe(true);
+  expect((await data(page)).held).toBe(true); // finger 2 still down
   await f.up();
-  await frame();
-  expect((await data(page)).held).toBe(false);
+  await landed(false);
   await f.down(3);
-  await frame();
-  expect((await data(page)).held).toBe(true);
+  await landed(true);
   await f.cancel();
-  await frame();
-  expect((await data(page)).held).toBe(false);
+  await landed(false);
 
   // 5. Let go: the spark dies. Then a real tap restarts the run.
   for (let k = 0; k < 60 && (await data(page)).phase === 'playing'; k++) await page.clock.runFor(200);
@@ -137,7 +172,9 @@ test('real touch: press/release steer, past 30 % of level 1, multi-touch and can
   expect((await data(page)).retryReady).toBe(true);
   const before = (await data(page)).attempts;
   await f.down(1);
+  await landed(true);
   await f.up();
+  await landed(false);
   await frame();
   d = await data(page);
   expect(d.phase).toBe('playing');

@@ -19,6 +19,7 @@ export class ShopScene extends OyunScene {
   private rowG!: Phaser.GameObjects.Graphics;
   private cosG!: Phaser.GameObjects.Graphics;
   private backBtn!: Button;
+  private maxLabels = new Map<UpgradeId, Phaser.GameObjects.Text>();
 
   constructor() {
     super(SCENES.shop);
@@ -30,7 +31,7 @@ export class ShopScene extends OyunScene {
 
   create(): void {
     const L = this.layout;
-    this.cameras.main.setBackgroundColor(0x3fb4ff);
+    this.cameras.main.setBackgroundColor(PALETTE.skyDay);
     const bg = this.add.graphics();
     drawSky(bg, 0, 720, 1280);
     drawHills(bg, 0, 720, 1280, 0);
@@ -42,31 +43,41 @@ export class ShopScene extends OyunScene {
     this.coinText = label(this, L.cx - 20, L.top + 160, '', { size: 46, color: PALETTE.coin }).setOrigin(0, 0.5).setStroke(cssColor(PALETTE.ink), 10);
     this.rowG = this.add.graphics();
     this.buyBtns.clear();
+    this.maxLabels.clear();
     UPGRADE_IDS.forEach((id, i) => {
-      const y = L.top + 270 + i * 128;
-      label(this, 168, y - 22, this.t(`up.${id}.name`), { size: 36, color: PALETTE.cream }).setOrigin(0, 0.5).setStroke(cssColor(PALETTE.ink), 8);
-      label(this, 168, y + 22, this.t(`up.${id}.desc`), { size: 28, color: 0xffffff, wrap: 340, align: 'left' }).setOrigin(0, 0.5);
-      const b = button(this, 600, y, '', () => this.buy(id), { width: 170, height: 92, fontSize: 34 });
+      const y = this.rowY(i);
+      label(this, 158, y - 24, this.t(`up.${id}.name`), { size: 36, color: PALETTE.cream }).setOrigin(0, 0.5).setStroke(cssColor(PALETTE.ink), 8);
+      label(this, 158, y + 20, this.t(`up.${id}.desc`), { size: 34, color: PALETTE.white, wrap: 380, align: 'left' }).setOrigin(0, 0.5);
+      const b = button(this, 612, y, '', () => this.buy(id), { width: 150, height: 88, fontSize: 36 });
       this.buyBtns.set(id, b);
+      this.maxLabels.set(id, label(this, 612, y, this.t('shop.max'), { size: 36, color: PALETTE.heal }).setStroke(cssColor(PALETTE.ink), 8).setVisible(false));
     });
-    label(this, L.cx, L.top + 930, this.t('shop.looks'), { size: 44, color: PALETTE.cream }).setStroke(cssColor(PALETTE.ink), 10);
+    label(this, L.cx, this.cosPos(0).y - 92, this.t('shop.looks'), { size: 44, color: PALETTE.cream }).setStroke(cssColor(PALETTE.ink), 10);
     this.cosG = this.add.graphics();
-    COSMETICS.forEach((c, i) => {
+    COSMETICS.forEach((_c, i) => {
       const { x, y } = this.cosPos(i);
-      const zone = this.add.zone(x, y, 100, 100);
-      const hit = touchHitSize(100, 100);
+      const zone = this.add.zone(x, y, 110, 110);
+      const hit = touchHitSize(110, 110);
       zone.setSize(hit.width, hit.height).setInteractive({ useHandCursor: true });
       zone.on(Phaser.Input.Events.GAMEOBJECT_POINTER_UP, () => this.wear(i));
-      this.add.text(0, 0, '');
-      void c;
     });
-    this.backBtn = button(this, L.cx, L.bottom - 80, this.t('shop.back'), () => this.back(), { width: 360, height: 104, variant: 'secondary', hotkey: 'ESC' });
+    this.backBtn = button(this, L.cx, L.bottom - 70, this.t('shop.back'), () => this.back(), { width: 360, height: 100, variant: 'secondary', hotkey: 'ESC' });
     this.refresh();
   }
 
+  /** Cosmetic tiles: two rows of three, anchored above the Back button. */
   private cosPos(i: number): { x: number; y: number } {
     const L = this.layout;
-    return { x: 85 + i * 110, y: L.top + 1030 };
+    const row = Math.floor(i / 3);
+    return { x: 160 + (i % 3) * 200, y: L.bottom - 400 + row * 160 };
+  }
+
+  /** Upgrade rows fill the space between the coin line and the cosmetics. */
+  private rowY(i: number): number {
+    const L = this.layout;
+    const top = L.top + 250;
+    const bottom = this.cosPos(0).y - 92 - 90; // above the "Looks" heading
+    return top + i * Math.min(118, (bottom - top) / (UPGRADE_IDS.length - 1));
   }
 
   private refresh(): void {
@@ -75,24 +86,29 @@ export class ShopScene extends OyunScene {
     const g = this.rowG;
     g.clear();
     UPGRADE_IDS.forEach((id, i) => {
-      const L = this.layout;
-      const y = L.top + 270 + i * 128;
-      g.fillStyle(PALETTE.ink, 0.55).fillRoundedRect(24, y - 58, 672, 116, 24);
-      g.fillStyle(0xfff3d6, 1).fillCircle(90, y - 4, 42);
-      drawUpgradeIcon(g, id, 90, y - 4);
+      const y = this.rowY(i);
+      g.fillStyle(PALETTE.ink, 0.6).fillRoundedRect(20, y - 56, 680, 112, 24);
+      g.fillStyle(PALETTE.cream, 1).fillCircle(84, y - 10, 36);
+      drawUpgradeIcon(g, id, 84, y - 10);
       const lvl = save.upgrades[id];
       const max = UPGRADES[id].max;
-      // level pips under the icon
-      const pw = Math.min(14, 76 / max);
+      // level bar under the icon: one chunky segment per level
+      const bw = 84;
+      const seg = bw / max;
+      g.fillStyle(PALETTE.ink, 1).fillRoundedRect(84 - bw / 2 - 4, y + 32, bw + 8, 20, 8);
       for (let k = 0; k < max; k++) {
-        const px = 90 - ((max - 1) * pw) / 2 + k * pw;
-        g.fillStyle(PALETTE.ink, 1).fillCircle(px, y + 50, pw / 2 + 1.5);
-        g.fillStyle(k < lvl ? PALETTE.gold : 0x6b5a7a, 1).fillCircle(px, y + 50, pw / 2 - 1);
+        g.fillStyle(k < lvl ? PALETTE.gold : PALETTE.pipOff, 1).fillRoundedRect(84 - bw / 2 + k * seg + 1, y + 35, seg - 2, 14, 4);
       }
       const cost = upgradeCost(id, lvl);
       const b = this.buyBtns.get(id)!;
-      b.setLabel(cost === null ? this.t('shop.max') : String(cost));
-      b.setEnabled(cost !== null && save.coins >= cost);
+      const maxed = cost === null;
+      b.setVisible(!maxed);
+      this.maxLabels.get(id)!.setVisible(maxed);
+      if (!maxed) {
+        b.setLabel(String(cost));
+        // affordable: bright and live; too dear: dimmed with the price still readable
+        b.setEnabled(save.coins >= cost);
+      }
     });
     const c = this.cosG;
     c.clear();
@@ -100,27 +116,25 @@ export class ShopScene extends OyunScene {
       const { x, y } = this.cosPos(i);
       const unlocked = save.best >= cos.wave;
       const worn = save.cosmetic === cos.id;
-      c.fillStyle(PALETTE.ink, 1).fillRoundedRect(x - 50, y - 50, 100, 100, 22);
-      c.fillStyle(worn ? PALETTE.gold : unlocked ? 0xfff3d6 : 0x6b5a7a, 1).fillRoundedRect(x - 44, y - 44, 88, 88, 18);
+      c.fillStyle(PALETTE.ink, 1).fillRoundedRect(x - 56, y - 56, 112, 112, 24);
+      c.fillStyle(worn ? PALETTE.gold : unlocked ? PALETTE.cream : PALETTE.pipOff, 1).fillRoundedRect(x - 49, y - 49, 98, 98, 20);
       // mini archer head + scarf preview
-      c.fillStyle(PALETTE.ink, 1).fillCircle(x, y + 4, 27);
-      c.fillStyle(unlocked ? PALETTE.skin : 0x9a8aa8, 1).fillCircle(x, y + 4, 21);
-      c.lineStyle(12, PALETTE.ink, 1).lineBetween(x - 24, y + 34, x + 24, y + 30);
-      c.lineStyle(7, unlocked ? cos.scarf : 0x9a8aa8, 1).lineBetween(x - 24, y + 34, x + 24, y + 30);
+      c.fillStyle(PALETTE.ink, 1).fillCircle(x, y + 4, 30);
+      c.fillStyle(unlocked ? PALETTE.skin : PALETTE.locked, 1).fillCircle(x, y + 4, 24);
+      c.lineStyle(14, PALETTE.ink, 1).lineBetween(x - 28, y + 38, x + 28, y + 33);
+      c.lineStyle(8, unlocked ? cos.scarf : PALETTE.locked, 1).lineBetween(x - 28, y + 38, x + 28, y + 33);
       if (cos.hat !== 'none') {
-        c.fillStyle(PALETTE.ink, 1).fillRoundedRect(x - 25, y - 30, 50, 18, 8);
-        c.fillStyle(unlocked ? cos.scarf : 0x9a8aa8, 1).fillRoundedRect(x - 21, y - 27, 42, 12, 6);
+        c.fillStyle(PALETTE.ink, 1).fillRoundedRect(x - 28, y - 34, 56, 20, 9);
+        c.fillStyle(unlocked ? cos.scarf : PALETTE.locked, 1).fillRoundedRect(x - 24, y - 31, 48, 14, 7);
       }
-      if (!unlocked) {
-        c.fillStyle(PALETTE.ink, 0.6).fillRoundedRect(x - 44, y - 44, 88, 88, 18);
-      }
+      if (!unlocked) c.fillStyle(PALETTE.ink, 0.55).fillRoundedRect(x - 49, y - 49, 98, 98, 20);
     });
     this.children.list.filter((o) => o.getData('cosLabel') === true).forEach((o) => o.destroy());
     COSMETICS.forEach((cos, i) => {
       const { x, y } = this.cosPos(i);
       const unlocked = save.best >= cos.wave;
       const txt = unlocked ? (save.cosmetic === cos.id ? this.t('shop.worn') : this.t(`cos.${cos.id}`)) : this.t('shop.unlock', { n: cos.wave });
-      label(this, x, y + 76, txt, { size: 22, color: 0xffffff, wrap: 108 }).setData('cosLabel', true);
+      label(this, x, y + 76, txt, { size: 30, color: unlocked ? PALETTE.white : PALETTE.cream, wrap: 190 }).setStroke(cssColor(PALETTE.ink), 6).setData('cosLabel', true);
     });
   }
 
@@ -132,7 +146,7 @@ export class ShopScene extends OyunScene {
     if (ok) {
       this.oyun.audio.play('coin');
       this.oyun.platform.haptic('success');
-      this.juice.burst(600, this.layout.top + 270 + UPGRADE_IDS.indexOf(id) * 128, { count: 12, color: PALETTE.gold, texture: 'oyun-star' });
+      this.juice.burst(612, this.rowY(UPGRADE_IDS.indexOf(id)), { count: 12, color: PALETTE.gold, texture: 'oyun-star' });
       this.oyun.platform.track('upgrade_bought', { id });
     }
     this.refresh();

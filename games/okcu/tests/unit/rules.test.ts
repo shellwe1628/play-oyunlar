@@ -1,9 +1,9 @@
 import { createRng } from '@oyun/core/pure';
 import { describe, expect, it } from 'vitest';
 import { CARD_IDS, CARDS, drawOffer, statsFor, type CardId } from '../../src/sim/cards';
-import { resolveHit } from '../../src/sim/combat';
-import { applyRunResult, buyUpgrade, COSMETICS, freshSave, NO_META, unlockedCosmetics, UPGRADE_IDS, upgradeCost } from '../../src/sim/meta';
-import { enemyAccuracy, enemyHp, enemyTiming, waveEnemies } from '../../src/sim/waves';
+import { HELMET_HEAD_MUL, resolveHit } from '../../src/sim/combat';
+import { applyRunResult, bankDaily, bankProgress, bankStart, buyUpgrade, COSMETICS, dailyKey, freshSave, newBank, NO_META, runOutcome, unlockedCosmetics, UPGRADE_IDS, upgradeCost } from '../../src/sim/meta';
+import { enemyAccuracy, enemyDamageMul, enemyHp, enemyTiming, graceStep, helmetChance, waveEnemies, waveGrace } from '../../src/sim/waves';
 
 describe('damage and effect table', () => {
   it('head knocks out any regular archer outright, with slow motion', () => {
@@ -188,5 +188,118 @@ describe('waves', () => {
     expect(enemyHp('archer', 1)).toBeLessThanOrEqual(resolveHit('archer', 'body', 1).damage);
     expect(enemyHp('archer', 10)).toBeGreaterThan(enemyHp('archer', 2));
     expect(enemyHp('boss', 5)).toBeGreaterThanOrEqual(300);
+  });
+});
+
+describe('exact values (so a changed number fails a test)', () => {
+  it('player damage table and enemy head damage', () => {
+    expect(resolveHit('player', 'head', 1).damage).toBe(45);
+    expect(resolveHit('player', 'body', 1).damage).toBe(28);
+    expect(resolveHit('player', 'arm', 1).damage).toBe(18);
+    expect(resolveHit('player', 'leg', 1).damage).toBe(18);
+    expect(resolveHit('player', 'arm', 1).wobble).toBe(3);
+    expect(resolveHit('player', 'leg', 1).stagger).toBe(0.5);
+    expect(resolveHit('archer', 'head', 1).damage).toBe(50);
+    expect(resolveHit('archer', 'leg', 1).stagger).toBe(0.45);
+    expect(resolveHit('archer', 'leg', 1).shove).toBe(1);
+    expect(resolveHit('archer', 'arm', 1).aimPenalty).toBe(0.05);
+  });
+  it('helmet: a head hit is 1.6 × a body hit (64) and never a knockout', () => {
+    const h = resolveHit('archer', 'head', 1, true);
+    expect(HELMET_HEAD_MUL).toBe(1.6);
+    expect(h.damage).toBe(64);
+    expect(h.ko).toBe(false);
+    expect(h.slowmo).toBe(true);
+    expect(resolveHit('archer', 'body', 1, true).damage).toBe(40);
+  });
+  it('boss armour', () => {
+    expect(resolveHit('boss', 'weak', 1).damage).toBe(130);
+    expect(resolveHit('boss', 'body', 1).damage).toBe(6);
+    expect(resolveHit('boss', 'leg', 1).shove).toBe(0);
+  });
+  it('card values and caps', () => {
+    const one = (id: CardId, n = 1) => statsFor(Array<CardId>(n).fill(id), NO_META);
+    expect(Object.fromEntries(CARD_IDS.map((id) => [id, CARDS[id].max]))).toEqual({
+      heavy: 5, double: 2, split: 2, fire: 4, bounce: 3, pierce: 3, quick: 4, vitality: 6, magnet: 2, shield: 2, longsight: 2, vampire: 3,
+    });
+    expect(one('heavy').impulseMul).toBeCloseTo(1.35);
+    expect(one('fire').fireDps).toBe(14);
+    expect(one('fire', 2).fireDps).toBe(20);
+    expect(one('fire').fireTime).toBe(3);
+    expect(one('vampire').lifesteal).toBe(3);
+    expect(one('magnet').appleRadiusMul).toBeCloseTo(2.1);
+    expect(one('magnet').appleHealMul).toBeCloseTo(1.6);
+    expect(one('longsight').previewMul).toBeCloseTo(1.6);
+    expect(one('quick', 2).reload).toBeCloseTo(0.5 * 0.72 * 0.72);
+    expect(statsFor([], NO_META).maxHp).toBe(100);
+  });
+  it('upgrade costs grow on the curve and stop at the max level', () => {
+    expect([0, 1, 2, 3].map((l) => upgradeCost('hp', l))).toEqual([25, 39, 60, 93]);
+    expect([0, 1, 2].map((l) => upgradeCost('dmg', l))).toEqual([30, 48, 77]);
+    expect([0, 1, 2].map((l) => upgradeCost('coins', l))).toEqual([35, 56, 90]);
+    expect(upgradeCost('reroll', 0)).toBe(60);
+    expect(upgradeCost('starter', 0)).toBe(90);
+    const max = { hp: 8, dmg: 8, coins: 6, reroll: 1, starter: 1 } as const;
+    for (const id of UPGRADE_IDS) {
+      expect(upgradeCost(id, max[id] - 1), id).not.toBeNull();
+      expect(upgradeCost(id, max[id]), id).toBeNull();
+    }
+  });
+  it('cosmetic thresholds and the daily key', () => {
+    expect(COSMETICS.map((c) => c.wave)).toEqual([0, 5, 10, 15, 20, 25]);
+    expect(dailyKey(2026, 3, 7)).toBe('2026-03-07');
+    expect(dailyKey(2026, 11, 17)).toBe('2026-11-17');
+  });
+  it('enemy curves at a few waves', () => {
+    expect(enemyAccuracy(1).angle).toBeCloseTo(0.34, 6);
+    expect(enemyAccuracy(3).angle).toBeCloseTo(0.02 + 0.32 * 0.49, 6);
+    expect(enemyAccuracy(1).speed).toBeCloseTo(0.075, 6);
+    expect(enemyAccuracy(3).speed).toBeCloseTo(0.015 + 0.06 * 0.64, 6);
+    expect(enemyTiming(1).draw).toBeCloseTo(1.6, 6);
+    expect(enemyTiming(5).draw).toBeCloseTo(1.28, 6);
+    expect(enemyTiming(20).draw).toBe(0.5);
+    expect(enemyHp('archer', 1)).toBe(40);
+    expect(enemyHp('archer', 2)).toBe(64);
+    expect(enemyHp('archer', 11)).toBe(314);
+    expect(enemyHp('boss', 5)).toBe(380);
+    expect(enemyHp('boss', 10)).toBe(540);
+    expect(enemyDamageMul(1)).toBeCloseTo(0.45, 6);
+    expect(enemyDamageMul(5)).toBeCloseTo(0.89 * 1.11 ** 4, 6);
+    expect(enemyDamageMul(9)).toBeCloseTo(1.11 ** 8, 6);
+    expect(waveGrace(1)).toBeCloseTo(1.6, 6);
+    expect(waveGrace(20)).toBe(0);
+    expect(graceStep(2)).toBeCloseTo(1.4, 6);
+    expect(graceStep(20)).toBe(0);
+    expect(helmetChance(13)).toBe(0);
+    expect(helmetChance(14)).toBeCloseTo(0.2, 6);
+    expect(helmetChance(18)).toBe(1);
+  });
+});
+
+describe('banking a run (nothing lost on quit, nothing counted twice)', () => {
+  it('banks coin deltas and the best wave as the run goes', () => {
+    const s = freshSave();
+    s.best = 3;
+    const bank = newBank(s);
+    bankStart(s, bank);
+    bankStart(s, bank);
+    expect(s.runs).toBe(1);
+    bankProgress(s, bank, 2, 10); // cleared wave 1
+    bankProgress(s, bank, 3, 25); // cleared wave 2
+    bankProgress(s, bank, 3, 25); // quit/hide again: no change
+    expect(s.coins).toBe(25);
+    expect(s.best).toBe(3);
+    bankProgress(s, bank, 4, 31); // died on wave 4
+    expect(s.coins).toBe(31);
+    expect(s.best).toBe(4);
+    expect(runOutcome(s, bank, 4)).toEqual({ best: 4, newBest: true });
+  });
+  it('the daily best resets on a new day', () => {
+    const s = freshSave();
+    bankDaily(s, '2026-11-17', 4);
+    bankDaily(s, '2026-11-17', 3);
+    expect(s.dailyBest).toBe(4);
+    bankDaily(s, '2026-11-18', 2);
+    expect([s.dailyDate, s.dailyBest]).toEqual(['2026-11-18', 2]);
   });
 });

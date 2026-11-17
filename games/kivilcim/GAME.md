@@ -223,13 +223,18 @@ segments solved at creeping, constant-minimum and constant-maximum speed, plus 8
   `TextureRecipe`s, because Graphics recipes cannot draw gradients.
 - **Phaser touchcancel fix** (`src/input/touchCancelFix.ts`): Phaser 4.2.1 calls
   `preventDefault()` on non-cancelable touchcancel events, which Chrome logs as a console error.
-- **Real-touch test uses the Playwright clock.** On this machine a CDP touch takes 0.3-1 s to
-  reach the page and frames take ~200 ms while the spark crosses half the shaft in 0.6 s, so the
-  test fakes rAF/timers/performance.now and steps game time, sending real CDP touches between
-  frames. It proves: press starts the run and steers right; release steers left; 18 real
-  switches following the solver timeline reach 31.6 % of level 1; two fingers / lifting one /
+- **Real-touch test uses the Playwright clock and a closed loop.** On this machine a CDP touch
+  takes 0.3-1 s to reach the page and frames take ~200 ms, while the spark crosses half the shaft
+  in 0.6 s, so the test fakes rAF/timers/performance.now, steps game time, and sends real CDP
+  touches between frames (confirming each landed before time moves). Because whole frames make a
+  touch land a tick or two off and those errors random-walk (~35 px over 18 switches, measured),
+  an open-loop replay of one solver timeline was flaky; the test instead asks the solver, before
+  every move, when the input should next change *from the spark's real state* (`solve` option
+  `from`). It proves: the first press starts the run and steers right; the release steers left;
+  19-24 real switches reach 31.6-31.9 % of level 1 (3 of 3 runs); two fingers / lifting one /
   touchcancel never leave the spark stuck; a real tap retries. It does not measure real-time
-  latency. The two long e2e tests have 600 s timeouts because the machine is shared.
+  latency. The two long e2e tests have 600 s timeouts because the machine is shared (one gate run
+  timed out at 240 s at load average 12).
 
 ### Candidates for core
 

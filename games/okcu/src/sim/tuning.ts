@@ -27,7 +27,9 @@ export const TUNING = {
   /** muscle regained per second */
   muscleRecover: 1.6,
   playerMaxHp: 100,
-  waveClearHeal: 12,
+  waveClearHeal: 18,
+  /** arrows a planted shield takes before it is knocked away (heavy arrows count double) */
+  shieldHits: 2,
   /** apples */
   appleEvery: [9, 14] as const,
   appleHeal: 25,

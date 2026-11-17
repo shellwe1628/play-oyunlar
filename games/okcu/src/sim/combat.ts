@@ -26,7 +26,7 @@ export const ENEMY_DAMAGE: Record<HitPart, number> = { head: 50, body: 40, arm: 
 /** Damage dealt to the player by enemy arrows. */
 export const PLAYER_DAMAGE: Record<HitPart, number> = { head: 45, body: 28, arm: 18, leg: 18, weak: 28 };
 /** Boss armour: damage multiplier per part. */
-export const BOSS_ARMOUR: Record<HitPart, number> = { head: 0.4, body: 0.2, arm: 0.18, leg: 0.18, weak: 2.6 };
+export const BOSS_ARMOUR: Record<HitPart, number> = { head: 0.4, body: 0.15, arm: 0.12, leg: 0.12, weak: 2.6 };
 
 /** Veteran archers (late waves) wear a helmet: a head hit is a big hit, not a knockout. */
 export const HELMET_HEAD_MUL = 1.6;

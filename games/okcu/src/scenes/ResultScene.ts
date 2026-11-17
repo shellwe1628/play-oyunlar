@@ -17,11 +17,15 @@ type Data = Partial<ResultData> & Partial<RunResult> & { doubled?: boolean };
  */
 export class ResultScene extends ResultShell {
   protected readonly gameScene = SCENES.game;
-  private run: RunResult = { wave: 1, coins: 0, kos: 0, headshots: 0, best: 0, newBest: false, daily: false };
+  private run: RunResult = { wave: 1, coins: 0, kos: 0, headshots: 0, best: 0, newBest: false, daily: false, dailyKey: '' };
+  /** a rewarded ad is showing: every button waits */
+  private adPending = false;
   private doubled = false;
   private reviveBtn: Button | null = null;
   private doubleBtn: Button | null = null;
   private shownAt = 0;
+  /** bumped on every create: an ad answer from an earlier visit is ignored */
+  private visits = 0;
 
   constructor() {
     super(SCENES.result);
@@ -36,6 +40,7 @@ export class ResultScene extends ResultShell {
       best: data.best ?? 0,
       newBest: data.newBest ?? false,
       daily: data.daily ?? false,
+      dailyKey: data.dailyKey ?? '',
     };
     this.doubled = data.doubled ?? false;
     super.init({
@@ -43,7 +48,11 @@ export class ResultScene extends ResultShell {
       best: this.run.best,
       newBest: this.run.newBest,
       won: this.run.newBest,
-      lines: [this.t('result.coins', { n: this.doubled ? this.run.coins * 2 : this.run.coins }), this.t('result.kos', { k: this.run.kos, h: this.run.headshots })],
+      lines: [
+        ...(this.run.daily ? [this.t('result.daily', { d: this.run.dailyKey })] : []),
+        this.t('result.coins', { n: this.doubled ? this.run.coins * 2 : this.run.coins }),
+        this.t('result.kos', { k: this.run.kos, h: this.run.headshots }),
+      ],
     });
   }
 
@@ -56,7 +65,7 @@ export class ResultScene extends ResultShell {
     drawHills(g, sky, 720, 1280, 1);
     // a few feathers drifting down
     for (let i = 0; i < 10; i++) {
-      const f = this.add.image(Math.random() * 720, -40 - Math.random() * 600, 'feather').setTint(i % 2 ? PALETTE.archer : 0xffffff).setScale(1.2);
+      const f = this.add.image(Math.random() * 720, -40 - Math.random() * 600, 'feather').setTint(i % 2 ? PALETTE.archer : PALETTE.white).setScale(1.2);
       this.tweens.add({ targets: f, y: 1340, duration: 6000 + Math.random() * 5000, repeat: -1, delay: Math.random() * 3000 });
       this.tweens.add({ targets: f, x: f.x + 60, angle: 40, yoyo: true, repeat: -1, duration: 900 + Math.random() * 500, ease: 'Sine.easeInOut' });
     }
@@ -74,11 +83,15 @@ export class ResultScene extends ResultShell {
   }
 
   override create(): void {
+    this.visits += 1;
+    this.adPending = false;
     super.create();
     this.shownAt = this.time.now;
     // second button: upgrades (one tap from the result screen); home icon for the title
     this.menuButton.setLabel(this.t('result.shop'));
-    iconButton(this, this.layout.left + 70, this.layout.top + 70, 'home', () => this.goTo(this.gameScene, {}), 96);
+    iconButton(this, this.layout.left + 70, this.layout.top + 70, 'home', () => {
+      if (!this.adPending) this.goTo(this.gameScene, {});
+    }, 96);
     const p2 = this.buttonPosition(2);
     const p3 = this.buttonPosition(3);
     const canRevive = hasRevive();
@@ -97,37 +110,42 @@ export class ResultScene extends ResultShell {
     if (this.doubled) toast(this, this.t('result.doubled'), { position: (slots[0] ?? p3).y });
   }
 
+  private setButtons(enabled: boolean): void {
+    for (const b of [this.replayButton, this.menuButton, this.reviveBtn, this.doubleBtn]) b?.setEnabled(enabled);
+  }
+
+  /** Show a rewarded ad with every button disabled; the reward lands only if this screen is still up. */
+  private async rewarded(placement: string): Promise<boolean> {
+    if (this.adPending) return false;
+    this.adPending = true;
+    this.setButtons(false);
+    const token = this.visits;
+    const r = await this.oyun.platform.showRewarded(placement);
+    this.adPending = false;
+    // a late answer after the player left (or the scene restarted) grants nothing
+    if (token !== this.visits || !this.sys.isActive()) return false;
+    this.setButtons(true);
+    if (r !== 'granted') return false;
+    this.oyun.platform.track('reward_claimed', { placement });
+    return true;
+  }
+
   private async revive(): Promise<void> {
-    this.reviveBtn?.setEnabled(false);
-    const r = await this.oyun.platform.showRewarded('revive');
-    if (r !== 'granted') {
-      this.reviveBtn?.setEnabled(true);
-      return;
-    }
-    this.oyun.platform.track('reward_claimed', { placement: 'revive' });
-    // the run's coins were banked at death; a revived run banks only what it earns afterwards
-    gameSave(this.oyun).update((d) => {
-      d.coins = Math.max(0, d.coins - this.run.coins);
-      d.runs -= 1;
-    });
+    if (!(await this.rewarded('revive'))) return;
+    // coins and best were banked as the run went; the revived run banks only what it adds
     this.goTo(SCENES.game, { revive: true, daily: this.run.daily });
   }
 
   private async double(): Promise<void> {
-    this.doubleBtn?.setEnabled(false);
-    const r = await this.oyun.platform.showRewarded('double_coins');
-    if (r !== 'granted') {
-      this.doubleBtn?.setEnabled(true);
-      return;
-    }
+    if (!(await this.rewarded('double_coins'))) return;
     gameSave(this.oyun).update((d) => {
       d.coins += this.run.coins;
     });
-    this.oyun.platform.track('reward_claimed', { placement: 'double_coins' });
     this.scene.restart({ ...this.run, doubled: true });
   }
 
   protected override onReplay(): void {
+    if (this.adPending) return;
     const go = (): void => this.goTo(this.gameScene, { quick: true, daily: this.run.daily });
     if (session.finishedRuns % INTERSTITIAL_EVERY !== 0) {
       go();
@@ -138,6 +156,7 @@ export class ResultScene extends ResultShell {
 
   /** The second button is Upgrades. */
   protected override onMenu(): void {
+    if (this.adPending) return;
     this.goTo(SCENES.shop, { from: 'result' });
   }
 

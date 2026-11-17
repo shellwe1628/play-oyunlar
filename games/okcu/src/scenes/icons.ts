@@ -29,7 +29,7 @@ function arrow(g: G, x: number, y: number, ang: number, len: number, color: numb
 function heart(g: G, x: number, y: number, s: number, color: number = PALETTE.hp): void {
   g.fillStyle(INK, 1).fillCircle(x - 12 * s, y - 6 * s, 15 * s).fillCircle(x + 12 * s, y - 6 * s, 15 * s).fillTriangle(x - 26 * s, y, x + 26 * s, y, x, y + 28 * s);
   g.fillStyle(color, 1).fillCircle(x - 12 * s, y - 6 * s, 11 * s).fillCircle(x + 12 * s, y - 6 * s, 11 * s).fillTriangle(x - 21 * s, y - 2 * s, x + 21 * s, y - 2 * s, x, y + 22 * s);
-  g.fillStyle(0xffffff, 0.6).fillCircle(x - 15 * s, y - 10 * s, 4 * s);
+  g.fillStyle(PALETTE.white, 0.6).fillCircle(x - 15 * s, y - 10 * s, 4 * s);
 }
 
 function coin(g: G, x: number, y: number, r: number): void {
@@ -44,7 +44,7 @@ export function drawCardIcon(g: G, id: CardId, x: number, y: number): void {
     case 'heavy':
       arrow(g, x, y + 6, -0.6, 90);
       g.fillStyle(INK, 1).fillRoundedRect(x - 34, y - 40, 40, 34, 8);
-      g.fillStyle(0x8892a6, 1).fillRoundedRect(x - 30, y - 36, 32, 26, 6);
+      g.fillStyle(PALETTE.weight, 1).fillRoundedRect(x - 30, y - 36, 32, 26, 6);
       g.fillStyle(INK, 1).fillCircle(x - 14, y - 44, 7);
       break;
     case 'double':
@@ -78,33 +78,33 @@ export function drawCardIcon(g: G, id: CardId, x: number, y: number): void {
       break;
     case 'vitality':
       heart(g, x, y, 1.3);
-      g.fillStyle(0xffffff, 1).fillRect(x - 4, y - 18, 8, 28).fillRect(x - 14, y - 8, 28, 8);
+      g.fillStyle(PALETTE.white, 1).fillRect(x - 4, y - 18, 8, 28).fillRect(x - 14, y - 8, 28, 8);
       break;
     case 'magnet':
       g.lineStyle(26, INK, 1).beginPath().arc(x, y + 4, 30, Math.PI, 0, false).strokePath();
       g.lineStyle(16, PALETTE.danger, 1).beginPath().arc(x, y + 4, 30, Math.PI, 0, false).strokePath();
       g.fillStyle(INK, 1).fillRect(x - 43, y + 2, 26, 30).fillRect(x + 17, y + 2, 26, 30);
-      g.fillStyle(0xdddddd, 1).fillRect(x - 38, y + 8, 16, 20).fillRect(x + 22, y + 8, 16, 20);
+      g.fillStyle(PALETTE.metalLight, 1).fillRect(x - 38, y + 8, 16, 20).fillRect(x + 22, y + 8, 16, 20);
       g.fillStyle(INK, 1).fillCircle(x, y + 34, 14);
       g.fillStyle(PALETTE.apple, 1).fillCircle(x, y + 34, 10);
       break;
     case 'shield':
       g.fillStyle(INK, 1).fillCircle(x, y, 44);
-      g.fillStyle(0x8fe3ff, 1).fillCircle(x, y, 38);
-      g.fillStyle(0xffffff, 0.8).fillCircle(x - 14, y - 16, 10);
-      g.lineStyle(5, 0x3fa9f5, 1).strokeCircle(x, y, 30);
+      g.fillStyle(PALETTE.bubble, 1).fillCircle(x, y, 38);
+      g.fillStyle(PALETTE.white, 0.8).fillCircle(x - 14, y - 16, 10);
+      g.lineStyle(5, PALETTE.sky2, 1).strokeCircle(x, y, 30);
       break;
     case 'longsight':
       g.fillStyle(INK, 1).fillEllipse(x, y, 104, 60);
-      g.fillStyle(0xffffff, 1).fillEllipse(x, y, 92, 48);
+      g.fillStyle(PALETTE.white, 1).fillEllipse(x, y, 92, 48);
       g.fillStyle(INK, 1).fillCircle(x, y, 20);
-      g.fillStyle(0x3fa9f5, 1).fillCircle(x, y, 15);
+      g.fillStyle(PALETTE.sky2, 1).fillCircle(x, y, 15);
       g.fillStyle(INK, 1).fillCircle(x, y, 7);
-      g.fillStyle(0xffffff, 1).fillCircle(x - 5, y - 6, 4);
+      g.fillStyle(PALETTE.white, 1).fillCircle(x - 5, y - 6, 4);
       break;
     case 'vampire':
-      heart(g, x, y - 4, 1.2, 0xff6fb5);
-      g.fillStyle(0xffffff, 1).fillTriangle(x - 14, y - 6, x - 6, y - 6, x - 10, y + 8).fillTriangle(x + 6, y - 6, x + 14, y - 6, x + 10, y + 8);
+      heart(g, x, y - 4, 1.2, PALETTE.pink);
+      g.fillStyle(PALETTE.white, 1).fillTriangle(x - 14, y - 6, x - 6, y - 6, x - 10, y + 8).fillTriangle(x + 6, y - 6, x + 14, y - 6, x + 10, y + 8);
       break;
   }
 }

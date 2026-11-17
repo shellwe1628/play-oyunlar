@@ -27,6 +27,12 @@ export interface Body {
   kp: Float64Array;
   /** 1 = hard pinned to its target */
   pin: Uint8Array;
+  /** contact normal found this tick (0,0 = none), for friction and bounce */
+  cnx: Float64Array;
+  cny: Float64Array;
+  /** velocity at the end of integration, before constraints and collisions */
+  vxi: Float64Array;
+  vyi: Float64Array;
   sa: Int32Array;
   sb: Int32Array;
   rest: Float64Array;
@@ -74,6 +80,10 @@ export function createBody(spec: BodySpec): Body {
     ty: new Float64Array(n),
     kp: new Float64Array(n),
     pin: new Uint8Array(n),
+    cnx: new Float64Array(n),
+    cny: new Float64Array(n),
+    vxi: new Float64Array(n),
+    vyi: new Float64Array(n),
     sa: new Int32Array(spec.sticks.length),
     sb: new Int32Array(spec.sticks.length),
     rest: new Float64Array(spec.sticks.length),
@@ -160,7 +170,7 @@ function solveDistance(b: Body, a: number, c: number, lo: number, hi: number): v
 }
 
 /** Push point i out of a box; returns the contact normal y (-1 = standing on top) or 0. */
-function collidePoint(b: Body, i: number, L: Ledge, friction: boolean): void {
+function collidePoint(b: Body, i: number, L: Ledge): void {
   if (b.pin[i]) return;
   const r = b.r[i]!;
   const x = b.x[i]!;
@@ -195,27 +205,35 @@ function collidePoint(b: Body, i: number, L: Ledge, friction: boolean): void {
   }
   b.x[i] = x + nx * pen;
   b.y[i] = y + ny * pen;
-  if (friction) {
-    // velocity split into normal and tangential parts: bounce the normal, rub the tangent
-    const vx = b.x[i] - b.px[i]!;
-    const vy = b.y[i] - b.py[i]!;
-    const vn = vx * nx + vy * ny;
-    if (vn < 0) {
-      const tvx = vx - vn * nx;
-      const tvy = vy - vn * ny;
-      const k = 1 - b.friction;
-      const nvx = tvx * k - vn * nx * b.bounce;
-      const nvy = tvy * k - vn * ny * b.bounce;
-      b.px[i] = b.x[i] - nvx;
-      b.py[i] = b.y[i] - nvy;
-    }
-  }
+  b.cnx[i] = nx;
+  b.cny[i] = ny;
+}
+
+/** Contact response once per tick: rub the tangential velocity, bounce the normal part. */
+function respond(b: Body, i: number): void {
+  const nx = b.cnx[i]!;
+  const ny = b.cny[i]!;
+  if (nx === 0 && ny === 0) return;
+  const vx = b.x[i]! - b.px[i]!;
+  const vy = b.y[i]! - b.py[i]!;
+  const vn = vx * nx + vy * ny;
+  const tvx = vx - vn * nx;
+  const tvy = vy - vn * ny;
+  const k = 1 - b.friction;
+  // restitution from the approach speed before the push-out ate it
+  const vin = b.vxi[i]! * nx + b.vyi[i]! * ny;
+  // slow contacts (resting, < 1.5 px per tick) do not bounce, so bodies come to rest
+  const out = vin < -1.5 ? Math.max(vn, -vin * b.bounce) : vn;
+  b.px[i] = b.x[i]! - (tvx * k + out * nx);
+  b.py[i] = b.y[i]! - (tvy * k + out * ny);
 }
 
 /** One fixed tick. */
 export function stepBody(b: Body, dt: number, ledges: readonly Ledge[]): void {
   const g = b.gravity * dt * dt;
   const m = b.muscle;
+  b.cnx.fill(0);
+  b.cny.fill(0);
   for (let i = 0; i < b.n; i++) {
     if (b.pin[i]) {
       b.px[i] = b.x[i]!;
@@ -238,8 +256,11 @@ export function stepBody(b: Body, dt: number, ledges: readonly Ledge[]): void {
     else if (vy < -MAX_STEP) vy = -MAX_STEP;
     b.px[i] = b.x[i]!;
     b.py[i] = b.y[i]!;
+    const gy = g * (1 - Math.min(1, k * 4));
     b.x[i] = b.x[i]! + vx;
-    b.y[i] = b.y[i]! + vy + g * (1 - Math.min(1, k * 4));
+    b.y[i] = b.y[i]! + vy + gy;
+    b.vxi[i] = vx;
+    b.vyi[i] = vy + gy;
   }
   const nl = ledges.length;
   for (let it = 0; it < b.iterations; it++) {
@@ -250,9 +271,10 @@ export function stepBody(b: Body, dt: number, ledges: readonly Ledge[]): void {
     for (let s = 0; s < b.la.length; s++) solveDistance(b, b.la[s]!, b.lc[s]!, b.lmin[s]!, b.lmax[s]!);
     for (let l = 0; l < nl; l++) {
       const L = ledges[l]!;
-      for (let i = 0; i < b.n; i++) collidePoint(b, i, L, it === b.iterations - 1);
+      for (let i = 0; i < b.n; i++) collidePoint(b, i, L);
     }
   }
+  for (let i = 0; i < b.n; i++) respond(b, i);
 }
 
 /** Kinetic energy (unit masses), px²/s². */

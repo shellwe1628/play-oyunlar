@@ -24,15 +24,15 @@ export function lookFor(a: Archer, cosmetic: Cosmetic): Look {
     case 'player':
       return { body: PALETTE.player, shade: PALETTE.playerShade, hat: cosmetic.hat, scarf: cosmetic.scarf };
     case 'archer':
-      return { body: PALETTE.archer, shade: PALETTE.archerShade, hat: 'hood', scarf: 0x5b2c9a };
+      return { body: PALETTE.archer, shade: PALETTE.archerShade, hat: 'hood', scarf: PALETTE.archerScarf };
     case 'shield':
-      return { body: PALETTE.shield, shade: PALETTE.shieldShade, hat: 'helmet', scarf: 0x2a4fa0 };
+      return { body: PALETTE.shield, shade: PALETTE.shieldShade, hat: 'helmet', scarf: PALETTE.shieldScarf };
     case 'jumper':
-      return { body: PALETTE.jumper, shade: PALETTE.jumperShade, hat: 'band', scarf: 0xffe14d };
+      return { body: PALETTE.jumper, shade: PALETTE.jumperShade, hat: 'band', scarf: PALETTE.fireCore };
     case 'bomber':
       return { body: PALETTE.bomber, shade: PALETTE.bomberShade, hat: 'goggles', scarf: PALETTE.bomberGoggle };
     case 'boss':
-      return { body: PALETTE.boss, shade: PALETTE.bossShade, hat: 'horns-boss', scarf: 0x7a1424 };
+      return { body: PALETTE.boss, shade: PALETTE.bossShade, hat: 'horns-boss', scarf: PALETTE.bossScarf };
   }
 }
 
@@ -255,7 +255,7 @@ export function drawArcher(g: G, a: Archer, look: Look, o: DrawOpts): void {
     const ty = hy - (o.hpBar ? 80 : 62) * s;
     g.fillStyle(PALETTE.ink, 1).fillCircle(hx, ty, 17 * pulse);
     g.fillStyle(PALETTE.danger, 1).fillCircle(hx, ty, 13 * pulse);
-    g.fillStyle(0xffffff, 1).fillRoundedRect(hx - 2.5, ty - 8, 5, 10, 2).fillCircle(hx, ty + 6, 2.6);
+    g.fillStyle(PALETTE.white, 1).fillRoundedRect(hx - 2.5, ty - 8, 5, 10, 2).fillCircle(hx, ty + 6, 2.6);
   }
   if (o.weakHint && a.alive) {
     const r = (30 + ((o.time * 60) % 26)) * s;
@@ -286,11 +286,11 @@ function drawHead(g: G, a: Archer, look: Look, skin: number, o: DrawOpts): void 
   g.fillStyle(a.type === 'boss' ? flash(PALETTE.bossShade, o.flash) : skin, 1).fillCircle(hx, hy, r);
   if (a.type === 'player') {
     const ang = Math.atan2(uy, ux);
-    g.fillStyle(0x6b3a1f, 1).slice(hx, hy, r + 1, ang - 1.35, ang + 1.25, false).fillPath();
+    g.fillStyle(PALETTE.hair, 1).slice(hx, hy, r + 1, ang - 1.35, ang + 1.25, false).fillPath();
     const tx2 = hx + ux * (r + 2) - rx * 4;
     const ty2 = hy + uy * (r + 2) - ry * 4;
     g.fillStyle(PALETTE.ink, 1).fillCircle(tx2 + rx * 8 + ux * 4, ty2 + ry * 8 + uy * 4, 10 * s);
-    g.fillStyle(0x6b3a1f, 1).fillCircle(tx2 + rx * 8 + ux * 4, ty2 + ry * 8 + uy * 4, 7 * s);
+    g.fillStyle(PALETTE.hair, 1).fillCircle(tx2 + rx * 8 + ux * 4, ty2 + ry * 8 + uy * 4, 7 * s);
   }
   // hats behind/around the head
   switch (look.hat) {
@@ -336,7 +336,7 @@ function drawHead(g: G, a: Archer, look: Look, skin: number, o: DrawOpts): void 
     // veteran's steel cap
     g.fillStyle(PALETTE.ink, 1).slice(hx, hy, r + 7, Math.atan2(uy, ux) - 1.6, Math.atan2(uy, ux) + 1.6, false).fillPath();
     g.fillStyle(flash(PALETTE.shieldRim, o.flash), 1).slice(hx, hy, r + 3, Math.atan2(uy, ux) - 1.5, Math.atan2(uy, ux) + 1.5, false).fillPath();
-    g.fillStyle(0xffffff, 0.6).fillCircle(hx + ux * r * 0.6 - rx * r * 0.3, hy + uy * r * 0.6 - ry * r * 0.3, 4 * s);
+    g.fillStyle(PALETTE.white, 0.6).fillCircle(hx + ux * r * 0.6 - rx * r * 0.3, hy + uy * r * 0.6 - ry * r * 0.3, 4 * s);
   }
   // face
   const ex = hx + rx * r * 0.32 - ux * r * 0.02;
@@ -365,7 +365,7 @@ function drawHead(g: G, a: Archer, look: Look, skin: number, o: DrawOpts): void 
   if (a.type === 'boss') {
     const glow = 0.75 + Math.sin(o.time * 8) * 0.25;
     g.fillStyle(PALETTE.bossEye, glow).fillCircle(e1x, e1y, 6 * s).fillCircle(e2x, e2y, 6 * s);
-    g.fillStyle(0xffffff, 1).fillCircle(e1x, e1y, 2.5 * s).fillCircle(e2x, e2y, 2.5 * s);
+    g.fillStyle(PALETTE.white, 1).fillCircle(e1x, e1y, 2.5 * s).fillCircle(e2x, e2y, 2.5 * s);
     g.lineStyle(5, PALETTE.ink, 1).lineBetween(e1x - rx * 8 + ux * 9, e1y - ry * 8 + uy * 9, e2x + rx * 8 + ux * 4, e2y + ry * 8 + uy * 4);
     return;
   }
@@ -386,9 +386,9 @@ function drawHead(g: G, a: Archer, look: Look, skin: number, o: DrawOpts): void 
   const lx = Math.cos(a.aim) * 2.2 * s;
   const ly = Math.sin(a.aim) * 2.2 * s;
   g.fillStyle(PALETTE.ink, 1).fillEllipse(e1x, e1y, 14 * s, 17 * s).fillEllipse(e2x, e2y, 14 * s, 17 * s);
-  g.fillStyle(0xffffff, 1).fillEllipse(e1x, e1y, 9.5 * s, 12.5 * s).fillEllipse(e2x, e2y, 9.5 * s, 12.5 * s);
+  g.fillStyle(PALETTE.white, 1).fillEllipse(e1x, e1y, 9.5 * s, 12.5 * s).fillEllipse(e2x, e2y, 9.5 * s, 12.5 * s);
   g.fillStyle(PALETTE.ink, 1).fillCircle(e1x + lx, e1y + ly, 3.6 * s).fillCircle(e2x + lx, e2y + ly, 3.6 * s);
-  g.fillStyle(0xffffff, 1).fillCircle(e1x + lx - 1.2 * s, e1y + ly - 1.4 * s, 1.2 * s).fillCircle(e2x + lx - 1.2 * s, e2y + ly - 1.4 * s, 1.2 * s);
+  g.fillStyle(PALETTE.white, 1).fillCircle(e1x + lx - 1.2 * s, e1y + ly - 1.4 * s, 1.2 * s).fillCircle(e2x + lx - 1.2 * s, e2y + ly - 1.4 * s, 1.2 * s);
   if (looking) {
     // determined brows
     g.lineStyle(4, PALETTE.ink, 1);
@@ -422,7 +422,7 @@ function drawHat(g: G, hat: Look['hat'], hx: number, hy: number, r: number, ux: 
     case 'feather': {
       const c = top(0.8);
       g.fillStyle(PALETTE.ink, 1).fillEllipse(c.x, c.y, r * 2.3, r * 0.9);
-      g.fillStyle(0x3f7e3a, 1).fillEllipse(c.x, c.y, r * 2.0, r * 0.65);
+      g.fillStyle(PALETTE.capGreen, 1).fillEllipse(c.x, c.y, r * 2.0, r * 0.65);
       const f0 = { x: c.x - rx * 6, y: c.y - ry * 6 };
       g.lineStyle(9, PALETTE.ink, 1).lineBetween(f0.x, f0.y, f0.x - rx * 26 + ux * 30, f0.y - ry * 26 + uy * 30);
       g.lineStyle(5, accent, 1).lineBetween(f0.x, f0.y, f0.x - rx * 26 + ux * 30, f0.y - ry * 26 + uy * 30);
@@ -432,14 +432,14 @@ function drawHat(g: G, hat: Look['hat'], hx: number, hy: number, r: number, ux: 
       const c = top(0.85);
       const t = top(2.0);
       g.lineStyle(r * 1.3 + 8, PALETTE.ink, 1).lineBetween(c.x, c.y, t.x, t.y);
-      g.lineStyle(r * 1.3, 0x2b2b3a, 1).lineBetween(c.x, c.y, t.x, t.y);
+      g.lineStyle(r * 1.3, PALETTE.topHat, 1).lineBetween(c.x, c.y, t.x, t.y);
       g.lineStyle(10, PALETTE.ink, 1).lineBetween(c.x - rx * r * 1.15, c.y - ry * r * 1.15, c.x + rx * r * 1.15, c.y + ry * r * 1.15);
       g.lineStyle(6, accent, 1).lineBetween(c.x - rx * r * 0.62 + ux * 6, c.y - ry * r * 0.62 + uy * 6, c.x + rx * r * 0.62 + ux * 6, c.y + ry * r * 0.62 + uy * 6);
       break;
     }
     case 'horns': {
       g.fillStyle(PALETTE.ink, 1).slice(hx, hy, r + 6, Math.atan2(uy, ux) - 1.5, Math.atan2(uy, ux) + 1.5, false).fillPath();
-      g.fillStyle(0xb8c0cc, 1).slice(hx, hy, r + 2, Math.atan2(uy, ux) - 1.4, Math.atan2(uy, ux) + 1.4, false).fillPath();
+      g.fillStyle(PALETTE.helm, 1).slice(hx, hy, r + 2, Math.atan2(uy, ux) - 1.4, Math.atan2(uy, ux) + 1.4, false).fillPath();
       for (const side of [-1, 1]) {
         const bx = hx + ux * r * 0.5 + rx * side * r * 0.8;
         const by = hy + uy * r * 0.5 + ry * side * r * 0.8;
@@ -507,7 +507,7 @@ export function drawArrow(g: G, a: Arrow, time: number): void {
     const r = 15;
     g.fillStyle(PALETTE.ink, 1).fillCircle(a.x, a.y, r + 5);
     g.fillStyle(PALETTE.bomb, 1).fillCircle(a.x, a.y, r);
-    g.fillStyle(0xffffff, 0.45).fillCircle(a.x - 5, a.y - 6, 5);
+    g.fillStyle(PALETTE.white, 0.45).fillCircle(a.x - 5, a.y - 6, 5);
     const fx = a.x + 9;
     const fy = a.y - 15;
     g.lineStyle(4, PALETTE.ink, 1).lineBetween(a.x + 4, a.y - 12, fx, fy);
@@ -619,7 +619,7 @@ export function drawSky(g: G, sky: number, width: number, height: number): void 
     for (let i = 0; i < 46; i++) {
       const x = (i * 157) % width;
       const y = ((i * 97) % (height * 0.55)) + 20;
-      g.fillStyle(0xffffff, 0.5 + (i % 3) * 0.2).fillCircle(x, y, 1.5 + (i % 3));
+      g.fillStyle(PALETTE.white, 0.5 + (i % 3) * 0.2).fillCircle(x, y, 1.5 + (i % 3));
     }
   }
   // sun / moon with soft rings

@@ -4,6 +4,7 @@
  * Cosmetic randomness only (Math.random is fine here, never in src/sim).
  */
 import type Phaser from 'phaser';
+import { PALETTE } from '../textures';
 
 export type FxKind = 'feather' | 'shard' | 'puff' | 'ring' | 'coin' | 'spark';
 
@@ -81,7 +82,7 @@ export class Fx {
     p.home = 0;
     p.onArrive = null;
     p.born = this.seq++;
-    p.img.setVisible(true).setTint(o.tint ?? 0xffffff).setAlpha(p.a0).setScale(p.s0).setPosition(x, y).setRotation(p.rot);
+    p.img.setVisible(true).setTint(o.tint ?? PALETTE.white).setAlpha(p.a0).setScale(p.s0).setPosition(x, y).setRotation(p.rot);
     return p;
   }
 
@@ -90,7 +91,7 @@ export class Fx {
     for (let i = 0; i < n; i++) {
       const a = Math.random() * Math.PI * 2;
       const sp = 140 + Math.random() * 320;
-      const col = i % 3 === 0 ? 0xffffff : tint;
+      const col = i % 3 === 0 ? PALETTE.white : tint;
       this.spawn('feather', x, y, Math.cos(a) * sp, Math.sin(a) * sp - 160, { life: 1.4 + Math.random() * 0.9, g: 260, drag: 2.6, scale: 0.9 + Math.random() * 0.7, tint: col, vr: (Math.random() - 0.5) * 10 });
     }
     for (let i = 0; i < 7; i++) {
@@ -112,7 +113,7 @@ export class Fx {
     this.spawn('ring', x, y, 0, 0, { life, scale: 0.3 * size, scaleEnd: 1.4 * size, tint, alpha: 1 });
   }
 
-  puffs(x: number, y: number, n: number, tint = 0xffffff, speed = 120): void {
+  puffs(x: number, y: number, n: number, tint: number = PALETTE.white, speed = 120): void {
     for (let i = 0; i < n; i++) {
       const a = Math.random() * Math.PI * 2;
       this.spawn('puff', x, y, Math.cos(a) * speed * Math.random(), Math.sin(a) * speed * Math.random() - 40, { life: 0.4 + Math.random() * 0.3, drag: 3, scale: 0.5 + Math.random() * 0.4, scaleEnd: 1.3, tint, alpha: 0.85 });

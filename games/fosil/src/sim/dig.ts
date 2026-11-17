@@ -224,6 +224,8 @@ export interface TickResult {
   glintAppeared: boolean;
   glintExpired: boolean;
   events: SimEvent[];
+  /** Blocks the assistant broke (cave-in rubble breaks without a find). */
+  breaks: number;
 }
 
 export interface OfflineHaul {
@@ -245,6 +247,11 @@ export interface OfflineHaul {
   lucks: number[];
   /** Finds at 1 in 1,000 or rarer, to be revealed properly when the player is back. */
   notable: Find[];
+  /** Fossils rolled (twin, golden and boss blocks roll more than once). */
+  rolls: number;
+  /** Achievements earned during the haul and their dust (not part of `dust`, never doubled). */
+  quests: string[];
+  questDust: number;
 }
 
 export interface CollectResult {
@@ -456,6 +463,17 @@ export class DigSim {
   get canExpedition(): boolean {
     return this.s.unlocked >= EXPEDITION.needLayer;
   }
+  /**
+   * Each expedition digs a deeper stratum: block hp and the power needed to open each layer are
+   * ×(1 + expeditions) there, while your expedition bonus grows by +60 % power and dust each time.
+   */
+  get strataMult(): number {
+    return 1 + EXPEDITION.hard * this.s.expedition.count;
+  }
+  /** Dig power needed to open `layer` in this stratum. */
+  unlockPowerOf(layer: number): number {
+    return at(LAYERS, layer).unlockPower * this.strataMult;
+  }
   /** Permanent multiplier from expeditions (dig power and dust). */
   get expeditionMult(): number {
     return 1 + EXPEDITION.power * this.s.expedition.count;
@@ -646,7 +664,7 @@ export class DigSim {
 
   hpOf(layer: number): number {
     const L = at(LAYERS, layer);
-    return Math.ceil(L.hp * (1 + L.hpRamp * this.blocksBroken(layer)) ** 2);
+    return Math.ceil(L.hp * (1 + L.hpRamp * this.blocksBroken(layer)) ** 2 * this.strataMult);
   }
 
   get blockHp(): number {
@@ -661,7 +679,7 @@ export class DigSim {
 
   blockDust(layer: number): number {
     const L = at(LAYERS, layer);
-    return Math.ceil(L.dust * (this.hpOf(layer) / L.hp) ** L.dustCurve * (1 + EXPEDITION.dust * this.s.expedition.count));
+    return Math.ceil(L.dust * (this.hpOf(layer) / (L.hp * this.strataMult)) ** L.dustCurve * (1 + EXPEDITION.dust * this.s.expedition.count));
   }
 
   upgradeCost(id: UpgradeId): number | null {
@@ -681,12 +699,18 @@ export class DigSim {
   }
 
   /**
-   * A charged strike (hold, then release): on a hard vein it deals up to 5× dig power after a
-   * 0.8 s hold; on any other block it is a normal tap.
+   * A charged strike (hold, then release). On a hard vein the damage grows with the hold, from
+   * ×0.25 (an instant tap) to ×5 dig power at a 0.8 s hold; on any other block it is a normal tap.
    */
   charge(holdSeconds: number): TapResult {
+    return this.strike(this.chargeMult(holdSeconds), true);
+  }
+
+  /** Damage multiplier a release after `holdSeconds` would deal on the current block. */
+  chargeMult(holdSeconds: number): number {
+    if (this.s.block.kind !== 'vein') return 1;
     const t = Math.min(1, Math.max(0, holdSeconds) / VEIN.fullHold);
-    return this.strike(this.s.block.kind === 'vein' ? 1 + (VEIN.maxCharge - 1) * t : 1, true);
+    return VEIN.weak + (VEIN.maxCharge - VEIN.weak) * t;
   }
 
   private strike(mult: number, charged = false): TapResult {
@@ -723,7 +747,7 @@ export class DigSim {
 
   /** Advance time: combo drain, glint timer, boost timer, assistant digging. */
   tick(dt: number): TickResult {
-    const out: TickResult = { finds: [], assistantHits: 0, glintAppeared: false, glintExpired: false, events: [] };
+    const out: TickResult = { finds: [], assistantHits: 0, glintAppeared: false, glintExpired: false, events: [], breaks: 0 };
     if (!(dt > 0)) return out;
     this.s.stats.playSeconds += dt;
     // fever: when it ends the combo drops back
@@ -770,6 +794,7 @@ export class DigSim {
         out.assistantHits += 1;
         const veinWeak = this.s.block.kind === 'vein' ? VEIN.weak : 1;
         const r = this.hit('assistant', this.baseLuck, veinWeak);
+        if (r.broke) out.breaks += 1;
         if (r.find) out.finds.push(r.find);
         out.finds.push(...r.extra);
         out.events.push(...r.events);
@@ -807,7 +832,7 @@ export class DigSim {
    * luck (no combo), current layer. Applied immediately so closing the popup loses nothing.
    */
   claimOffline(elapsedSeconds: number): OfflineHaul {
-    const haul: OfflineHaul = { seconds: 0, hits: 0, blocks: 0, dust: 0, found: {}, newSpecies: [], fusions: 0, best: null, unlocked: null, lucks: [], notable: [] };
+    const haul: OfflineHaul = { seconds: 0, hits: 0, blocks: 0, dust: 0, found: {}, newSpecies: [], fusions: 0, best: null, unlocked: null, lucks: [], notable: [], rolls: 0, quests: [], questDust: 0 };
     // The rewarded boost is a wall-clock 60 s: time away uses it up, and offline rolls never get it.
     if (elapsedSeconds > 0) this.s.boost = Math.max(0, this.s.boost - elapsedSeconds);
     const rate = this.assistantRate;
@@ -820,7 +845,13 @@ export class DigSim {
       const r = this.hit('offline', haulLuck, veinWeak);
       if (r.broke) haul.blocks += 1;
       haul.dust += r.dust;
+      for (const e of r.events)
+        if (e.kind === 'quest') {
+          haul.quests.push(e.id);
+          haul.questDust += e.dust;
+        }
       for (const f of r.find ? [r.find, ...r.extra] : r.extra) {
+      haul.rolls += 1;
       haul.fusions += f.fusions;
       haul.found[f.fossil.id] = (haul.found[f.fossil.id] ?? 0) + 1;
       if (!haul.lucks.includes(f.luck)) haul.lucks.push(f.luck);
@@ -924,6 +955,7 @@ export class DigSim {
     // Break: at most one block per hit, overkill is discarded.
     out.broke = true;
     const layer = this.s.layer;
+    const baseDust = this.blockDust(layer); // priced before the hp ramp moves on
     this.s.broken[layer] = this.blocksBroken(layer) + 1;
     this.s.damage = 0;
     let dustMult = b.kind === 'golden' ? GOLDEN.dust : b.kind === 'cavein' ? CAVEIN.dust : b.kind === 'boss' ? BOSS.dust : 1;
@@ -937,7 +969,7 @@ export class DigSim {
         out.events.push({ kind: 'chain', n: this.s.chain.n });
       }
     }
-    const dust = Math.ceil(this.blockDust(layer) * dustMult);
+    const dust = Math.ceil(baseDust * dustMult);
     this.s.dust += dust;
     out.dust = dust;
     if (b.kind === 'cavein') {
@@ -1104,7 +1136,7 @@ export class DigSim {
   private checkUnlocks(): number | null {
     let newly: number | null = null;
     const p = this.digPower;
-    while (this.s.unlocked < LAYERS.length - 1 && p >= at(LAYERS, this.s.unlocked + 1).unlockPower) {
+    while (this.s.unlocked < LAYERS.length - 1 && p >= this.unlockPowerOf(this.s.unlocked + 1)) {
       this.s.unlocked += 1;
       newly = this.s.unlocked;
       this.s.deepest = Math.max(this.s.deepest, this.s.unlocked);

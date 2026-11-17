@@ -4,15 +4,19 @@ import { at, FOSSILS, LAYERS, TIERS, TOTAL_WEIGHT, tierOf } from '../../src/sim/
 import { effectiveLuck, layerFossils, LUCKY_TIER, rollFossil, rollProbabilities } from '../../src/sim/loot';
 
 describe('loot tables', () => {
-  it('has 4 layers of 12 fossils with unique ids', () => {
-    expect(LAYERS).toHaveLength(4);
-    expect(FOSSILS).toHaveLength(48);
-    expect(new Set(FOSSILS.map((f) => f.id)).size).toBe(48);
-    for (let l = 0; l < 4; l++) expect(layerFossils(l)).toHaveLength(12);
+  it('has 10 layers of 12 fossils with unique ids, each layer with its own twist from layer 5 on', () => {
+    expect(LAYERS).toHaveLength(10);
+    expect(FOSSILS).toHaveLength(120);
+    expect(new Set(FOSSILS.map((f) => f.id)).size).toBe(120);
+    for (let l = 0; l < LAYERS.length; l++) expect(layerFossils(l)).toHaveLength(12);
+    expect(LAYERS.map((l) => l.twist)).toEqual(['none', 'none', 'none', 'none', 'vein', 'unstable', 'twin', 'relic', 'cavein', 'boss']);
+    // no two layers share a table
+    const tables = LAYERS.map((_, l) => layerFossils(l).map((f) => f.odds).join(','));
+    expect(new Set(tables).size).toBe(LAYERS.length);
   });
 
   it('integer weights sum to exactly the total in every layer, so 1/odds is exact', () => {
-    for (let l = 0; l < 4; l++) {
+    for (let l = 0; l < LAYERS.length; l++) {
       const fs = layerFossils(l);
       expect(fs.reduce((s, f) => s + f.weight, 0)).toBe(TOTAL_WEIGHT);
       for (const f of fs) {
@@ -29,7 +33,7 @@ describe('loot tables', () => {
     expect(Math.max(...odds)).toBe(1_000_000);
     expect(new Set(FOSSILS.map((f) => f.tier)).size).toBe(7);
     expect(Math.max(...layerFossils(0).map((f) => f.tier))).toBeLessThanOrEqual(3); // legendary+ never in Topsoil
-    for (let l = 1; l < 4; l++) expect(Math.max(...layerFossils(l).map((f) => f.tier))).toBeGreaterThanOrEqual(4);
+    for (let l = 1; l < LAYERS.length; l++) expect(Math.max(...layerFossils(l).map((f) => f.tier))).toBeGreaterThanOrEqual(4);
     expect(tierOf(2)).toBe(0);
     expect(tierOf(99)).toBe(1);
     expect(tierOf(100)).toBe(2);
@@ -40,7 +44,7 @@ describe('loot tables', () => {
 
 describe('honesty: printed odds are the true base odds', () => {
   it('base-luck probabilities equal 1/odds exactly', () => {
-    for (let l = 0; l < 4; l++) {
+    for (let l = 0; l < LAYERS.length; l++) {
       const p = rollProbabilities(l, 1);
       layerFossils(l).forEach((f, i) => expect(p[i]).toBeCloseTo(1 / f.odds, 14));
     }
@@ -48,7 +52,7 @@ describe('honesty: printed odds are the true base odds', () => {
 
   it('empirical frequencies over 1.2M seeded rolls per layer match the printed odds', () => {
     const N = 1_200_000;
-    for (let l = 0; l < 4; l++) {
+    for (let l = 0; l < LAYERS.length; l++) {
       const fs = layerFossils(l);
       const rng = createRng(1000 + l);
       const counts = new Map<string, number>(fs.map((f) => [f.id, 0]));
@@ -73,12 +77,12 @@ describe('honesty: printed odds are the true base odds', () => {
       // chi-square with dof-1 degrees of freedom; 40 is far beyond the 99.99th percentile for <= 11.
       expect(chi2, `layer ${l} chi2`).toBeLessThan(40);
     }
-  }, 120_000); // 4.8 M rolls: give it room on a loaded machine
+  }, 240_000); // 12 M rolls: give it room on a loaded machine
 });
 
 describe('luck', () => {
   it('multiplies every fossil at 1 in 100 or rarer by the luck value; commons give way', () => {
-    for (let l = 0; l < 4; l++) {
+    for (let l = 0; l < LAYERS.length; l++) {
       const base = rollProbabilities(l, 1);
       const lucky = rollProbabilities(l, 3);
       expect(lucky.reduce((a, b) => a + b, 0)).toBeCloseTo(1, 12);
@@ -104,7 +108,7 @@ describe('luck', () => {
   }, 60_000);
 
   it('never makes any printed fossil impossible, even at absurd luck', () => {
-    for (let l = 0; l < 4; l++) {
+    for (let l = 0; l < LAYERS.length; l++) {
       const p = rollProbabilities(l, 1e9);
       for (const x of p) expect(x).toBeGreaterThan(0);
       const commonShare = layerFossils(l).reduce((s, f, i) => s + (f.tier < LUCKY_TIER ? at(p, i) : 0), 0);

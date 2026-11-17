@@ -1,7 +1,7 @@
 /** The damage and effect table: what a hit on each body part does (pure). */
 import type { PartKind } from './ragdoll';
 
-export type EnemyType = 'archer' | 'shield' | 'jumper' | 'bomber' | 'boss';
+export type EnemyType = 'archer' | 'shield' | 'jumper' | 'bomber' | 'boss' | 'healer' | 'cover' | 'catcher' | 'ward' | 'elite' | 'imp';
 export type TargetKind = EnemyType | 'player';
 export type HitPart = PartKind;
 
@@ -50,7 +50,7 @@ export function resolveHit(target: TargetKind, part: HitPart, dmgMul: number, he
   if (part === 'arm') out.aimPenalty = 0.05;
   if (part === 'leg') {
     out.stagger = 0.45;
-    out.shove = target === 'boss' ? 0 : 1;
+    out.shove = target === 'boss' || target === 'elite' ? 0 : 1; // too big to topple
   }
   return out;
 }

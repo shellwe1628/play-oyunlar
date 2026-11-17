@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { at } from '../../src/sim/data';
 import { median, runPolicy, type PacingMetrics, type Profile } from './policy';
 
 const seeds = (n: number): number[] => Array.from({ length: Number(process.env.PACING_SEEDS ?? n) }, (_, i) => i + 1);
@@ -65,4 +66,53 @@ describe.each(['fast', 'casual'] as const)('pacing: %s player (scripted)', (prof
       expect(pct(t((r) => r.unlockAt[2]), 0.9)).toBeLessThanOrEqual(15);
     });
   }
+});
+
+// Long horizon: all ten layers, then the expedition loop (GAME.md "Built" has the measured table).
+describe.each(['fast', 'casual'] as const)('long run: %s player, 15 hours', (profile) => {
+  const runs = [1, 2, 3, 4].map((s) => runPolicy(s, 900, profile, { every: 60 }));
+  const h = (s: number | null | undefined): number => (s === null || s === undefined ? Infinity : s / 3600);
+  const lens = (r: PacingMetrics): number[] => r.expeditionsAt.map((x, i) => (x - (r.expeditionsAt[i - 1] ?? 0)) / 3600);
+
+  it('prints the measured long-run pacing', () => {
+    for (const r of runs)
+      console.warn(
+        `${profile} seed ${r.seed}: layers at ${r.unlockAt.map((x) => (x === null ? '-' : (x / 60).toFixed(0))).join(' ')} min; ` +
+          `expedition runs ${lens(r).map((x) => x.toFixed(2)).join(', ')} h; first-hour max gap ${r.maxGapHour.toFixed(0)} s; score ${r.score}, rank ${r.rank}`,
+      );
+    expect(runs.length).toBe(4);
+  });
+
+  it('opens all ten layers (fast within 4 h, casual within 9 h), no layer taking more than 45 / 100 min', () => {
+    for (const r of runs) {
+      expect(h(r.unlockAt[9]), `seed ${r.seed}`).toBeLessThanOrEqual(profile === 'fast' ? 4 : 9);
+      for (let l = 1; l < r.unlockAt.length; l++) {
+        const step = (h(r.unlockAt[l]) - h(r.unlockAt[l - 1])) * 60;
+        expect(step, `seed ${r.seed} layer ${l + 1}`).toBeLessThanOrEqual(profile === 'fast' ? 45 : 100);
+      }
+    }
+  });
+
+  it('takes hours, not minutes, to the first expedition (fast 2.5-4 h, casual 6-9 h)', () => {
+    for (const r of runs) {
+      const first = h(r.expeditionsAt[0]);
+      expect(first).toBeGreaterThanOrEqual(profile === 'fast' ? 2.5 : 6);
+      expect(first).toBeLessThanOrEqual(profile === 'fast' ? 4 : 9);
+    }
+  });
+
+  it('the second run is faster than the first but not trivial (45-90 %), and later runs never drop under 20 %', () => {
+    for (const r of runs) {
+      const l = lens(r);
+      expect(l.length, `seed ${r.seed}`).toBeGreaterThanOrEqual(2);
+      const [a, b] = [at(l, 0), at(l, 1)];
+      expect(b / a).toBeGreaterThanOrEqual(0.45);
+      expect(b / a).toBeLessThanOrEqual(0.9);
+      for (const x of l.slice(2)) expect(x / a, `seed ${r.seed}`).toBeGreaterThanOrEqual(0.2);
+    }
+  });
+
+  it('never goes 60 s without a new fossil, a fusion or a purchase in the first hour', () => {
+    for (const r of runs) expect(r.maxGapHour, `seed ${r.seed}`).toBeLessThanOrEqual(60);
+  });
 });

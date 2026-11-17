@@ -162,6 +162,30 @@ generated beat.
   time.
 - **Audio**: step sequencer on core's music bus, steps = positions in the shaft (tempo follows
   speed; gates on the 256-px beat grid land on a kick).
+- **Level worlds** (`src/render/World.ts`, `worldArt.ts`): each level/theme has a motif (rays,
+  circuit, aurora, rain, hex, tunnel, waves, grid, bokeh, embers): two parallax tile layers,
+  flowing ribbons and a pool of 22 motif sprites (rise/fall/drift/radiate/twinkle/travel),
+  all pumping on the beat and speeding up with speed gates. Baked once per load; Float32Array
+  state, no per-frame allocation. Endless steps through the motifs with height and marks every
+  250 m with a line, banner, chime and haptic.
+- **Walls** (`src/render/EdgeFx.ts`): one additive Graphics: a beat pulse along both edges, a
+  travelling highlight per wall, and up to 6 ripples that run along the wall from a near miss.
+- **Objects**: gems spin, glint and swell/lean toward an approaching spark; bars carry a sliding
+  glint and glow pulse; blocks have a rotating aura; each gate kind moves its own way (fast tiles
+  rush, slow tiles crawl, flip oscillates, mini/big bands pulse), crossed gates dim; the finish
+  shows rings and beams building over its last 1600 px. Lethal shapes did not change.
+- **Spark and skins**: idle motion per shape (pulse, spin, fast spin, wiggle, 60° beat steps,
+  breathe, flicker), squash on turns, a charge-up of converging sparks/halos in the start
+  chamber, a different shatter per shape (shard texture, speed, gravity, count), and 8 trail
+  behaviours (ribbon, sparks with falling embers, pixels, comet, dots, lightning, helix, rainbow).
+- **Screens**: title logo with gradient, shine sweep and beat bounce, and a demo spark zigzagging
+  with the chosen trail; level select cards carry their world's scrolling motif (locked cards
+  dimmed in their own colours); death card slides in and counts up (retry still at 260 ms);
+  finish card has rotating rays behind 100 %; the FINISH label bursts up out of the spark's way.
+- **HUD band**: a gradient shade under the HUD; gate and finish labels fade as they enter it
+  (hazards stay drawn).
+- **`?fx=0`** turns off the new presentation (worlds, wall fx, trail styles, demo spark); the
+  scene keeps a running hash of sim state (`simHash` in the test hook) for the presentation test.
 
 ### Tuning numbers
 
@@ -219,8 +243,17 @@ maximum speed and 8 deep runs, solved with 1 px to spare and replayed (tested).
   3 ms before the end of a 200 ms frame → every tick ending before it ran released, the first held
   tick is the first ending after it; at 30 fps with Phaser's 16.7 ms clamp emulated the run kept
   0.993 sim s per real s in the first second and 1.001 later.
-- Own JavaScript per frame while playing (earlier measurement, unchanged design): avg 1.3 ms,
-  p95 8 ms on this software-rendered machine.
+- Own JavaScript per frame while playing (earlier measurement): avg 1.3 ms, p95 8 ms on this
+  software-rendered machine.
+- Animation round, level 10 autopilot, the old and new builds run back to back twice (load ~6):
+  own update avg 1.65 / 1.64 ms before → 2.09 / 1.89 ms after (p95 7.5 / 7.3 → 8.4 / 8.1, max
+  18.3 / 10.9 → 12.5 / 12.6); step+render avg 3.82 / 3.99 → 5.49 / 3.92 ms. About +0.3-0.45 ms.
+- Presentation test (`tests/e2e/presentation.spec.ts`): level 6 autopilot under a stepped clock
+  with `fx=1` and `fx=0` gives the same sim hash, tick, position and gems.
+- Human model and seeds: the streams the table uses (seed 1000+id) start with finishes on
+  levels 8-10 (L8 `FFF.......F.`, L9 `F......F.F..`, L10 `.F.F........`); over 200 attempts they
+  give the table's 29.0 / 26.5 / 10.0 %, fresh seeds 32.0 / 22.5 / 13.5 %. Lucky starts, not a
+  wrong table.
 
 ### Deviations from the concept, and why
 
@@ -246,6 +279,9 @@ maximum speed and 8 deep runs, solved with 1 px to spare and replayed (tested).
 - Real-time deltas for real players (Phaser's 16.7 ms clamp after load/refocus slows every
   fixed-tick game for its first ~2-4 s).
 - A letterbox styling hook.
+- A presentation toggle plus a running sim hash in the test hook, to prove visuals never touch
+  the sim.
+- Pooled, typed-array "world" sprite layers (motif + motion spec) for animated backgrounds.
 
 ### Unfinished / not verified
 

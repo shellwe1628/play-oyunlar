@@ -83,6 +83,22 @@ export const PALETTE = {
   capGreen: 0x3f7e3a,
   topHat: 0x2b2b3a,
   shieldScarf: 0x2a4fa0,
+  healer: 0x6fd8a8,
+  healerShade: 0x3aa87a,
+  cover: 0xe39a4c,
+  coverShade: 0xb4702c,
+  catcher: 0xff7a59,
+  catcherShade: 0xcc4f35,
+  ward: 0x6a78e0,
+  wardShade: 0x434fb0,
+  wardGlow: 0xb9c4ff,
+  elite: 0x2fb3ad,
+  eliteShade: 0x1d807b,
+  imp: 0xc27ae8,
+  impShade: 0x8e4cb8,
+  crit: 0xffe14d,
+  focus: 0xffd84a,
+  heat: 0xff6a2a,
 } as const;
 
 

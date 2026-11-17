@@ -189,18 +189,19 @@ describe('literal rules (mutation-proof)', () => {
 
   it('block HP per layer: base and the quadratic ramp', () => {
     const at0 = new DigSim(1);
-    expect([0, 1, 2, 3].map((l) => at0.hpOf(l))).toEqual([4, 6000, 150_000, 4_500_000]);
-    const deep = new DigSim(1, saveWith((s) => (s.broken = [100, 100, 100, 100])));
+    expect(LAYERS.map((_, l) => at0.hpOf(l))).toEqual([4, 6000, 150_000, 4_500_000, 2.6e7, 2.2e8, 2.2e9, 1.5e10, 1.4e11, 6e11]);
+    const deep = new DigSim(1, saveWith((s) => (s.broken = LAYERS.map(() => 100))));
     expect(deep.hpOf(0)).toBe(Math.ceil(4 * (1 + 0.28 * 100) ** 2));
     expect(deep.hpOf(1)).toBe(Math.ceil(6000 * (1 + 0.009 * 100) ** 2));
     expect(deep.hpOf(2)).toBe(Math.ceil(150_000 * (1 + 0.004 * 100) ** 2));
     expect(deep.hpOf(3)).toBe(Math.ceil(4_500_000 * (1 + 0.003 * 100) ** 2));
+    expect(deep.hpOf(9)).toBe(Math.ceil(6e11 * (1 + 0.003 * 100) ** 2));
   });
 
   it('layer 2 opens at exactly 300 power: not at 299', () => {
     const snail = at(L1, 0);
     expect(fossilPower(snail, 0)).toBe(1);
-    expect(LAYERS.map((l) => l.unlockPower)).toEqual([0, 300, 20_000, 1_400_000]);
+    expect(LAYERS.map((l) => l.unlockPower)).toEqual([0, 300, 20_000, 1_400_000, 1.3e7, 1.1e8, 1.1e9, 7.5e9, 7e10, 3e11]);
     const below = new DigSim(1, saveWith((s) => (s.counts[snail.id] = [298, 0, 0, 0])));
     expect(below.digPower).toBe(299);
     expect(below.unlocked).toBe(0);
@@ -227,8 +228,8 @@ describe('literal rules (mutation-proof)', () => {
   });
 
   it('every fossil in the game is reachable at the luck cap', () => {
-    for (let l = 0; l < 4; l++) for (const p of rollProbabilities(l, 1e6)) expect(p).toBeGreaterThan(0);
-    expect(FOSSILS).toHaveLength(48);
+    for (let l = 0; l < LAYERS.length; l++) for (const p of rollProbabilities(l, 1e6)) expect(p).toBeGreaterThan(0);
+    expect(FOSSILS).toHaveLength(120);
   });
 });
 

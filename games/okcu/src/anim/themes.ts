@@ -1,3 +1,4 @@
+import { stageOf } from '../sim/chapters';
 /** Arena themes: data and the pure rule that picks one (drawing lives in src/scenes/worlds.ts). */
 
 export type AmbientKind = 'meadow' | 'snow' | 'sand' | 'fireflies';
@@ -126,14 +127,8 @@ export const THEMES: readonly Theme[] = [
 ];
 
 /** Theme of a wave: changes every five waves; the daily run starts from a date-picked one. */
-export function themeIndex(wave: number, offset = 0): number {
-  const n = THEMES.length;
-  return (((Math.floor((Math.max(1, wave) - 1) / 5) + offset) % n) + n) % n;
+/** World theme of a wave: each chapter is its own world; endless changes world every chapter-length. */
+export function themeIndex(wave: number): number {
+  return stageOf(wave).theme;
 }
 
-/** The daily run's theme offset from its date key ('YYYY-MM-DD'). */
-export function dailyThemeOffset(key: string): number {
-  let h = 0;
-  for (let i = 0; i < key.length; i++) h = (h * 31 + key.charCodeAt(i)) | 0;
-  return Math.abs(h) % THEMES.length;
-}

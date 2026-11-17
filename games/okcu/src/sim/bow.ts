@@ -36,7 +36,7 @@ export function bowDamage(level: number): number {
 /** Coins for one attempt at going from `level` to `level + 1` (null at the top). */
 export function bowCost(level: number): number | null {
   if (level >= BOW_MAX) return null;
-  return Math.round(24 * 1.32 ** level);
+  return Math.round(40 * 1.3 ** level);
 }
 
 /** Base success chance of an attempt from `level` (levels +0 … +5 always succeed). */

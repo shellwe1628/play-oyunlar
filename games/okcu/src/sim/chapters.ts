@@ -86,9 +86,9 @@ export const CHAPTER_DEFS: readonly ChapterDef[] = [
       { enemies: ['archer'], ledges: A },
       { enemies: ['archer', 'archer'], ledges: B },
       { enemies: ['shield', 'archer'], ledges: C, props: [{ kind: 'barrel', on: 1 }] },
-      { enemies: ['elite', 'archer'], ledges: A, elite: true, props: [{ kind: 'barrel', on: 1 }] },
-      { enemies: ['jumper', 'healer', 'archer'], ledges: B },
-      { enemies: ['archer', 'shield', 'healer'], ledges: C, props: [{ kind: 'barrel', on: 0 }, { kind: 'barrel', on: 2 }] },
+      { enemies: ['elite'], ledges: A, elite: true, props: [{ kind: 'barrel', on: 0 }] },
+      { enemies: ['jumper', 'healer'], ledges: B },
+      { enemies: ['shield', 'healer'], ledges: C, props: [{ kind: 'barrel', on: 0 }, { kind: 'barrel', on: 1 }] },
       { enemies: ['boss'], ledges: BOSS, boss: 'shields' },
     ],
   },
@@ -164,14 +164,20 @@ export function chapterStart(chapter: number): number {
   return Math.max(0, Math.min(CHAPTERS, chapter)) * STAGES + 1;
 }
 
+/** Difficulty level at each chapter's first stage, and its rise per stage. */
+export const LEVEL_BASE: readonly number[] = [1, 3.5, 10.5, 17];
+export const LEVEL_STEP: readonly number[] = [0.2, 1, 1, 1];
+/** endless: the level after the last chapter, +1.5 per wave */
+export const ENDLESS_LEVEL = 23.5;
+
 /**
  * Difficulty level of a wave: drives enemy health, damage, aim and timing (the same curves
- * the slice used per wave). +0.45 per stage, +0.3 between chapters, +0.45 per endless wave.
+ * the slice used per wave). The first chapter is a gentle ramp; later chapters climb fast.
  */
 export function levelOf(wave: number): number {
   const p = stageOf(wave);
-  if (!p.endless) return 1 + 3 * p.chapter + 0.45 * (p.stage - 1);
-  return 1 + 3 * (CHAPTERS - 1) + 0.45 * (STAGES - 1) + 0.45 * (wave - ENDLESS_WAVE + 1);
+  if (!p.endless) return LEVEL_BASE[p.chapter]! + LEVEL_STEP[p.chapter]! * (p.stage - 1);
+  return ENDLESS_LEVEL + 1.5 * (wave - ENDLESS_WAVE);
 }
 
 const ENDLESS_POOL: readonly { type: EnemyType; weight: number }[] = [

@@ -5,11 +5,12 @@ import { addCardLife } from '../fx/CardLife';
 import { Helper } from '../fx/Helper';
 import { Particles } from '../fx/Particles';
 import { backgroundAware, session } from '../session';
-import { FOSSIL_BY_ID, FOSSILS } from '../sim/data';
+import { at, FOSSIL_BY_ID, FOSSILS, RANKS } from '../sim/data';
+import { badgeKey } from '../art/badges';
 import { fossilKey, PALETTE } from '../textures';
 import { StratumBlock } from './Block';
 import { SCENES } from './keys';
-import { fossilName, oddsText } from './ui';
+import { big, fitText, fossilName, hitZone, oddsText } from './ui';
 
 /**
  * Title screen: core menu shell over a dig site in miniature, with the helper working at a
@@ -78,6 +79,15 @@ export class MenuScene extends MenuShell {
       show.add(q);
     }
     this.tweens.add({ targets: show, y: floorY - 160, yoyo: true, repeat: -1, duration: 1500, ease: 'Sine.easeInOut' });
+    // your rank: badge and score (tap for the ladder)
+    const rank = sim.rank;
+    const ry = height * 0.3 + 250;
+    const badge = this.add.image(cx - 200, ry, badgeKey(this, rank)).setScale(0.6);
+    const rt = label(this, cx - 140, ry, this.t('menu.rank', { name: this.t(`rank.${at(RANKS, rank).id}`), n: big(this, sim.score.total) }), { size: 32, color: at(RANKS, rank).color }).setOrigin(0, 0.5);
+    rt.setStroke('#1a0f08', 6);
+    fitText(rt, width - (cx - 140) - 40);
+    hitZone(this, cx, ry, width - 80, 110, () => this.goTo(SCENES.ranks));
+    this.tweens.add({ targets: badge, scale: 0.66, yoyo: true, repeat: -1, duration: 1100, ease: 'Sine.easeInOut' });
     if (best) {
       label(this, cx, height * 0.3 + 170, this.t('menu.rarest', { name: fossilName(this, best), odds: oddsText(this, best.odds) }), {
         size: 34,
@@ -112,6 +122,7 @@ export class MenuScene extends MenuShell {
   }
 
   protected override testState() {
-    return { found: FOSSILS.filter((f) => session(this.oyun).sim.discovered(f.id)).length };
+    const sim = session(this.oyun).sim;
+    return { found: FOSSILS.filter((f) => sim.discovered(f.id)).length, score: sim.score.total, rank: sim.rank };
   }
 }

@@ -263,7 +263,8 @@ export class Ambient {
     }
   }
 
-  update(dt: number, th: Theme): void {
+  /** `wind` (px/s² on arrows) also pushes the snow and sand, so the weather shows it. */
+  update(dt: number, th: Theme, wind = 0): void {
     this.t += dt;
     const W = this.W;
     const H = this.H;
@@ -271,10 +272,10 @@ export class Ambient {
       switch (th.ambient) {
         case 'snow':
           this.y[i] = this.y[i]! + (40 + this.v[i]! * 50) * dt;
-          this.x[i] = this.x[i]! + Math.sin(this.t * 1.3 + this.p[i]!) * 22 * dt - 12 * dt;
+          this.x[i] = this.x[i]! + Math.sin(this.t * 1.3 + this.p[i]!) * 22 * dt - 12 * dt + wind * (0.45 + this.v[i]! * 0.3) * dt;
           break;
         case 'sand':
-          this.x[i] = this.x[i]! + (160 + this.v[i]! * 180) * dt;
+          this.x[i] = this.x[i]! + (160 + this.v[i]! * 180 + wind * 0.8) * dt;
           this.y[i] = this.y[i]! + Math.sin(this.t * 2 + this.p[i]!) * 10 * dt;
           break;
         case 'fireflies':

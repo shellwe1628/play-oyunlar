@@ -13,6 +13,7 @@ import { SCENES } from './keys';
 import { big, fitText, fossilName, hitZone, mult, oddsText, rarityCard } from './ui';
 
 const CARD_W = 322;
+const TABS_PER_ROW = 5;
 /** Presentation-only memory (not the game save): which set celebrations were already shown. */
 const FX_KEY = 'oyun:fosil:fx-sets';
 
@@ -54,20 +55,23 @@ export class MuseumScene extends OyunScene {
     for (let x = 0; x < L.width; x += 48) g.fillStyle(PALETTE.creamDark, 0.5).fillRect(x, L.top + 112, 24, 6);
 
     label(this, L.cx, L.top + 58, this.t('museum.title'), { size: 58, color: PALETTE.ink });
-    const tabW = (L.right - L.left - 40) / 4;
+    // ten layers: two rows of five tabs
+    const tabW = (L.right - L.left - 40) / TABS_PER_ROW;
     LAYERS.forEach((layer, i) => {
-      const x = L.left + 20 + tabW * (i + 0.5);
-      const y = L.top + 168;
+      const x = L.left + 20 + tabW * ((i % TABS_PER_ROW) + 0.5);
+      const y = L.top + 156 + Math.floor(i / TABS_PER_ROW) * 76;
       const bg = this.add.graphics({ x, y });
-      const text = label(this, x, y, this.t(`layer.${layer.id}`), { size: 28, color: PALETTE.ink });
-      fitText(text, tabW - 24);
+      const text = label(this, x, y, this.t(`layer.${layer.id}`), { size: 24, color: PALETTE.ink, wrap: tabW - 18 });
+      text.setLineSpacing(-6);
+      if (text.height > 58) text.setScale(58 / text.height);
+      fitText(text, tabW - 18, 0.5);
       this.tabs.push({ bg, text });
-      hitZone(this, x, y, tabW - 8, 84, () => this.selectTab(i));
+      hitZone(this, x, y, tabW - 6, 72, () => this.selectTab(i));
     });
 
-    this.setBar = progressBar(this, L.cx - 90, L.top + 256, 440, 34, { color: PALETTE.ochre, background: PALETTE.inkSoft });
-    this.setText = label(this, L.right - 110, L.top + 256, '', { size: 34, color: PALETTE.ink });
-    this.bonusText = label(this, L.cx, L.top + 304, '', { size: 28, color: PALETTE.inkSoft, wrap: L.width - 80 });
+    this.setBar = progressBar(this, L.cx - 90, L.top + 310, 440, 34, { color: PALETTE.ochre, background: PALETTE.inkSoft });
+    this.setText = label(this, L.right - 110, L.top + 310, '', { size: 34, color: PALETTE.ink });
+    this.bonusText = label(this, L.cx, L.top + 354, '', { size: 28, color: PALETTE.inkSoft, wrap: L.width - 80 });
 
     this.grid = this.add.container(0, 0);
     this.backButton = button(this, L.cx, L.bottom - 70, this.t('museum.back'), () => this.goTo(SCENES.dig), { width: 380, height: 104, fontSize: 44 });
@@ -124,6 +128,7 @@ export class MuseumScene extends OyunScene {
       for (const f of r.finds) ses.queueFind(f);
       this.drawGrid();
     }
+    ses.queueEvents(r.events);
     ses.autosave();
   }
 
@@ -150,13 +155,15 @@ export class MuseumScene extends OyunScene {
 
   private drawTabs(): void {
     const L = this.layout;
-    const tabW = (L.right - L.left - 40) / 4;
+    const tabW = (L.right - L.left - 40) / TABS_PER_ROW;
     this.tabs.forEach((t, i) => {
       const on = i === this.tab;
-      const locked = i > this.sim.unlocked;
+      const locked = this.lockedTab(i);
+      const done = this.sim.setComplete(i);
       t.bg.clear();
-      t.bg.fillStyle(PALETTE.shadow, 0.18).fillRoundedRect(-tabW / 2 + 4, -36, tabW - 8, 80, 20);
-      t.bg.fillStyle(on ? PALETTE.ochre : locked ? PALETTE.creamDark : 0xffffff, 1).fillRoundedRect(-tabW / 2 + 4, -40, tabW - 8, 80, 20);
+      t.bg.fillStyle(PALETTE.shadow, 0.18).fillRoundedRect(-tabW / 2 + 3, -30, tabW - 6, 68, 18);
+      t.bg.fillStyle(on ? PALETTE.ochre : locked ? PALETTE.creamDark : 0xffffff, 1).fillRoundedRect(-tabW / 2 + 3, -34, tabW - 6, 68, 18);
+      if (done) t.bg.fillStyle(0xffd23f, 1).fillCircle(tabW / 2 - 12, -26, 9);
       t.text.setColor(cssColor(locked ? PALETTE.inkSoft : PALETTE.ink));
     });
   }
@@ -177,8 +184,8 @@ export class MuseumScene extends OyunScene {
     this.bonusText.setText(`${this.t(`set.${bonus.kind}`, { n: bonusValue })}${done ? ` · ${this.t('set.earned')}` : ''}`);
     this.bonusText.setColor(cssColor(done ? 0x2f8a3c : PALETTE.inkSoft));
 
-    const locked = this.tab > this.sim.unlocked;
-    const top = L.top + 336;
+    const locked = this.lockedTab(this.tab);
+    const top = L.top + 392;
     const avail = L.bottom - 128 - top;
     const step = Math.min(150, avail / 6);
     const cardH = step - 12;
@@ -217,10 +224,15 @@ export class MuseumScene extends OyunScene {
     });
     if (done && !this.celebrated(this.tab)) this.time.delayedCall(350, () => this.celebrateSet());
     if (locked) {
-      const msg = label(this, L.cx, top + 3 * step - 6, this.t('museum.locked', { n: big(this, at(LAYERS, this.tab).unlockPower) }), { size: 40, color: PALETTE.ink });
+      const msg = label(this, L.cx, top + 3 * step - 6, this.t('museum.locked', { n: big(this, this.sim.unlockPowerOf(this.tab)) }), { size: 40, color: PALETTE.ink });
       msg.setStroke(cssColor(PALETTE.cream), 10);
       this.grid.add([this.add.image(L.cx, top + 3 * step - 80, 'lock').setScale(1.4), msg]);
     }
+  }
+
+  /** A museum shelf is closed until its layer has been reached in any expedition. */
+  private lockedTab(i: number): boolean {
+    return i > Math.max(this.sim.unlocked, this.sim.deepest);
   }
 
   private card(f: Fossil, x: number, y: number, h: number, locked: boolean): Phaser.GameObjects.Container {
@@ -249,13 +261,16 @@ export class MuseumScene extends OyunScene {
     c.add([name, odds]);
     if (found) {
       const n = this.sim.count(f.id);
-      const cnt = label(this, -CARD_W / 2 + 108, -h / 2 + 22, `×${big(this, n)}`, { size: 27, color: PALETTE.ink }).setOrigin(1, 0.5);
-      cnt.setStroke(cssColor(PALETTE.cardFace), 6);
-      c.add(cnt);
-      const grades = this.sim.grades(f.id);
+      if (n > 0) {
+        const cnt = label(this, -CARD_W / 2 + 108, -h / 2 + 22, `×${big(this, n)}`, { size: 27, color: PALETTE.ink }).setOrigin(1, 0.5);
+        cnt.setStroke(cssColor(PALETTE.cardFace), 6);
+        c.add(cnt);
+      }
+      // pips: the best grade this species ever reached (kept through expeditions)
+      const best = this.sim.bestGrade(f.id);
       for (let gi = 0; gi < GRADE_COUNT; gi++) {
         const px = -CARD_W / 2 + 24 + gi * 25;
-        const on = (grades[gi] ?? 0) > 0;
+        const on = gi <= best;
         const pip = this.add.circle(px, h / 2 - 17, on ? 10 : 8, at(GRADE_COLORS, gi), on ? 1 : 0.3);
         pip.setStrokeStyle(2, PALETTE.ink, on ? 0.7 : 0.25);
         c.add(pip);
@@ -276,7 +291,7 @@ export class MuseumScene extends OyunScene {
   }
 
   private openDetail(f: Fossil): void {
-    if (this.detail || this.tab > this.sim.unlocked) return;
+    if (this.detail || this.lockedTab(this.tab)) return;
     const L = this.layout;
     const found = this.sim.discovered(f.id);
     const box = this.add.container(0, 0).setDepth(900);

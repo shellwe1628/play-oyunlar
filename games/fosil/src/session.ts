@@ -2,7 +2,7 @@ import type { OyunContext } from '@oyun/core';
 import type { PauseReason } from '@oyun/core/pure';
 import { gameSave } from './save';
 import { awayCredit } from './sim/clock';
-import { DigSim, type Find, type OfflineHaul } from './sim/dig';
+import { DigSim, type Find, type OfflineHaul, type SimEvent } from './sim/dig';
 
 /** Write at most this often while digging (ms); important events write immediately. */
 const SAVE_EVERY_MS = 2000;
@@ -30,6 +30,9 @@ function mergeHauls(a: OfflineHaul, b: OfflineHaul): OfflineHaul {
     unlocked: b.unlocked ?? a.unlocked,
     lucks: [...new Set([...a.lucks, ...b.lucks])].sort((x, y) => x - y), // never one luck some rolls did not use
     notable: [...a.notable, ...b.notable],
+    rolls: a.rolls + b.rolls,
+    quests: [...a.quests, ...b.quests],
+    questDust: a.questDust + b.questDust,
   };
 }
 
@@ -48,6 +51,8 @@ export class Session {
   pendingFinds: Find[] = [];
   /** Blocks found while away from the dig screen whose reveal is not worth replaying one by one. */
   pendingQuiet = 0;
+  /** Sim events (goals, rank-ups, relics…) that happened off the dig screen, replayed there. */
+  pendingEvents: SimEvent[] = [];
   private bootClaimed = false;
 
   constructor(private readonly oyun: OyunContext) {
@@ -114,6 +119,11 @@ export class Session {
   }
 
   /** A find made off the dig screen: save it now and queue its reveal. */
+  queueEvents(events: readonly SimEvent[]): void {
+    // only what deserves a moment on the dig screen; transient ones (fever, chain) are dropped
+    for (const e of events) if (e.kind === 'quest' || e.kind === 'rank' || e.kind === 'relic') this.pendingEvents.push(e);
+  }
+
   queueFind(f: Find): void {
     if (f.isNew || f.fossil.odds >= 100 || f.setCompleted !== null || f.unlocked !== null || f.fusions > 0) this.pendingFinds.push(f);
     else this.pendingQuiet++;

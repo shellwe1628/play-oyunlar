@@ -28,6 +28,8 @@ export class Arena {
   private time = 0;
   /** measurement aid: ambient layer off */
   ambientOn = true;
+  /** the stage's wind: drifts clouds, snow and sand */
+  wind = 0;
 
   constructor(private readonly scene: Phaser.Scene, layer: Phaser.GameObjects.Container) {
     for (let i = 0; i < 2; i++) this.back.push(scene.add.image(0, 0, '__DEFAULT').setOrigin(0).setVisible(false));
@@ -103,15 +105,18 @@ export class Arena {
     this.ledgeKey = ''; // re-bake the ledges in the new materials
   }
 
-  setLedges(ledges: readonly Ledge[], seed: number): void {
-    const key = `${this.theme.id}|${ledges.map((l) => `${Math.round(l.x)},${Math.round(l.y)}`).join('|')}`;
+  /** Bake the static ledges (moving ones, listed in `skip` by index, are drawn every frame). */
+  setLedges(ledges: readonly Ledge[], seed: number, skip: readonly number[] = []): void {
+    const key = `${this.theme.id}|${ledges.map((l, i) => (skip.includes(i) ? 'm' : `${Math.round(l.x)},${Math.round(l.y)}`)).join('|')}`;
     if (key === this.ledgeKey) return;
     this.ledgeKey = key;
     this.ledgeSlot = 1 - this.ledgeSlot;
     const tex = `okcu-ledges-${this.ledgeSlot}`;
     if (this.scene.textures.exists(tex)) this.scene.textures.remove(tex);
     const th = this.theme;
-    this.bake(tex, (g) => ledges.forEach((l, i) => drawThemeLedge(g, l, i + seed, th)));
+    this.bake(tex, (g) => ledges.forEach((l, i) => {
+      if (!skip.includes(i)) drawThemeLedge(g, l, i + seed, th);
+    }));
     this.ledges.setTexture(tex).setVisible(true);
   }
 
@@ -122,15 +127,16 @@ export class Arena {
       this.near[i]!.setPosition(-pushX * 0.25, -pushY * 0.15);
     }
     for (const c of this.clouds) {
-      c.x += (c.getData('v') as number) * real;
+      c.x += ((c.getData('v') as number) + this.wind * 0.12) * real;
       if (c.x > W + 160) c.x = -160;
+      if (c.x < -160) c.x = W + 160;
     }
     if (!this.ambientOn) {
       this.ambientG.clear();
       this.lantern.clear();
       return;
     }
-    this.ambient.update(real, this.theme);
+    this.ambient.update(real, this.theme, this.wind);
     this.ambient.draw(this.ambientG, this.theme);
     this.drawLanterns();
   }

@@ -1,9 +1,30 @@
-/** In-run upgrade cards and the stats they produce (pure). */
+/** In-run upgrade cards, their synergies and the stats they produce (pure). */
 import type { Rng } from '@oyun/core/pure';
+import { bowDamage } from './bow';
 import { UPGRADE_EFFECT, type MetaLevels } from './meta';
 import { TUNING } from './tuning';
 
-export const CARD_IDS = ['heavy', 'double', 'split', 'fire', 'bounce', 'pierce', 'quick', 'vitality', 'magnet', 'shield', 'longsight', 'vampire'] as const;
+export const CARD_IDS = [
+  'heavy',
+  'double',
+  'split',
+  'fire',
+  'bounce',
+  'pierce',
+  'quick',
+  'vitality',
+  'magnet',
+  'shield',
+  'longsight',
+  'vampire',
+  // cards that change how you play, not just numbers
+  'seeker',
+  'overdraw',
+  'chain',
+  'keen',
+  'zen',
+  'boom',
+] as const;
 export type CardId = (typeof CARD_IDS)[number];
 
 /** max stacks and draw weight */
@@ -20,7 +41,35 @@ export const CARDS: Record<CardId, { max: number; weight: number }> = {
   shield: { max: 2, weight: 5 },
   longsight: { max: 2, weight: 4 },
   vampire: { max: 3, weight: 6 },
+  seeker: { max: 2, weight: 5 },
+  overdraw: { max: 2, weight: 5 },
+  chain: { max: 3, weight: 5 },
+  keen: { max: 3, weight: 6 },
+  zen: { max: 2, weight: 5 },
+  boom: { max: 2, weight: 5 },
 };
+
+/** Two cards that do something extra together (shown on the card when it completes a pair). */
+export const SYNERGIES = [
+  { id: 'inferno', a: 'fire', b: 'boom' },
+  { id: 'storm', a: 'pierce', b: 'chain' },
+  { id: 'swarm', a: 'split', b: 'seeker' },
+  { id: 'siege', a: 'heavy', b: 'overdraw' },
+  { id: 'hawk', a: 'keen', b: 'longsight' },
+] as const satisfies readonly { id: string; a: CardId; b: CardId }[];
+export type SynergyId = (typeof SYNERGIES)[number]['id'];
+
+export function activeSynergies(cards: readonly CardId[]): SynergyId[] {
+  return SYNERGIES.filter((s) => cards.includes(s.a) && cards.includes(s.b)).map((s) => s.id);
+}
+
+/** The synergy picking `card` would complete with what is already held (null if none). */
+export function synergyFor(held: readonly CardId[], card: CardId): SynergyId | null {
+  for (const s of SYNERGIES) {
+    if ((s.a === card && held.includes(s.b) && !held.includes(s.a)) || (s.b === card && held.includes(s.a) && !held.includes(s.b))) return s.id;
+  }
+  return null;
+}
 
 export interface PlayerStats {
   dmgMul: number;
@@ -43,6 +92,24 @@ export interface PlayerStats {
   coinMul: number;
   rerolls: number;
   starterCard: boolean;
+  /** seeker: turn rate toward the nearest head, rad/s (0 = none); swarm: every arrow seeks */
+  seek: number;
+  swarm: boolean;
+  /** overdraw: damage multiplier of a full-power shot (power ≥ 0.92), 1 = none; siege: +shove, breaks shields */
+  overdraw: number;
+  siege: boolean;
+  /** chain: share of a hit's damage that jumps to the nearest other enemy; storm: two jumps */
+  chainShare: number;
+  chainJumps: number;
+  /** critical hit chance and multiplier (hawk: bigger crits) */
+  crit: number;
+  critMul: number;
+  /** focus meter gain multiplier and powered-up seconds */
+  focusGain: number;
+  focusTime: number;
+  /** boom: knocked-out enemies burst for this much damage (0 = none); inferno: the burst burns */
+  boomDmg: number;
+  inferno: boolean;
 }
 
 export function countCards(cards: readonly CardId[], id: CardId): number {
@@ -51,11 +118,16 @@ export function countCards(cards: readonly CardId[], id: CardId): number {
   return n;
 }
 
+export const BASE_CRIT = 0.06;
+export const FOCUS_TIME = 5;
+
 export function statsFor(cards: readonly CardId[], meta: MetaLevels): PlayerStats {
   const n = (id: CardId) => countCards(cards, id);
   const fire = n('fire');
+  const syn = activeSynergies(cards);
+  const hawk = syn.includes('hawk');
   return {
-    dmgMul: 1.3 ** n('heavy') * (1 + UPGRADE_EFFECT.dmg * meta.dmg),
+    dmgMul: 1.3 ** n('heavy') * bowDamage(meta.bow),
     impulseMul: 1.35 ** n('heavy'),
     volleys: 1 + n('double'),
     splitPairs: n('split'),
@@ -73,6 +145,18 @@ export function statsFor(cards: readonly CardId[], meta: MetaLevels): PlayerStat
     coinMul: 1 + UPGRADE_EFFECT.coins * meta.coins,
     rerolls: 1 + meta.reroll,
     starterCard: meta.starter > 0,
+    seek: n('seeker') > 0 ? 1.6 + 1.2 * n('seeker') : 0,
+    swarm: syn.includes('swarm'),
+    overdraw: n('overdraw') > 0 ? 1.3 + 0.25 * n('overdraw') : 1,
+    siege: syn.includes('siege'),
+    chainShare: n('chain') > 0 ? 0.3 + 0.15 * n('chain') : 0,
+    chainJumps: n('chain') > 0 ? (syn.includes('storm') ? 2 : 1) : 0,
+    crit: BASE_CRIT + 0.08 * n('keen'),
+    critMul: hawk ? 2.2 : 1.75,
+    focusGain: 1 + 0.5 * n('zen'),
+    focusTime: FOCUS_TIME + 2 * n('zen'),
+    boomDmg: 24 * n('boom'),
+    inferno: syn.includes('inferno'),
   };
 }
 
@@ -96,4 +180,15 @@ export function drawOffer(rng: Rng, held: readonly CardId[], n: number): CardId[
     pool.splice(pick, 1);
   }
   return out;
+}
+
+/** Card priority for a starting hand drafted automatically (chapter select). */
+export const DRAFT_ORDER: readonly CardId[] = ['vitality', 'heavy', 'quick', 'double', 'shield', 'split', 'keen', 'vampire', 'pierce', 'fire', 'chain', 'zen', 'seeker', 'overdraw', 'boom', 'bounce', 'magnet', 'longsight'];
+
+export function draftPick(offer: readonly CardId[]): number {
+  for (const c of DRAFT_ORDER) {
+    const i = offer.indexOf(c);
+    if (i >= 0) return i;
+  }
+  return 0;
 }

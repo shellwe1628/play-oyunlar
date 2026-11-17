@@ -30,6 +30,22 @@ interface Host {
 }
 
 const MAX_POPS = 6;
+
+type Haptic = 'light' | 'medium' | 'heavy' | 'success';
+/** A distinct haptic pattern per tier: rarer finds buzz longer and harder. */
+export const TIER_HAPTICS: readonly (readonly Haptic[])[] = [
+  [],
+  [],
+  ['medium'],
+  ['medium', 'medium'],
+  ['heavy', 'medium', 'success'],
+  ['heavy', 'heavy', 'medium', 'success'],
+  ['heavy', 'heavy', 'heavy', 'heavy', 'success'],
+];
+
+export function tierHaptics(scene: OyunScene, tier: number, gap = 110): void {
+  (TIER_HAPTICS[tier] ?? []).forEach((k, i) => scene.time.delayedCall(i * gap, () => scene.oyun.platform.haptic(k)));
+}
 const CARD_W = 320;
 const CARD_H = 400;
 /** Badge centre below the card top: under the 64 px tier band, beside the art. */
@@ -219,6 +235,7 @@ export class Reveal {
       s.tweens.add({ targets: rays, angle: 90, duration: 3000 });
       s.oyun.audio.playPreset(SFX.chime, { pitch: Math.min(6, find.fossil.tier * 2 - 4) });
       s.juice.feedback('medium', pos.x, pos.y, tierColor);
+      tierHaptics(s, find.fossil.tier);
       s.juice.burst(pos.x, pos.y, { count: big ? 22 : 14, color: tierColor, texture: 'spark', distance: 260 });
       s.juice.burst(pos.x, pos.y, { count: 8, color: 0xffffff, texture: 'spark', distance: 200 });
       // stickers on the card's side edges, below the tier band: they never touch the tier name
@@ -226,6 +243,8 @@ export class Reveal {
       if (find.fusions > 0) this.badge(pos.x - CARD_W / 2, pos.y - CARD_H / 2 + BADGE_Y, s.t(`grade.${find.grade}`));
       if (find.source === 'glint') this.badge(pos.x - CARD_W / 2 + 70, pos.y + CARD_H / 2 - 14, s.t('reveal.glint'));
       if (find.source === 'assistant') this.badge(pos.x - CARD_W / 2 + 80, pos.y + CARD_H / 2 - 14, s.t('reveal.assistantFind'));
+      if (find.pity) this.badge(pos.x + CARD_W / 2 - 70, pos.y + CARD_H / 2 - 14, s.t('reveal.pity'));
+      else if (find.block === 'boss') this.badge(pos.x + CARD_W / 2 - 60, pos.y + CARD_H / 2 - 14, s.t('reveal.boss'));
     });
     const hold = big ? 1900 : 1450;
     s.time.delayedCall(PRE + 410 + hold, () => {
@@ -326,7 +345,41 @@ export class Reveal {
       s.oyun.platform.haptic('heavy');
       s.juice.burst(pos.x, pos.y, { count: 32, color: tier.color, texture: 'spark', distance: 420, duration: 900 });
       s.juice.burst(pos.x, pos.y, { count: 16, color: 0xffffff, texture: 'spark', distance: 320, duration: 800 });
+      // mythic and singular go further: shockwave rings, and for singular a second flash
+      if (find.fossil.tier >= 5) {
+        for (let k = 0; k < (find.fossil.tier >= 6 ? 4 : 2); k++) {
+          const ring = s.add.circle(pos.x, pos.y, 80).setStrokeStyle(14 - k * 2, k % 2 ? 0xffffff : tier.color, 1).setDepth(855);
+          objects.push(ring);
+          s.tweens.add({ targets: ring, scale: 6 + k, alpha: 0, delay: k * 140, duration: 900, ease: 'Cubic.easeOut' });
+        }
+      }
+      if (find.fossil.tier >= 6 && !reduced) {
+        s.time.delayedCall(260, () => {
+          const flash2 = s.add.rectangle(L.cx, L.height / 2, L.width + 40, L.height + 40, 0xffffff, 0.8).setDepth(900);
+          s.tweens.add({ targets: flash2, alpha: 0, duration: 600, onComplete: () => flash2.destroy() });
+          s.juice.shake(1);
+        });
+      }
     });
+
+    // singular: an eclipse ring and the tier name burn in behind the card
+    if (find.fossil.tier >= 6) {
+      const eclipse = s.add.container(pos.x, pos.y).setDepth(812).setAlpha(0);
+      for (let i = 0; i < 24; i++) eclipse.add(s.add.image(0, 0, 'ray').setOrigin(0.5, 0).setAngle(i * 15).setTint(i % 2 ? 0xffffff : tier.color).setScale(0.5, 1.4).setAlpha(0.8));
+      eclipse.add(s.add.circle(0, 0, 150, 0x000000, 1));
+      objects.push(eclipse);
+      s.tweens.add({ targets: eclipse, alpha: 1, delay: 900, duration: 300 });
+      s.tweens.add({ targets: eclipse, angle: -360, duration: 9000, repeat: -1 });
+    }
+    if (find.fossil.tier >= 5) {
+      s.time.delayedCall(1250, () => {
+        const banner = outlined(s, pos.x, pos.y - CARD_H / 2 - 130, s.t(`tier.${tier.id}`).toUpperCase(), 64, tier.color, 12).setDepth(861);
+        fitText(banner, L.width - 60);
+        objects.push(banner);
+        s.juice.pop(banner, 0.2, 420);
+        s.tweens.add({ targets: banner, alpha: 0.6, yoyo: true, repeat: -1, duration: 420, delay: 600 });
+      });
+    }
 
     // 3. The odds number slams in.
     s.time.delayedCall(1450, () => {
@@ -365,12 +418,18 @@ export class Reveal {
         objects.push(tag);
         s.juice.pop(tag, 0.3, 320);
       }
+      const why = find.pity ? s.t('reveal.pity') : find.block === 'boss' ? s.t('reveal.boss') : null;
+      if (why) {
+        const tag = outlined(s, pos.x - CARD_W / 2, pos.y - CARD_H / 2 + BADGE_Y, why, 34, PALETTE.ochreLight, 7).setDepth(905).setAngle(8);
+        objects.push(tag);
+        s.juice.pop(tag, 0.3, 320);
+      }
     });
 
     // 4. Confetti rain and the prompt; only then can a tap close it.
     s.time.delayedCall(1800, () => {
-      s.oyun.platform.haptic('success');
-      for (let i = 0; i < 26; i++) {
+      tierHaptics(s, find.fossil.tier, 140);
+      for (let i = 0; i < 26 + Math.max(0, find.fossil.tier - 4) * 20; i++) {
         const star = s.add.image(Math.random() * L.width, L.top - 40 - Math.random() * 300, 'spark').setDepth(850).setTint(i % 3 ? tier.color : 0xffffff).setScale(0.8 + Math.random());
         objects.push(star);
         s.tweens.add({ targets: star, y: L.height + 60, angle: 360 * (Math.random() < 0.5 ? 1 : -1), duration: 2200 + Math.random() * 1800, ease: 'Sine.easeIn' });

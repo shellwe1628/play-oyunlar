@@ -1,21 +1,23 @@
-/** Between-run progress: permanent upgrades, coins, cosmetics (pure). Stored by src/save.ts. */
+/** Between-run progress: permanent upgrades, the bow, coins, cosmetics (pure). Stored by src/save.ts. */
+import { freshBow, type BowState } from './bow';
 
-export const UPGRADE_IDS = ['hp', 'dmg', 'coins', 'reroll', 'starter'] as const;
+/** Shop upgrades. Damage is not one of them any more: the forged bow is the one damage track. */
+export const UPGRADE_IDS = ['hp', 'coins', 'reroll', 'starter'] as const;
 export type UpgradeId = (typeof UPGRADE_IDS)[number];
-export type MetaLevels = Record<UpgradeId, number>;
+/** What a run is created with: shop levels plus the bow's enhancement level. */
+export type MetaLevels = Record<UpgradeId, number> & { bow: number };
 
-export const NO_META: MetaLevels = { hp: 0, dmg: 0, coins: 0, reroll: 0, starter: 0 };
+export const NO_META: MetaLevels = { hp: 0, coins: 0, reroll: 0, starter: 0, bow: 0 };
 
 /** cost(level) = round(base × growth^level) until max. */
 export const UPGRADES: Record<UpgradeId, { max: number; base: number; growth: number }> = {
   hp: { max: 8, base: 25, growth: 1.55 }, // +15 max health per level
-  dmg: { max: 8, base: 30, growth: 1.6 }, // +10 % arrow damage per level
   coins: { max: 6, base: 35, growth: 1.6 }, // +20 % coins per level
   reroll: { max: 1, base: 60, growth: 1 }, // a second card reroll per run
   starter: { max: 1, base: 90, growth: 1 }, // start every run holding one random card
 };
 
-export const UPGRADE_EFFECT = { hp: 15, dmg: 0.1, coins: 0.2 } as const;
+export const UPGRADE_EFFECT = { hp: 15, coins: 0.2 } as const;
 
 export function upgradeCost(id: UpgradeId, level: number): number | null {
   const u = UPGRADES[id];
@@ -65,19 +67,80 @@ export function cosmeticById(id: string): Cosmetic {
   return COSMETICS.find((c) => c.id === id) ?? COSMETICS[0]!;
 }
 
+export interface DatedRecord {
+  n: number;
+  date: string;
+}
+
+/** The records board: the player's own bests, with the day each was set. */
+export interface Records {
+  /** furthest stage reached in each chapter (8 = chapter cleared) */
+  chapter: DatedRecord[];
+  /** fastest boss knockout per chapter, seconds (0 = not beaten yet) */
+  bossTime: DatedRecord[];
+  /** longest headshot chain */
+  headChain: DatedRecord;
+  /** longest knockout streak without being hit */
+  streak: DatedRecord;
+  /** most knockouts in one run */
+  runKos: DatedRecord;
+  /** furthest endless wave (counted from the first endless wave) */
+  endless: DatedRecord;
+}
+
+export function freshRecords(): Records {
+  const d = (): DatedRecord => ({ n: 0, date: '' });
+  return { chapter: [d(), d(), d(), d()], bossTime: [d(), d(), d(), d()], headChain: d(), streak: d(), runKos: d(), endless: d() };
+}
+
 export interface SaveData {
   best: number;
   coins: number;
   runs: number;
-  upgrades: MetaLevels;
+  upgrades: Record<UpgradeId, number>;
+  /** the forged bow */
+  bow: BowState;
   cosmetic: string;
   /** daily run: date key 'YYYY-MM-DD' and best wave that day */
   dailyDate: string;
   dailyBest: number;
+  /** daily challenge: consecutive days with the goal met, and the last such day */
+  dailyStreak: number;
+  dailyDone: string;
+  /** furthest chapter reached (0 … 3, 4 = endless unlocked): the chapter select offers 0 … this */
+  chapter: number;
+  /** chapter bosses beaten, per chapter (endless bosses count for their kind) */
+  bosses: number[];
+  records: Records;
+  /** achievement ids unlocked */
+  feats: string[];
+  /** rank index last celebrated (a higher rank than this plays the rank-up ceremony) */
+  rank: number;
 }
 
 export function freshSave(): SaveData {
-  return { best: 0, coins: 0, runs: 0, upgrades: { ...NO_META }, cosmetic: 'classic', dailyDate: '', dailyBest: 0 };
+  return {
+    best: 0,
+    coins: 0,
+    runs: 0,
+    upgrades: { hp: 0, coins: 0, reroll: 0, starter: 0 },
+    bow: freshBow(),
+    cosmetic: 'classic',
+    dailyDate: '',
+    dailyBest: 0,
+    dailyStreak: 0,
+    dailyDone: '',
+    chapter: 0,
+    bosses: [0, 0, 0, 0],
+    records: freshRecords(),
+    feats: [],
+    rank: 0,
+  };
+}
+
+/** The levels a normal run is created with (the daily ignores all of them). */
+export function metaOf(save: SaveData): MetaLevels {
+  return { ...save.upgrades, bow: save.bow.level };
 }
 
 export function buyUpgrade(save: SaveData, id: UpgradeId): boolean {
@@ -100,10 +163,16 @@ export interface RunBank {
   startBest: number;
   /** the run was counted in `runs` */
   started: boolean;
+  /** boss knockouts of this run already added to `save.bosses` */
+  bosses: number;
+  /** achievements unlocked during this run (shown on the result screen) */
+  feats: string[];
+  /** rank index when the run started */
+  startRank: number;
 }
 
 export function newBank(save: SaveData): RunBank {
-  return { coins: 0, startBest: save.best, started: false };
+  return { coins: 0, startBest: save.best, started: false, bosses: 0, feats: [], startRank: save.rank };
 }
 
 /** Count the run once, when its first arrow flies. */

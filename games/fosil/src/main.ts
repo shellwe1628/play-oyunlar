@@ -4,6 +4,7 @@ import { DigScene } from './scenes/DigScene';
 import { SCENES } from './scenes/keys';
 import { MenuScene } from './scenes/MenuScene';
 import { MuseumScene } from './scenes/MuseumScene';
+import { RanksScene } from './scenes/RanksScene';
 import { STRINGS } from './strings';
 import { PALETTE, TEXTURES } from './textures';
 
@@ -13,7 +14,7 @@ void createGame({
   orientation: meta.orientation === 'landscape' ? 'landscape' : 'portrait',
   strings: STRINGS,
   textures: TEXTURES,
-  scenes: [MenuScene, DigScene, MuseumScene],
+  scenes: [MenuScene, DigScene, MuseumScene, RanksScene],
   start: SCENES.menu,
   menu: SCENES.menu,
   theme: {

@@ -164,6 +164,7 @@ export function runPolicy(seed: number, minutes = 40, profile: Profile = 'fast',
       sim.travel(want);
       m.timeline.push(`${(t / 60).toFixed(1)}m travel L${want + 1}`);
     }
+    for (let l = 1; l < LAYERS.length; l++) if (m.unlockAt[l] === null && sim.unlocked >= l && sim.expeditions === 0) m.unlockAt[l] = t;
     if (opts.expedition !== false && sim.canExpedition) {
       sim.expedition();
       m.expeditionsAt.push(t);

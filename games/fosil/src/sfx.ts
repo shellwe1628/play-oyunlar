@@ -62,4 +62,45 @@ export const SFX = {
     { wave: 'triangle', freq: 659, delay: 0.24, duration: 0.15, gain: 0.22 },
     { wave: 'triangle', freq: 784, delay: 0.36, duration: 0.6, gain: 0.26 },
   ],
+  /** combo fever starts: a rising roar and a bright stab */
+  fever: [
+    { wave: 'sawtooth', freq: 110, freqEnd: 440, duration: 0.5, gain: 0.12, attack: 0.1 },
+    { wave: 'noise', freq: 1800, freqEnd: 5000, duration: 0.45, gain: 0.12 },
+    { wave: 'square', freq: 880, delay: 0.42, duration: 0.12, gain: 0.12 },
+    { wave: 'square', freq: 1175, delay: 0.5, duration: 0.25, gain: 0.12 },
+  ],
+  /** charging a hard vein: a low hum (pitch rises with the charge) */
+  charge: [{ wave: 'triangle', freq: 220, freqEnd: 330, duration: 0.12, gain: 0.12 }],
+  /** a fully charged strike on a vein: a heavy clang */
+  clang: [
+    { wave: 'square', freq: 330, freqEnd: 110, duration: 0.18, gain: 0.2 },
+    { wave: 'noise', freq: 6000, duration: 0.1, gain: 0.2 },
+    { wave: 'sine', freq: 1760, delay: 0.02, duration: 0.3, gain: 0.08 },
+  ],
+  /** boss phase broken / boss appears: a deep gong */
+  gong: [
+    { wave: 'sine', freq: 98, freqEnd: 82, duration: 1.4, gain: 0.45 },
+    { wave: 'triangle', freq: 196, duration: 1, gain: 0.15 },
+    { wave: 'sine', freq: 587, delay: 0.02, duration: 0.8, gain: 0.05 },
+  ],
+  /** cave-in rumble */
+  rumble: [
+    { wave: 'noise', freq: 300, duration: 0.7, gain: 0.35 },
+    { wave: 'sine', freq: 60, freqEnd: 40, duration: 0.7, gain: 0.4 },
+  ],
+  /** relic fragment / relic assembled: crystalline sparkle */
+  relic: [
+    { wave: 'sine', freq: 1568, duration: 0.2, gain: 0.12 },
+    { wave: 'sine', freq: 2093, delay: 0.08, duration: 0.25, gain: 0.12 },
+    { wave: 'sine', freq: 3136, delay: 0.16, duration: 0.4, gain: 0.08 },
+  ],
+  /** rank up: a bigger fanfare */
+  rankUp: [
+    { wave: 'triangle', freq: 523, duration: 0.14, gain: 0.22 },
+    { wave: 'triangle', freq: 659, delay: 0.12, duration: 0.14, gain: 0.22 },
+    { wave: 'triangle', freq: 784, delay: 0.24, duration: 0.14, gain: 0.22 },
+    { wave: 'triangle', freq: 1047, delay: 0.36, duration: 0.8, gain: 0.26 },
+    { wave: 'square', freq: 523, delay: 0.36, duration: 0.8, gain: 0.06 },
+    { wave: 'sine', freq: 2093, delay: 0.5, duration: 0.9, gain: 0.06 },
+  ],
 } as const satisfies Record<string, SfxPreset>;

@@ -361,9 +361,9 @@ export class ShaftView {
     if (this.finishText.text !== this.finishLabel) this.finishText.setText(this.finishLabel);
     // On the crossing the label bursts up and away instead of sitting under the spark.
     const since = this.finishBurstAt < 0 ? -1 : this.scene.time.now - this.finishBurstAt;
-    const k = since < 0 ? 0 : Math.min(1, since / 600);
+    const k = since < 0 ? 0 : Math.min(1, since / 420);
     this.finishText
-      .setPosition((l + r) / 2, -y - 70 - k * 260)
+      .setPosition((l + r) / 2, -y - 70 - k * 520)
       .setColor(css(PALETTE.gold))
       .setScale(1 + pulse * 0.1 + k * 0.8)
       .setAlpha((1 - k) * this.labelAlpha(y + 70));

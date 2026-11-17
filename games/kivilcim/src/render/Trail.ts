@@ -166,18 +166,18 @@ export class Trail {
           const h = ((k * 73856093) ^ (flick * 19349663)) >>> 0;
           const jx = qx + ((h % 1000) / 1000 - 0.5) * 22 * (1 - tm * 0.5);
           if (k > 0) {
-            g.lineStyle(7 * (1 - tm) + 2, col, 0.5 * fade).lineBetween(lx, -ly, jx, -qy);
-            g.lineStyle(2.5, 0xffffff, fade).lineBetween(lx, -ly, jx, -qy);
+            g.lineStyle(14 * (1 - tm) + 4, col, 0.55 * fade).lineBetween(lx, -ly, jx, -qy);
+            g.lineStyle(4, 0xffffff, fade).lineBetween(lx, -ly, jx, -qy);
           }
           lx = jx;
           ly = qy;
         } else {
           // Helix: two strands twisting around the path.
           const ph = (hy - qy) / 40 - now / 160;
-          const o = Math.sin(ph) * 10 * (1 - tm * 0.6);
+          const o = Math.sin(ph) * 12 * (1 - tm * 0.6);
           if (k > 0) {
-            g.lineStyle(4, col, fade).lineBetween(lx, -ly, qx + o, -qy);
-            g.lineStyle(4, lerpColor(col, 0xffffff, 0.5), fade).lineBetween(lx2, -ly2, qx - o, -qy);
+            g.lineStyle(9 * (1 - tm) + 3, col, fade).lineBetween(lx, -ly, qx + o, -qy);
+            g.lineStyle(9 * (1 - tm) + 3, lerpColor(col, 0xffffff, 0.5), fade).lineBetween(lx2, -ly2, qx - o, -qy);
           }
           lx = qx + o;
           ly = qy;

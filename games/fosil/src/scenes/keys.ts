@@ -3,4 +3,5 @@ export const SCENES = {
   menu: 'menu',
   dig: 'dig',
   museum: 'museum',
+  ranks: 'ranks',
 } as const;

@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
 import { shade } from '../art/fossils';
 import { LAYERS, at } from '../sim/data';
+import type { BlockKind } from '../sim/dig';
 import { PALETTE } from '../textures';
 
 interface Seg {
@@ -18,6 +19,9 @@ interface Seg {
 export class StratumBlock extends Phaser.GameObjects.Container {
   private readonly base: Phaser.GameObjects.Graphics;
   private readonly cracks: Phaser.GameObjects.Graphics;
+  private readonly deco: Phaser.GameObjects.Graphics;
+  private kind: BlockKind = 'normal';
+  private clock = 0;
   /** Crack branches per strike origin (up to three origins per block, where it was hit). */
   private origins: Seg[][] = [];
   private layer = 0;
@@ -33,13 +37,50 @@ export class StratumBlock extends Phaser.GameObjects.Container {
     super(scene, x, y);
     this.base = scene.add.graphics();
     this.cracks = scene.add.graphics();
-    this.add([this.base, this.cracks]);
+    this.deco = scene.add.graphics();
+    this.add([this.base, this.deco, this.cracks]);
     scene.add.existing(this);
   }
 
   setLayer(layer: number): this {
     this.layer = layer;
     return this.regenerate();
+  }
+
+  /** The block's special kind (vein, unstable, twin, golden, cave-in, boss): its own look. */
+  setKind(kind: BlockKind): this {
+    if (kind === this.kind) return this;
+    this.kind = kind;
+    return this.regenerate();
+  }
+
+  /** A fresh block of `kind` (one redraw). */
+  renew(kind: BlockKind): this {
+    this.kind = kind;
+    return this.regenerate();
+  }
+
+  get blockKind(): BlockKind {
+    return this.kind;
+  }
+
+  /**
+   * Per-frame life for special blocks: unstable trembles faster as its window runs out
+   * (`urgency` 0..1), golden glitters, the boss breathes. Returns the angle wobble applied.
+   */
+  animate(dt: number, urgency = 0): void {
+    this.clock += dt;
+    const k = this.kind;
+    if (k === 'unstable') {
+      const f = 10 + urgency * 26;
+      this.setAngle(Math.sin(this.clock * f) * (0.6 + urgency * 1.8));
+      this.deco.setAlpha(0.55 + 0.45 * Math.abs(Math.sin(this.clock * (3 + urgency * 8))));
+    } else if (k === 'golden') {
+      this.deco.setAlpha(0.8 + 0.2 * Math.sin(this.clock * 4));
+    } else if (k === 'boss') {
+      this.deco.setAlpha(0.75 + 0.25 * Math.sin(this.clock * 2.2));
+      this.setAngle(0);
+    } else if (this.angle !== 0) this.setAngle(0);
   }
 
   /** A fresh block: new pebbles, new crack plan, no damage. */
@@ -73,6 +114,7 @@ export class StratumBlock extends Phaser.GameObjects.Container {
       g.fillStyle(c, 0.9).fillEllipse(px, py, r * 2.2, r * 1.6);
     }
     this.drawMaterial(g, x0, y0, w, h);
+    this.drawKind(x0, y0, w, h);
     // bevel: light top edge, dark right edge
     g.fillStyle(0xffffff, 0.16).fillRoundedRect(x0 + 8, y0 + 6, w - 16, 18, 9);
     g.fillStyle(0x000000, 0.16).fillRoundedRect(x0 + w - 22, y0 + 20, 14, h - 40, 7);
@@ -133,6 +175,83 @@ export class StratumBlock extends Phaser.GameObjects.Container {
         g.lineStyle(2, 0x3a1a0a, 0.5).lineBetween(x, y, x + 40, y - 40);
         for (let k = 0; k < 5; k++) g.lineBetween(x + k * 8, y - k * 8, x + k * 8 - 10, y - k * 8 - 6);
       }
+    } else if (this.layer === 4) {
+      // coal: glossy black seams and fern prints
+      for (let i = 0; i < 4; i++) {
+        const y = r(y0 + 30, y0 + h - 40);
+        g.fillStyle(0x0a0d0b, 0.85).fillRect(x0, y, w, r(10, 22));
+        g.fillStyle(0x8aa0b0, 0.35).fillRect(x0 + r(20, 200), y + 3, r(40, 120), 2);
+      }
+      for (let i = 0; i < 3; i++) {
+        const x = r(x0 + 60, x0 + w - 60);
+        const y = r(y0 + 60, y0 + h - 60);
+        g.lineStyle(2, 0x2a4a30, 0.8).lineBetween(x, y + 40, x, y - 40);
+        for (let k = -3; k <= 3; k++) g.lineBetween(x, y + k * 11, x + 18, y + k * 11 - 9).lineBetween(x, y + k * 11, x - 18, y + k * 11 - 9);
+      }
+    } else if (this.layer === 5) {
+      // amber: translucent drops with something caught inside
+      for (let i = 0; i < 6; i++) {
+        const x = r(x0 + 40, x0 + w - 40);
+        const y = r(y0 + 40, y0 + h - 40);
+        const rad = r(12, 24);
+        g.fillStyle(0xffa020, 0.3).fillCircle(x, y, rad * 1.5);
+        g.fillStyle(0xf09018, 0.85).fillEllipse(x, y, rad * 2, rad * 1.6);
+        g.fillStyle(0x3a2008, 0.8).fillEllipse(x + 2, y + 2, rad * 0.6, rad * 0.3);
+        g.fillStyle(0xfff0b0, 0.85).fillCircle(x - rad * 0.4, y - rad * 0.3, rad * 0.25);
+      }
+    } else if (this.layer === 6) {
+      // salt: cubic crystals, pink and white
+      for (let i = 0; i < 16; i++) {
+        const x = r(x0 + 30, x0 + w - 30);
+        const y = r(y0 + 30, y0 + h - 30);
+        const sz = r(8, 22);
+        g.fillStyle(i % 3 ? 0xf8f4ff : 0xffc8dc, 0.75).fillRect(x - sz / 2, y - sz / 2, sz, sz);
+        g.lineStyle(2, 0xffffff, 0.8).strokeRect(x - sz / 2, y - sz / 2, sz, sz);
+        g.fillStyle(0xffffff, 0.6).fillRect(x - sz / 2 + 2, y - sz / 2 + 2, sz / 3, sz / 3);
+      }
+    } else if (this.layer === 7) {
+      // geode: a hollow of violet points in the middle of the stone
+      const cx = r(x0 + w * 0.35, x0 + w * 0.65);
+      const cy = r(y0 + h * 0.4, y0 + h * 0.6);
+      g.fillStyle(0x2a1040, 0.9).fillEllipse(cx, cy, w * 0.5, h * 0.5);
+      for (let i = 0; i < 22; i++) {
+        const a = (i / 22) * Math.PI * 2;
+        const ox = cx + Math.cos(a) * w * 0.25;
+        const oy = cy + Math.sin(a) * h * 0.25;
+        const len = r(30, 60);
+        const tx = ox - Math.cos(a) * len;
+        const ty = oy - Math.sin(a) * len;
+        const n = { x: -Math.sin(a) * 9, y: Math.cos(a) * 9 };
+        g.fillStyle(i % 2 ? 0xb07aff : 0xd8b8ff, 0.95).fillTriangle(ox + n.x, oy + n.y, ox - n.x, oy - n.y, tx, ty);
+      }
+    } else if (this.layer === 8) {
+      // basalt with glowing lava veins
+      g.fillStyle(0x000000, 0.25).fillRoundedRect(x0, y0, w, h, 26);
+      for (let k = 0; k < 4; k++) {
+        let x = r(x0 + 40, x0 + w - 40);
+        let y = y0 + 10;
+        for (let i = 0; i < 6; i++) {
+          const nx = Phaser.Math.Clamp(x + r(-50, 50), x0 + 10, x0 + w - 10);
+          const ny = Math.min(y0 + h - 10, y + r(40, 70));
+          g.lineStyle(9, 0xff5a10, 0.3).lineBetween(x, y, nx, ny);
+          g.lineStyle(3, 0xffc040, 0.95).lineBetween(x, y, nx, ny);
+          x = nx;
+          y = ny;
+        }
+      }
+    } else if (this.layer === 9) {
+      // first seas mud: quilted fronds and disc prints
+      for (let i = 0; i < 3; i++) {
+        const x = r(x0 + 70, x0 + w - 70);
+        const y = r(y0 + 70, y0 + h - 70);
+        for (let k = 0; k < 7; k++) g.lineStyle(3, 0x2a5a58, 0.7).strokeEllipse(x, y - 36 + k * 12, 50 - Math.abs(k - 3) * 8, 10);
+      }
+      for (let i = 0; i < 4; i++) {
+        const x = r(x0 + 40, x0 + w - 40);
+        const y = r(y0 + 40, y0 + h - 40);
+        g.lineStyle(3, 0xbfe8e0, 0.6).strokeCircle(x, y, r(12, 20));
+        g.lineStyle(2, 0xbfe8e0, 0.5).strokeCircle(x, y, r(4, 8));
+      }
     } else {
       for (let i = 0; i < 8; i++) {
         const x = r(x0 + 30, x0 + w - 30);
@@ -140,6 +259,91 @@ export class StratumBlock extends Phaser.GameObjects.Container {
         g.lineStyle(3, 0xf2e3c6, 0.75).beginPath().arc(x, y, r(5, 9), 0, Math.PI * 1.4).strokePath();
       }
       for (let i = 0; i < 10; i++) g.fillStyle(i % 2 ? 0xc06a8a : 0x7fe0d0, 0.55).fillCircle(r(x0 + 20, x0 + w - 20), r(y0 + 20, y0 + h - 20), r(2, 5));
+    }
+  }
+
+  /** The look of a special block, drawn over the layer material. */
+  private drawKind(x0: number, y0: number, w: number, h: number): void {
+    const g = this.deco.clear().setAlpha(1);
+    const r = (a: number, b: number): number => a + Math.random() * (b - a);
+    switch (this.kind) {
+      case 'vein':
+        // thick metallic veins through the rock, with bright flecks
+        for (let k = 0; k < 3; k++) {
+          const ya = y0 + r(30, h - 30);
+          const yb = y0 + r(30, h - 30);
+          g.lineStyle(26, 0x2a3440, 0.95).lineBetween(x0 + 6, ya, x0 + w - 6, yb);
+          g.lineStyle(8, 0x8a9cb0, 0.9).lineBetween(x0 + 6, ya - 6, x0 + w - 6, yb - 6);
+          for (let i = 0; i < 6; i++) {
+            const t = Math.random();
+            g.fillStyle(0xe8f4ff, 0.95).fillCircle(x0 + 6 + t * (w - 12), ya + (yb - ya) * t, r(2, 4));
+          }
+        }
+        g.lineStyle(6, 0x8a9cb0, 1).strokeRoundedRect(x0 + 3, y0 + 3, w - 6, h - 6, 24);
+        break;
+      case 'unstable':
+        // glowing fault lines: it wants to fall apart
+        for (let k = 0; k < 5; k++) {
+          let x = x0 + r(30, w - 30);
+          let y = y0 + 8;
+          for (let i = 0; i < 6; i++) {
+            const nx = Phaser.Math.Clamp(x + r(-40, 40), x0 + 8, x0 + w - 8);
+            const ny = Math.min(y0 + h - 8, y + r(30, 70));
+            g.lineStyle(8, 0xff7a20, 0.35).lineBetween(x, y, nx, ny);
+            g.lineStyle(3, 0xffe080, 1).lineBetween(x, y, nx, ny);
+            x = nx;
+            y = ny;
+          }
+        }
+        g.lineStyle(6, 0xff9a30, 1).strokeRoundedRect(x0 + 3, y0 + 3, w - 6, h - 6, 24);
+        break;
+      case 'twin':
+        // two blocks fused: a seam down the middle and two cores
+        g.fillStyle(0x000000, 0.35).fillRect(-6, y0 + 4, 12, h - 8);
+        g.lineStyle(3, 0xffffff, 0.5).lineBetween(-8, y0 + 8, -8, y0 + h - 8);
+        for (const cx of [-w / 4, w / 4]) {
+          g.fillStyle(0xffffff, 0.14).fillCircle(cx, 0, 64);
+          g.lineStyle(4, 0xffffff, 0.55).strokeCircle(cx, 0, 64);
+        }
+        break;
+      case 'golden':
+        g.fillStyle(0xffd23f, 0.42).fillRoundedRect(x0, y0, w, h, 26);
+        for (let i = 0; i < 6; i++) g.fillStyle(0xfff2a0, 0.35).fillRect(x0 + r(0, w - 60), y0 + 4, r(14, 30), h - 8);
+        for (let i = 0; i < 18; i++) {
+          const x = x0 + r(20, w - 20);
+          const y = y0 + r(20, h - 20);
+          const s = r(4, 9);
+          g.fillStyle(0xffffff, 0.95).fillTriangle(x - s, y, x + s, y, x, y - s * 2).fillTriangle(x - s, y, x + s, y, x, y + s * 2);
+        }
+        g.lineStyle(8, 0xffd23f, 1).strokeRoundedRect(x0 + 3, y0 + 3, w - 6, h - 6, 24);
+        break;
+      case 'cavein':
+        // a heap of grey boulders instead of a clean face
+        g.fillStyle(0x3a3634, 0.75).fillRoundedRect(x0, y0, w, h, 26);
+        for (let i = 0; i < 16; i++) {
+          const x = x0 + r(40, w - 40);
+          const y = y0 + r(40, h - 30);
+          const rx = r(30, 70);
+          const c = [0x6a645e, 0x5a544e, 0x7a746c][i % 3]!;
+          g.fillStyle(c, 1).fillEllipse(x, y, rx, rx * 0.75);
+          g.fillStyle(0xffffff, 0.15).fillEllipse(x - rx * 0.15, y - rx * 0.15, rx * 0.4, rx * 0.22);
+        }
+        break;
+      case 'boss':
+        // an ancient guardian slab: dark, ringed, with a glowing core and three phase marks
+        g.fillStyle(0x140820, 0.6).fillRoundedRect(x0, y0, w, h, 26);
+        g.fillStyle(0x3fe3e0, 0.25).fillCircle(0, 0, 110);
+        g.lineStyle(6, 0x3fe3e0, 0.9).strokeCircle(0, 0, 80);
+        g.lineStyle(3, 0x3fe3e0, 0.6).strokeCircle(0, 0, 120);
+        g.fillStyle(0xbffcff, 1).fillCircle(0, 0, 26);
+        for (let i = 0; i < 8; i++) {
+          const a = (i / 8) * Math.PI * 2;
+          g.lineStyle(4, 0x3fe3e0, 0.7).lineBetween(Math.cos(a) * 130, Math.sin(a) * 130, Math.cos(a) * 160, Math.sin(a) * 160);
+        }
+        g.lineStyle(10, 0x3fe3e0, 1).strokeRoundedRect(x0 + 4, y0 + 4, w - 8, h - 8, 24);
+        break;
+      default:
+        break;
     }
   }
 
@@ -151,7 +355,7 @@ export class StratumBlock extends Phaser.GameObjects.Container {
     this.shown = key;
     const g = this.cracks.clear();
     if (f <= 0) return;
-    const crack = this.layer === 1 ? 0x2a5a78 : this.layer === 3 ? 0x06141c : PALETTE.crack;
+    const crack = this.kind === 'unstable' ? 0xffe080 : this.layer === 1 ? 0x2a5a78 : this.layer === 3 || this.layer === 9 ? 0x06141c : this.layer === 8 ? 0xffa030 : PALETTE.crack;
     const lip = 0xffffff;
     g.fillStyle(0x000000, Math.min(0.32, f * 0.36)).fillRoundedRect(-this.bw / 2, -this.bh / 2, this.bw, this.bh, 26);
     // each origin spreads its own branches as damage grows

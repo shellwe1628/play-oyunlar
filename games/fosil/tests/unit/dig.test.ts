@@ -307,11 +307,12 @@ describe('offline haul', () => {
     const sim = withAssistant(5);
     const haul = sim.claimOffline(1800);
     expect(haul.blocks).toBeGreaterThan(0);
-    expect(sim.dust).toBe(haul.dust);
+    expect(sim.dust).toBe(haul.dust + haul.questDust);
     const total = Object.values(haul.found).reduce((a, b) => a + b, 0);
-    expect(total).toBe(haul.blocks);
+    expect(total).toBe(haul.rolls);
+    expect(haul.rolls).toBeGreaterThanOrEqual(haul.blocks);
     expect(sim.doubleOfflineDust()).toBe(true);
-    expect(sim.dust).toBe(haul.dust * 2);
+    expect(sim.dust).toBe(haul.dust * 2 + haul.questDust);
     expect(sim.doubleOfflineDust()).toBe(false);
   });
 });

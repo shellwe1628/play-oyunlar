@@ -184,6 +184,7 @@ export class GameScene extends OyunScene {
   private milestoneBands: Phaser.GameObjects.TileSprite[] = [];
   private logoLetters: Phaser.GameObjects.Text[] = [];
   private finishRays!: Phaser.GameObjects.Image;
+  private logoShine!: Phaser.GameObjects.Image;
   private shaft!: ShaftView;
   private backdrop!: Backdrop;
   private trail!: Trail;
@@ -356,7 +357,8 @@ export class GameScene extends OyunScene {
       gravityY: -900,
       scale: { start: 0.45, end: 0 },
       alpha: { start: 1, end: 0 },
-      frequency: 30,
+      frequency: 12,
+      quantity: 2,
       blendMode: Phaser.BlendModes.ADD,
       emitting: false,
     });
@@ -478,37 +480,25 @@ export class GameScene extends OyunScene {
   private buildTitle(): void {
     const L = this.layout;
     const c = this.add.container(0, 0).setDepth(200);
-    // Animated logo: each letter its own text, riding a wave and catching a travelling shine.
-    const word = this.t('title.logo');
-    const size = Math.min(112, Math.floor((L.width - 90) / (word.length * 0.66)));
-    const logo = this.add.container(L.cx, L.top + 250).setAngle(-5);
-    let total = 0;
-    const widths: number[] = [];
-    for (const ch of word) {
-      const t = bigText(this, 0, 0, ch, size, PALETTE.white);
-      t.setStroke('#14062b', 22);
-      const grad = t.context.createLinearGradient(0, 20, 0, t.height - 20);
-      grad.addColorStop(0, '#fffbe0');
-      grad.addColorStop(0.45, '#ffe14d');
-      grad.addColorStop(1, '#ff7a1a');
-      t.setFill(grad);
-      widths.push(t.width - 18);
-      total += t.width - 18;
-      this.logoLetters.push(t);
-    }
-    let lx = -total / 2;
-    this.logoLetters.forEach((t, i) => {
-      t.setX(lx + widths[i]! / 2);
-      lx += widths[i]!;
-    });
-    logo.add(this.logoLetters);
+    // Animated logo: one word (so every glyph renders whole), bouncing on the beat, swaying,
+    // with a shine sweeping across it.
+    const logo = bigText(this, L.cx, L.top + 250, this.t('title.logo'), 112, PALETTE.white).setAngle(-5);
+    logo.setStroke('#14062b', 22);
+    fitText(logo, L.width - 70, 112);
+    const grad = logo.context.createLinearGradient(0, 20, 0, logo.height - 20);
+    grad.addColorStop(0, '#fffbe0');
+    grad.addColorStop(0.45, '#ffe14d');
+    grad.addColorStop(1, '#ff7a1a');
+    logo.setFill(grad);
+    this.logoLetters = [logo];
+    this.logoShine = this.add.image(L.cx, L.top + 250, 'w-beam').setBlendMode(Phaser.BlendModes.ADD).setScale(2.2, 0.75).setAngle(20).setAlpha(0.8);
     const logoGlow = this.add.image(L.cx, L.top + 250, 'glow').setBlendMode(Phaser.BlendModes.ADD).setDisplaySize(760, 300).setAlpha(0.55);
     const tag = fitText(bigText(this, L.cx, L.top + 360, this.t('title.tagline'), 36), L.width - 140);
     this.titleLevel = bigText(this, L.cx, L.cy + 60, '', 48, PALETTE.gold);
     const tap = fitText(bigText(this, L.cx, L.cy + 150, this.t('title.tap'), 66), L.width - 170);
     this.tweens.add({ targets: tap, scale: 1.1, alpha: 0.75, yoyo: true, repeat: -1, duration: 420, ease: 'Sine.easeInOut' });
     this.titleBest = bigText(this, L.cx, L.cy + 230, '', 32);
-    c.add([logoGlow, logo, tag, this.titleLevel, tap, this.titleBest]);
+    c.add([logoGlow, logo, this.logoShine, tag, this.titleLevel, tap, this.titleBest]);
 
     const y = L.bottom - 150;
     const xs = [-1.5, -0.5, 0.5, 1.5].map((k) => L.cx + k * 158);
@@ -581,7 +571,7 @@ export class GameScene extends OyunScene {
     band.fillStyle(PALETTE.ink, 0.72).fillRect(0, L.cy - 470, L.width, 540);
     band.fillStyle(PALETTE.gold, 1).fillRect(0, L.cy - 478, L.width, 10).fillRect(0, L.cy + 66, L.width, 10);
     this.finishTitle = bigText(this, L.cx, L.cy - 390, this.t('finish.title'), 72, PALETTE.gold);
-    this.finishRays = this.add.image(L.cx, L.cy - 240, 'w-rays').setBlendMode(Phaser.BlendModes.ADD).setScale(1.1).setTint(PALETTE.gold).setAlpha(0.6);
+    this.finishRays = this.add.image(L.cx, L.cy - 240, 'w-rays').setBlendMode(Phaser.BlendModes.ADD).setScale(1.2).setTint(PALETTE.gold).setAlpha(0.9);
     const pct = bigText(this, L.cx, L.cy - 240, '100%', 170);
     this.finishGems = bigText(this, L.cx + 30, L.cy - 60, '', 56, PALETTE.gem);
     const gemIcon = this.add.image(L.cx - 60, L.cy - 60, 'gem').setScale(0.9);
@@ -1410,11 +1400,10 @@ export class GameScene extends OyunScene {
     this.backdrop.update(prog, dyScreen, pulse, speed, realDt);
     if (this.fx) this.worldFx.update(realDt, dyScreen, pulse, this.speedK);
     if (this.phase === 'title' && this.fx) {
-      for (let i = 0; i < this.logoLetters.length; i++) {
-        const t = this.logoLetters[i]!;
-        const w = Math.sin(now / 260 - i * 0.55);
-        t.setY(w * 12).setScale(1 + 0.05 * pulse + Math.max(0, w) * 0.06);
-      }
+      const logo = this.logoLetters[0]!;
+      logo.setScale(1 + 0.07 * pulse).setAngle(-5 + Math.sin(now / 700) * 2.5);
+      const sweep = (now / 2400) % 1;
+      this.logoShine.setX(this.layout.cx - 420 + sweep * 840).setAlpha(sweep < 0.75 ? 0.85 : 0);
     }
     if (this.phase === 'finished') this.finishRays.rotation += realDt * 0.6;
     if (this.phase === 'playing') {

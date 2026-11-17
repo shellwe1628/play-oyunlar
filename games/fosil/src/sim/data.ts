@@ -130,12 +130,12 @@ export const LAYERS: readonly Layer[] = [
   {
     id: 'coalswamp',
     twist: 'vein',
-    hp: 1.2e8,
+    hp: 2.6e7,
     hpRamp: 0.003,
-    powerScale: 1.6e4,
-    dust: 1e6,
+    powerScale: 1500,
+    dust: 1.7e5,
     dustCurve: 0.5,
-    unlockPower: 6e7,
+    unlockPower: 1.3e7,
     setBonus: { kind: 'luck', value: 1.25 },
     bands: [0x2e3a24, 0x23301c, 0x3a4a2c, 0x1c2416, 0x2a3620],
     sky: 0x0e140a,
@@ -143,12 +143,12 @@ export const LAYERS: readonly Layer[] = [
   {
     id: 'amberforest',
     twist: 'unstable',
-    hp: 6e9,
+    hp: 2.2e8,
     hpRamp: 0.003,
-    powerScale: 1.2e5,
-    dust: 3e7,
+    powerScale: 9000,
+    dust: 1.5e6,
     dustCurve: 0.5,
-    unlockPower: 3e9,
+    unlockPower: 1.1e8,
     setBonus: { kind: 'power', value: 1.5 },
     bands: [0xc0782a, 0xa8641c, 0xd8923a, 0x8a4e16, 0xb87026],
     sky: 0x2a1404,
@@ -156,12 +156,12 @@ export const LAYERS: readonly Layer[] = [
   {
     id: 'saltcaves',
     twist: 'twin',
-    hp: 3e11,
+    hp: 2.2e9,
     hpRamp: 0.003,
-    powerScale: 9e5,
-    dust: 9e8,
+    powerScale: 54_000,
+    dust: 1.5e7,
     dustCurve: 0.5,
-    unlockPower: 1.5e11,
+    unlockPower: 1.1e9,
     setBonus: { kind: 'assistant', value: 1.5 },
     bands: [0xe8dcd8, 0xd8c4c4, 0xf2eaea, 0xc8b0b4, 0xe0d0d0],
     sky: 0x2a2228,
@@ -169,12 +169,12 @@ export const LAYERS: readonly Layer[] = [
   {
     id: 'geode',
     twist: 'relic',
-    hp: 1.5e13,
+    hp: 1.5e10,
     hpRamp: 0.003,
-    powerScale: 7e6,
-    dust: 2.7e10,
+    powerScale: 3.2e5,
+    dust: 1e8,
     dustCurve: 0.5,
-    unlockPower: 7.5e12,
+    unlockPower: 7.5e9,
     setBonus: { kind: 'luck', value: 1.25 },
     bands: [0x6a4a8a, 0x553a74, 0x7e5aa0, 0x452e60, 0x5e4280],
     sky: 0x140a20,
@@ -182,12 +182,12 @@ export const LAYERS: readonly Layer[] = [
   {
     id: 'magma',
     twist: 'cavein',
-    hp: 7.5e14,
+    hp: 1.4e11,
     hpRamp: 0.003,
-    powerScale: 5e7,
-    dust: 8e11,
+    powerScale: 1.9e6,
+    dust: 9e8,
     dustCurve: 0.5,
-    unlockPower: 3.8e14,
+    unlockPower: 7e10,
     setBonus: { kind: 'power', value: 1.5 },
     bands: [0x3a1a14, 0x5a2014, 0x2a1210, 0x7a2a12, 0x401812],
     sky: 0x120404,
@@ -195,12 +195,12 @@ export const LAYERS: readonly Layer[] = [
   {
     id: 'firstseas',
     twist: 'boss',
-    hp: 4e16,
+    hp: 6e11,
     hpRamp: 0.003,
-    powerScale: 4e8,
-    dust: 2.4e13,
+    powerScale: 1.1e7,
+    dust: 4e9,
     dustCurve: 0.5,
-    unlockPower: 2e16,
+    unlockPower: 3e11,
     setBonus: { kind: 'power', value: 2 },
     bands: [0x1f5a5a, 0x184a4a, 0x2a6e6a, 0x123c3c, 0x206060],
     sky: 0x041414,
@@ -470,13 +470,13 @@ export const PITY = 150;
  * Combo fever: every tap fills the fever meter by your combo (a full combo fills it fastest);
  * at `charge` the frenzy starts: `seconds` of ×2 tap damage and ×2 dust, combo frozen full.
  */
-export const FEVER = { charge: 200, seconds: 8, damage: 2, dust: 2 } as const;
+export const FEVER = { charge: 240, seconds: 8, damage: 2, dust: 2 } as const;
 
 /** Blocks broken within `window` seconds of each other chain: +10 % dust per link, up to ×2. */
 export const CHAIN = { window: 1.5, step: 0.1, max: 2 } as const;
 
 /** Golden blocks (any layer, shown before you break them): ×5 dust and two rolls. */
-export const GOLDEN = { chance: 1 / 20, hp: 1.5, dust: 5, rolls: 2, after: 40 } as const;
+export const GOLDEN = { chance: 1 / 20, hp: 1.5, dust: 5, rolls: 2, after: 150 } as const;
 
 /** Layer twists. */
 export const VEIN = { chance: 0.35, weak: 0.25, maxCharge: 5, fullHold: 0.8 } as const;
@@ -490,7 +490,7 @@ export const BOSS = { every: 20, hp: 6, phases: 3, luck: 3, dust: 5 } as const;
  * Expedition (prestige): open the deepest layer, then restart from Topsoil keeping the museum,
  * set bonuses, relics and records; every expedition adds a permanent dig power and dust bonus.
  */
-export const EXPEDITION = { power: 0.6, dust: 0.6, needLayer: 9 } as const;
+export const EXPEDITION = { power: 0.6, dust: 0.6, hard: 0.6, needLayer: 9 } as const;
 
 /** Daily dig: one bonus per calendar day; the streak grows the reward up to 7 days. */
 export const DAILY = { maxStreak: 7, boostSeconds: 180, dustBlocks: 15 } as const;

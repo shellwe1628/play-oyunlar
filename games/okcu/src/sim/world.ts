@@ -1,23 +1,29 @@
 /**
  * The whole game as a deterministic fixed-step simulation: the player and enemy archers
- * (ragdolls with muscles), arrows, bombs, apples, ledges, waves, cards and coins. Scenes call
- * `advance`, `aimAt`, `shoot`, `pickCard`, … and draw the state; they hold no rules.
+ * (ragdolls with muscles), arrows, bombs, orbs, apples, ledges (some slide or swing on ropes),
+ * props (barrels, hanging rocks), chapters, bosses, bonus rounds, cards, focus and coins.
+ * Scenes call `advance`, `aimAt`, `shoot`, `pickCard`, `unleash`, … and draw the state; they
+ * hold no rules.
  */
 import { createRng, type Rng } from '@oyun/core/pure';
 import { flyArrow, hitParts, sweepCapsule } from './arrow';
 import { addVelocity, createBody, stepBody, translateBody, type Body, type Ledge } from './body';
-import { drawOffer, statsFor, type CardId, type PlayerStats } from './cards';
+import { draftPick, drawOffer, statsFor, type CardId, type PlayerStats } from './cards';
+import { bonusAfter, CHAPTERS, chapterStart, ENDLESS_WAVE, levelOf, objectiveFor, STAGES, stageDef, stageOf, type BonusKind, type BossKind, type LedgeDef, type ObjectiveKind } from './chapters';
 import { resolveHit, type EnemyType, type HitPart } from './combat';
 import { clamp, solveLaunchAngle, sweepAabb } from './geom';
 import { NO_META, type MetaLevels, type RunBank } from './meta';
+import type { DailyMod, RunSummary } from './progress';
 import { BOSS_PARTS, bowOrigin, createRagdoll, LEG_HEIGHT, PARTS, PT, setPose, type Part } from './ragdoll';
 import { PLAYER_LEDGE, PLAYER_SCALE, PLAYER_X, TUNING } from './tuning';
-import { enemyAccuracy, enemyDamageMul, enemyHp, enemyScale, enemyTiming, graceStep, helmetChance, layoutFor, waveEnemies, waveGrace } from './waves';
+import { bossHp, enemyAccuracy, enemyDamageMul, enemyHp, enemyScale, enemyTiming, graceStep, helmetChance, waveGrace } from './waves';
 
-export type Phase = 'title' | 'play' | 'clear' | 'cards' | 'dying' | 'over';
+export type Phase = 'title' | 'play' | 'clear' | 'bonus' | 'cards' | 'dying' | 'over';
 export type ArcherType = EnemyType | 'player';
-export type KoCause = 'shot' | 'head' | 'fall' | 'burn' | 'bomb';
+export type KoCause = 'shot' | 'head' | 'fall' | 'burn' | 'bomb' | 'blast' | 'crush';
 type BrainState = 'wait' | 'draw' | 'cool' | 'jump' | 'spawn';
+
+export const BOSS_KINDS: readonly BossKind[] = ['shields', 'giant', 'summoner', 'warden'];
 
 export interface Archer {
   id: number;
@@ -73,12 +79,21 @@ export interface Archer {
   bob: number;
   /** arrows released this wave (the first volley never lands a headshot) */
   shotsFired: number;
+  /** chapter boss: which one, its phase (1, 2) and its special-move timer */
+  bossKind: BossKind | null;
+  bossPhase: number;
+  special: number;
+  /** arrow-catcher: seconds until it can catch again */
+  catchCd: number;
+  /** lantern knight: ward up, or seconds until it reforms */
+  wardUp: boolean;
+  wardT: number;
 }
 
 export interface Arrow {
   active: boolean;
   owner: 'player' | 'enemy';
-  kind: 'arrow' | 'bomb';
+  kind: 'arrow' | 'bomb' | 'orb';
   /** 0 flying, 1 stuck in a ledge, 2 stuck in a body, 3 stuck in a shield */
   state: 0 | 1 | 2 | 3;
   x: number;
@@ -94,6 +109,7 @@ export interface Arrow {
   pierce: number;
   bounces: number;
   ignore: number;
+  /** archer id (stuck in a body/shield) or ledge index (stuck in a ledge) */
   host: number;
   ha: number;
   hb: number;
@@ -107,6 +123,16 @@ export interface Arrow {
   soft: boolean;
   /** id of the archer who loosed it (read by the animation layer for taunts) */
   by: number;
+  /** player: steers toward heads (seeker card) */
+  seek: boolean;
+  /** player: a full-power overdrawn shot */
+  over: boolean;
+  /** player: the shot's first arrow (a miss by it ends a headshot chain) */
+  primary: boolean;
+  /** player: loosed while focus was up (drawn golden) */
+  focus: boolean;
+  /** this arrow already hit an enemy */
+  scored: boolean;
 }
 
 export interface Apple {
@@ -118,11 +144,84 @@ export interface Apple {
   t: number;
 }
 
+/** A ledge that moves: slides on a rail or swings on two ropes from the top of the sky. */
+export interface Mover {
+  index: number;
+  kind: 'slide' | 'swing';
+  x0: number;
+  y0: number;
+  amp: number;
+  speed: number;
+  theta: number;
+  /** swing: pivot x (above the ledge centre) and rope length to the ledge top */
+  pivotX: number;
+  len: number;
+  /** swing rope cut: the ledge falls */
+  cut: boolean;
+  vy: number;
+}
+
+export const PIVOT_Y = -60;
+
+export interface Prop {
+  active: boolean;
+  kind: 'barrel' | 'rock';
+  x: number;
+  y: number;
+  vy: number;
+  /** barrel: box size; rock: radius in w */
+  w: number;
+  h: number;
+  /** rock: still hanging on its rope */
+  hanging: boolean;
+}
+
+export interface Plate {
+  active: boolean;
+  x: number;
+  y: number;
+  r: number;
+}
+
+export interface Target {
+  active: boolean;
+  kind: 'target' | 'apple' | 'rock';
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  r: number;
+  t: number;
+  baseY: number;
+}
+
+export interface Bonus {
+  kind: BonusKind;
+  /** seconds since the start (negative during the intro) */
+  t: number;
+  dur: number;
+  hits: number;
+  spawned: number;
+  /** defend: rocks that reached the player */
+  landed: number;
+  coins: number;
+  spawnT: number;
+  grade: 'gold' | 'silver' | 'bronze' | 'none' | null;
+}
+
+export interface Objective {
+  kind: ObjectiveKind;
+  limit: number;
+  hit: boolean;
+  heads: number;
+  multi: boolean;
+}
+
 export type GameEvent =
-  | { t: 'shot'; x: number; y: number; angle: number; power: number; arrows: number }
+  | { t: 'shot'; x: number; y: number; angle: number; power: number; arrows: number; over: boolean }
   | { t: 'enemyDraw'; id: number }
-  | { t: 'enemyShot'; id: number; kind: 'arrow' | 'bomb'; x: number; y: number }
-  | { t: 'hit'; id: number; part: HitPart; x: number; y: number; dmg: number; ko: boolean; slowmo: boolean; vx: number; vy: number; fire: boolean; enemy: EnemyType }
+  | { t: 'enemyShot'; id: number; kind: 'arrow' | 'bomb' | 'orb'; x: number; y: number }
+  | { t: 'hit'; id: number; part: HitPart; x: number; y: number; dmg: number; ko: boolean; slowmo: boolean; vx: number; vy: number; fire: boolean; enemy: EnemyType; crit: boolean }
   | { t: 'bodyThunk'; id: number; x: number; y: number }
   | { t: 'playerHit'; part: HitPart; x: number; y: number; dmg: number; vx: number; vy: number; by: number }
   | { t: 'blocked'; x: number; y: number }
@@ -132,12 +231,35 @@ export type GameEvent =
   | { t: 'bounce'; x: number; y: number }
   | { t: 'shieldHit'; id: number; x: number; y: number; broke: boolean }
   | { t: 'bomb'; x: number; y: number; hurt: boolean; popped: boolean }
+  | { t: 'orbPop'; x: number; y: number }
   | { t: 'apple'; x: number; y: number; heal: number }
   | { t: 'burn'; id: number; x: number; y: number; dmg: number }
   | { t: 'heal'; amount: number }
-  | { t: 'waveStart'; wave: number }
+  | { t: 'waveStart'; wave: number; chapter: number; stage: number; boss: BossKind | null; elite: boolean; wind: number; objective: ObjectiveKind | null; limit: number }
   | { t: 'waveClear'; wave: number; coins: number }
-  | { t: 'cards' }
+  | { t: 'objective'; kind: ObjectiveKind; ok: boolean; coins: number }
+  | { t: 'caught'; id: number; x: number; y: number }
+  | { t: 'ward'; id: number; x: number; y: number; up: boolean }
+  | { t: 'healBeam'; from: number; to: number; x0: number; y0: number; x1: number; y1: number; amount: number }
+  | { t: 'plate'; x: number; y: number }
+  | { t: 'bossPhase'; id: number; kind: BossKind; x: number; y: number }
+  | { t: 'summon'; id: number; x: number; y: number }
+  | { t: 'barrel'; x: number; y: number; kills: number }
+  | { t: 'rope'; x: number; y: number; kind: 'swing' | 'rock'; riders: number }
+  | { t: 'rockHit'; x: number; y: number; id: number }
+  | { t: 'rockBreak'; x: number; y: number }
+  | { t: 'zap'; x0: number; y0: number; x1: number; y1: number; dmg: number }
+  | { t: 'blast'; x: number; y: number; r: number; fire: boolean }
+  | { t: 'multi'; n: number; x: number; y: number }
+  | { t: 'streak'; n: number }
+  | { t: 'chain'; n: number; x: number; y: number; coins: number }
+  | { t: 'focusReady' }
+  | { t: 'focus'; on: boolean }
+  | { t: 'loot'; x: number; y: number; coins: number; kind: 'boss' | 'elite' }
+  | { t: 'bonusStart'; kind: BonusKind }
+  | { t: 'bonusHit'; x: number; y: number; coins: number; bull: boolean; kind: Target['kind'] }
+  | { t: 'bonusEnd'; kind: BonusKind; hits: number; grade: 'gold' | 'silver' | 'bronze' | 'none'; coins: number }
+  | { t: 'cards'; treasure: boolean }
   | { t: 'dying' }
   | { t: 'dead' };
 
@@ -151,6 +273,21 @@ export interface RunStats {
   coins: number;
   playerHitsTaken: number;
   enemyShots: number;
+  crits: number;
+  chain: number;
+  chainBest: number;
+  streak: number;
+  streakBest: number;
+  multiN: number;
+  lastKo: number;
+  multiBest: number;
+  focusUses: number;
+  bossKills: { kind: number; time: number }[];
+  chapterStage: number[];
+  bonusGold: number;
+  barrelBest: number;
+  ropeDrops: number;
+  objectives: number;
 }
 
 export interface World {
@@ -158,10 +295,20 @@ export interface World {
   brainRng: Rng;
   waveRng: Rng;
   cardRng: Rng;
+  critRng: Rng;
+  bonusRng: Rng;
   seed: number;
   meta: MetaLevels;
+  mod: DailyMod | null;
   phase: Phase;
   wave: number;
+  /** 0 … 3 a chapter, 4 endless */
+  chapter: number;
+  stage: number;
+  /** difficulty level of the wave (see levelOf) */
+  level: number;
+  /** world theme 0 … 3 */
+  theme: number;
   time: number;
   acc: number;
   phaseT: number;
@@ -171,12 +318,24 @@ export interface World {
   apples: Apple[];
   appleTimer: number;
   ledges: Ledge[];
-  /** the enemy ledges of the current layout (indices into `ledges` start at 1) */
+  /** the enemy ledges of the current stage (indices into `ledges` start at 1) */
   layout: readonly Ledge[];
+  /** cover walls: block arrows only (bodies pass); `on` is the ledge they stand on */
+  walls: (Ledge & { on: number })[];
+  movers: Mover[];
+  props: Prop[];
+  plates: Plate[];
+  targets: Target[];
+  bonus: Bonus | null;
+  objective: Objective | null;
+  /** horizontal wind on arrows, px/s² (+ blows toward the enemies) */
+  wind: number;
   cards: CardId[];
   stats: PlayerStats;
   offer: CardId[];
   offerExtra: boolean;
+  /** the next card pick offers four (after a boss) */
+  treasure: boolean;
   rerollsLeft: number;
   shieldLeft: number;
   reload: number;
@@ -184,27 +343,64 @@ export interface World {
   volleyT: number;
   volleyAngle: number;
   volleyPower: number;
+  /** focus meter 0 … 1 and seconds of powered-up time left */
+  focus: number;
+  focusT: number;
   revived: boolean;
   nextId: number;
   arrowSeq: number;
   run: RunStats;
+  /** wave start time (boss kill timing) */
+  waveT0: number;
   /** events since the scene last called takeEvents (kept until then, delivered exactly once) */
   events: GameEvent[];
   spareEvents: GameEvent[];
-  /** layout rotation chosen per run (seeded) */
+  /** layout nudge for the very first stage (seeded per run) */
   layoutRot: number;
+  /** chapter the run started at (0 = from the beginning) */
+  startChapter: number;
   /** coins/best already written to the save by the scene (survives a revive) */
   bank: RunBank | null;
 }
 
-const ARROW_POOL = 72;
+const ARROW_POOL = 80;
 const NO_LEDGES: Ledge[] = [];
 /** the boss looses a fan of three arrows */
 const BOSS_SPREAD = [-0.05, 0, 0.05] as const;
+const ELITE_SPREAD = [-0.08, 0.08] as const;
 const ONE_ARROW = [0] as const;
 const DT = TUNING.dt;
 const SHIELD_PARTS: readonly Part[] = [{ a: 0, b: 1, r: 15, kind: 'body' }];
 const BODY_PART: Part = PARTS.find((p) => p.kind === 'body')!;
+
+export const FX = {
+  /** focus meter gains */
+  focusBody: 0.06,
+  focusHead: 0.16,
+  focusKo: 0.06,
+  focusMulti: 0.12,
+  /** powered-up shots: damage, extra pierce, extra crit chance, reload */
+  focusDmg: 1.5,
+  focusCrit: 0.25,
+  focusReload: 0.6,
+  /** seconds between knockouts that still count as one multi-kill */
+  multiWindow: 1.2,
+  /** knockout streaks called out at these counts */
+  streaks: [3, 5, 8, 12, 16, 20, 25, 30] as readonly number[],
+  barrelRadius: 130,
+  barrelDamage: 70,
+  boomRadius: 110,
+  rockRadius: 26,
+  plateRadius: 30,
+  orbSpeed: 300,
+  orbDamage: 9,
+  orbRadius: 20,
+  catchCooldown: 1.8,
+  wardWindow: 1.4,
+  healEvery: 3.4,
+  healShare: 0.25,
+  ropeRadius: 8,
+} as const;
 
 function newArrow(): Arrow {
   return {
@@ -235,6 +431,11 @@ function newArrow(): Arrow {
     seq: 0,
     soft: false,
     by: -1,
+    seek: false,
+    over: false,
+    primary: false,
+    focus: false,
+    scored: false,
   };
 }
 
@@ -246,7 +447,7 @@ function makeArcher(w: World, type: ArcherType, x: number, ledgeTop: number, fac
   const scale = type === 'player' ? PLAYER_SCALE : enemyScale(type);
   const ay = ledgeTop - LEG_HEIGHT * scale;
   const body = createRagdoll(x, ay, facing, scale);
-  const hp = type === 'player' ? w.stats.maxHp : enemyHp(type, w.wave);
+  const hp = type === 'player' ? w.stats.maxHp : Math.round(enemyHp(type, w.level) * (w.mod === 'giants' ? 1.3 : 1));
   const a: Archer = {
     id: w.nextId++,
     type,
@@ -296,6 +497,12 @@ function makeArcher(w: World, type: ArcherType, x: number, ledgeTop: number, fac
     shieldOn: false,
     shotsFired: 0,
     bob: (w.nextId * 1.7) % 6.28,
+    bossKind: null,
+    bossPhase: 1,
+    special: 0,
+    catchCd: 0,
+    wardUp: type === 'ward',
+    wardT: 0,
   };
   if (type === 'shield') {
     const sx = x + facing * 30;
@@ -319,6 +526,41 @@ function makeArcher(w: World, type: ArcherType, x: number, ledgeTop: number, fac
 export interface WorldOptions {
   seed: number;
   meta?: MetaLevels;
+  /** start at this chapter (0 … 3, 4 = endless) with a drafted hand (chapter select) */
+  startChapter?: number;
+  /** daily challenge modifier */
+  mod?: DailyMod | null;
+}
+
+/** Cards in a hand drafted for a chapter-select start: five per chapter skipped. */
+export const DRAFT_PER_CHAPTER = 5;
+
+function newRun(): RunStats {
+  return {
+    shots: 0,
+    hits: 0,
+    kos: 0,
+    headshots: 0,
+    firstKoShot: 0,
+    coins: 0,
+    playerHitsTaken: 0,
+    enemyShots: 0,
+    crits: 0,
+    chain: 0,
+    chainBest: 0,
+    streak: 0,
+    streakBest: 0,
+    multiN: 0,
+    lastKo: -99,
+    multiBest: 0,
+    focusUses: 0,
+    bossKills: [],
+    chapterStage: [0, 0, 0, 0],
+    bonusGold: 0,
+    barrelBest: 0,
+    ropeDrops: 0,
+    objectives: 0,
+  };
 }
 
 export function createWorld(opts: WorldOptions): World {
@@ -329,10 +571,17 @@ export function createWorld(opts: WorldOptions): World {
     brainRng: rng.fork('brain'),
     waveRng: rng.fork('waves'),
     cardRng: rng.fork('cards'),
+    critRng: rng.fork('crit'),
+    bonusRng: rng.fork('bonus'),
     seed: opts.seed,
     meta,
+    mod: opts.mod ?? null,
     phase: 'title',
     wave: 1,
+    chapter: 0,
+    stage: 1,
+    level: 1,
+    theme: 0,
     time: 0,
     acc: 0,
     phaseT: 0,
@@ -342,10 +591,19 @@ export function createWorld(opts: WorldOptions): World {
     appleTimer: 6,
     ledges: [{ ...PLAYER_LEDGE }],
     layout: [],
+    walls: [],
+    movers: [],
+    props: Array.from({ length: 6 }, () => ({ active: false, kind: 'barrel', x: 0, y: 0, vy: 0, w: 0, h: 0, hanging: false })),
+    plates: Array.from({ length: 3 }, () => ({ active: false, x: 0, y: 0, r: FX.plateRadius })),
+    targets: Array.from({ length: 24 }, () => ({ active: false, kind: 'target', x: 0, y: 0, vx: 0, vy: 0, r: 0, t: 0, baseY: 0 })),
+    bonus: null,
+    objective: null,
+    wind: 0,
     cards: [],
     stats: statsFor([], meta),
     offer: [],
     offerExtra: false,
+    treasure: false,
     rerollsLeft: 0,
     shieldLeft: 0,
     reload: 0,
@@ -353,13 +611,17 @@ export function createWorld(opts: WorldOptions): World {
     volleyT: 0,
     volleyAngle: 0,
     volleyPower: 0,
+    focus: 0,
+    focusT: 0,
     revived: false,
     nextId: 1,
     arrowSeq: 0,
-    run: { shots: 0, hits: 0, kos: 0, headshots: 0, firstKoShot: 0, coins: 0, playerHitsTaken: 0, enemyShots: 0 },
+    run: newRun(),
+    waveT0: 0,
     events: [],
     spareEvents: [],
     layoutRot: 0,
+    startChapter: Math.max(0, Math.min(CHAPTERS, Math.floor(opts.startChapter ?? 0))),
     bank: null,
   } as unknown as World;
   w.layoutRot = w.waveRng.int(0, 2);
@@ -367,20 +629,58 @@ export function createWorld(opts: WorldOptions): World {
     const [card] = drawOffer(w.cardRng, [], 1);
     if (card) w.cards.push(card);
   }
+  if (w.mod === 'fire') w.cards.push('fire');
+  // chapter select: a fair hand for the chapters skipped, drafted from real offers
+  for (let i = 0; i < w.startChapter * DRAFT_PER_CHAPTER; i++) {
+    const offer = drawOffer(w.cardRng, w.cards, 3);
+    if (offer.length === 0) break;
+    w.cards.push(offer[draftPick(offer)]!);
+  }
   w.stats = statsFor(w.cards, meta);
   w.rerollsLeft = w.stats.rerolls;
   w.player = makeArcher(w, 'player', PLAYER_X, PLAYER_LEDGE.y, 1, 0);
   w.player.hp = w.player.maxHp = w.stats.maxHp;
-  spawnWave(w, 1, true);
+  spawnWave(w, chapterStart(w.startChapter), true);
   return w;
 }
 
 // ---------------------------------------------------------------- waves
 
+function coinMul(w: World): number {
+  return w.stats.coinMul * (w.mod === 'giants' ? 1.5 : 1);
+}
+
+function clearProps(w: World): void {
+  for (const p of w.props) p.active = false;
+  for (const p of w.plates) p.active = false;
+  w.walls.length = 0;
+  w.movers.length = 0;
+}
+
+function addProp(w: World, kind: Prop['kind'], x: number, y: number): Prop | null {
+  const p = w.props.find((q) => !q.active);
+  if (!p) return null;
+  p.active = true;
+  p.kind = kind;
+  p.x = x;
+  p.y = y;
+  p.vy = 0;
+  p.w = kind === 'barrel' ? 36 : FX.rockRadius;
+  p.h = kind === 'barrel' ? 46 : FX.rockRadius;
+  p.hanging = kind === 'rock';
+  return p;
+}
+
 function spawnWave(w: World, wave: number, instant: boolean): void {
   w.wave = wave;
-  w.layout = wave === 1 ? firstLayout(w) : layoutFor(wave, w.layoutRot);
-  w.ledges = [{ ...PLAYER_LEDGE }, ...w.layout.map((l) => ({ ...l }))];
+  const pos = stageOf(wave);
+  w.chapter = pos.chapter;
+  w.stage = pos.stage;
+  w.theme = pos.theme;
+  w.level = levelOf(wave);
+  const def = stageDef(wave, w.waveRng);
+  const defs: LedgeDef[] = def.ledges.map((l) => ({ ...l }));
+  if (wave === 1) nudgeFirst(w, defs);
   // leftover bodies of the last wave poof now
   for (const e of w.enemies) if (!e.gone) poof(w, e);
   w.enemies.length = 0;
@@ -389,13 +689,34 @@ function spawnWave(w: World, wave: number, instant: boolean): void {
     if (a.state === 0 && a.owner === 'enemy') a.active = false;
     if (a.state === 1 || a.state === 3) a.active = false;
   }
-  const types = waveEnemies(wave, w.waveRng);
-  types.forEach((type, i) => {
-    const L = w.layout[i]!;
+  clearProps(w);
+  w.layout = defs.map((l) => ({ x: l.x, y: l.y, w: l.w, h: l.h ?? 58 }));
+  w.ledges = [{ ...PLAYER_LEDGE }, ...w.layout.map((l) => ({ ...l }))];
+  defs.forEach((l, i) => {
+    if (l.slide) w.movers.push({ index: i + 1, kind: 'slide', x0: l.x, y0: l.y, amp: l.slide.amp, speed: l.slide.speed, theta: w.waveRng.range(0, Math.PI * 2), pivotX: 0, len: 0, cut: false, vy: 0 });
+    if (l.swing) w.movers.push({ index: i + 1, kind: 'swing', x0: l.x, y0: l.y, amp: l.swing.amp, speed: l.swing.speed, theta: w.waveRng.range(0, Math.PI * 2), pivotX: l.x + l.w / 2, len: l.y - PIVOT_Y, cut: false, vy: 0 });
+  });
+  // wind: the stage's strength, a seeded direction (the daily's wind modifier blows everywhere)
+  const windBase = def.wind ?? (w.mod === 'wind' ? 140 : 0);
+  w.wind = windBase > 0 ? windBase * (w.waveRng.chance(0.5) ? 1 : -1) : 0;
+  def.enemies.forEach((type, i) => {
+    const L = w.ledges[i + 1]!;
     const e = makeArcher(w, type, L.x + L.w / 2, L.y, -1, i + 1);
-    e.helmet = type !== 'boss' && w.waveRng.chance(helmetChance(wave));
+    e.helmet = type === 'elite' || (type !== 'boss' && w.waveRng.chance(helmetChance(w.level)));
     e.brain = 'wait';
-    e.timer = waveGrace(wave) + i * graceStep(wave) + w.brainRng.range(0, 0.4);
+    e.timer = waveGrace(w.level) + i * graceStep(w.level) + w.brainRng.range(0, 0.4);
+    if (type === 'boss') {
+      const kind = def.boss ?? 'shields';
+      const lap = pos.endless ? Math.floor((wave - ENDLESS_WAVE) / STAGES) + 1 : 0;
+      e.bossKind = kind;
+      e.hp = e.maxHp = Math.round(bossHp(kind, lap) * (w.mod === 'giants' ? 1.3 : 1));
+      e.special = kind === 'summoner' ? 3.5 : 2.5;
+    }
+    if (type === 'cover') {
+      // a rock wall in front (toward the player): it stops arrows aimed at the body
+      w.walls.push({ x: L.x + L.w / 2 - 46, y: L.y - 118, w: 26, h: 118, on: i + 1 });
+    }
+    if (type === 'catcher') e.catchCd = 0.6;
     if (!instant) {
       e.brain = 'spawn';
       e.spawnT = 0;
@@ -405,35 +726,62 @@ function spawnWave(w: World, wave: number, instant: boolean): void {
     }
     w.enemies.push(e);
   });
+  for (const p of def.props ?? []) {
+    if (p.kind === 'barrel') {
+      const L = w.ledges[p.on + 1];
+      if (L) addProp(w, 'barrel', L.x + L.w / 2 - 58, L.y - 46);
+    } else {
+      const L = w.ledges[p.above + 1];
+      if (L) addProp(w, 'rock', L.x + L.w / 2, Math.max(150, L.y - 250));
+    }
+  }
   w.shieldLeft = w.stats.shieldCharges;
+  const kind = objectiveFor(wave, w.waveRng);
+  w.objective = kind ? { kind, limit: 10 + 5 * def.enemies.length, hit: false, heads: 0, multi: false } : null;
+  if (!pos.endless) w.run.chapterStage[pos.chapter] = Math.max(w.run.chapterStage[pos.chapter]!, pos.stage);
+  w.waveT0 = w.time;
   // the title's wave is announced by startRun when the first arrow flies
-  if (!instant) w.events.push({ t: 'waveStart', wave });
+  if (!instant) pushWaveStart(w);
+}
+
+function pushWaveStart(w: World): void {
+  const boss = w.enemies.find((e) => e.type === 'boss');
+  w.events.push({
+    t: 'waveStart',
+    wave: w.wave,
+    chapter: w.chapter,
+    stage: w.stage,
+    boss: boss?.bossKind ?? null,
+    elite: w.enemies.some((e) => e.type === 'elite'),
+    wind: w.wind,
+    objective: w.objective?.kind ?? null,
+    limit: w.objective?.limit ?? 0,
+  });
 }
 
 /**
- * Wave 1's layout: the run's rotation, with the target ledge nudged to a seeded spot so the
- * opening shot is never the same rote shot (it stays an easy, close target).
+ * The first stage's target ledge is nudged to a seeded spot so the opening shot is never the
+ * same rote shot (it stays an easy, close target).
  */
-function firstLayout(w: World): Ledge[] {
-  const base = layoutFor(1, w.layoutRot).map((l) => ({ ...l }));
+function nudgeFirst(w: World, base: LedgeDef[]): void {
   const t = base[0]!;
   // never lower than y 845: a target near the player's height is masked by its own bow arm
-  const fits = (m: Ledge) => base.slice(1).every((o) => m.x + m.w + 40 < o.x || o.x + o.w + 40 < m.x || m.y + 150 < o.y || o.y + 150 < m.y);
+  const fits = (m: LedgeDef) => base.slice(1).every((o) => m.x + m.w + 40 < o.x || o.x + o.w + 40 < m.x || m.y + 150 < o.y || o.y + 150 < m.y);
   for (let i = 0; i < 6; i++) {
-    const m = { ...t, x: clamp(t.x + w.waveRng.range(-60, 40), 330, 720 - t.w - 10), y: Math.min(845, t.y + w.waveRng.range(-90, 0)) };
+    const m = { ...t, x: clamp(t.x + w.waveRng.range(-60, 40) - 30 * w.layoutRot, 330, 720 - t.w - 10), y: Math.min(845, t.y + w.waveRng.range(-90, 0)) };
     if (fits(m)) {
       base[0] = m;
-      return base;
+      return;
     }
   }
   base[0] = { ...t, y: Math.min(845, t.y) };
-  return base;
 }
 
 function startRun(w: World): void {
   w.phase = 'play';
   w.phaseT = 0;
-  w.events.push({ t: 'waveStart', wave: w.wave });
+  w.waveT0 = w.time;
+  pushWaveStart(w);
 }
 
 /**
@@ -443,7 +791,16 @@ function startRun(w: World): void {
 export function jumpToWave(w: World, wave: number, dropIn = false): void {
   w.phase = 'play';
   w.phaseT = 0;
+  w.bonus = null;
+  for (const t of w.targets) t.active = false;
   spawnWave(w, wave, !dropIn);
+}
+
+/** Tests and tools: start a chapter's bonus round now. */
+export function startBonusNow(w: World, kind: BonusKind): void {
+  for (const e of w.enemies) if (!e.gone) poof(w, e);
+  w.enemies.length = 0;
+  startBonus(w, kind);
 }
 
 // ---------------------------------------------------------------- player input
@@ -481,45 +838,54 @@ export function playerOrigin(w: World, angle: number): { x: number; y: number } 
 }
 
 export function canShoot(w: World): boolean {
-  return (w.phase === 'title' || w.phase === 'play' || w.phase === 'clear') && w.player.alive && w.reload <= 0;
+  return (w.phase === 'title' || w.phase === 'play' || w.phase === 'clear' || w.phase === 'bonus') && w.player.alive && w.reload <= 0;
 }
 
-/** Release the string. In the title this fires and starts wave 1. */
+/** Overdraw: a shot at this power or more is a full draw. */
+export const OVERDRAW_POWER = 0.92;
+
+/** Release the string. In the title this fires and starts the first wave. */
 export function shoot(w: World, angle: number, power: number): boolean {
   if (!canShoot(w)) return false;
   if (w.phase === 'title') startRun(w);
   const a = effectiveAngle(w, clamp(angle, -Math.PI * 0.62, Math.PI * 0.3));
   w.run.shots += 1;
-  w.reload = w.stats.reload;
+  w.reload = w.stats.reload * (w.focusT > 0 ? FX.focusReload : 1);
   w.player.aim = a;
   w.player.draw = 0;
-  fireVolley(w, a, power);
+  fireVolley(w, a, power, true);
   w.volleyQueue = w.stats.volleys - 1;
   w.volleyT = 0.12;
   w.volleyAngle = a;
   w.volleyPower = power;
   const o = playerOrigin(w, a);
-  w.events.push({ t: 'shot', x: o.x, y: o.y, angle: a, power, arrows: w.stats.volleys * (1 + 2 * w.stats.splitPairs) });
+  w.events.push({ t: 'shot', x: o.x, y: o.y, angle: a, power, arrows: w.stats.volleys * (1 + 2 * w.stats.splitPairs), over: power >= OVERDRAW_POWER && w.stats.overdraw > 1 });
   return true;
 }
 
-function fireVolley(w: World, angle: number, power: number): void {
+function fireVolley(w: World, angle: number, power: number, first: boolean): void {
   const speed = arrowSpeed(power);
   const pairs = w.stats.splitPairs;
+  const over = power >= OVERDRAW_POWER && w.stats.overdraw > 1;
+  const focus = w.focusT > 0;
   for (let k = -pairs; k <= pairs; k++) {
     const ang = angle + k * 0.065;
     const o = playerOrigin(w, angle);
     const ar = spawnArrow(w, 'player', 'arrow', o.x, o.y, Math.cos(ang) * speed, Math.sin(ang) * speed);
     if (!ar) continue;
-    ar.dmgMul = w.stats.dmgMul;
-    ar.impulseMul = w.stats.impulseMul;
+    ar.dmgMul = w.stats.dmgMul * (over ? w.stats.overdraw : 1) * (focus ? FX.focusDmg : 1);
+    ar.impulseMul = w.stats.impulseMul * (over && w.stats.siege ? 1.5 : 1);
     ar.fire = w.stats.fireDps > 0;
-    ar.pierce = w.stats.pierce;
+    ar.pierce = w.stats.pierce + (focus ? 1 : 0);
     ar.bounces = w.stats.bounces;
+    ar.seek = w.stats.seek > 0 && (k === 0 || w.stats.swarm);
+    ar.over = over;
+    ar.focus = focus;
+    ar.primary = first && k === 0;
   }
 }
 
-function spawnArrow(w: World, owner: 'player' | 'enemy', kind: 'arrow' | 'bomb', x: number, y: number, vx: number, vy: number): Arrow | null {
+function spawnArrow(w: World, owner: 'player' | 'enemy', kind: Arrow['kind'], x: number, y: number, vx: number, vy: number): Arrow | null {
   let pick: Arrow | null = null;
   for (const a of w.arrows) {
     if (!a.active) {
@@ -549,7 +915,7 @@ function spawnArrow(w: World, owner: 'player' | 'enemy', kind: 'arrow' | 'bomb',
   a.vy = vy;
   a.angle = Math.atan2(vy, vx);
   a.age = 0;
-  a.life = kind === 'bomb' ? 6 : 5;
+  a.life = kind === 'arrow' ? 5 : 6;
   a.dmgMul = 1;
   a.impulseMul = 1;
   a.fire = false;
@@ -561,7 +927,29 @@ function spawnArrow(w: World, owner: 'player' | 'enemy', kind: 'arrow' | 'bomb',
   a.seq = w.arrowSeq++;
   a.soft = false;
   a.by = -1;
+  a.seek = false;
+  a.over = false;
+  a.primary = false;
+  a.focus = false;
+  a.scored = false;
   return a;
+}
+
+/** Unleash a full focus meter: a few seconds of powered-up shots. */
+export function unleash(w: World): boolean {
+  if (w.focus < 1 || w.focusT > 0 || !w.player.alive) return false;
+  if (w.phase !== 'play' && w.phase !== 'bonus' && w.phase !== 'clear') return false;
+  w.focus = 0;
+  w.focusT = w.stats.focusTime;
+  w.run.focusUses += 1;
+  w.events.push({ t: 'focus', on: true });
+  return true;
+}
+
+function gainFocus(w: World, k: number): void {
+  if (w.focusT > 0 || w.focus >= 1) return;
+  w.focus = Math.min(1, w.focus + k * w.stats.focusGain);
+  if (w.focus >= 1) w.events.push({ t: 'focusReady' });
 }
 
 // ---------------------------------------------------------------- cards
@@ -589,11 +977,11 @@ export function pickCard(w: World, index: number): boolean {
 export function reroll(w: World): boolean {
   if (w.phase !== 'cards' || w.rerollsLeft <= 0) return false;
   w.rerollsLeft -= 1;
-  w.offer = drawOffer(w.cardRng, w.cards, w.offerExtra ? 4 : 3);
+  w.offer = drawOffer(w.cardRng, w.cards, w.offer.length);
   return true;
 }
 
-/** Rewarded: a fourth card to choose from (once per pick). */
+/** Rewarded: one more card to choose from (once per pick). */
 export function addExtraCard(w: World): boolean {
   if (w.phase !== 'cards' || w.offerExtra) return false;
   const more = drawOffer(w.cardRng, [...w.cards, ...w.offer.flatMap((c) => Array<CardId>(9).fill(c))], 1);
@@ -623,7 +1011,7 @@ export function revive(w: World): boolean {
       e.draw = 0;
     }
   }
-  w.phase = w.enemies.some((e) => e.alive) ? 'play' : 'clear';
+  w.phase = w.bonus ? 'bonus' : w.enemies.some((e) => e.alive) ? 'play' : 'clear';
   w.phaseT = 0;
   return true;
 }
@@ -664,45 +1052,38 @@ function tick(w: World): void {
   w.time += DT;
   w.phaseT += DT;
   if (w.reload > 0) w.reload = Math.max(0, w.reload - DT);
+  if (w.focusT > 0) {
+    w.focusT -= DT;
+    if (w.focusT <= 0) {
+      w.focusT = 0;
+      w.events.push({ t: 'focus', on: false });
+    }
+  }
   if (w.volleyQueue > 0) {
     w.volleyT -= DT;
     if (w.volleyT <= 0) {
-      fireVolley(w, w.volleyAngle + 0.012 * w.volleyQueue, w.volleyPower);
+      fireVolley(w, w.volleyAngle + 0.012 * w.volleyQueue, w.volleyPower, false);
       w.volleyQueue -= 1;
       w.volleyT = 0.12;
     }
   }
+  updateMovers(w);
   updateArcher(w, w.player);
-  for (const e of w.enemies) updateArcher(w, e);
+  for (let i = 0; i < w.enemies.length; i++) updateArcher(w, w.enemies[i]!);
+  updatePlates(w);
   updateArrows(w);
+  updateProps(w);
   if (w.phase === 'play') updateApples(w);
+  if (w.phase === 'bonus') updateBonus(w);
   switch (w.phase) {
     case 'play':
-      if (w.enemies.every((e) => !e.alive)) {
-        w.phase = 'clear';
-        w.phaseT = 0;
-        const coins = Math.round((2 + w.wave) * w.stats.coinMul);
-        w.run.coins += coins;
-        heal(w, TUNING.waveClearHeal);
-        w.events.push({ t: 'waveClear', wave: w.wave, coins });
-      }
+      if (w.enemies.every((e) => !e.alive)) clearWave(w);
       break;
     case 'clear':
       if (w.phaseT >= TUNING.clearDelay) {
-        w.offerExtra = false;
-        w.offer = drawOffer(w.cardRng, w.cards, 3);
-        if (w.offer.length === 0) {
-          // every card is maxed out: straight on to the next wave
-          w.phase = 'play';
-          w.phaseT = 0;
-          spawnWave(w, w.wave + 1, false);
-        } else {
-          w.phase = 'cards';
-          w.phaseT = 0;
-          // nothing still in the air may land while the player is choosing
-          for (const a of w.arrows) if (a.active && a.state === 0) a.active = false;
-          w.events.push({ t: 'cards' });
-        }
+        const bonus = bonusAfter(w.wave);
+        if (bonus && !w.bonus) startBonus(w, bonus);
+        else openCards(w);
       }
       break;
     case 'dying':
@@ -717,12 +1098,204 @@ function tick(w: World): void {
   }
 }
 
+function clearWave(w: World): void {
+  w.phase = 'clear';
+  w.phaseT = 0;
+  const coins = Math.round((2 + w.level) * coinMul(w));
+  w.run.coins += coins;
+  heal(w, clearHeal(w));
+  w.events.push({ t: 'waveClear', wave: w.wave, coins });
+  if (w.stage === STAGES && !stageOf(w.wave).endless) w.run.chapterStage[w.chapter] = STAGES + 1;
+  const o = w.objective;
+  if (o) {
+    let ok = false;
+    if (o.kind === 'noHit') ok = !o.hit;
+    else if (o.kind === 'fast') ok = w.time - w.waveT0 <= o.limit;
+    else if (o.kind === 'heads') ok = o.heads >= 1;
+    else ok = o.multi;
+    const reward = ok ? Math.round((4 + 2 * Math.min(4, w.chapter)) * coinMul(w)) : 0;
+    w.run.coins += reward;
+    if (ok) w.run.objectives += 1;
+    w.events.push({ t: 'objective', kind: o.kind, ok, coins: reward });
+    w.objective = null;
+  }
+}
+
+/** Health back at a wave clear: TUNING.waveClearHeal, +4 per chapter. */
+export function clearHeal(w: World): number {
+  return TUNING.waveClearHeal + 4 * Math.min(CHAPTERS, w.chapter);
+}
+
+function openCards(w: World): void {
+  const n = w.treasure ? 4 : 3;
+  const treasure = w.treasure;
+  w.treasure = false;
+  w.bonus = null;
+  for (const t of w.targets) t.active = false;
+  w.offerExtra = false;
+  w.offer = drawOffer(w.cardRng, w.cards, n);
+  if (w.offer.length === 0) {
+    // every card is maxed out: straight on to the next wave
+    w.phase = 'play';
+    w.phaseT = 0;
+    spawnWave(w, w.wave + 1, false);
+    return;
+  }
+  w.phase = 'cards';
+  w.phaseT = 0;
+  // nothing still in the air may land while the player is choosing
+  for (const a of w.arrows) if (a.active && a.state === 0) a.active = false;
+  w.events.push({ t: 'cards', treasure });
+}
+
 function heal(w: World, amount: number): void {
   const p = w.player;
   if (!p.alive) return;
   const before = p.hp;
   p.hp = Math.min(p.maxHp, p.hp + amount);
   if (p.hp > before) w.events.push({ t: 'heal', amount: p.hp - before });
+}
+
+// ---------------------------------------------------------------- moving ledges
+
+function updateMovers(w: World): void {
+  for (const m of w.movers) {
+    const L = w.ledges[m.index];
+    if (!L) continue;
+    const ox = L.x;
+    const oy = L.y;
+    if (m.cut) {
+      if (L.y > 1500) continue;
+      m.vy += 1900 * DT;
+      L.y += m.vy * DT;
+    } else {
+      m.theta += m.speed * DT;
+      if (m.kind === 'slide') L.x = m.x0 + m.amp * Math.sin(m.theta);
+      else {
+        const ang = (m.amp / m.len) * Math.sin(m.theta);
+        L.x = m.pivotX + m.len * Math.sin(ang) - L.w / 2;
+        L.y = PIVOT_Y + m.len * Math.cos(ang);
+      }
+    }
+    const dx = L.x - ox;
+    const dy = L.y - oy;
+    if (dx === 0 && dy === 0) continue;
+    // riders, barrels and arrows stuck in the ledge move with it
+    for (const e of w.enemies) {
+      if (!e.alive || e.ledge !== m.index || e.brain === 'spawn' || e.brain === 'jump' || e.falling > 0) continue;
+      e.anchorX += dx;
+      e.stanceX += dx;
+      e.anchorY += dy;
+      translateBody(e.body, dx, dy);
+      if (e.shield) translateBody(e.shield, dx, dy);
+    }
+    for (const p of w.props) {
+      if (!p.active || p.kind !== 'barrel') continue;
+      if (p.y + p.h >= oy - 2 && p.y + p.h <= oy + 4 && p.x + p.w > ox && p.x < ox + L.w) {
+        p.x += dx;
+        p.y += dy;
+      }
+    }
+    for (const wl of w.walls) {
+      if (wl.on !== m.index) continue;
+      wl.x += dx;
+      wl.y += dy;
+    }
+    for (const a of w.arrows) {
+      if (a.active && a.state === 1 && a.host === m.index) {
+        a.x += dx;
+        a.y += dy;
+      }
+    }
+  }
+}
+
+function cutRopes(w: World, x0: number, y0: number, x1: number, y1: number): void {
+  for (const m of w.movers) {
+    if (m.kind !== 'swing' || m.cut) continue;
+    const L = w.ledges[m.index]!;
+    const r = FX.ropeRadius;
+    const hit = sweepCapsule(x0, y0, x1, y1, m.pivotX, PIVOT_Y, L.x + 10, L.y, r) >= 0 || sweepCapsule(x0, y0, x1, y1, m.pivotX, PIVOT_Y, L.x + L.w - 10, L.y, r) >= 0;
+    if (!hit) continue;
+    m.cut = true;
+    m.vy = 0;
+    let riders = 0;
+    for (const e of w.enemies) {
+      if (!e.alive || e.ledge !== m.index || e.brain === 'spawn' || e.brain === 'jump') continue;
+      riders += 1;
+      setFeetPinned(e, false);
+      e.falling = DT;
+      e.stagger = 2;
+    }
+    w.run.ropeDrops += riders;
+    w.events.push({ t: 'rope', x: x1, y: y1, kind: 'swing', riders });
+  }
+  for (const p of w.props) {
+    if (!p.active || p.kind !== 'rock' || !p.hanging) continue;
+    if (sweepCapsule(x0, y0, x1, y1, p.x, PIVOT_Y, p.x, p.y - p.w, FX.ropeRadius) < 0) continue;
+    p.hanging = false;
+    p.vy = 0;
+    w.events.push({ t: 'rope', x: x1, y: y1, kind: 'rock', riders: 0 });
+  }
+}
+
+// ---------------------------------------------------------------- props
+
+function updateProps(w: World): void {
+  for (const p of w.props) {
+    if (!p.active || p.kind !== 'rock' || p.hanging) continue;
+    p.vy += 1900 * DT;
+    const y0 = p.y;
+    p.y += p.vy * DT;
+    for (const e of w.enemies) {
+      if (!e.alive) continue;
+      const hx = e.body.x[PT.head]! - p.x;
+      const hy = e.body.y[PT.head]! - p.y;
+      const nx = e.body.x[PT.neck]! - p.x;
+      const ny = e.body.y[PT.neck]! - p.y;
+      const rr = (p.w + 24 * e.scale) ** 2;
+      if (hx * hx + hy * hy < rr || nx * nx + ny * ny < rr) {
+        w.events.push({ t: 'rockHit', x: p.x, y: p.y, id: e.id });
+        addVelocity(e.body, PT.head, 0, 600, DT);
+        if (e.type === 'boss') damageEnemy(w, e, 150 * w.stats.dmgMul, 'crush');
+        else damageEnemy(w, e, 1e6, 'crush');
+      }
+    }
+    for (let i = 1; i < w.ledges.length; i++) {
+      const L = w.ledges[i]!;
+      if (p.x > L.x - 6 && p.x < L.x + L.w + 6 && y0 + p.w <= L.y + 4 && p.y + p.w >= L.y) {
+        p.active = false;
+        w.events.push({ t: 'rockBreak', x: p.x, y: L.y - p.w });
+        break;
+      }
+    }
+    if (p.y > 1400) p.active = false;
+  }
+}
+
+function explodeBarrel(w: World, p: Prop): void {
+  if (!p.active) return;
+  p.active = false;
+  const cx = p.x + p.w / 2;
+  const cy = p.y + p.h / 2;
+  const R = FX.barrelRadius * (w.stats.inferno ? 1.2 : 1);
+  let kills = 0;
+  for (const e of w.enemies) {
+    if (!e.alive) continue;
+    const t = targetPoint(e, 'chest');
+    const d = Math.hypot(t.x - cx, t.y - cy);
+    if (d > R + 20 * e.scale) continue;
+    pushBody(e.body, cx, cy, (t.x - cx) * 6, -500, 0.5, 160);
+    const dmg = (e.type === 'boss' ? 0.5 : 1) * FX.barrelDamage * w.stats.dmgMul;
+    if (damageEnemy(w, e, dmg, 'blast')) kills += 1;
+    if (w.stats.inferno && e.alive) setBurn(w, e);
+  }
+  w.run.barrelBest = Math.max(w.run.barrelBest, kills);
+  w.events.push({ t: 'barrel', x: cx, y: cy, kills });
+  // other barrels in reach go up too
+  for (const q of w.props) {
+    if (q.active && q.kind === 'barrel' && Math.hypot(q.x + q.w / 2 - cx, q.y + q.h / 2 - cy) < R) explodeBarrel(w, q);
+  }
 }
 
 // ---------------------------------------------------------------- archers
@@ -759,6 +1332,14 @@ function updateArcher(w: World, a: Archer): void {
     } else if (b.muscle < 1) b.muscle = Math.min(1, b.muscle + TUNING.muscleRecover * DT);
     if (a.stagger > 0) a.stagger -= DT;
     if (a.wobble > 0) a.wobble -= DT;
+    if (a.catchCd > 0) a.catchCd -= DT;
+    if (!a.wardUp && a.type === 'ward') {
+      a.wardT -= DT;
+      if (a.wardT <= 0) {
+        a.wardUp = true;
+        w.events.push({ t: 'ward', id: a.id, x: b.x[PT.neck]!, y: b.y[PT.neck]!, up: true });
+      }
+    }
     a.crouch = Math.max(0, a.crouch - DT * 2.5);
     // stance slides toward a shoved anchor
     a.stanceX += (a.anchorX - a.stanceX) * Math.min(1, DT * 7);
@@ -827,6 +1408,7 @@ function updateDangle(w: World, a: Archer): void {
     const hy = b.y[hand]!;
     for (let l = 0; l < w.ledges.length; l++) {
       const L = w.ledges[l]!;
+      if (w.movers.some((m) => m.index === l)) continue; // never hang from a moving ledge
       if (b.y[PT.pelvis]! < L.y + 10) continue; // only when the body hangs below the top
       for (const side of [0, 1]) {
         const cx = side === 0 ? L.x : L.x + L.w;
@@ -871,12 +1453,78 @@ function knockOut(w: World, a: Archer, cause: KoCause): void {
     w.events.push({ t: 'dying' });
     return;
   }
-  w.run.kos += 1;
-  if (w.run.firstKoShot === 0) w.run.firstKoShot = Math.max(1, w.run.shots);
-  let coins = 3 + Math.floor(w.wave / 2) + (cause === 'head' ? 2 : 0) + (a.type === 'boss' ? 25 : 0);
-  coins = Math.round(coins * w.stats.coinMul);
-  w.run.coins += coins;
-  w.events.push({ t: 'ko', id: a.id, x: a.body.x[PT.head]!, y: a.body.y[PT.head]!, cause, coins, enemy: a.type });
+  const r = w.run;
+  r.kos += 1;
+  if (r.firstKoShot === 0) r.firstKoShot = Math.max(1, r.shots);
+  const head = cause === 'head';
+  let coins = 3 + Math.floor(w.level / 2) + (head ? (w.mod === 'heads' ? 4 : 2) : 0);
+  coins = Math.round(coins * coinMul(w));
+  r.coins += coins;
+  const hx = a.body.x[PT.head]!;
+  const hy = a.body.y[PT.head]!;
+  w.events.push({ t: 'ko', id: a.id, x: hx, y: hy, cause, coins, enemy: a.type });
+  // streaks, multi-kills, focus
+  r.streak += 1;
+  r.streakBest = Math.max(r.streakBest, r.streak);
+  if (FX.streaks.includes(r.streak)) w.events.push({ t: 'streak', n: r.streak });
+  r.multiN = w.time - r.lastKo <= FX.multiWindow ? r.multiN + 1 : 1;
+  r.lastKo = w.time;
+  if (r.multiN >= 2) {
+    r.multiBest = Math.max(r.multiBest, r.multiN);
+    w.events.push({ t: 'multi', n: r.multiN, x: hx, y: hy });
+    gainFocus(w, FX.focusMulti);
+    if (w.objective) w.objective.multi = true;
+  }
+  gainFocus(w, FX.focusKo);
+  if (head && w.objective) w.objective.heads += 1;
+  // loot bursts out of bosses and elites
+  if (a.type === 'boss' || a.type === 'elite') {
+    const ch = a.bossKind ? BOSS_KINDS.indexOf(a.bossKind) : w.chapter;
+    const loot = Math.round((a.type === 'boss' ? 25 + 10 * ch : 10 + 3 * Math.min(4, w.chapter)) * coinMul(w));
+    r.coins += loot;
+    w.events.push({ t: 'loot', x: hx, y: hy, coins: loot, kind: a.type });
+  }
+  if (a.type === 'boss') {
+    r.bossKills.push({ kind: BOSS_KINDS.indexOf(a.bossKind ?? 'shields'), time: Math.round((w.time - w.waveT0) * 10) / 10 });
+    w.treasure = true;
+    // the summoner's spell breaks: its imps go down with it
+    for (const e of w.enemies) if (e.alive && e.type === 'imp') knockOut(w, e, 'blast');
+    for (const p of w.plates) p.active = false;
+  }
+  if (w.stats.boomDmg > 0 && cause !== 'fall') boom(w, a);
+}
+
+/** The boom card: a knocked-out enemy bursts, hurting (and with inferno burning) its neighbours. */
+function boom(w: World, a: Archer): void {
+  const c = targetPoint(a, 'chest');
+  w.events.push({ t: 'blast', x: c.x, y: c.y, r: FX.boomRadius, fire: w.stats.inferno });
+  for (const e of w.enemies) {
+    if (!e.alive || e === a) continue;
+    const t = targetPoint(e, 'chest');
+    if (Math.hypot(t.x - c.x, t.y - c.y) > FX.boomRadius + 20 * e.scale) continue;
+    damageEnemy(w, e, w.stats.boomDmg * w.stats.dmgMul * (e.type === 'boss' ? 0.5 : 1), 'blast');
+    if (w.stats.inferno && e.alive) setBurn(w, e);
+  }
+}
+
+function setBurn(w: World, e: Archer): void {
+  e.burn = Math.max(e.burn, w.stats.fireTime || 2.5);
+  e.burnDps = Math.max(e.burnDps, w.stats.fireDps || 10);
+  e.burnTick = Math.min(e.burnTick || 0.5, 0.5);
+}
+
+/** Damage from a blast, rock or chain (no part, no slow motion). Returns true on a knockout. */
+function damageEnemy(w: World, e: Archer, dmg: number, cause: KoCause): boolean {
+  if (!e.alive) return false;
+  e.hp -= dmg;
+  e.hurt = 0;
+  e.body.muscle = Math.min(e.body.muscle, e.type === 'boss' ? 0.35 : TUNING.hitMuscle);
+  checkBossPhase(w, e);
+  if (e.hp <= 0) {
+    knockOut(w, e, cause);
+    return true;
+  }
+  return false;
 }
 
 function dropShield(_w: World, a: Archer, vx: number): void {
@@ -894,6 +1542,15 @@ function gauss(r: Rng): number {
   return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * r.next());
 }
 
+function checkBossPhase(w: World, e: Archer): void {
+  if (e.type !== 'boss' || e.bossPhase !== 1 || e.hp > e.maxHp * 0.5 || e.hp <= 0) return;
+  e.bossPhase = 2;
+  e.stagger = Math.max(e.stagger, 0.6);
+  const m = w.movers.find((q) => q.index === e.ledge);
+  if (m && e.bossKind === 'giant') m.speed *= 1.8;
+  w.events.push({ t: 'bossPhase', id: e.id, kind: e.bossKind ?? 'shields', x: e.body.x[PT.head]!, y: e.body.y[PT.head]! });
+}
+
 function brain(w: World, a: Archer): void {
   const active = w.phase === 'play' || w.phase === 'clear';
   if (a.brain === 'spawn') {
@@ -907,6 +1564,14 @@ function brain(w: World, a: Archer): void {
       translateBody(a.body, 0, y - a.anchorY);
       if (a.shield) translateBody(a.shield, 0, y - a.anchorY);
       a.anchorY = y;
+      // a moving ledge carries the spot it lands on
+      const dx = L.x + L.w / 2 - a.anchorX;
+      if (Math.abs(dx) > 0.01 && w.movers.some((m) => m.index === a.ledge)) {
+        a.anchorX += dx;
+        a.stanceX += dx;
+        translateBody(a.body, dx, 0);
+        if (a.shield) translateBody(a.shield, dx, 0);
+      }
     }
     if (t >= 1) {
       a.brain = 'wait';
@@ -931,13 +1596,15 @@ function brain(w: World, a: Archer): void {
     a.draw = Math.max(0, a.draw - DT * 3);
     return;
   }
+  if (a.type === 'boss') bossSpecial(w, a);
   if (a.stagger > 0 && a.brain === 'draw') {
     a.brain = 'cool';
     a.timer = 0.5;
     a.draw = 0;
   }
   a.timer -= DT;
-  const timing = enemyTiming(w.wave);
+  const timing = enemyTiming(w.level);
+  const drawTime = a.type === 'boss' ? timing.draw * 1.15 : a.type === 'imp' ? timing.draw * 0.8 : a.type === 'healer' ? 0.8 : timing.draw;
   switch (a.brain) {
     case 'wait':
     case 'cool':
@@ -946,11 +1613,23 @@ function brain(w: World, a: Archer): void {
         a.jumpCooldown -= DT;
         if (a.jumpCooldown <= 0 && a.timer > 0.2 && tryJump(w, a)) return;
       }
-      if (a.timer <= 0) beginDraw(w, a, timing.draw);
+      if (a.timer <= 0) {
+        if (a.type === 'healer') {
+          a.brain = 'draw';
+          a.timer = drawTime;
+        } else beginDraw(w, a, drawTime);
+      }
       break;
     case 'draw': {
-      const dur = a.type === 'boss' ? timing.draw * 1.15 : timing.draw;
-      a.draw = Math.min(1, a.draw + DT / dur);
+      a.draw = Math.min(1, a.draw + DT / drawTime);
+      if (a.type === 'healer') {
+        if (a.timer <= 0) {
+          healAllies(w, a);
+          a.brain = 'cool';
+          a.timer = FX.healEvery + w.brainRng.range(0, 0.6);
+        }
+        break;
+      }
       a.aim += (a.aimGoal - a.aim) * Math.min(1, DT * 8);
       if (a.timer <= 0) {
         release(w, a);
@@ -964,15 +1643,72 @@ function brain(w: World, a: Archer): void {
   }
 }
 
+function healAllies(w: World, h: Archer): void {
+  for (const e of w.enemies) {
+    if (!e.alive || e === h || e.type === 'boss' || e.hp >= e.maxHp) continue;
+    const amount = Math.min(e.maxHp - e.hp, Math.round(e.maxHp * FX.healShare));
+    e.hp += amount;
+    w.events.push({ t: 'healBeam', from: h.id, to: e.id, x0: h.body.x[PT.handF]!, y0: h.body.y[PT.handF]!, x1: e.body.x[PT.neck]!, y1: e.body.y[PT.neck]!, amount });
+  }
+}
+
+/** Boss mechanics that are not just "more health". */
+function bossSpecial(w: World, a: Archer): void {
+  if (a.bossKind !== 'summoner') return;
+  a.special -= DT;
+  if (a.special > 0) return;
+  a.special = a.bossPhase === 2 ? 4 : 5.5;
+  const cap = a.bossPhase === 2 ? 3 : 2;
+  let imps = 0;
+  for (const e of w.enemies) if (e.alive && e.type === 'imp') imps += 1;
+  if (imps >= cap) return;
+  for (let i = 2; i < w.ledges.length; i++) {
+    if (w.enemies.some((e) => e.alive && e.ledge === i)) continue;
+    const L = w.ledges[i]!;
+    const e = makeArcher(w, 'imp', L.x + L.w / 2, L.y, -1, i);
+    e.brain = 'spawn';
+    e.spawnT = 0;
+    e.anchorY -= 900;
+    translateBody(e.body, 0, -900);
+    e.timer = 0.9 + w.brainRng.range(0, 0.5);
+    e.shotsFired = 1; // summoned imps aim true from their first shot
+    w.enemies.push(e);
+    w.events.push({ t: 'summon', id: e.id, x: L.x + L.w / 2, y: L.y - 60 });
+    return;
+  }
+}
+
+function updatePlates(w: World): void {
+  const boss = w.enemies.find((e) => e.alive && e.bossKind === 'shields');
+  if (!boss) {
+    for (const p of w.plates) p.active = false;
+    return;
+  }
+  const n = boss.bossPhase === 2 ? 3 : 2;
+  const om = boss.bossPhase === 2 ? 1.9 : 1.25;
+  const b = boss.body;
+  const cx = (b.x[PT.neck]! + b.x[PT.pelvis]!) / 2;
+  const cy = (b.y[PT.neck]! + b.y[PT.pelvis]!) / 2 - 10;
+  for (let i = 0; i < w.plates.length; i++) {
+    const p = w.plates[i]!;
+    p.active = i < n;
+    if (!p.active) continue;
+    const ang = w.time * om + (i * Math.PI * 2) / n;
+    p.x = cx + Math.cos(ang) * 112;
+    p.y = cy + Math.sin(ang) * 112;
+  }
+}
+
 function tryJump(w: World, a: Archer): boolean {
   const free: number[] = [];
-  for (let i = 1; i < w.ledges.length; i++) {
+  for (let i = 1; i <= w.layout.length; i++) {
     if (i === a.ledge) continue;
+    if (w.movers.some((m) => m.index === i)) continue; // never onto a moving ledge
     if (w.enemies.some((e) => e.alive && e.ledge === i)) continue;
     free.push(i);
   }
   a.jumpCooldown = w.brainRng.range(2.6, 4.2);
-  if (free.length === 0) return false;
+  if (free.length === 0 || w.movers.some((m) => m.index === a.ledge)) return false;
   const to = free[w.brainRng.int(0, free.length - 1)]!;
   const L = w.ledges[to]!;
   a.jx0 = a.stanceX;
@@ -989,34 +1725,61 @@ function tryJump(w: World, a: Archer): boolean {
   return true;
 }
 
+/** The frost giant's second phase throws a bomb every other time. */
+function giantBomb(a: Archer): boolean {
+  return a.bossKind === 'giant' && a.bossPhase === 2 && a.shotsFired % 2 === 1;
+}
+
 function enemySpeed(a: Archer): number {
-  return a.type === 'bomber' ? TUNING.bombSpeed : a.type === 'boss' ? TUNING.bossSpeed : TUNING.enemySpeed;
+  return a.type === 'bomber' || giantBomb(a) ? TUNING.bombSpeed : a.type === 'boss' ? TUNING.bossSpeed : TUNING.enemySpeed;
+}
+
+function blocksArc(w: World, x: number, y: number): boolean {
+  for (const L of w.ledges) if (x > L.x - 4 && x < L.x + L.w + 4 && y > L.y - 4 && y < L.y + L.h) return true;
+  for (const L of w.walls) if (x > L.x - 4 && x < L.x + L.w + 4 && y > L.y - 4 && y < L.y + L.h) return true;
+  return false;
 }
 
 /**
  * True when an arrow launched from (ox, oy) reaches the vertical line x = tx (within `ty` ± 60
- * when it gets there) without passing through a ledge. Used by enemies (and the scripted
- * player) to pick an arc that is not blocked by another floating ledge.
+ * when it gets there) without passing through a ledge or wall (wind included). Used by enemies
+ * (and the scripted player) to pick an arc that is not blocked.
  */
-export function arcClear(w: World, ox: number, oy: number, angle: number, speed: number, tx: number, ty: number): boolean {
+export function arcClear(w: World, ox: number, oy: number, angle: number, speed: number, tx: number, ty: number, windK = 1): boolean {
   const vx = Math.cos(angle) * speed;
   const vy = Math.sin(angle) * speed;
   const g = TUNING.gravity;
+  const wind = w.wind * windK;
   const dir = Math.sign(tx - ox) || 1;
   for (let t = 1 / 90; t < 3; t += 1 / 90) {
-    const x = ox + vx * t;
+    const x = ox + vx * t + 0.5 * wind * t * t;
     const y = oy + vy * t + 0.5 * g * t * t;
     if ((x - tx) * dir >= 0) return Math.abs(y - ty) < 60;
     if (y > 1400) return false;
     if (t < 0.04) continue; // leaving the archer's own ledge edge
-    for (const L of w.ledges) {
-      if (x > L.x - 4 && x < L.x + L.w + 4 && y > L.y - 4 && y < L.y + L.h) return false;
-    }
+    if (blocksArc(w, x, y)) return false;
   }
   return false;
 }
 
 const SPEED_STEPS = [1, 1.12, 1.25, 1.4] as const;
+
+/**
+ * Launch angle to hit (tx, ty) from (ox, oy) at `speed` with gravity and wind: the wind shift
+ * over the flight time is aimed off (two refinement passes). Null if out of reach.
+ */
+export function solveWithWind(ox: number, oy: number, tx: number, ty: number, speed: number, wind: number, high: boolean): number | null {
+  let aimX = tx;
+  let angle: number | null = null;
+  for (let i = 0; i < 3; i++) {
+    angle = solveLaunchAngle(aimX - ox, ty - oy, speed, TUNING.gravity, high);
+    if (angle === null || wind === 0) return angle;
+    const vx = Math.cos(angle) * speed;
+    const T = Math.abs(vx) > 1 ? (aimX - ox) / vx : 1;
+    aimX = tx - 0.5 * wind * T * T;
+  }
+  return angle;
+}
 
 /** Aim solve for an enemy: an unblocked arc to the player's chest (before the wave's error). */
 export function enemyAimSolution(w: World, a: Archer): { angle: number; speed: number } {
@@ -1031,7 +1794,7 @@ export function enemyAimSolution(w: World, a: Archer): { angle: number; speed: n
       let ok = true;
       for (let i = 0; i < 2; i++) {
         const o = bowOrigin(a.stanceX, a.anchorY, angle, a.scale);
-        const sol = solveLaunchAngle(tx - o.x, ty - o.y, speed, TUNING.gravity, high);
+        const sol = solveWithWind(o.x, o.y, tx, ty, speed, w.wind, high);
         if (sol === null) ok = false;
         else angle = sol;
       }
@@ -1044,23 +1807,58 @@ export function enemyAimSolution(w: World, a: Archer): { angle: number; speed: n
   return first ?? { angle: Math.PI + Math.PI / 4, speed: base };
 }
 
-function beginDraw(w: World, a: Archer, _draw: number): void {
-  const sol = enemyAimSolution(w, a);
-  const acc = enemyAccuracy(w.wave);
-  a.aimGoal = sol.angle + gauss(w.brainRng) * (acc.angle + a.aimPenalty);
-  a.speedGoal = sol.speed * (1 + gauss(w.brainRng) * acc.speed);
+function beginDraw(w: World, a: Archer, drawTime: number): void {
+  const acc = enemyAccuracy(w.level);
+  if (a.bossKind === 'warden') {
+    // the warden aims its orb fan straight at the player (orbs fly without gravity)
+    const o = bowOrigin(a.stanceX, a.anchorY, a.aim, a.scale);
+    a.aimGoal = Math.atan2(playerPelvisY() - 30 - o.y, PLAYER_X - o.x) + gauss(w.brainRng) * acc.angle * 0.3;
+    a.speedGoal = FX.orbSpeed;
+  } else {
+    const sol = enemyAimSolution(w, a);
+    a.aimGoal = sol.angle + gauss(w.brainRng) * (acc.angle + a.aimPenalty);
+    a.speedGoal = sol.speed * (1 + gauss(w.brainRng) * acc.speed);
+  }
   a.brain = 'draw';
-  a.timer = a.type === 'boss' ? enemyTiming(w.wave).draw * 1.15 : enemyTiming(w.wave).draw;
+  a.timer = drawTime;
   w.events.push({ t: 'enemyDraw', id: a.id });
 }
 
 function release(w: World, a: Archer): void {
-  const kind = a.type === 'bomber' ? 'bomb' : 'arrow';
-  const spread = a.type === 'boss' ? BOSS_SPREAD : ONE_ARROW;
   const o = bowOrigin(a.stanceX, a.anchorY, a.aim, a.scale);
+  let kind: Arrow['kind'] = a.type === 'bomber' ? 'bomb' : 'arrow';
+  // the elite looses two arrows only in endless; in the chapters it is a health check
+  let spread: readonly number[] = a.type === 'elite' && w.chapter >= CHAPTERS ? ELITE_SPREAD : ONE_ARROW;
+  const speed = a.speedGoal;
+  if (a.type === 'boss') {
+    switch (a.bossKind) {
+      case 'shields':
+        // its threat is the shield ring (three plates, faster, in phase 2), not volume of fire
+        spread = a.bossPhase === 2 && stageOf(w.wave).endless ? BOSS_SPREAD : ONE_ARROW;
+        break;
+      case 'giant':
+        // phase 2: every other throw is a bomb (aimed at bomb speed in beginDraw)
+        if (giantBomb(a)) kind = 'bomb';
+        else spread = BOSS_SPREAD;
+        break;
+      case 'summoner':
+        spread = ONE_ARROW;
+        break;
+      case 'warden': {
+        kind = 'orb';
+        const n = a.bossPhase === 2 ? 7 : 5;
+        const s: number[] = [];
+        for (let i = 0; i < n; i++) s.push(-0.36 + (0.72 * i) / (n - 1) + (a.bossPhase === 2 && a.shotsFired % 2 ? 0.05 : 0));
+        spread = s;
+        break;
+      }
+      default:
+        spread = BOSS_SPREAD;
+    }
+  }
   for (const s of spread) {
     const ang = a.aimGoal + s;
-    const ar = spawnArrow(w, 'enemy', kind, o.x, o.y, Math.cos(ang) * a.speedGoal, Math.sin(ang) * a.speedGoal);
+    const ar = spawnArrow(w, 'enemy', kind, o.x, o.y, Math.cos(ang) * speed, Math.sin(ang) * speed);
     if (ar) {
       ar.soft = a.shotsFired === 0;
       ar.by = a.id;
@@ -1140,6 +1938,38 @@ function trimStuck(w: World, hostId: number): void {
   if (count > TUNING.stuckPerBody && oldest) oldest.active = false;
 }
 
+/** A player arrow that ends without hitting anything breaks the headshot chain. */
+function missed(w: World, a: Arrow): void {
+  if (a.owner === 'player' && a.primary && !a.scored) w.run.chain = 0;
+}
+
+function steer(w: World, a: Arrow): void {
+  let best = 300 * 300;
+  let tx = 0;
+  let ty = 0;
+  for (const e of w.enemies) {
+    if (!e.alive || e.brain === 'spawn' || e.id === a.ignore) continue;
+    const dx = e.body.x[PT.head]! - a.x;
+    const dy = e.body.y[PT.head]! - a.y;
+    if (dx * a.vx + dy * a.vy <= 0) continue; // only what lies ahead
+    const d2 = dx * dx + dy * dy;
+    if (d2 < best) {
+      best = d2;
+      tx = dx;
+      ty = dy;
+    }
+  }
+  if (best >= 300 * 300) return;
+  const cur = Math.atan2(a.vy, a.vx);
+  let diff = Math.atan2(ty, tx) - cur;
+  while (diff > Math.PI) diff -= Math.PI * 2;
+  while (diff < -Math.PI) diff += Math.PI * 2;
+  const turn = clamp(diff, -w.stats.seek * DT, w.stats.seek * DT);
+  const sp = Math.hypot(a.vx, a.vy);
+  a.vx = Math.cos(cur + turn) * sp;
+  a.vy = Math.sin(cur + turn) * sp;
+}
+
 function updateArrows(w: World): void {
   for (const a of w.arrows) {
     if (!a.active) continue;
@@ -1162,10 +1992,21 @@ function updateArrows(w: World): void {
     // flying
     const x0 = a.x;
     const y0 = a.y;
-    flyArrow(a, DT, TUNING.gravity);
+    if (a.kind === 'orb') {
+      a.x += a.vx * DT;
+      a.y += a.vy * DT;
+    } else {
+      if (a.seek) steer(w, a);
+      flyArrow(a, DT, TUNING.gravity);
+      if (w.wind !== 0) {
+        a.x += 0.5 * w.wind * DT * DT;
+        a.vx += w.wind * DT;
+      }
+    }
     a.angle = Math.atan2(a.vy, a.vx);
     a.life -= DT;
     if (a.life <= 0 || a.x < -300 || a.x > 1020 || a.y > 1600) {
+      missed(w, a);
       a.active = false;
       continue;
     }
@@ -1174,18 +2015,35 @@ function updateArrows(w: World): void {
   }
 }
 
-/** Ledge test for a flying arrow from (x0,y0) to its current tip; returns true if it stopped. */
+/** Ledge (or wall) test for a flying arrow from (x0,y0) to its current tip; returns true if it stopped. */
 function ledgeHit(w: World, a: Arrow, x0: number, y0: number): boolean {
   let best: { t: number; nx: number; ny: number } | null = null;
-  for (const L of w.ledges) {
+  let bestIdx = -1;
+  for (let i = 0; i < w.ledges.length; i++) {
+    const L = w.ledges[i]!;
     const h = sweepAabb(x0, y0, a.x, a.y, L.x, L.y, L.w, L.h);
-    if (h && (!best || h.t < best.t)) best = h;
+    if (h && (!best || h.t < best.t)) {
+      best = h;
+      bestIdx = i;
+    }
+  }
+  for (const L of w.walls) {
+    const h = sweepAabb(x0, y0, a.x, a.y, L.x, L.y, L.w, L.h);
+    if (h && (!best || h.t < best.t)) {
+      best = h;
+      bestIdx = -1;
+    }
   }
   if (!best) return false;
   const hx = x0 + (a.x - x0) * best.t;
   const hy = y0 + (a.y - y0) * best.t;
   if (a.kind === 'bomb') {
     explode(w, a, hx, hy);
+    return true;
+  }
+  if (a.kind === 'orb') {
+    a.active = false;
+    w.events.push({ t: 'orbPop', x: hx, y: hy });
     return true;
   }
   if (a.bounces > 0) {
@@ -1199,11 +2057,13 @@ function ledgeHit(w: World, a: Arrow, x0: number, y0: number): boolean {
     w.events.push({ t: 'bounce', x: hx, y: hy });
     return true;
   }
+  missed(w, a);
   const dir = Math.atan2(a.vy, a.vx);
   a.x = hx + Math.cos(dir) * 12;
   a.y = hy + Math.sin(dir) * 12;
   a.angle = dir;
   a.state = 1;
+  a.host = bestIdx;
   a.life = TUNING.stuckLedgeLife;
   a.vx = 0;
   a.vy = 0;
@@ -1224,7 +2084,7 @@ function explode(w: World, a: Arrow, x: number, y: number): void {
         w.shieldLeft -= 1;
         w.events.push({ t: 'blocked', x, y });
       } else {
-        damagePlayer(w, 'body', TUNING.bombDamage * enemyDamageMul(w.wave), x, y, (dx || 1) * 8, -300, a.by);
+        damagePlayer(w, 'body', TUNING.bombDamage * enemyDamageMul(w.level), x, y, (dx || 1) * 8, -300, a.by);
       }
     }
   }
@@ -1232,16 +2092,17 @@ function explode(w: World, a: Arrow, x: number, y: number): void {
 }
 
 function playerArrowHits(w: World, a: Arrow, x0: number, y0: number): void {
-  // bombs in flight
+  // things popped in passing: bombs and orbs in flight, apples, bonus targets, ropes
   for (const b of w.arrows) {
-    if (!b.active || b.kind !== 'bomb' || b.state !== 0) continue;
-    if (sweepCapsule(x0, y0, a.x, a.y, b.x, b.y, b.x, b.y, TUNING.bombHitRadius) >= 0) {
+    if (!b.active || b.state !== 0 || b.owner !== 'enemy' || b.kind === 'arrow') continue;
+    const r = b.kind === 'bomb' ? TUNING.bombHitRadius : FX.orbRadius + 8;
+    if (sweepCapsule(x0, y0, a.x, a.y, b.x, b.y, b.x, b.y, r) >= 0) {
       b.active = false;
       w.run.hits += 1;
-      w.events.push({ t: 'bomb', x: b.x, y: b.y, hurt: false, popped: true });
+      if (b.kind === 'bomb') w.events.push({ t: 'bomb', x: b.x, y: b.y, hurt: false, popped: true });
+      else w.events.push({ t: 'orbPop', x: b.x, y: b.y });
     }
   }
-  // apples
   for (const ap of w.apples) {
     if (!ap.active) continue;
     if (sweepCapsule(x0, y0, a.x, a.y, ap.x, ap.y, ap.x, ap.y, TUNING.appleRadius * w.stats.appleRadiusMul) >= 0) {
@@ -1251,11 +2112,14 @@ function playerArrowHits(w: World, a: Arrow, x0: number, y0: number): void {
       heal(w, amount);
     }
   }
-  // shields, then bodies: the earliest along the path wins
+  if (w.bonus) bonusHits(w, x0, y0, a.x, a.y);
+  if (w.movers.length > 0 || w.props.some((p) => p.active && p.kind === 'rock')) cutRopes(w, x0, y0, a.x, a.y);
+  // blockers: shields, plates, barrels, rocks, bodies, ledges and walls — the earliest wins
   let bestT = 2;
+  let what = 0; // 1 body, 2 shield, 3 plate, 4 barrel, 5 rock
   let bestHost: Archer | null = null;
   let bestPart = -1;
-  let bestShield = false;
+  let bestProp: Prop | null = null;
   let hx = 0;
   let hy = 0;
   for (const e of w.enemies) {
@@ -1266,7 +2130,7 @@ function playerArrowHits(w: World, a: Arrow, x0: number, y0: number): void {
         bestT = h.t;
         bestHost = e;
         bestPart = 0;
-        bestShield = true;
+        what = 2;
         hx = h.x;
         hy = h.y;
       }
@@ -1276,9 +2140,32 @@ function playerArrowHits(w: World, a: Arrow, x0: number, y0: number): void {
       bestT = h.t;
       bestHost = e;
       bestPart = h.part;
-      bestShield = false;
+      what = 1;
       hx = h.x;
       hy = h.y;
+    }
+  }
+  for (const p of w.plates) {
+    if (!p.active) continue;
+    const t = sweepCapsule(x0, y0, a.x, a.y, p.x, p.y, p.x, p.y, p.r);
+    if (t >= 0 && t < bestT) {
+      bestT = t;
+      what = 3;
+      hx = x0 + (a.x - x0) * t;
+      hy = y0 + (a.y - y0) * t;
+    }
+  }
+  for (const p of w.props) {
+    if (!p.active) continue;
+    let t = -1;
+    if (p.kind === 'barrel') t = sweepAabb(x0, y0, a.x, a.y, p.x, p.y, p.w, p.h)?.t ?? -1;
+    else t = sweepCapsule(x0, y0, a.x, a.y, p.x, p.y, p.x, p.y, p.w);
+    if (t >= 0 && t < bestT) {
+      bestT = t;
+      what = p.kind === 'barrel' ? 4 : 5;
+      bestProp = p;
+      hx = x0 + (a.x - x0) * t;
+      hy = y0 + (a.y - y0) * t;
     }
   }
   // ledges in front of the hit?
@@ -1287,9 +2174,33 @@ function playerArrowHits(w: World, a: Arrow, x0: number, y0: number): void {
     const h = sweepAabb(x0, y0, a.x, a.y, L.x, L.y, L.w, L.h);
     if (h && h.t < ledgeT) ledgeT = h.t;
   }
-  if (bestHost && bestT <= ledgeT) {
-    if (bestShield) hitShield(w, a, bestHost, hx, hy);
-    else hitEnemy(w, a, bestHost, bestHost.parts[bestPart]!, hx, hy);
+  for (const L of w.walls) {
+    const h = sweepAabb(x0, y0, a.x, a.y, L.x, L.y, L.w, L.h);
+    if (h && h.t < ledgeT) ledgeT = h.t;
+  }
+  if (what !== 0 && bestT <= ledgeT) {
+    switch (what) {
+      case 1:
+        hitEnemy(w, a, bestHost!, bestHost!.parts[bestPart]!, hx, hy);
+        break;
+      case 2:
+        hitShield(w, a, bestHost!, hx, hy);
+        break;
+      case 3:
+        missed(w, a);
+        a.active = false;
+        w.events.push({ t: 'plate', x: hx, y: hy });
+        break;
+      case 4:
+        a.active = false;
+        a.scored = true;
+        explodeBarrel(w, bestProp!);
+        break;
+      default:
+        missed(w, a);
+        a.active = false;
+        w.events.push({ t: 'thunk', x: hx, y: hy, owner: 'player' });
+    }
     return;
   }
   ledgeHit(w, a, x0, y0);
@@ -1297,15 +2208,15 @@ function playerArrowHits(w: World, a: Arrow, x0: number, y0: number): void {
 
 function hitShield(w: World, a: Arrow, e: Archer, hx: number, hy: number): void {
   const s = e.shield!;
+  missed(w, a);
   stickTo(a, e, s, SHIELD_PARTS[0]!, hx, hy, 3);
   w.run.hits += 1;
   let broke = false;
   if (e.shieldOn) {
-    e.shieldHp -= a.dmgMul >= 1.6 ? 2 : 1;
+    e.shieldHp -= a.dmgMul >= 1.6 || (a.over && w.stats.siege) ? 2 : 1;
     if (e.shieldHp <= 0) {
       broke = true;
       dropShield(w, e, Math.sign(a.vx || 1) * 220 * a.impulseMul);
-      // the arrow's push knocks it away from the archer
     }
   } else {
     pushBody(s, hx, hy, a.vx, a.vy, 0.4, 120);
@@ -1316,6 +2227,23 @@ function hitShield(w: World, a: Arrow, e: Archer, hx: number, hy: number): void 
 function hitEnemy(w: World, a: Arrow, e: Archer, part: Part, hx: number, hy: number): void {
   const vx = a.vx;
   const vy = a.vy;
+  // a ready arrow-catcher snatches it out of the air (not while drawing or recovering)
+  if (e.alive && e.type === 'catcher' && e.catchCd <= 0 && e.brain !== 'draw' && e.brain !== 'spawn' && e.brain !== 'jump' && e.stagger <= 0) {
+    e.catchCd = FX.catchCooldown;
+    a.active = false;
+    missed(w, a);
+    w.events.push({ t: 'caught', id: e.id, x: e.body.x[PT.handF]!, y: e.body.y[PT.handF]! });
+    return;
+  }
+  // a lantern knight's ward pops on the first hit; a second hit soon after gets through
+  if (e.alive && e.type === 'ward' && e.wardUp) {
+    e.wardUp = false;
+    e.wardT = FX.wardWindow;
+    a.active = false;
+    a.scored = true;
+    w.events.push({ t: 'ward', id: e.id, x: hx, y: hy, up: false });
+    return;
+  }
   const k = TUNING.impulse * a.impulseMul;
   // the body whips around the hit point
   pushBody(e.body, hx, hy, vx, vy, k, 70 * e.scale);
@@ -1330,20 +2258,25 @@ function hitEnemy(w: World, a: Arrow, e: Archer, part: Part, hx: number, hy: num
     w.events.push({ t: 'bodyThunk', id: e.id, x: hx, y: hy });
     return;
   }
+  a.scored = true;
   w.run.hits += 1;
-  const out = resolveHit(e.type, part.kind, a.dmgMul, e.helmet);
+  const crit = w.critRng.chance(w.stats.crit + (a.focus ? FX.focusCrit : 0));
+  // the first chapter's boss relies on its shields, not its armour: body hits count four times
+  const armourK = e.bossKind === 'shields' && part.kind !== 'weak' ? 4 : 1;
+  const out = resolveHit(e.type as EnemyType, part.kind, a.dmgMul * (crit ? w.stats.critMul : 1) * armourK, e.helmet);
+  if (crit) w.run.crits += 1;
   e.hurt = 0;
   e.body.muscle = Math.min(e.body.muscle, e.type === 'boss' ? 0.35 : TUNING.hitMuscle);
   e.aimPenalty += out.aimPenalty;
   if (out.stagger > 0) e.stagger = Math.max(e.stagger, out.stagger);
-  if (e.brain === 'draw' && e.type !== 'boss') {
+  if (e.brain === 'draw' && e.type !== 'boss' && e.type !== 'elite') {
     e.brain = 'cool';
     e.timer = 0.6;
     e.draw = 0;
   }
   // shove the stance; off the edge means a fall
   const shove = (out.shove + (part.kind === 'body' ? 0.35 : 0) * (a.impulseMul > 1.2 ? 1 : 0)) * TUNING.legShove * a.impulseMul;
-  if (shove > 0 && e.type !== 'boss' && e.brain !== 'jump') {
+  if (shove > 0 && e.type !== 'boss' && e.type !== 'elite' && e.brain !== 'jump') {
     e.anchorX += Math.sign(vx || 1) * shove;
     const L = enemyLedge(w, e);
     if (L && (e.anchorX < L.x + 4 || e.anchorX > L.x + L.w - 4)) {
@@ -1360,10 +2293,28 @@ function hitEnemy(w: World, a: Arrow, e: Archer, part: Part, hx: number, hy: num
     e.burnTick = 0.5;
   }
   e.hp -= out.damage;
+  checkBossPhase(w, e);
   const ko = out.ko || e.hp <= 0;
-  if (part.kind === 'head' || part.kind === 'weak') w.run.headshots += 1;
-  w.events.push({ t: 'hit', id: e.id, part: part.kind, x: hx, y: hy, dmg: out.ko ? Math.max(out.damage, e.hp + out.damage) : out.damage, ko, slowmo: out.slowmo || (ko && e.type === 'boss'), vx, vy, fire: a.fire, enemy: e.type as EnemyType });
+  const head = part.kind === 'head' || part.kind === 'weak';
+  if (head) w.run.headshots += 1;
+  w.events.push({ t: 'hit', id: e.id, part: part.kind, x: hx, y: hy, dmg: out.ko ? Math.max(out.damage, e.hp + out.damage) : out.damage, ko, slowmo: out.slowmo || (ko && e.type === 'boss'), vx, vy, fire: a.fire, enemy: e.type as EnemyType, crit });
+  // headshot chain: consecutive headshots, each one paying a little more
+  const r = w.run;
+  if (head) {
+    r.chain += 1;
+    r.chainBest = Math.max(r.chainBest, r.chain);
+    if (r.chain >= 2) {
+      const coins = Math.round(r.chain * coinMul(w));
+      r.coins += coins;
+      w.events.push({ t: 'chain', n: r.chain, x: hx, y: hy, coins });
+      gainFocus(w, 0.04 * r.chain);
+    }
+  } else r.chain = 0;
+  gainFocus(w, head ? FX.focusHead : FX.focusBody);
+  if (crit) gainFocus(w, 0.05);
   if (w.stats.lifesteal > 0) heal(w, w.stats.lifesteal);
+  // chain lightning jumps to the nearest other enemy (storm: twice)
+  if (w.stats.chainShare > 0) zap(w, e, out.damage * w.stats.chainShare, w.stats.chainJumps);
   if (ko) {
     knockOut(w, e, part.kind === 'head' ? 'head' : 'shot');
     // knockout kick: the whole body is thrown along the arrow with a little hop, so it
@@ -1373,6 +2324,31 @@ function hitEnemy(w: World, a: Arrow, e: Archer, part: Part, hx: number, hy: num
     addVelocity(e.body, PT.head, vx * kick * 0.8, vy * kick * 0.4, DT);
   }
   stickOrPierce(w, a, e, part, hx, hy);
+}
+
+function zap(w: World, from: Archer, dmg: number, jumps: number): void {
+  let src = from;
+  const hit = new Set<number>([from.id]);
+  for (let j = 0; j < jumps; j++) {
+    const s = targetPoint(src, 'chest');
+    let best: Archer | null = null;
+    let bd = 260;
+    for (const e of w.enemies) {
+      if (!e.alive || hit.has(e.id) || e.brain === 'spawn') continue;
+      const t = targetPoint(e, 'chest');
+      const d = Math.hypot(t.x - s.x, t.y - s.y);
+      if (d < bd) {
+        bd = d;
+        best = e;
+      }
+    }
+    if (!best) return;
+    const t = targetPoint(best, 'chest');
+    w.events.push({ t: 'zap', x0: s.x, y0: s.y, x1: t.x, y1: t.y, dmg });
+    hit.add(best.id);
+    damageEnemy(w, best, dmg, 'blast');
+    src = best;
+  }
 }
 
 function stickOrPierce(w: World, a: Arrow, e: Archer, part: Part, hx: number, hy: number): void {
@@ -1390,14 +2366,18 @@ function stickOrPierce(w: World, a: Arrow, e: Archer, part: Part, hx: number, hy
 function damagePlayer(w: World, part: HitPart, dmg: number, x: number, y: number, vx: number, vy: number, by = -1): void {
   const p = w.player;
   const out = resolveHit('player', part, 1);
-  p.hp -= dmg;
+  // a bonus round never knocks the player out
+  const amount = w.phase === 'bonus' ? Math.min(dmg, Math.max(0, p.hp - 1)) : dmg;
+  p.hp -= amount;
   p.hurt = 0;
   p.body.muscle = Math.min(p.body.muscle, 0.12);
   if (out.wobble > 0) p.wobble = Math.max(p.wobble, out.wobble);
   if (out.stagger > 0) p.stagger = Math.max(p.stagger, out.stagger);
   w.run.playerHitsTaken += 1;
+  w.run.streak = 0;
+  if (w.objective) w.objective.hit = true;
   pushBody(p.body, x, y, vx, vy, 0.3, 70);
-  w.events.push({ t: 'playerHit', part, x, y, dmg, vx, vy, by });
+  w.events.push({ t: 'playerHit', part, x, y, dmg: amount, vx, vy, by });
   if (p.hp <= 0) knockOut(w, p, part === 'head' ? 'head' : 'shot');
 }
 
@@ -1412,7 +2392,7 @@ function enemyArrowHits(w: World, a: Arrow, x0: number, y0: number): void {
   if (h && h.t <= ledgeT) {
     const hitPart = PARTS[h.part]!;
     // a wave's opening volley never lands a headshot: it counts as a body hit
-    const part = a.soft && hitPart.kind === 'head' ? BODY_PART : hitPart;
+    const part = (a.soft || a.kind === 'orb') && hitPart.kind === 'head' ? BODY_PART : hitPart;
     const hx = h.x;
     const hy = h.y;
     if (a.kind === 'bomb') {
@@ -1427,13 +2407,153 @@ function enemyArrowHits(w: World, a: Arrow, x0: number, y0: number): void {
     }
     const vx = a.vx;
     const vy = a.vy;
-    if (p.alive) damagePlayer(w, part.kind, resolveHit('player', part.kind, enemyDamageMul(w.wave)).damage, hx, hy, vx, vy, a.by);
+    if (a.kind === 'orb') {
+      a.active = false;
+      if (p.alive) damagePlayer(w, 'body', FX.orbDamage * enemyDamageMul(w.level) * (a.by === -2 ? 0.7 : 1), hx, hy, vx, vy, a.by);
+      w.events.push({ t: 'orbPop', x: hx, y: hy });
+      return;
+    }
+    if (p.alive) damagePlayer(w, part.kind, resolveHit('player', part.kind, enemyDamageMul(w.level)).damage, hx, hy, vx, vy, a.by);
     else pushBody(p.body, hx, hy, vx, vy, 0.3, 70);
     stickTo(a, p, p.body, part, hx, hy, 2);
     trimStuck(w, p.id);
     return;
   }
   ledgeHit(w, a, x0, y0);
+}
+
+// ---------------------------------------------------------------- bonus rounds
+
+export const BONUS = {
+  gallery: { dur: 20, every: 0.75, gold: 18, silver: 11, bronze: 5 },
+  apples: { dur: 16, every: 0.6, gold: 17, silver: 10, bronze: 5 },
+  defend: { dur: 22, every: 1.1, gold: 17, silver: 11, bronze: 5 },
+  intro: 1.6,
+  outro: 1.4,
+} as const;
+
+function startBonus(w: World, kind: BonusKind): void {
+  w.phase = 'bonus';
+  w.phaseT = 0;
+  for (const a of w.arrows) if (a.active && a.state === 0 && a.owner === 'enemy') a.active = false;
+  for (const p of w.props) p.active = false;
+  for (const p of w.plates) p.active = false;
+  for (const t of w.targets) t.active = false;
+  w.bonus = { kind, t: -BONUS.intro, dur: BONUS[kind].dur, hits: 0, spawned: 0, landed: 0, coins: 0, spawnT: 0, grade: null };
+  w.events.push({ t: 'bonusStart', kind });
+}
+
+function spawnTarget(w: World, kind: Target['kind']): Target | null {
+  const t = w.targets.find((q) => !q.active);
+  if (!t) return null;
+  const r = w.bonusRng;
+  t.active = true;
+  t.kind = kind;
+  t.t = 0;
+  if (kind === 'target') {
+    t.x = 780;
+    t.baseY = r.range(300, 800);
+    t.y = t.baseY;
+    t.vx = -r.range(110, 175);
+    t.vy = 0;
+    t.r = 30;
+  } else if (kind === 'apple') {
+    t.x = r.range(330, 690);
+    t.y = -40;
+    t.baseY = t.y;
+    t.vx = r.range(-20, 20);
+    t.vy = r.range(150, 230);
+    t.r = 28;
+  } else {
+    t.x = 770;
+    t.y = r.range(320, 760);
+    t.baseY = t.y;
+    const tx = PLAYER_X;
+    const ty = playerPelvisY() - 30;
+    const sp = r.range(300, 380);
+    const d = Math.hypot(tx - t.x, ty - t.y) || 1;
+    t.vx = ((tx - t.x) / d) * sp;
+    t.vy = ((ty - t.y) / d) * sp;
+    t.r = 24;
+  }
+  return t;
+}
+
+function updateBonus(w: World): void {
+  const b = w.bonus!;
+  b.t += DT;
+  if (b.t < 0) return;
+  const cfg = BONUS[b.kind];
+  if (b.t < b.dur) {
+    b.spawnT -= DT;
+    if (b.spawnT <= 0) {
+      b.spawnT = cfg.every;
+      if (spawnTarget(w, b.kind === 'gallery' ? 'target' : b.kind === 'apples' ? 'apple' : 'rock')) b.spawned += 1;
+    }
+  }
+  const p = w.player;
+  for (const t of w.targets) {
+    if (!t.active) continue;
+    t.t += DT;
+    t.x += t.vx * DT;
+    if (t.kind === 'target') t.y = t.baseY + Math.sin(t.t * 2.6) * 34;
+    else t.y += t.vy * DT;
+    if (t.kind === 'rock') {
+      const dx = p.body.x[PT.neck]! - t.x;
+      const dy = (p.body.y[PT.neck]! + p.body.y[PT.pelvis]!) / 2 - t.y;
+      if (dx * dx + dy * dy < 60 * 60) {
+        t.active = false;
+        b.landed += 1;
+        damagePlayer(w, 'body', 6, t.x, t.y, t.vx, t.vy, -2);
+        continue;
+      }
+    }
+    if (t.x < -80 || t.y > 1350) t.active = false;
+  }
+  if (b.t >= b.dur && b.grade === null && !w.targets.some((t) => t.active && t.kind === 'rock')) endBonus(w);
+  if (b.grade !== null && b.t >= b.dur + BONUS.outro) {
+    w.bonus = null;
+    openCards(w);
+  }
+}
+
+function endBonus(w: World): void {
+  const b = w.bonus!;
+  const cfg = BONUS[b.kind];
+  for (const t of w.targets) t.active = false;
+  const grade = b.hits >= cfg.gold ? 'gold' : b.hits >= cfg.silver ? 'silver' : b.hits >= cfg.bronze ? 'bronze' : 'none';
+  b.grade = grade;
+  const c = Math.min(4, w.chapter);
+  const prize = grade === 'gold' ? 30 + 10 * c : grade === 'silver' ? 15 + 5 * c : grade === 'bronze' ? 5 + 2 * c : 0;
+  const coins = Math.round(prize * coinMul(w));
+  w.run.coins += coins;
+  b.coins += coins;
+  if (grade === 'gold') {
+    w.run.bonusGold += 1;
+    w.treasure = true;
+  }
+  // a bonus round heals up for the next chapter
+  heal(w, 30);
+  w.events.push({ t: 'bonusEnd', kind: b.kind, hits: b.hits, grade, coins: b.coins });
+}
+
+function bonusHits(w: World, x0: number, y0: number, x1: number, y1: number): void {
+  const b = w.bonus!;
+  for (const t of w.targets) {
+    if (!t.active) continue;
+    const tt = sweepCapsule(x0, y0, x1, y1, t.x, t.y, t.x, t.y, t.r);
+    if (tt < 0) continue;
+    t.active = false;
+    b.hits += 1;
+    // a bullseye: the arrow's path passes near the middle
+    const bull = t.kind === 'target' && sweepCapsule(x0, y0, x1, y1, t.x, t.y, t.x, t.y, 10) >= 0;
+    const base = t.kind === 'target' ? (bull ? 4 : 2) : t.kind === 'apple' ? 1 : 3;
+    const coins = Math.round(base * coinMul(w));
+    w.run.coins += coins;
+    b.coins += coins;
+    if (t.kind === 'apple') heal(w, 4);
+    w.events.push({ t: 'bonusHit', x: t.x, y: t.y, coins, bull, kind: t.kind });
+  }
 }
 
 // ---------------------------------------------------------------- apples
@@ -1473,4 +2593,30 @@ export function targetPoint(e: Archer, where: 'head' | 'chest' | 'weak'): { x: n
   if (where === 'head') return { x: b.x[PT.head]!, y: b.y[PT.head]! };
   const u = 0.5;
   return { x: b.x[PT.neck]! + (b.x[PT.pelvis]! - b.x[PT.neck]!) * u, y: b.y[PT.neck]! + (b.y[PT.pelvis]! - b.y[PT.neck]!) * u };
+}
+
+/** Wave reached: the wave being played, or the next one once this one is cleared. */
+export function reachedWave(w: World): number {
+  return w.phase === 'clear' || w.phase === 'cards' || w.phase === 'bonus' ? w.wave + 1 : w.wave;
+}
+
+/** What the run has done so far (records, achievements, the result screen). */
+export function summarize(w: World, daily = false): RunSummary {
+  const r = w.run;
+  const reached = reachedWave(w);
+  return {
+    reached,
+    kos: r.kos,
+    headChain: r.chainBest,
+    streak: r.streakBest,
+    multi: r.multiBest,
+    focusUses: r.focusUses,
+    bossKills: r.bossKills,
+    chapterStage: [...r.chapterStage],
+    bonusGold: r.bonusGold,
+    barrelBest: r.barrelBest,
+    ropeDrops: r.ropeDrops,
+    endless: Math.max(0, reached - ENDLESS_WAVE + 1),
+    daily,
+  };
 }

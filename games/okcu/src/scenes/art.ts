@@ -5,6 +5,8 @@
  */
 import type Phaser from 'phaser';
 import type { BowSkin, Cosmetic } from '../sim/meta';
+import { bowTier } from '../sim/bow';
+import { drawBowGlow, drawBowTierBits, TIER_LOOK } from './gear';
 import type { AnimOut } from '../anim/anim';
 import { PT } from '../sim/ragdoll';
 import type { Archer, Arrow } from '../sim/world';
@@ -15,7 +17,7 @@ type G = Phaser.GameObjects.Graphics;
 export interface Look {
   body: number;
   shade: number;
-  hat: Cosmetic['hat'] | 'hood' | 'helmet' | 'band' | 'goggles' | 'horns-boss';
+  hat: Cosmetic['hat'] | 'hood' | 'helmet' | 'band' | 'goggles' | 'horns-boss' | 'leafcrown' | 'turban' | 'plume' | 'lanternhelm' | 'imp' | 'catcap';
   scarf: number;
   bow: BowSkin;
 }
@@ -33,6 +35,32 @@ export function lookFor(a: Archer, cosmetic: Cosmetic): Look {
     case 'bomber':
       return { body: PALETTE.bomber, shade: PALETTE.bomberShade, hat: 'goggles', scarf: PALETTE.bomberGoggle, bow: 'wood' };
     case 'boss':
+      return bossLook(a.bossKind);
+    case 'healer':
+      return { body: PALETTE.healer, shade: PALETTE.healerShade, hat: 'leafcrown', scarf: PALETTE.leaf, bow: 'leaf' };
+    case 'cover':
+      return { body: PALETTE.cover, shade: PALETTE.coverShade, hat: 'turban', scarf: PALETTE.cream, bow: 'wood' };
+    case 'catcher':
+      return { body: PALETTE.catcher, shade: PALETTE.catcherShade, hat: 'catcap', scarf: PALETTE.white, bow: 'wood' };
+    case 'ward':
+      return { body: PALETTE.ward, shade: PALETTE.wardShade, hat: 'lanternhelm', scarf: PALETTE.wardGlow, bow: 'dark' };
+    case 'elite':
+      return { body: PALETTE.elite, shade: PALETTE.eliteShade, hat: 'plume', scarf: PALETTE.gold, bow: 'gold' };
+    case 'imp':
+      return { body: PALETTE.imp, shade: PALETTE.impShade, hat: 'imp', scarf: PALETTE.pink, bow: 'dark' };
+  }
+}
+
+/** A boss's look by kind (each chapter boss wears its own colours). */
+export function bossLook(kind: string | null): Look {
+  switch (kind) {
+    case 'giant':
+      return { body: 0x8fc8ff, shade: 0x5a96d6, hat: 'horns-boss', scarf: 0xffffff, bow: 'ice' };
+    case 'summoner':
+      return { body: 0xe8a33c, shade: 0xb5761d, hat: 'turban', scarf: 0x8e4cb8, bow: 'gold' };
+    case 'warden':
+      return { body: 0x4b4fa8, shade: 0x2f3278, hat: 'lanternhelm', scarf: 0xb9c4ff, bow: 'dark' };
+    default:
       return { body: PALETTE.boss, shade: PALETTE.bossShade, hat: 'horns-boss', scarf: PALETTE.bossScarf, bow: 'dark' };
   }
 }
@@ -178,6 +206,8 @@ export interface DrawOpts {
   view?: { x: Float64Array; y: Float64Array };
   /** expressions and extras from the animation layer */
   face?: AnimOut;
+  /** the player's forged bow level (its tier look and glow) */
+  bowLevel?: number;
 }
 
 export function drawArcher(g: G, a: Archer, look: Look, o: DrawOpts): void {
@@ -201,7 +231,7 @@ export function drawArcher(g: G, a: Archer, look: Look, o: DrawOpts): void {
   const py = Y[PT.pelvis]!;
   const ax = (px - nx) / (Math.hypot(px - nx, py - ny) || 1);
   const ay = (py - ny) / (Math.hypot(px - nx, py - ny) || 1);
-  if (a.type !== 'boss' && a.type !== 'bomber') {
+  if (a.type !== 'boss' && a.type !== 'bomber' && a.type !== 'healer') {
     const qx = nx - a.facing * 12 * s * ay * -1 - a.facing * 10 * s;
     const qy = ny + 10 * s;
     g.lineStyle(14 * s + OUT * 2, PALETTE.ink, 1).lineBetween(qx, qy - 6 * s, qx - ax * 34 * s, qy + ay * 30 * s);
@@ -229,6 +259,11 @@ export function drawArcher(g: G, a: Archer, look: Look, o: DrawOpts): void {
       g.fillStyle(PALETTE.bomb, 1).fillCircle(bx, by, 4.5 * s);
     }
   }
+  if (a.type === 'elite') {
+    // gold sash across the chest
+    g.lineStyle(13 * s, PALETTE.ink, 1).lineBetween(nx - 13 * s, ny + 4 * s, px + 12 * s, py - 6 * s);
+    g.lineStyle(7 * s, PALETTE.gold, 1).lineBetween(nx - 13 * s, ny + 4 * s, px + 12 * s, py - 6 * s);
+  }
   if (o.scarf) {
     g.fillStyle(PALETTE.ink, 1).fillEllipse(nx, ny + 2 * s, 40 * s, 20 * s);
     g.fillStyle(look.scarf, 1).fillEllipse(nx, ny + 2 * s, 32 * s, 13 * s);
@@ -246,6 +281,43 @@ export function drawArcher(g: G, a: Archer, look: Look, o: DrawOpts): void {
   g.fillStyle(skin, 1).fillCircle(X[PT.handF]!, Y[PT.handF]!, 7 * s);
   g.fillStyle(PALETTE.ink, 1).fillCircle(X[PT.handB]!, Y[PT.handB]!, 8 * s + 2);
   g.fillStyle(skin, 1).fillCircle(X[PT.handB]!, Y[PT.handB]!, 7 * s);
+  if (a.type === 'catcher') {
+    // the big catching mitt; a caught arrow shows in it while it recovers
+    const mx = X[PT.handB]!;
+    const my = Y[PT.handB]!;
+    if (a.catchCd > 0 && a.alive) {
+      g.lineStyle(7, PALETTE.ink, 1).lineBetween(mx - 26 * s, my - 10 * s, mx + 22 * s, my + 8 * s);
+      g.lineStyle(3.5, PALETTE.shaftLight, 1).lineBetween(mx - 26 * s, my - 10 * s, mx + 22 * s, my + 8 * s);
+    }
+    g.fillStyle(PALETTE.ink, 1).fillEllipse(mx, my, 30 * s, 34 * s);
+    g.fillStyle(0xc9813f, 1).fillEllipse(mx, my, 23 * s, 27 * s);
+    g.fillStyle(0x8a4f22, 1).fillEllipse(mx + 2 * s, my + 3 * s, 11 * s, 13 * s);
+    if (a.catchCd <= 0 && a.alive && a.brain !== 'draw') {
+      const k = (Math.sin(o.time * 6) + 1) / 2;
+      g.lineStyle(3, PALETTE.white, 0.5 + 0.4 * k).strokeEllipse(mx, my, 38 * s, 42 * s);
+    }
+  }
+  if (a.type === 'ward' && a.alive) {
+    // the lantern ward: a glowing shell while up, shards while it reforms
+    const cx = (nx + px) / 2;
+    const cy = (ny + py) / 2 - 22 * s;
+    const R = 70 * s;
+    if (a.wardUp) {
+      const k = 1 + Math.sin(o.time * 3 + a.id) * 0.04;
+      g.fillStyle(PALETTE.wardGlow, 0.18).fillCircle(cx, cy, R * k);
+      g.lineStyle(8, PALETTE.ink, 0.35).strokeCircle(cx, cy, R * k + 2);
+      g.lineStyle(5, PALETTE.wardGlow, 0.9).strokeCircle(cx, cy, R * k);
+      g.fillStyle(PALETTE.white, 0.6).fillEllipse(cx - R * 0.45, cy - R * 0.5, R * 0.3, R * 0.14);
+    } else {
+      const k = Math.max(0, a.wardT / 1.4);
+      g.lineStyle(4, PALETTE.wardGlow, 0.25 + 0.5 * (1 - k));
+      for (let i = 0; i < 8; i++) {
+        const ang = (i / 8) * Math.PI * 2 + o.time;
+        const r0 = R * (0.9 + 0.5 * k);
+        g.lineBetween(cx + Math.cos(ang) * r0, cy + Math.sin(ang) * r0, cx + Math.cos(ang + 0.3) * r0, cy + Math.sin(ang + 0.3) * r0);
+      }
+    }
+  }
   // hp pill and telegraph
   const hx = X[PT.head]!;
   const hy = Y[PT.head]!;
@@ -333,7 +405,7 @@ function drawHead(g: G, a: Archer, look: Look, skin: number, o: DrawOpts): void 
   const rx = -uy * a.facing; // "forward" of the face
   const ry = ux * a.facing;
   g.fillStyle(PALETTE.ink, 1).fillCircle(hx, hy, r + OUT);
-  g.fillStyle(a.type === 'boss' ? flash(PALETTE.bossShade, o.flash) : skin, 1).fillCircle(hx, hy, r);
+  g.fillStyle(a.type === 'boss' ? flash(look.shade, o.flash) : skin, 1).fillCircle(hx, hy, r);
   if (a.type === 'player') {
     const ang = Math.atan2(uy, ux);
     g.fillStyle(PALETTE.hair, 1).slice(hx, hy, r + 1, ang - 1.35, ang + 1.25, false).fillPath();
@@ -369,8 +441,67 @@ function drawHead(g: G, a: Archer, look: Look, skin: number, o: DrawOpts): void 
       g.fillStyle(PALETTE.bomberGoggle, 1).fillCircle(gx, gy, 6).fillCircle(gx + rx * 15, gy + ry * 15, 5);
       break;
     }
+    case 'leafcrown': {
+      for (let i = 0; i < 5; i++) {
+        const k = -1 + i * 0.5;
+        const x = hx + ux * r * 0.8 + rx * k * r * 0.9;
+        const y = hy + uy * r * 0.8 + ry * k * r * 0.9;
+        g.fillStyle(PALETTE.ink, 1).fillEllipse(x, y, 16, 11);
+        g.fillStyle(PALETTE.leaf, 1).fillEllipse(x, y, 12, 7);
+      }
+      break;
+    }
+    case 'turban': {
+      g.fillStyle(PALETTE.ink, 1).slice(hx, hy, r + 9, Math.atan2(uy, ux) - 1.6, Math.atan2(uy, ux) + 1.6, false).fillPath();
+      g.fillStyle(look.scarf, 1).slice(hx, hy, r + 5, Math.atan2(uy, ux) - 1.5, Math.atan2(uy, ux) + 1.5, false).fillPath();
+      g.lineStyle(3, look.shade, 0.8).lineBetween(hx - rx * r + ux * r * 0.5, hy - ry * r + uy * r * 0.5, hx + rx * r + ux * r * 0.9, hy + ry * r + uy * r * 0.9);
+      g.fillStyle(PALETTE.danger, 1).fillCircle(hx + ux * r * 0.7 + rx * 4, hy + uy * r * 0.7 + ry * 4, 4.5);
+      break;
+    }
+    case 'catcap': {
+      g.fillStyle(look.shade, 1).slice(hx, hy, r + 3, Math.atan2(uy, ux) - 1.45, Math.atan2(uy, ux) + 1.45, false).fillPath();
+      const bx = hx + ux * r * 0.35 + rx * r * 0.9;
+      const by = hy + uy * r * 0.35 + ry * r * 0.9;
+      g.fillStyle(PALETTE.ink, 1).fillEllipse(bx, by, 26, 12);
+      g.fillStyle(look.shade, 1).fillEllipse(bx, by, 20, 7);
+      break;
+    }
+    case 'lanternhelm': {
+      g.fillStyle(PALETTE.ink, 1).slice(hx, hy, r + 7, Math.atan2(uy, ux) - 1.6, Math.atan2(uy, ux) + 1.6, false).fillPath();
+      g.fillStyle(0x9aa3c0, 1).slice(hx, hy, r + 3, Math.atan2(uy, ux) - 1.5, Math.atan2(uy, ux) + 1.5, false).fillPath();
+      const lx = hx + ux * (r + 14);
+      const ly = hy + uy * (r + 14);
+      const glow = 0.6 + Math.sin(o.time * 6 + a.id) * 0.3;
+      g.fillStyle(PALETTE.lantern, glow * 0.35).fillCircle(lx, ly, 16);
+      g.fillStyle(PALETTE.ink, 1).fillRoundedRect(lx - 8, ly - 9, 16, 18, 4);
+      g.fillStyle(PALETTE.lantern, glow).fillRoundedRect(lx - 5, ly - 6, 10, 12, 3);
+      break;
+    }
+    case 'plume': {
+      g.fillStyle(PALETTE.ink, 1).slice(hx, hy, r + 7, Math.atan2(uy, ux) - 1.6, Math.atan2(uy, ux) + 1.6, false).fillPath();
+      g.fillStyle(PALETTE.gold, 1).slice(hx, hy, r + 3, Math.atan2(uy, ux) - 1.5, Math.atan2(uy, ux) + 1.5, false).fillPath();
+      const b0x = hx + ux * (r + 4);
+      const b0y = hy + uy * (r + 4);
+      const wob = Math.sin(o.time * 7 + a.id) * 5;
+      for (let i = 0; i < 3; i++) {
+        const ex = b0x - rx * (18 + i * 9) + ux * (22 - i * 5) + wob;
+        const ey = b0y - ry * (18 + i * 9) + uy * (22 - i * 5);
+        g.lineStyle(12 - i * 2, PALETTE.ink, 1).lineBetween(b0x, b0y, ex, ey);
+        g.lineStyle(7 - i, i === 1 ? PALETTE.white : PALETTE.danger, 1).lineBetween(b0x, b0y, ex, ey);
+      }
+      break;
+    }
+    case 'imp': {
+      for (const side of [-1, 1]) {
+        const bx = hx + ux * r * 0.6 + rx * side * r * 0.6;
+        const by = hy + uy * r * 0.6 + ry * side * r * 0.6;
+        g.fillStyle(PALETTE.ink, 1).fillTriangle(bx - rx * 7, by - ry * 7, bx + rx * 7, by + ry * 7, bx + ux * 20 + rx * side * 6, by + uy * 20 + ry * side * 6);
+        g.fillStyle(look.shade, 1).fillTriangle(bx - rx * 4, by - ry * 4, bx + rx * 4, by + ry * 4, bx + ux * 15 + rx * side * 5, by + uy * 15 + ry * side * 5);
+      }
+      break;
+    }
     case 'horns-boss': {
-      g.fillStyle(PALETTE.bossPlate, 1).slice(hx, hy, r + 3, Math.atan2(uy, ux) - 1.5, Math.atan2(uy, ux) + 1.5, false).fillPath();
+      g.fillStyle(look.scarf === 0xffffff ? 0xdff1ff : PALETTE.bossPlate, 1).slice(hx, hy, r + 3, Math.atan2(uy, ux) - 1.5, Math.atan2(uy, ux) + 1.5, false).fillPath();
       for (const side of [-1, 1]) {
         const bx = hx + ux * r * 0.6 + rx * side * r * 0.75;
         const by = hy + uy * r * 0.6 + ry * side * r * 0.75;
@@ -652,10 +783,34 @@ const BOW_SKIN: Record<BowSkin, [number, number]> = {
   gold: [PALETTE.gold, PALETTE.cream],
 };
 
+function drawStaff(g: G, a: Archer, o: DrawOpts): void {
+  const b = o.view ?? a.body;
+  const s = a.scale;
+  const hx = b.x[PT.handF]!;
+  const hy = b.y[PT.handF]!;
+  // a healer's staff, upright, its orb glowing brighter as the spell gathers
+  const tx = hx + 4 * s;
+  const ty = hy - 52 * s;
+  g.lineStyle(9 * s + 6, PALETTE.ink, 1).lineBetween(hx, hy + 40 * s, tx, ty);
+  g.lineStyle(9 * s, PALETTE.shaft, 1).lineBetween(hx, hy + 40 * s, tx, ty);
+  const k = a.alive ? a.draw : 0;
+  g.fillStyle(PALETTE.heal, 0.25 + k * 0.4).fillCircle(tx, ty, (16 + k * 14) * s);
+  g.fillStyle(PALETTE.ink, 1).fillCircle(tx, ty, 11 * s + 3);
+  g.fillStyle(PALETTE.heal, 1).fillCircle(tx, ty, 11 * s);
+  g.fillStyle(PALETTE.white, 0.8).fillCircle(tx - 3 * s, ty - 3 * s, 3 * s);
+}
+
 function drawBow(g: G, a: Archer, o: DrawOpts, skin: BowSkin): void {
+  if (a.type === 'healer') {
+    drawStaff(g, a, o);
+    return;
+  }
   const b = o.view ?? a.body;
   const draw = o.face && o.face.drawOverride >= 0 ? o.face.drawOverride : a.draw;
-  const [bowColor, stringColor] = BOW_SKIN[skin];
+  // the player's forged bow: its tier look overrides the cosmetic skin from horn up
+  const tier = o.bowLevel !== undefined ? bowTier(o.bowLevel) : 'wood';
+  const forged = tier !== 'wood';
+  const [bowColor, stringColor] = forged ? [TIER_LOOK[tier].limb, TIER_LOOK[tier].string] : BOW_SKIN[skin];
   const s = a.scale;
   const hx = b.x[PT.handF]!;
   const hy = b.y[PT.handF]!;
@@ -673,12 +828,17 @@ function drawBow(g: G, a: Archer, o: DrawOpts, skin: BowSkin): void {
   const t1y = hy + py * L - dy * bend;
   const t2x = hx - px * L - dx * bend;
   const t2y = hy - py * L - dy * bend;
-  noodle(g, t1x, t1y, hx + dx * 5 * s, hy + dy * 5 * s, t2x, t2y, 7 * s, bowColor);
-  if (skin === 'candy') g.lineStyle(3, PALETTE.white, 0.9).lineBetween(t1x, t1y, (t1x + hx) / 2, (t1y + hy) / 2);
-  if (skin === 'gold') g.fillStyle(PALETTE.white, 0.8).fillCircle(hx + dx * 5 * s, hy + dy * 5 * s, 3 * s);
   // string: to the drawing hand while alive and drawing, else straight
   const sx = a.alive && draw > 0.02 ? b.x[PT.handB]! : (t1x + t2x) / 2;
   const sy = a.alive && draw > 0.02 ? b.y[PT.handB]! : (t1y + t2y) / 2;
+  if (o.bowLevel !== undefined && a.alive) drawBowGlow(g, o.bowLevel, t1x, t1y, hx + dx * 5 * s, hy + dy * 5 * s, t2x, t2y, s, o.time, draw, sx, sy);
+  noodle(g, t1x, t1y, hx + dx * 5 * s, hy + dy * 5 * s, t2x, t2y, (forged ? 8 : 7) * s, bowColor);
+  if (forged) {
+    g.lineStyle(2.5 * s, TIER_LOOK[tier].light, 0.8).lineBetween(t1x, t1y, (t1x + hx) / 2 + dx * 3 * s, (t1y + hy) / 2 + dy * 3 * s);
+    drawBowTierBits(g, tier, t1x, t1y, hx + dx * 5 * s, hy + dy * 5 * s, t2x, t2y, s * 0.8, o.time);
+  }
+  if (!forged && skin === 'candy') g.lineStyle(3, PALETTE.white, 0.9).lineBetween(t1x, t1y, (t1x + hx) / 2, (t1y + hy) / 2);
+  if (!forged && skin === 'gold') g.fillStyle(PALETTE.white, 0.8).fillCircle(hx + dx * 5 * s, hy + dy * 5 * s, 3 * s);
   g.lineStyle(3, stringColor, 1).lineBetween(t1x, t1y, sx, sy).lineBetween(t2x, t2y, sx, sy);
   if (a.alive && draw > 0.02) {
     // nocked arrow

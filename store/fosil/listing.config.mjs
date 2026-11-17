@@ -82,7 +82,7 @@ export default {
   },
 
   // Icon: one golden ammonite on sediment, in the family frame (store/tools/lib/icons.mjs).
-  icon: { emblem: 'ammonite', bg: ['#6d4628', '#2a190e'], glow: '#f2c46d', mono: true },
+  icon: { emblem: 'ammonite', bg: ['#9a6334', '#2e1a0c'], glow: '#ffd27a', mono: true },
 
   async stage(load) {
     const { DigSim } = await load('/src/sim/dig.ts');
@@ -218,8 +218,8 @@ export default {
     tagline: { 'en-US': 'Every fossil shows its true odds', 'tr-TR': 'Her fosil gerçek şansını gösterir' },
     // [shot id, crop in logical 720×1280 px: x, y, w, h]
     cards: [
-      ['grand', 150, 300, 420, 800],
-      ['deep', 0, 0, 720, 1280],
+      ['deep', 120, 120, 480, 853],
+      ['grand', 120, 250, 480, 853],
     ],
   },
 };

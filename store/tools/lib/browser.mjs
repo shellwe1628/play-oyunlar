@@ -22,6 +22,8 @@ export async function openGame(browser, build, { url, seed = 1, lang, storage = 
   const context = await browser.newContext({
     viewport: { width: build.width, height: build.height },
     deviceScaleFactor: build.K,
+    hasTouch: true,
+    isMobile: false,
     reducedMotion: 'no-preference',
   });
   const page = await context.newPage();

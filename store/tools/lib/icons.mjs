@@ -5,47 +5,57 @@
 
 const f = (n) => Math.round(n * 100) / 100;
 
-/** Golden ammonite: logarithmic coil, ribs on the outer whorl (Fossil Odds). */
+/** Golden ammonite: a logarithmic coil, ribs across the last two whorls (Fossil Odds). */
 function ammonite(c) {
-  const R = 178;
-  const turns = 2.35;
-  const end = turns * Math.PI * 2;
-  const r0 = 20;
-  const b = Math.log(R / r0) / end;
-  const rAt = (t) => r0 * Math.exp(b * t);
-  const pt = (t, r = rAt(t)) => [f(Math.cos(t - end) * r), f(Math.sin(t - end) * r + 6)];
-  let spiral = '';
-  for (let t = 0; t <= end; t += 0.08) spiral += `${spiral ? 'L' : 'M'}${pt(t).join(' ')} `;
+  const R = 184;
+  const k = 0.56; // each whorl is this fraction of the next one
+  const bb = -Math.log(k) / (2 * Math.PI);
+  const end = 4.6 * Math.PI * 2;
+  const rAt = (t) => R * Math.exp(bb * (t - end));
+  const rot = Math.PI / 4 - end; // the aperture (widest point) faces down-right
+  const shift = -0.14 * R; // centre the coil's bounding box on (0,0)
+  const sx = Math.cos(Math.PI / 4) * shift;
+  const sy = Math.sin(Math.PI / 4) * shift;
+  const pt = (t, r = rAt(t)) => `${f(Math.cos(t + rot) * r + sx)} ${f(Math.sin(t + rot) * r + sy)}`;
+  const path = (t0, t1, step = 0.04, rf = rAt) => {
+    let d = '';
+    for (let t = t0; t <= t1 + 1e-9; t += step) d += `${d ? 'L' : 'M'}${pt(t, rf(t))} `;
+    return d;
+  };
+  // outline: the last whorl's outer edge, then the aperture lip back to the previous whorl
+  // the lip bows outward a little, like a real aperture, instead of a straight radial cut
+  const lipMid = (rAt(end) + rAt(end - 2 * Math.PI)) / 2;
+  const outline = `${path(end - 2 * Math.PI, end)} Q${pt(end + 0.16, lipMid)} ${pt(end, rAt(end - 2 * Math.PI))} Z`;
   let ribs = '';
-  for (let t = end - 2 * Math.PI + 0.25; t < end - 0.05; t += 0.34) {
-    const outer = rAt(t) - 8;
-    const inner = rAt(t - 2 * Math.PI) + 10;
-    ribs += `M${pt(t, outer).join(' ')} L${pt(t, inner).join(' ')} `;
-  }
-  const inner2 = rAt(end - 2 * Math.PI);
+  for (let t = end - 2 * Math.PI + 0.1; t < end - 0.3; t += 0.27) ribs += `M${pt(t, rAt(t) - 13)} L${pt(t, rAt(t - 2 * Math.PI) + 10)} `;
+  let ribs2 = '';
+  for (let t = end - 4 * Math.PI + 0.15; t < end - 2 * Math.PI; t += 0.34) ribs2 += `M${pt(t, rAt(t) - 8)} L${pt(t, rAt(t - 2 * Math.PI) + 6)} `;
+  const coil = path(end - 4.4 * Math.PI * 2 + 2 * Math.PI, end - 2 * Math.PI + 0.001);
+  const [ex, ey] = pt(end - 4.4 * Math.PI * 2 + 2 * Math.PI).split(' ');
   return `
-<defs><radialGradient id="shell" cx="0.38" cy="0.32" r="0.8"><stop offset="0" stop-color="${c.light}"/><stop offset="0.65" stop-color="${c.main}"/><stop offset="1" stop-color="${c.dark}"/></radialGradient></defs>
-<circle cx="0" cy="6" r="${R}" fill="url(#shell)" stroke="${c.ink}" stroke-width="20"/>
-<circle cx="${f(Math.cos(-0.0) * 0)}" cy="6" r="${f(inner2 * 0.98)}" fill="${c.dark}" opacity="0.28"/>
-<path d="${ribs}" stroke="${c.ink}" stroke-width="9" stroke-linecap="round" fill="none" opacity="0.85"/>
-<path d="${spiral}" stroke="${c.ink}" stroke-width="15" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
-<path d="M-128 -70 A150 150 0 0 1 -40 -150" stroke="${c.glint}" stroke-width="16" stroke-linecap="round" fill="none" opacity="0.75"/>`;
+<defs><radialGradient id="shell" cx="0.36" cy="0.3" r="0.85"><stop offset="0" stop-color="${c.light}"/><stop offset="0.6" stop-color="${c.main}"/><stop offset="1" stop-color="${c.dark}"/></radialGradient></defs>
+<path d="${outline}" fill="url(#shell)" stroke="${c.ink}" stroke-width="22" stroke-linejoin="round"/>
+<path d="${ribs}" stroke="${c.ink}" stroke-width="10" stroke-linecap="round" fill="none"/>
+<path d="${ribs2}" stroke="${c.ink}" stroke-width="7" stroke-linecap="round" fill="none" opacity="0.85"/>
+<path d="${coil}" stroke="${c.ink}" stroke-width="15" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+<circle cx="${ex}" cy="${ey}" r="9" fill="${c.ink}"/>
+<path d="${path(end - 2 * Math.PI + 2.75, end - 2 * Math.PI + 3.6, 0.04, (t) => rAt(t) - 26)}" stroke="${c.glint}" stroke-width="14" stroke-linecap="round" fill="none" opacity="0.85"/>`;
 }
 
 /** A drawn bow with its arrow pointing up-right (Noodle Archers). */
 function bow(c) {
   return `
-<g transform="rotate(135) scale(0.86)">
-  <path d="M-6 -205 L70 0 L-6 205" stroke="${c.ink}" stroke-width="14" fill="none" stroke-linejoin="round"/>
-  <path d="M-6 -205 L70 0 L-6 205" stroke="${c.string}" stroke-width="6" fill="none" stroke-linejoin="round"/>
-  <path d="M-6 -205 Q-200 0 -6 205" stroke="${c.ink}" stroke-width="62" fill="none" stroke-linecap="round"/>
-  <path d="M-6 -205 Q-200 0 -6 205" stroke="${c.main}" stroke-width="38" fill="none" stroke-linecap="round"/>
+<g transform="rotate(135) scale(0.9)">
+  <path d="M-6 -200 L70 0 L-6 200" stroke="${c.ink}" stroke-width="20" fill="none" stroke-linejoin="round"/>
+  <path d="M-6 -200 L70 0 L-6 200" stroke="${c.string}" stroke-width="8" fill="none" stroke-linejoin="round"/>
+  <path d="M-6 -200 Q-210 0 -6 200" stroke="${c.ink}" stroke-width="84" fill="none" stroke-linecap="round"/>
+  <path d="M-6 -200 Q-210 0 -6 200" stroke="${c.main}" stroke-width="56" fill="none" stroke-linecap="round"/>
   <path d="M-30 -150 Q-120 -60 -112 10" stroke="${c.glint}" stroke-width="10" fill="none" stroke-linecap="round" opacity="0.8"/>
-  <rect x="-112" y="-30" width="34" height="60" rx="10" fill="${c.grip}" stroke="${c.ink}" stroke-width="10"/>
-  <path d="M96 0 L-196 0" stroke="${c.ink}" stroke-width="30" stroke-linecap="round"/>
-  <path d="M96 0 L-196 0" stroke="${c.shaft}" stroke-width="14" stroke-linecap="round"/>
-  <path d="M62 -6 L112 -50 L136 -50 L96 -6 Z M62 6 L112 50 L136 50 L96 6 Z" fill="${c.feather}" stroke="${c.ink}" stroke-width="10" stroke-linejoin="round"/>
-  <path d="M-180 -36 L-238 0 L-180 36 Z" fill="${c.tip}" stroke="${c.ink}" stroke-width="12" stroke-linejoin="round"/>
+  <rect x="-126" y="-34" width="44" height="68" rx="12" fill="${c.grip}" stroke="${c.ink}" stroke-width="10"/>
+  <path d="M96 0 L-196 0" stroke="${c.ink}" stroke-width="40" stroke-linecap="round"/>
+  <path d="M96 0 L-196 0" stroke="${c.shaft}" stroke-width="20" stroke-linecap="round"/>
+  <path d="M56 -8 L108 -60 L140 -60 L100 -8 Z M56 8 L108 60 L140 60 L100 8 Z" fill="${c.feather}" stroke="${c.ink}" stroke-width="10" stroke-linejoin="round"/>
+  <path d="M-176 -46 L-246 0 L-176 46 Z" fill="${c.tip}" stroke="${c.ink}" stroke-width="12" stroke-linejoin="round"/>
 </g>`;
 }
 

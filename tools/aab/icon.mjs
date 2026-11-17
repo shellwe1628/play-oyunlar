@@ -4,7 +4,8 @@
 //   1. store/<slug>/icon/ with a PNG whose name contains "foreground" (and optionally ones with
 //      "background" and "monochrome"): adaptive icon layers, 108 dp canvases (square, >= 192 px,
 //      ideally 432); without a background PNG the colour apps.json icon.background is the back
-//      layer; the monochrome layer (themed icons, Android 13+) is used when present.
+//      layer; the monochrome layer (themed icons, Android 13+) is used when present, and a PNG
+//      with "legacy" in its name is the API 24-25 icon (else the layers are composited).
 //   2. store/<slug>/icon/ with any other square PNG (the largest wins; e.g. the 512×512 Play
 //      icon): the full icon fills the adaptive icon's visible 72 dp area on a background of
 //      apps.json icon.background, and is the legacy (API 24-25) icon as is.
@@ -35,16 +36,18 @@ export function findIconSource(dir) {
   if (fg) {
     const bg = pngs.find((f) => /background/i.test(f));
     const mono = pngs.find((f) => /monochrome/i.test(f));
+    const legacy = pngs.find((f) => /legacy/i.test(f));
     return {
       kind: 'adaptive',
       foreground: join(dir, fg),
       background: bg ? join(dir, bg) : null,
       monochrome: mono ? join(dir, mono) : null,
-      files: [fg, bg, mono].filter(Boolean),
+      legacy: legacy ? join(dir, legacy) : null,
+      files: [fg, bg, mono, legacy].filter(Boolean),
     };
   }
   let best = null;
-  for (const f of pngs.filter((p) => !/background|monochrome/i.test(p))) {
+  for (const f of pngs.filter((p) => !/background|monochrome|legacy/i.test(p))) {
     const img = decodePng(readFileSync(join(dir, f)), f);
     if (img.width !== img.height) continue;
     if (!best || img.width > best.img.width) best = { file: f, img };
@@ -206,8 +209,8 @@ export function writeIcon(res, source, colours) {
     composite = over(fg, bg ?? solid(432, background));
   }
 
-  // Legacy icons (API 24-25): 48 dp; a full icon is used as is, layers are cropped to 72 dp.
-  const legacy = source.kind === 'full' ? load(source.full) : crop72(composite);
+  // Legacy icons (API 24-25): 48 dp; a full or "legacy" icon is used as is, else layers cropped to 72 dp.
+  const legacy = source.kind === 'full' ? load(source.full) : source.legacy ? load(source.legacy) : crop72(composite);
   for (const [d, k] of Object.entries(DENSITIES)) {
     const dir = join(res, `mipmap-${d}`);
     mkdirSync(dir, { recursive: true });

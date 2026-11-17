@@ -141,7 +141,7 @@ export default {
           }
         });
         await g.until((s) => s.data.phase === 'cards', { what: 'cards' });
-        await g.run(1100, 110);
+        await g.run(2400, 200);
       },
     },
     {
@@ -153,7 +153,7 @@ export default {
         await g.run(2400, 120);
         await g.until((s) => s.data.reload === 0, { step: 60, max: 3000, what: 'reload' });
         await g.act('aimbot', { error: 0.01 });
-        await g.run(210, 35);
+        await g.run(330, 33);
       },
     },
     {
@@ -174,7 +174,7 @@ export default {
       caption: { 'en-US': 'New foes: shields, jumpers and bombers', 'tr-TR': 'Yeni rakipler: kalkanlı, zıpzıp ve bombacı' },
       async run(g) {
         await playTo(g, 6);
-        await g.run(2600, 100);
+        await g.run(1500, 100);
       },
     },
     {
@@ -193,8 +193,8 @@ export default {
   feature: {
     tagline: { 'en-US': 'Pull back, let go, knock them off!', 'tr-TR': 'Geri çek, bırak, düşür!' },
     cards: [
-      ['headshot', 0, 0, 720, 1280],
-      ['volley', 0, 0, 720, 1280],
+      ['volley', 0, 260, 480, 853],
+      ['headshot', 150, 150, 480, 853],
     ],
   },
 };

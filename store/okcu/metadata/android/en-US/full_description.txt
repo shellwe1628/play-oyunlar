@@ -1,5 +1,5 @@
 Pull back, let go and knock wobbly noodle archers off their floating ledges.
-Land a headshot for a slow-motion knockout, then pick a new trick and take on the next wave.
+Fight through four worlds and four bosses, and forge your bow until it blazes with a magenta, then prismatic, glow.
 
 Noodle Archers is a bright, bouncy archery game with ragdoll physics. Your first arrow is in the air within seconds: drag anywhere to aim, watch the dotted arc, release to shoot.
 
@@ -7,22 +7,32 @@ HOW IT PLAYS
 • Drag back to set angle and power, then let go. No buttons to learn.
 • Arrows really fly: they arc, stick where they land and shove what they hit.
 • Where you hit matters: the head knocks an archer out, a leg hit can topple them off the ledge.
-• Rival archers shoot back, so keep an eye on your health bar. Shoot the apples that drift by to heal.
-• Clear every archer to finish the wave. Runs are short, and a new one is a tap away.
+• Rival archers shoot back. Shoot the apples that drift by to heal.
+• Every archer squints, flinches, laughs and wobbles with its own body language.
 
-PICK A TRICK
-• After every wave choose one of three trick cards: split shot, double shot, fire arrows, bouncing and piercing arrows, quicker draw, a protective bubble and more.
-• Tricks stack and combine, so a good run gets wildly stronger as it goes.
+FOUR CHAPTERS
+• Sunny Meadow, Frozen Peaks, Sunset Dunes and Lantern Night, seven stages each, then endless waves.
+• An elite with loot in the middle of every chapter and a boss at the end: the Bramble Baron, the Frost Giant, the Sand Sultan and the Night Warden. Each one changes tactics at half health.
+• A bonus round after every chapter: target gallery, apple rain or defend the ledge, with medals.
+• Sliding ledges, ledges hanging on ropes you can cut, rocks to drop, explosive barrels and wind you have to aim into.
+• New rivals: healers, archers behind cover walls, arrow-catchers and lantern knights.
 
-RIVALS
-• Plain archers, shield bearers, jumpers that hop between ledges and bombers whose bombs you can shoot out of the air.
-• Every fifth wave an armoured boss shows up: aim for the glowing head.
-• The sky changes colour every five waves.
+FORGE YOUR BOW
+• Enhance your bow from +0 to +20 at the forge. Every level adds damage.
+• Six bow looks from plain wood to mythic, and a glow that changes colour as it grows: frost, green, golden flame, sapphire, magenta inferno and finally prismatic.
+• +1 to +6 always work. Later levels print their exact chance before you try, and a miss only costs the coins and heats the forge, so the next try is more likely.
 
-BETWEEN RUNS
-• Spend the coins you earn on five permanent upgrades.
-• Reach new best waves to unlock hats and scarf colours (six looks in all).
-• Try the daily run: the same archers for that day's date, without upgrades.
+BIG MOMENTS
+• Headshot chains, multi-kills, knockout streaks and critical hits, each with its own callout.
+• Fill the focus meter and tap the eye for a powered-up shot.
+• Pick one of three trick cards after every stage: 18 tricks, from split shot and fire arrows to seeker arrows and chain sparks, and five combos that unlock when two tricks meet.
+
+YOUR PROGRESS
+• Climb a personal ladder of 12 ranks, from Recruit to Mythic Archer.
+• A records board of your own bests, with dates, and 19 achievements that pay coins.
+• A daily challenge with a twist and a goal, and a streak for coming back.
+• Four permanent upgrades and twelve looks: hats, scarves and bow skins.
+• Start any chapter you have reached from the title screen.
 
 GOOD TO KNOW
 • Plays offline. No account needed.

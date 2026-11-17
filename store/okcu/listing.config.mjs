@@ -77,7 +77,7 @@ export default {
     ink: '#2a1838',
     text: '#ffffff',
     pattern: 'clouds',
-    stroke: 14,
+    stroke: 12,
     frame: '#ffffffaa',
   },
 
@@ -153,7 +153,7 @@ export default {
         await g.run(2400, 120);
         await g.until((s) => s.data.reload === 0, { step: 60, max: 3000, what: 'reload' });
         await g.act('aimbot', { error: 0.01 });
-        await g.run(330, 33);
+        await g.run(500, 50);
       },
     },
     {
@@ -174,7 +174,7 @@ export default {
       caption: { 'en-US': 'New foes: shields, jumpers and bombers', 'tr-TR': 'Yeni rakipler: kalkanlı, zıpzıp ve bombacı' },
       async run(g) {
         await playTo(g, 6);
-        await g.run(1500, 100);
+        await g.run(700, 100);
       },
     },
     {

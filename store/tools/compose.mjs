@@ -17,7 +17,7 @@ export function captionCss(look) {
   return `
 .cap{position:absolute;left:60px;right:60px;top:40px;height:${SHOT.cardY - 70}px;display:flex;align-items:center;justify-content:center}
 .cap p{margin:0;width:100%;text-align:center;font-family:Nunito;font-weight:900;line-height:1.12;color:${look.text};
-  -webkit-text-stroke:${look.stroke ?? 0}px ${look.ink};paint-order:stroke fill;letter-spacing:-0.5px;
+  -webkit-text-stroke:${look.stroke ?? 0}px ${look.ink};paint-order:stroke fill;letter-spacing:0.3px;
   text-shadow:0 6px 0 ${look.ink}55;overflow-wrap:normal;word-break:keep-all;hyphens:none}
 .card{position:absolute;left:${(SHOT.w - SHOT.cardW) / 2}px;top:${SHOT.cardY}px;width:${SHOT.cardW}px;height:${SHOT.cardH}px;border-radius:46px;
   overflow:hidden;box-shadow:0 0 0 9px ${look.ink},0 0 0 13px ${look.frame ?? '#ffffff55'},0 24px 50px rgba(0,0,0,.45)}

@@ -19,7 +19,7 @@ Görseller kodla çizilir, sesler WebAudio ile üretilir; indirilmiş varlık yo
 | `docs/production/` | İşletme belgeleri: `hat.md`, `backlog.md`, `yayin-listesi.md`, `concepts/`, `roles/` |
 | `.github/workflows/` | `ci.yml` (her push'ta `npm run gate`), `android.yml` (elle tetiklenen debug APK, hiç çalışmadı) |
 
-## Beş komut
+## Altı komut
 
 Gereken: Node >= 22.12, Python 3 (yalnızca araştırma araçları için).
 
@@ -29,6 +29,7 @@ npm run dev -w games/<slug>                         # oyunu yerelde çalıştır
 npm run gate -- <slug>                              # kalite kapısı: çekirdek + bu oyun (slug'sız: hepsi)
 npm run new-game -- <slug> "<Başlık>" [portrait|landscape]   # yeni oyun iskeleti, npm install çalıştırır
 cd tools/research && python3 scrape.py              # CrazyGames verisini yenile (~1,5 dk)
+npm run apk                                         # üç oyun + seçici ekran tek debug APK: build/play-oyunlar-test.apk (apps/test-paketi/README.md)
 ```
 
 Kapının tarayıcı adımı Chromium ister. Bu ortamda hazır geliyor; başka makinede

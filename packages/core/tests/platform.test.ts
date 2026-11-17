@@ -216,6 +216,9 @@ describe('detectPlatform', () => {
   it('detects a native Capacitor shell', () => {
     expect(detectPlatform({ search: '', hostname: 'localhost', capacitorNative: true })).toBe('capacitor');
   });
+  it('a build-time web choice wins inside a native shell (apps/test-paketi APK relies on this)', () => {
+    expect(detectPlatform({ search: '', hostname: 'localhost', forced: 'web', capacitorNative: true })).toBe('web');
+  });
   it('detects CrazyGames hosts and ?platform=', () => {
     expect(detectPlatform({ search: '', hostname: 'games.crazygames.com' })).toBe('crazygames');
     expect(detectPlatform({ search: '?platform=crazygames', hostname: 'localhost' })).toBe('crazygames');

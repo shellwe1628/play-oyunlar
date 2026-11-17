@@ -511,7 +511,9 @@ export async function betweenRounds(oyun: OyunContext, score: number): Promise<n
 | status | tested | **unverified stub** | **unverified stub** |
 
 - Pick: `?test=1` → web; else `VITE_OYUN_PLATFORM` at build time; else native Capacitor shell;
-  else `?platform=`; else a `*.crazygames.*` host; else web.
+  else `?platform=`; else a `*.crazygames.*` host; else web. The build-time choice beats the
+  native shell, so `VITE_OYUN_PLATFORM=web` keeps the web adapter inside a Capacitor APK (the
+  multi-game test APK in `apps/test-paketi` builds the games this way; unit-tested).
 - Call `gameplayStart()` when a round starts and `gameplayStop()` when it ends (the pause menu
   does it for pauses).
 - Lifecycle is reference-counted (`hidden`, `ad`, `system`): resume fires only when every

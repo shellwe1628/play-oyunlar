@@ -96,6 +96,37 @@ describe('solve', () => {
   });
 });
 
+describe('windowed planning (endless autopilot)', () => {
+  it('plans a window ahead from a mid-run state and the window replays alive', () => {
+    const track = new TrackBuilder({ speed: 500 }).straight(300, 220).zig(12, 260, 110).slalom(5, 420, 200, 160).straight(300, 220).finish();
+    const sim = new RunSim(track);
+    for (let j = 0; j < 100; j++) sim.step(j % 30 < 15);
+    const p = prepare(track, { fromTick: sim.tick, toTick: sim.tick + 600 });
+    expect(p.tl.n).toBe(sim.tick + 600);
+    const plan = solve(p, { minClear: 2, minHoldTicks: K_REF, from: { tick: sim.tick, x: sim.x, held: 0, since: 15 } })!;
+    expect(plan).not.toBeNull();
+    for (let j = sim.tick; j < plan.held.length; j++) sim.step(plan.held[j] === 1);
+    expect(sim.alive).toBe(true);
+    expect(sim.tick).toBe(700);
+  });
+});
+
+describe('comfort line (sum objective)', () => {
+  it('stays near the middle of a wide straight instead of skimming the walls', () => {
+    const track = new TrackBuilder({ speed: 500 }).straight(2400, 260).finish();
+    const plan = solve(track, { minClear: 0, minHoldTicks: K_REF, comfort: { cap: 200, switchCost: 2 } })!;
+    expect(plan).not.toBeNull();
+    const sim = new RunSim(track);
+    let minClr = Infinity;
+    for (let j = 0; j < plan.held.length && sim.alive && !sim.finished; j++) {
+      sim.step(plan.held[j] === 1);
+      minClr = Math.min(minClr, sim.clearance);
+    }
+    expect(sim.finished).toBe(true);
+    expect(minClr).toBeGreaterThan(150); // half-width 260 - radius 13: the middle keeps ~200+
+  });
+});
+
 describe('difficulty metrics', () => {
   it('safety margin of a 45° corridor is its perpendicular half-width minus the radius', () => {
     // Horizontal half-width 100 at 45°: perpendicular half-width 100/√2 ≈ 70.7. Corner switches

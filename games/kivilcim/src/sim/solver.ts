@@ -40,13 +40,13 @@ export interface Timeline {
   flipped: Uint8Array;
 }
 
-export function kinematics(track: Track): Timeline {
+export function kinematics(track: Track, maxTicks = Infinity): Timeline {
   const ys: number[] = [0];
   const vs: number[] = [];
   const rs: number[] = [SPARK_R];
   const fs: number[] = [0];
   const k = kinStart();
-  while (k.y < track.length) {
+  while (k.y < track.length && vs.length < maxTicks) {
     const v = kinSpeed(track, k);
     vs.push(v);
     kinAdvance(track, k, v);
@@ -70,12 +70,12 @@ export interface ClearTable {
   d: Float32Array;
 }
 
-export function clearTable(track: Track, tl: Timeline): ClearTable {
+export function clearTable(track: Track, tl: Timeline, fromRow = 0): ClearTable {
   const rows = tl.n + 1;
   const lo = new Int16Array(rows);
   const hi = new Int16Array(rows);
   const d = new Float32Array(rows * BINS);
-  for (let j = 0; j <= tl.n; j++) {
+  for (let j = fromRow; j <= tl.n; j++) {
     const y = tl.y[j]!;
     const i = segmentAt(track.wy, y);
     const l = Math.max(0, Math.floor(wallXAt(track.wy, track.lx, i, y) / BIN_W));
@@ -101,6 +101,12 @@ export interface SolveOptions {
    * Ticks before `tick` are filled with `held` in the result.
    */
   from?: { tick: number; x: number; held: 0 | 1; since?: number };
+  /**
+   * Comfort line: among feasible plans prefer the one with the largest sum of clearance (capped
+   * at `cap` px per tick), minus `switchCost` per input change. This is the line a person flies
+   * (the middle, few changes); without it the plan is merely feasible.
+   */
+  comfort?: { cap: number; switchCost: number };
 }
 
 export interface Plan {
@@ -114,9 +120,13 @@ export interface Prepared {
   table: ClearTable;
 }
 
-export function prepare(track: Track): Prepared {
-  const tl = kinematics(track);
-  return { track, tl, table: clearTable(track, tl) };
+/**
+ * Precompute the timeline and the clearance table. A window (fromTick..toTick) limits both, for
+ * planning a stretch ahead of a running spark (solve with `from` at fromTick).
+ */
+export function prepare(track: Track, window: { fromTick?: number; toTick?: number } = {}): Prepared {
+  const tl = kinematics(track, window.toTick ?? Infinity);
+  return { track, tl, table: clearTable(track, tl, Math.max(0, window.fromTick ?? 0)) };
 }
 
 /** Rows at which each gem must be overlapped (closest row to its y), or -1. */
@@ -155,6 +165,9 @@ export function solve(track: Track | Prepared, opts: SolveOptions): Plan | null 
   let nXs = new Float64Array(S);
   let nSince = new Int16Array(S);
   const nClr = new Float32Array(S);
+  let score = new Float64Array(S);
+  let nScore = new Float64Array(S);
+  const comfort = opts.comfort;
   const back = new Int16Array((n + 1) * S).fill(-1);
   const gemAt = opts.gems ? gemRows(p) : null;
   const gems = p.track.gems;
@@ -221,9 +234,14 @@ export function solve(track: Track | Prepared, opts: SolveOptions): Plan | null 
             if (gx * gx + gy * gy >= gr2) continue;
           }
           const s2 = b2 * 2 + h2;
-          if (nHas[s2] && (nSince[s2]! > sn2 || (nSince[s2] === sn2 && nClr[s2]! >= clr))) continue;
+          let sc = 0;
+          if (comfort) {
+            sc = score[s]! + Math.min(clr, comfort.cap) - (h2 !== hb ? comfort.switchCost : 0);
+            if (nHas[s2] && nScore[s2]! >= sc) continue;
+          } else if (nHas[s2] && (nSince[s2]! > sn2 || (nSince[s2] === sn2 && nClr[s2]! >= clr))) continue;
           nHas[s2] = 1;
           nClr[s2] = clr;
+          nScore[s2] = sc;
           nXs[s2] = x2;
           nSince[s2] = sn2;
           back[base1 * 2 + s2] = s;
@@ -241,13 +259,21 @@ export function solve(track: Track | Prepared, opts: SolveOptions): Plan | null 
     [has, nHas] = [nHas, has];
     [xs, nXs] = [nXs, xs];
     [since, nSince] = [nSince, since];
+    [score, nScore] = [nScore, score];
     curLo = nLo;
     curHi = nHi;
   }
 
   // Any surviving state at the finish row; walk back.
   let s = -1;
-  for (let b = curLo; b <= curHi && s < 0; b++) for (let hb = 0; hb < 2; hb++) if (has[b * 2 + hb]) s = b * 2 + hb;
+  for (let b = curLo; b <= curHi; b++) {
+    for (let hb = 0; hb < 2; hb++) {
+      const k = b * 2 + hb;
+      if (!has[k]) continue;
+      if (s < 0 || (comfort && score[k]! > score[s]!)) s = k;
+    }
+    if (s >= 0 && !comfort) break;
+  }
   if (s < 0) return null;
   const held = new Uint8Array(n);
   for (let j = n; j > j0; j--) {

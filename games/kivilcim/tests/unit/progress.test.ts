@@ -30,8 +30,9 @@ describe('level progress', () => {
     const d = fresh();
     expect(recordLevelRun(d, 1, { percent: 40, gemMask: 0, finished: false }).newBest).toBe(true);
     expect(recordLevelRun(d, 1, { percent: 25, gemMask: 0, finished: false }).newBest).toBe(false);
+    expect(recordLevelRun(d, 1, { percent: 40, gemMask: 0, finished: false }).newBest).toBe(false); // a tie is not a new best
     expect(d.levels[0]!.best).toBe(40);
-    expect(d.levels[0]!.attempts).toBe(2);
+    expect(d.levels[0]!.attempts).toBe(3);
   });
 
   it('finishing unlocks the next level, which becomes the level to play', () => {
@@ -86,6 +87,21 @@ describe('endless and daily records', () => {
     expect(recordDaily(d, '2026-11-19', 10).streak).toBe(1); // missed a day
   });
 
+  it('daily gems pay once per gem per date, however often the shaft is retried', () => {
+    const d = fresh();
+    for (let k = 0; k < 5; k++) recordDaily(d, '2026-11-17', 10 + k, [0, 3]);
+    expect(d.gems).toBe(2);
+    expect(recordDaily(d, '2026-11-17', 5, [3, 4]).gemsGained).toBe(1);
+    expect(d.gems).toBe(3);
+    expect(recordDaily(d, '2026-11-18', 5, [0]).gemsGained).toBe(1); // a new day, a new shaft
+  });
+
+  it('a daily run never touches the endless record', () => {
+    const d = fresh();
+    recordDaily(d, '2026-11-17', 28, [1]);
+    expect(d.endlessBest).toBe(0);
+  });
+
   it('the streak survives month and year ends', () => {
     const d = fresh();
     recordDaily(d, '2026-12-31', 5);
@@ -127,6 +143,10 @@ describe('skins', () => {
     expect(d.skin.trail).toBe(3);
   });
 
+  it('something is affordable after level 1 (three gems)', () => {
+    expect(Math.min(...SHAPES.slice(1).map((x) => x.price), ...TRAILS.slice(1).map((x) => x.price))).toBeLessThanOrEqual(3);
+  });
+
   it('prices rise: there is always something more to want', () => {
     for (const list of [SHAPES, TRAILS]) {
       for (let i = 2; i < list.length; i++) expect(list[i]!.price).toBeGreaterThan(list[i - 1]!.price);
@@ -164,6 +184,18 @@ describe('game save', () => {
     const s = createSaveStore(saveOptions(storage, 'test'));
     expect(s.status).toBe('reset');
     expect(s.data.unlocked).toBe(1);
+  });
+
+  it('clamps out-of-range values instead of trusting them', () => {
+    const bad = { ...fresh(), unlocked: 40, gems: -5, skin: { shape: 99, trail: -1, ownedShapes: 1, ownedTrails: 1 } };
+    bad.levels[0] = { best: 150, attempts: -2, gemMask: 255, done: true };
+    const storage = memoryStorage({ 'oyun:test:save': JSON.stringify({ v: 2, data: bad }) });
+    const s = createSaveStore(saveOptions(storage, 'test'));
+    expect(s.data.unlocked).toBe(10);
+    expect(s.data.gems).toBe(0);
+    expect(s.data.skin.shape).toBe(0);
+    expect(s.data.skin.trail).toBe(0);
+    expect(s.data.levels[0]).toEqual({ best: 100, attempts: 0, gemMask: 7, done: true });
   });
 
   it('fills fields missing from an older v2 save with defaults', () => {

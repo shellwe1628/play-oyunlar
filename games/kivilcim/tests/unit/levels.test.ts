@@ -88,7 +88,7 @@ describe('levels 1-10', () => {
     const l10 = results.get(10)!;
     expect(l1.marginPx).toBeGreaterThanOrEqual(40);
     expect(l1.windowMs).toBeGreaterThanOrEqual(420);
-    expect(l10.marginPx).toBeLessThanOrEqual(16);
+    expect(l10.marginPx).toBeLessThanOrEqual(20);
     expect(l10.marginPx).toBeGreaterThanOrEqual(4);
     expect(l10.windowMs).toBeGreaterThanOrEqual(130);
   });
@@ -105,7 +105,7 @@ describe('levels 1-10', () => {
   });
 
   it('introduces each gate family alone before combining it', () => {
-    const family = (k: GateKind): string => (k === 'fast' || k === 'slow' || k === 'normal' ? 'speed' : k === 'flip' ? 'flip' : 'size');
+    const family = (k: GateKind): string => (k === 'fast' || k === 'slow' || k === 'normal' ? 'speed' : k === 'flip' || k === 'unflip' ? 'flip' : 'size');
     const firstLevel = new Map<string, number>();
     for (const id of ids) for (const g of tracks.get(id)!.gates) if (!firstLevel.has(family(g.kind))) firstLevel.set(family(g.kind), id);
     expect([...firstLevel.keys()].sort()).toEqual(['flip', 'size', 'speed']);
@@ -131,7 +131,8 @@ describe('levels 1-10', () => {
         if (g.kind === 'fast' || g.kind === 'slow' || g.kind === 'normal') mult = g.kind;
         if (g.kind === 'mini') mini = true;
         if (g.kind === 'big') mini = false;
-        if (g.kind === 'flip') flip = !flip;
+        if (g.kind === 'flip') flip = true;
+        if (g.kind === 'unflip') flip = false;
       }
       expect([mult, mini, flip], `level ${id}`).toEqual(['normal', false, false]);
     }

@@ -11,10 +11,13 @@
  */
 
 export interface HoldTarget {
-  /** A new press started (first finger down). x, y are logical canvas coordinates. */
-  onPress(x: number, y: number): void;
-  /** The last finger lifted. */
-  onRelease(): void;
+  /**
+   * A new press started (first finger down). x, y are logical canvas coordinates; time is the
+   * event time on the performance.now() clock (taken in the handler, the moment it arrives).
+   */
+  onPress(x: number, y: number, time: number): void;
+  /** The last finger lifted (time as above). */
+  onRelease(time: number): void;
   /** Should this press be left to the UI (a button under it)? */
   isUi(x: number, y: number): boolean;
 }
@@ -70,12 +73,12 @@ export class HoldInput {
   press(id: number | string, x = this.logical.width / 2, y = this.logical.height / 2): void {
     const was = this.down.size > 0;
     this.down.set(id, true);
-    if (!was) this.target.onPress(x, y);
+    if (!was) this.target.onPress(x, y, performance.now());
   }
 
   release(id: number | string): void {
     if (!this.down.delete(id)) return;
-    if (this.down.size === 0) this.target.onRelease();
+    if (this.down.size === 0) this.target.onRelease(performance.now());
   }
 
   private touchesLeft(e: TouchEvent): void {
@@ -87,7 +90,7 @@ export class HoldInput {
         any = true;
       }
     }
-    if (any && this.down.size === 0) this.target.onRelease();
+    if (any && this.down.size === 0) this.target.onRelease(performance.now());
   }
 
   private key(e: KeyboardEvent, isDown: boolean): void {
@@ -102,7 +105,7 @@ export class HoldInput {
     const was = this.down.size > 0;
     this.down.clear();
     this.keyDown = false;
-    if (was) this.target.onRelease();
+    if (was) this.target.onRelease(performance.now());
   }
 
   destroy(): void {

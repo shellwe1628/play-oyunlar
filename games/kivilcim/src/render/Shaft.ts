@@ -63,6 +63,8 @@ export class ShaftView {
   private readonly id = uid++;
   gateLabel: (k: GateKind) => string = (k) => k;
   finishLabel = 'FINISH';
+  /** Endless has no finish line. */
+  showFinish = true;
 
   constructor(
     private readonly scene: Phaser.Scene,
@@ -125,16 +127,24 @@ export class ShaftView {
     this.pending = -1;
   }
 
+  /**
+   * Swap in a longer version of the same track (endless grows ahead): same geometry where they
+   * overlap, so nothing is re-baked.
+   */
+  replaceTrack(track: Track): void {
+    this.track = track;
+  }
+
   /** Palette change mid-track (endless): only chunks baked from now on use it. */
   setPalette(pal: Palette): void {
     this.pal = pal;
   }
 
   /**
-   * Place everything for a spark at world height sy, sim time t. gemMask hides taken gems.
-   * Returns the time spent baking (ms), for the frame-time report.
+   * Place everything for a spark drawn at world height sy; t is the sim time the spark is drawn
+   * at (interpolated like the spark, so bars and spark agree). taken[i] hides taken gems.
    */
-  update(sy: number, t: number, gemMask: number, pulse: number): void {
+  update(sy: number, t: number, taken: Uint8Array, pulse: number): void {
     const lo = sy - VIEW_BELOW;
     const hi = sy + VIEW_ABOVE;
     const first = Math.floor(lo / CHUNK_H);
@@ -167,19 +177,19 @@ export class ShaftView {
     }
     void this.pending;
 
-    this.placeGems(lo, hi, gemMask, pulse);
+    this.placeGems(lo, hi, taken, pulse);
     this.placeBars(lo, hi, t);
     this.placeGates(lo, hi, pulse);
     this.placeFinish(lo, hi, pulse);
   }
 
-  private placeGems(lo: number, hi: number, mask: number, pulse: number): void {
+  private placeGems(lo: number, hi: number, taken: Uint8Array, pulse: number): void {
     const gems = this.track.gems;
     let n = 0;
     for (let i = lowerBound(gems, lo); i < gems.length && n < this.gemPool.length; i++) {
       const g = gems[i]!;
       if (g.y > hi) break;
-      if (mask & (1 << i)) continue;
+      if (taken[i]) continue;
       const img = this.gemPool[n]!;
       const glow = this.gemGlow[n]!;
       const bob = Math.sin(this.scene.time.now / 260 + i) * 5;
@@ -203,7 +213,8 @@ export class ShaftView {
       const cx = barCentre(b, t);
       const w = b.half * 2;
       v.root.setVisible(true).setPosition(cx, -b.y);
-      const s = (b.thick * 2 + 16) / 40;
+      // Drawn 2 px outside the lethal capsule (cap texture radius 18 at scale 1).
+      const s = (b.thick + 2) / 18;
       v.l.setPosition(-b.half, 0).setScale(s).setTint(this.pal.edge);
       v.r.setPosition(b.half, 0).setScale(s).setTint(this.pal.edge);
       v.m.setPosition(0, 0).setDisplaySize(w, 40 * s).setTint(this.pal.edge);
@@ -227,6 +238,8 @@ export class ShaftView {
       const v = this.gatePool[n++]!;
       const [l, r] = this.corridorAt(g.y);
       const color = GATE_COLORS[g.kind];
+      const tex = g.kind === 'unflip' ? 'gate-band-plain' : g.kind === 'flip' ? 'gate-band-flip' : 'gate-band';
+      if (v.band.texture.key !== tex) v.band.setTexture(tex);
       v.band.setVisible(true).setPosition((l + r) / 2, -g.y).setSize(r - l, 72).setTint(color);
       v.band.tilePositionX = this.scene.time.now / 6;
       if (g.kind === 'slow') v.band.setFlipY(true);
@@ -248,7 +261,7 @@ export class ShaftView {
 
   private placeFinish(lo: number, hi: number, pulse: number): void {
     const y = this.track.length;
-    const show = y >= lo - 80 && y <= hi + 80;
+    const show = this.showFinish && y >= lo - 80 && y <= hi + 80;
     this.finishBand.setVisible(show);
     this.finishGlow.setVisible(show);
     this.finishText.setVisible(show);
@@ -333,7 +346,7 @@ export class ShaftView {
     const inRange: { x: number; y: number; s: number }[] = [];
     for (let i = lowerBound(blocks, y0 - 100); i < blocks.length && blocks[i]!.y < y1 + 100; i++) inRange.push(blocks[i]!);
     for (const b of inRange) {
-      // Spikes first (behind the body): two per face, along the face normal.
+      // Teeth along each face, reaching 4 px past the lethal diamond (what you see is what kills).
       c.fillStyle = css(pal.edge, 1);
       const r = row(b.y);
       const fd = b.s * Math.SQRT1_2;
@@ -343,13 +356,13 @@ export class ShaftView {
         const ny = Math.sin(a);
         const tx = -ny;
         const ty = nx;
-        for (const o of [-0.3 * b.s, 0.3 * b.s]) {
-          const fx = b.x + nx * (fd - 2) + tx * o;
-          const fy = r + ny * (fd - 2) + ty * o;
+        for (const o of [-0.42 * b.s, 0, 0.42 * b.s]) {
+          const fx = b.x + nx * fd + tx * o;
+          const fy = r + ny * fd + ty * o;
           c.beginPath();
-          c.moveTo(fx + tx * 9, fy + ty * 9);
-          c.lineTo(fx + nx * 18, fy + ny * 18);
-          c.lineTo(fx - tx * 9, fy - ty * 9);
+          c.moveTo(fx + tx * 6 - nx * 2, fy + ty * 6 - ny * 2);
+          c.lineTo(fx + nx * 4, fy + ny * 4);
+          c.lineTo(fx - tx * 6 - nx * 2, fy - ty * 6 - ny * 2);
           c.closePath();
           c.fill();
         }
@@ -375,8 +388,8 @@ export class ShaftView {
     c.lineCap = 'round';
     const glowStroke = (path: () => void): void => {
       for (const [w, a, col] of [
-        [26, 0.14, pal.edge],
-        [13, 0.35, pal.edge],
+        [22, 0.1, pal.edge],
+        [11, 0.25, pal.edge],
         [6, 1, pal.edge],
         [2, 0.95, 0xffffff],
       ] as const) {

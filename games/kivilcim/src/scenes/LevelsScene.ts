@@ -1,5 +1,5 @@
 /** Level select: ten cards in each level's colours, best %, gems, locks. Test actions: pick, back. */
-import { OyunScene, touchHitSize } from '@oyun/core';
+import { OyunScene, toast, touchHitSize } from '@oyun/core';
 import Phaser from 'phaser';
 import { Backdrop } from '../render/Backdrop';
 import { ensureCanvasArt } from '../render/canvasArt';
@@ -15,6 +15,7 @@ export class LevelsScene extends OyunScene {
   private back!: IconTile;
   private cards: Phaser.GameObjects.Container[] = [];
   private t0 = 0;
+  private lockedTaps = 0;
 
   constructor() {
     super(SCENES.levels);
@@ -63,10 +64,8 @@ export class LevelsScene extends OyunScene {
       const card = this.add.container(x, y, parts);
       const hit = touchHitSize(cw, ch);
       card.setSize(hit.width, hit.height);
-      if (!locked) {
-        card.setInteractive({ useHandCursor: true });
-        card.on(Phaser.Input.Events.GAMEOBJECT_POINTER_UP, () => this.pick(id));
-      }
+      card.setInteractive({ useHandCursor: true });
+      card.on(Phaser.Input.Events.GAMEOBJECT_POINTER_UP, () => this.pick(id));
       card.setData('id', id);
       card.setScale(0.6).setAlpha(0);
       this.tweens.add({ targets: card, scale: 1, alpha: locked ? 0.75 : 1, delay: i * 30, duration: 260, ease: 'Back.easeOut' });
@@ -80,7 +79,21 @@ export class LevelsScene extends OyunScene {
   }
 
   private pick(id: number): void {
-    if (id > gameSave(this.oyun).data.unlocked) return;
+    const unlocked = gameSave(this.oyun).data.unlocked;
+    if (id > unlocked) {
+      // Locked: shake the card and say what opens it.
+      const card = this.cards[id - 1];
+      if (card) {
+        this.tweens.killTweensOf(card);
+        card.setScale(1);
+        this.tweens.add({ targets: card, x: card.x + 14, yoyo: true, repeat: 3, duration: 45 });
+      }
+      this.oyun.audio.play('hit', { volume: 0.4 });
+      this.oyun.platform.haptic('error');
+      toast(this, this.t('levels.locked', { n: unlocked }));
+      this.lockedTaps++;
+      return;
+    }
     this.oyun.audio.play('tap');
     this.oyun.platform.haptic('light');
     this.scene.start(SCENES.game, { mode: 'level', level: id, phase: 'ready' } satisfies GameStart);
@@ -92,7 +105,7 @@ export class LevelsScene extends OyunScene {
 
   protected override testState() {
     const save = gameSave(this.oyun).data;
-    return { unlocked: save.unlocked, cards: this.cards.length };
+    return { unlocked: save.unlocked, cards: this.cards.length, lockedTaps: this.lockedTaps };
   }
 
   protected override testActions() {

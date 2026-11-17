@@ -2,9 +2,9 @@
  * Track geometry and exact signed distances (pure). World y grows upward (distance climbed),
  * x is the logical shaft x (0..720). Negative distance = inside a hazard.
  */
-import { CLEAR_CAP } from './constants';
+import { CLEAR_CAP, RAMP_PX, RAMP_START } from './constants';
 
-export type GateKind = 'fast' | 'slow' | 'normal' | 'mini' | 'big' | 'flip';
+export type GateKind = 'fast' | 'slow' | 'normal' | 'mini' | 'big' | 'flip' | 'unflip';
 export type HazardKind = 'wall' | 'block' | 'bar';
 
 /** Spike block: a diamond (square rotated 45°) with half-diagonal s. */
@@ -43,6 +43,8 @@ export interface SpeedProfile {
   /** Added px/s per px climbed (endless creep). */
   creep: number;
   max: number;
+  /** Launch ramp over the first RAMP_PX of climb (levels and endless; off in bare test tracks). */
+  ramp?: boolean;
 }
 
 export interface Track {
@@ -61,7 +63,9 @@ export interface Track {
 }
 
 export function baseSpeed(s: SpeedProfile, y: number): number {
-  return Math.min(s.max, s.base + s.creep * Math.max(0, y));
+  const v = Math.min(s.max, s.base + s.creep * Math.max(0, y));
+  if (s.ramp && y < RAMP_PX) return v * (RAMP_START + ((1 - RAMP_START) * Math.max(0, y)) / RAMP_PX);
+  return v;
 }
 
 /** Index i with wy[i] <= y < wy[i+1] (clamped to the polyline). */

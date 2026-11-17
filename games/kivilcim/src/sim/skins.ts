@@ -26,7 +26,7 @@ export const SHAPES: readonly ShapeSkin[] = [
 
 export const TRAILS: readonly TrailSkin[] = [
   { id: 'white', price: 0, head: 0xffffff, tail: 0x7ff9ff },
-  { id: 'lava', price: 4, head: 0xffe14d, tail: 0xff3d2e },
+  { id: 'lava', price: 3, head: 0xffe14d, tail: 0xff3d2e },
   { id: 'mint', price: 7, head: 0xb8fff0, tail: 0x18e6a5 },
   { id: 'sky', price: 10, head: 0xd6f4ff, tail: 0x2e9bff },
   { id: 'candy', price: 14, head: 0xffd1f0, tail: 0xff3fae },

@@ -6,7 +6,7 @@
  */
 import { createRng, hashSeed, type Rng } from '@oyun/core/pure';
 import { TrackBuilder } from './builder';
-import { emit, PORT_H, type PatternKind, type Seg } from './patterns';
+import { emit, OPEN_H, PORT_H, type PatternKind, type Seg } from './patterns';
 import type { SpeedProfile, Track } from './track';
 
 export const ENDLESS_SPEED: SpeedProfile = { base: 480, creep: 0.0035, max: 650 };
@@ -56,7 +56,7 @@ function segmentFor(rng: Rng, i: number): { segs: Seg[]; q: number } {
     if (pick === 0) return { q, segs: [{ k: 'gate', gate: 'fast' }, { k: 'wave', q: q * 0.4, gem }, { k: 'gate', gate: 'normal' }] };
     if (pick === 1) return { q, segs: [{ k: 'gate', gate: 'slow' }, { k: 'zig', q, gem }, { k: 'gate', gate: 'normal' }] };
     if (pick === 2) return { q, segs: [{ k: 'gate', gate: 'mini' }, { k: rng.chance(0.5) ? 'wave' : 'slalom', q: q * 0.5, gem }, { k: 'gate', gate: 'big' }] };
-    return { q, segs: [{ k: 'gate', gate: 'flip' }, { k: 'zig', q: q * 0.7, gem }, { k: 'gate', gate: 'flip' }] };
+    return { q, segs: [{ k: 'gate', gate: 'flip' }, { k: 'zig', q: q * 0.7, gem }, { k: 'gate', gate: 'unflip' }] };
   }
   const k = pickKind(rng, q);
   const seg: Seg = { k, q, gem };
@@ -70,7 +70,7 @@ export function buildEndless(seed: number, opts: EndlessOptions = {}): EndlessTr
   const rng = createRng(seed);
   const pick = rng.fork('segments');
   const sides = rng.fork('sides');
-  const b = new TrackBuilder({ speed: speed.base, creep: speed.creep, maxSpeed: speed.max, startH: 300 });
+  const b = new TrackBuilder({ speed: speed.base, creep: speed.creep, maxSpeed: speed.max, startH: OPEN_H, ramp: speed.ramp ?? true });
   const ctx = { rng: sides, mini: false };
   emit(b, { k: 'open' }, ctx);
   const joins: number[] = [];

@@ -9,6 +9,9 @@ import { GEM_R, START_X } from './constants';
 import type { GateKind } from './track';
 
 export const PORT_H = 170;
+/** Opening chamber: walls at the screen edges (EDGE_MIN), kept for OPEN_SAFE px of climb. */
+export const OPEN_H = 334;
+export const OPEN_SAFE = 340;
 
 export type PatternKind = 'open' | 'wide' | 'wave' | 'zig' | 'needle' | 'slalom' | 'bars' | 'steps' | 'rhythm';
 
@@ -56,9 +59,13 @@ export function emit(b: TrackBuilder, seg: Seg, ctx: PatternCtx): void {
       return;
     }
     case 'open': {
-      // A broad shaft to find your thumb in: wide, then a lazy S.
-      b.straight(900, 300);
-      b.straight(200, 220);
+      // The launch chamber: full screen width (walls at the screen edges) for the first
+      // OPEN_SAFE px, which the launch ramp makes ~1.6 s, so no input can kill there; then a
+      // gradual narrowing and a lazy S.
+      b.straight(OPEN_SAFE, OPEN_H);
+      b.to(320, b.c, 290);
+      b.straight(360, 270);
+      b.to(200, b.c, 220);
       b.shift(100 * first, 0.5);
       b.shift(-100 * first, 0.5);
       backToPort(b, 200);
@@ -122,10 +129,10 @@ export function emit(b: TrackBuilder, seg: Seg, ctx: PatternCtx): void {
       return;
     }
     case 'slalom': {
-      const n = 4 + Math.round(q * 3);
-      const spacing = lerp(500, 250, q);
-      const H = lerp(210, 150, q);
-      const g = lerp(190, 74, q) * (ctx.mini ? 0.75 : 1);
+      const n = 3 + Math.round(q * 2);
+      const spacing = lerp(500, 340, q);
+      const H = lerp(210, 170, q);
+      const g = lerp(200, 130, q) * (ctx.mini ? 0.75 : 1);
       const y0 = b.y + Math.max(60, spacing * 0.5);
       b.slalom(n, spacing, H, g, first);
       if (seg.gem) {

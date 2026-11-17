@@ -47,7 +47,8 @@ describe('endless generator', () => {
           if (k === 'fast' || k === 'slow' || k === 'normal') mult = k;
           if (k === 'mini') mini = true;
           if (k === 'big') mini = false;
-          if (k === 'flip') flip = !flip;
+          if (k === 'flip') flip = true;
+          if (k === 'unflip') flip = false;
         }
         expect([mult, mini, flip], `seed ${seed} join ${y}`).toEqual(['normal', false, false]);
       }
@@ -69,22 +70,26 @@ describe('endless generator', () => {
     { name: 'max', speed: { base: ENDLESS_SPEED.max, creep: 0, max: ENDLESS_SPEED.max } },
   ];
   for (const sp of speeds) {
-    it(`a seeded sample of 40 runs x 14 segments is completable at ${sp.name} speed`, () => {
+    it(`a seeded sample of 70 runs x 14 segments is completable at ${sp.name} speed, with 1 px to spare`, () => {
       const failures: number[] = [];
-      for (let seed = 100; seed < 140; seed++) {
+      for (let seed = 100; seed < 170; seed++) {
         const { track } = buildEndless(seed, { segments: 14, ...(sp.speed ? { speed: sp.speed } : {}) });
-        const plan = solve(prepare(track), { minClear: 0, minHoldTicks: K_REF });
-        if (!plan || !replay(track, plan.held).finished) failures.push(seed);
+        const plan = solve(prepare(track), { minClear: 1, minHoldTicks: K_REF });
+        if (!plan) failures.push(seed);
+        else {
+          const r = replay(track, plan.held);
+          if (!r.finished || r.minClear < 1) failures.push(seed);
+        }
       }
       expect(failures).toEqual([]);
-    }, 120_000);
+    }, 180_000);
   }
 
   it('deep runs (the hardest pool, segments 30-45) are completable at max speed', () => {
     const failures: number[] = [];
     for (let seed = 500; seed < 508; seed++) {
       const { track } = buildEndless(seed, { segments: 45, speed: { base: ENDLESS_SPEED.max, creep: 0, max: ENDLESS_SPEED.max } });
-      const plan = solve(prepare(track), { minClear: 0, minHoldTicks: K_REF });
+      const plan = solve(prepare(track), { minClear: 1, minHoldTicks: K_REF });
       if (!plan || !replay(track, plan.held).finished) failures.push(seed);
     }
     expect(failures).toEqual([]);

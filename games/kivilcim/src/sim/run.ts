@@ -61,7 +61,10 @@ export function kinAdvance(src: KinSource, k: Kin, v: number): GateKind | null {
         k.mini = false;
         break;
       case 'flip':
-        k.flipped = !k.flipped;
+        k.flipped = true;
+        break;
+      case 'unflip':
+        k.flipped = false;
         break;
     }
   }
@@ -85,7 +88,7 @@ export interface RunOptions {
 }
 
 export class RunSim {
-  readonly track: Track;
+  track: Track;
   x: number;
   dir: 1 | -1 = -1;
   alive = true;
@@ -93,7 +96,8 @@ export class RunSim {
   deathCause: HazardKind | null = null;
   /** Clearance after the last step: distance from the spark's edge to the nearest hazard. */
   clearance: number;
-  gemMask = 0;
+  /** Gems taken, one flag per gem index (endless tracks have many). */
+  taken: Uint8Array;
   gemsTaken = 0;
   nearMisses = 0;
   /** Edge combo: consecutive near misses within EDGE_WINDOW_S. */
@@ -109,6 +113,7 @@ export class RunSim {
 
   constructor(track: Track, opts: RunOptions = {}) {
     this.track = track;
+    this.taken = new Uint8Array(track.gems.length);
     this.x = opts.startX ?? track.startX;
     this.clearance = sdf(track, this.x, 0, 0) - SPARK_R;
   }
@@ -146,6 +151,28 @@ export class RunSim {
     return Math.min(1, Math.max(0, this.kin.y / this.track.length));
   }
 
+  /** Bitmask of the first 31 gems (a level has three). */
+  get gemMask(): number {
+    let m = 0;
+    for (let i = 0; i < Math.min(31, this.taken.length); i++) if (this.taken[i]) m |= 1 << i;
+    return m;
+  }
+
+  isTaken(i: number): boolean {
+    return this.taken[i] === 1;
+  }
+
+  /**
+   * Swap in a longer version of the same track (endless grows ahead of the spark). The new track
+   * must contain the old one as a prefix (same seed, more segments): state carries over as is.
+   */
+  setTrack(track: Track): void {
+    const taken = new Uint8Array(track.gems.length);
+    taken.set(this.taken.subarray(0, Math.min(this.taken.length, taken.length)));
+    this.taken = taken;
+    this.track = track;
+  }
+
   /** Exact copy of this run's state (rewarded "continue" resumes from a snapshot at a gate). */
   clone(): RunSim {
     const c = new RunSim(this.track, { startX: this.x });
@@ -154,7 +181,7 @@ export class RunSim {
     c.finished = this.finished;
     c.deathCause = this.deathCause;
     c.clearance = this.clearance;
-    c.gemMask = this.gemMask;
+    c.taken = this.taken.slice();
     c.gemsTaken = this.gemsTaken;
     c.nearMisses = this.nearMisses;
     c.edge = this.edge;
@@ -193,13 +220,13 @@ export class RunSim {
 
     const gems = track.gems;
     for (let i = 0; i < gems.length; i++) {
-      if (this.gemMask & (1 << i)) continue;
+      if (this.taken[i]) continue;
       const g = gems[i]!;
       const dy = g.y - y;
       if (dy > r + GEM_R || dy < -(r + GEM_R)) continue;
       const dx = g.x - this.x;
       if (dx * dx + dy * dy < (r + GEM_R) * (r + GEM_R)) {
-        this.gemMask |= 1 << i;
+        this.taken[i] = 1;
         this.gemsTaken += 1;
         ev.gem = i;
       }

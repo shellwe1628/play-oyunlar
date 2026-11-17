@@ -168,8 +168,8 @@ describe('RunSim gates', () => {
     expect(run(track, 2000).radius).toBe(SPARK_R);
   });
 
-  it('flip gate swaps the controls until the next flip gate', () => {
-    const track = new TrackBuilder({ speed: 500 }).straight(512, 300).gate('flip').straight(1024, 300).gate('flip').straight(1024, 300).finish();
+  it('flip gate swaps the controls until an unflip gate', () => {
+    const track = new TrackBuilder({ speed: 500 }).straight(512, 300).gate('flip').straight(1024, 300).gate('unflip').straight(1024, 300).finish();
     const a = run(track, 800);
     expect(a.flipped).toBe(true);
     a.step(true);

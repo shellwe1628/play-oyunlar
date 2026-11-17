@@ -13,6 +13,8 @@ export interface BuilderOptions {
   maxSpeed?: number;
   /** Corridor half-width at the start. */
   startH?: number;
+  /** Launch ramp (see RAMP_PX). */
+  ramp?: boolean;
 }
 
 /** Walls never come closer than this to the screen edge (px), so a wall is always visible. */
@@ -35,10 +37,15 @@ export class TrackBuilder {
 
   constructor(private readonly opts: BuilderOptions) {
     this.h = opts.startH ?? 200;
-    this.src = { speed: { base: opts.speed, creep: opts.creep ?? 0, max: opts.maxSpeed ?? opts.speed }, gates: this.gates };
+    this.src = { speed: this.profile(), gates: this.gates };
     // Below the start, so the screen under the spark shows walls too.
     this.push(-900, this.c, this.h);
     this.push(0, this.c, this.h);
+  }
+
+  private profile(): Track['speed'] {
+    const o = this.opts;
+    return { base: o.speed, creep: o.creep ?? 0, max: o.maxSpeed ?? o.speed, ...(o.ramp ? { ramp: true } : {}) };
   }
 
   private push(y: number, c: number, h: number): void {
@@ -214,7 +221,6 @@ export class TrackBuilder {
       rx[i] = this.vc[i]! + this.vh[i]!;
     }
     const byY = <T extends { y: number }>(a: T[]): T[] => [...a].sort((p, q) => p.y - q.y);
-    const speed = this.opts.speed;
     return {
       length,
       wy,
@@ -224,7 +230,7 @@ export class TrackBuilder {
       bars: byY(this.barList),
       gates: byY(this.gates),
       gems: byY(this.gems),
-      speed: { base: speed, creep: this.opts.creep ?? 0, max: this.opts.maxSpeed ?? speed },
+      speed: this.profile(),
       startX: START_X,
     };
   }

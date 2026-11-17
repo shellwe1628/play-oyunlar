@@ -50,6 +50,7 @@ export const GATE_COLORS = {
   mini: 0x3dff8b,
   big: 0x3dff8b,
   flip: 0xc35bff,
+  unflip: 0x7dffb0,
 } as const;
 
 type G = Phaser.GameObjects.Graphics;
@@ -200,6 +201,34 @@ export const TEXTURES: readonly TextureRecipe[] = [
         poly(g, [[x + 14, 50], [x + 32, 22], [x + 50, 50], [x + 40, 50], [x + 32, 36], [x + 24, 50]]);
         g.fillPath();
       }
+    },
+  },
+  {
+    // Flip: chevrons both ways (controls swapped).
+    key: 'gate-band-flip',
+    width: 256,
+    height: 72,
+    draw(g) {
+      g.fillStyle(0xffffff, 0.3).fillRect(0, 10, 256, 52);
+      g.fillStyle(0xffffff, 1).fillRect(0, 8, 256, 6).fillRect(0, 58, 256, 6);
+      for (let x = 0; x < 256; x += 64) {
+        g.fillStyle(0xffffff, 0.85);
+        poly(g, [[x + 8, 36], [x + 22, 22], [x + 22, 50]]);
+        g.fillPath();
+        poly(g, [[x + 56, 36], [x + 42, 22], [x + 42, 50]]);
+        g.fillPath();
+      }
+    },
+  },
+  {
+    // Back to normal controls: plain, calm bars (no arrows).
+    key: 'gate-band-plain',
+    width: 256,
+    height: 72,
+    draw(g) {
+      g.fillStyle(0xffffff, 0.22).fillRect(0, 10, 256, 52);
+      g.fillStyle(0xffffff, 1).fillRect(0, 8, 256, 6).fillRect(0, 58, 256, 6);
+      for (let x = 0; x < 256; x += 32) g.fillStyle(0xffffff, 0.85).fillRect(x + 8, 28, 16, 16);
     },
   },
   {

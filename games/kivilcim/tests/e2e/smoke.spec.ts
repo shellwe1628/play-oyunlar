@@ -125,6 +125,8 @@ test('title → autopilot finishes level 1 → death → retry within 600 ms', a
   expect(colorNear(inCard, 0x2a1263), `pause card pixel ${JSON.stringify(inCard)}`).toBe(true);
   await act(page, 'resume');
   await waitForScene(page, 'game');
+  // Back from the pause menu the run waits for the player's press (no steering on resume).
+  expect((await data(page)).phase).toBe('resume');
 
   // Tab hidden → auto-pause; the sim must not run while paused.
   await setHidden(page, true);
@@ -153,9 +155,12 @@ test('title → autopilot finishes level 1 → death → retry within 600 ms', a
   await page.waitForTimeout(300);
   await act(page, 'skins');
   await waitForScene(page, 'skins');
-  // Level 1 paid 3 gems; the first trail costs 4: refused, wallet unchanged. The diamond spark costs 6.
+  // Level 1 paid 3 gems: the first trail (3) is affordable and equips; the next one is not.
   await act(page, 'buy', { kind: 'trail', i: 1 });
-  expect((await data(page)).wallet).toBe(3);
+  expect((await data(page)).wallet).toBe(0);
+  expect((await data(page)).trail).toBe(1);
+  await act(page, 'buy', { kind: 'trail', i: 2 });
+  expect((await data(page)).trail).toBe(1);
   await page.waitForTimeout(600);
   await shot(page, gameDir, 'skins');
   await act(page, 'back');

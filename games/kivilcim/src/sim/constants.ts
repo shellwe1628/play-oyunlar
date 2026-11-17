@@ -33,3 +33,11 @@ export const GEM_R = 20;
 
 /** Distances are only resolved up to this cap (px); farther hazards read as CLEAR_CAP. */
 export const CLEAR_CAP = 220;
+
+/**
+ * Launch ramp: every run starts slow and reaches full speed after RAMP_PX of climb. Lateral speed
+ * equals climb speed, so in an opening chamber with RAMP_SAFE_PX of room either side nothing can
+ * kill before the spark has climbed that far: ~1.6 s at the ramp's speeds, whatever the input.
+ */
+export const RAMP_PX = 800;
+export const RAMP_START = 0.2;

@@ -20,11 +20,13 @@ export interface SaveData {
   skin: { shape: number; trail: number; ownedShapes: number; ownedTrails: number };
   /** Best endless height (m). */
   endlessBest: number;
-  daily: { date: string; best: number; streak: number; lastDate: string };
+  daily: { date: string; best: number; streak: number; lastDate: string; gems: number[] };
   /** Levels finished in total (interstitial pacing). */
   finishes: number;
   /** Has the player ever started a run (first-time hints). */
   played: boolean;
+  /** The one-time "let go!" / "hold!" cues have been shown. */
+  tutorial: boolean;
 }
 
 export function defaults(): SaveData {
@@ -34,9 +36,10 @@ export function defaults(): SaveData {
     gems: 0,
     skin: { shape: 0, trail: 0, ownedShapes: 1, ownedTrails: 1 },
     endlessBest: 0,
-    daily: { date: '', best: 0, streak: 0, lastDate: '' },
+    daily: { date: '', best: 0, streak: 0, lastDate: '', gems: [] },
     finishes: 0,
     played: false,
+    tutorial: false,
   };
 }
 
@@ -51,11 +54,35 @@ export function normalize(d: unknown): d is SaveData {
   const s = d as SaveData;
   if (!isNum(s.unlocked) || !isNum(s.gems) || !Array.isArray(s.levels)) return false;
   const def = defaults();
-  s.unlocked = Math.min(LEVEL_COUNT, Math.max(1, Math.floor(s.unlocked)));
-  s.levels = def.levels.map((l, i) => ({ ...l, ...(s.levels[i] ?? {}) }));
-  s.skin = { ...def.skin, ...(s.skin ?? {}) };
-  s.daily = { ...def.daily, ...(s.daily ?? {}) };
-  return s.levels.every((l) => isNum(l.best) && isNum(l.attempts) && isNum(l.gemMask));
+  const int = (v: unknown, lo: number, hi: number, fallback: number): number => (isNum(v) ? Math.min(hi, Math.max(lo, Math.floor(v))) : fallback);
+  s.unlocked = int(s.unlocked, 1, LEVEL_COUNT, 1);
+  s.gems = int(s.gems, 0, 1e9, 0);
+  s.levels = def.levels.map((l, i) => {
+    const r = { ...l, ...((s.levels[i] ?? {}) as Partial<LevelRecord>) };
+    return { best: int(r.best, 0, 100, 0), attempts: int(r.attempts, 0, 1e9, 0), gemMask: int(r.gemMask, 0, 7, 0), done: r.done === true };
+  });
+  const sk = { ...def.skin, ...(s.skin ?? {}) };
+  s.skin = {
+    shape: int(sk.shape, 0, SHAPES.length - 1, 0),
+    trail: int(sk.trail, 0, TRAILS.length - 1, 0),
+    ownedShapes: (int(sk.ownedShapes, 0, 255, 1) | 1) & 255,
+    ownedTrails: (int(sk.ownedTrails, 0, 255, 1) | 1) & 255,
+  };
+  if (!(s.skin.ownedShapes & (1 << s.skin.shape))) s.skin.shape = 0;
+  if (!(s.skin.ownedTrails & (1 << s.skin.trail))) s.skin.trail = 0;
+  const dl = { ...def.daily, ...(s.daily ?? {}) };
+  s.daily = {
+    date: typeof dl.date === 'string' ? dl.date : '',
+    lastDate: typeof dl.lastDate === 'string' ? dl.lastDate : '',
+    best: int(dl.best, 0, 1e9, 0),
+    streak: int(dl.streak, 0, 1e6, 0),
+    gems: Array.isArray(dl.gems) ? dl.gems.filter((g) => isNum(g) && g >= 0).map((g) => Math.floor(g)) : [],
+  };
+  s.endlessBest = int(s.endlessBest, 0, 1e9, 0);
+  s.finishes = int(s.finishes, 0, 1e9, 0);
+  s.played = s.played === true;
+  s.tutorial = s.tutorial === true;
+  return true;
 }
 
 /** The level the title screen starts: the last unlocked one. */
@@ -110,8 +137,11 @@ function dayNumber(key: string): number {
   return Math.round(Date.UTC(y, m - 1, day) / 86_400_000);
 }
 
-/** Record a daily-shaft run for date key YYYY-MM-DD. */
-export function recordDaily(d: SaveData, key: string, height: number): { best: number; streak: number; newBest: boolean } {
+/**
+ * Record a daily-shaft run for date key YYYY-MM-DD. `gems` are the indices of the gems taken in
+ * this run; each gem of the day's shaft pays once per date, however often it is retried.
+ */
+export function recordDaily(d: SaveData, key: string, height: number, gems: readonly number[] = []): { best: number; streak: number; newBest: boolean; gemsGained: number } {
   const daily = d.daily;
   if (daily.date !== key) {
     const gap = daily.lastDate ? dayNumber(key) - dayNumber(daily.lastDate) : Infinity;
@@ -119,10 +149,18 @@ export function recordDaily(d: SaveData, key: string, height: number): { best: n
     daily.date = key;
     daily.best = 0;
     daily.lastDate = key;
+    daily.gems = [];
   }
+  let gemsGained = 0;
+  for (const g of gems) {
+    if (daily.gems.includes(g)) continue;
+    daily.gems.push(g);
+    gemsGained++;
+  }
+  d.gems += gemsGained;
   const newBest = height > daily.best;
   if (newBest) daily.best = Math.floor(height);
-  return { best: daily.best, streak: daily.streak, newBest };
+  return { best: daily.best, streak: daily.streak, newBest, gemsGained };
 }
 
 export type SkinKind = 'shape' | 'trail';

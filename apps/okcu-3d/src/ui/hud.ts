@@ -15,15 +15,17 @@ import { STRINGS } from '@okcu/strings';
 import { PALETTE } from '@okcu/textures';
 import { bowTier } from '@sim/bow';
 import { CHAPTERS, stageOf, STAGES } from '@sim/chapters';
+import { progressScore, rankOf } from '@sim/progress';
 import type { GameEvent, World } from '@sim/world';
 import type { Frame, Game, Module, Stage } from '../contract';
 import { EASE, el, injectStyle, Label, rerenderLabels, roundButton, setLabelRes, Timers } from './dom';
-import { rgba } from './gfx';
+import { css, rgba } from './gfx';
+import { createMenus } from './menus';
 import { createPainter, HUD, type PullState } from './paint';
+import { createTracker } from './progress';
 import { createCards, createResult, createTitle, type T, type Ui } from './screens';
 
 const CX = 360;
-const BEST_KEY = 'oyun:okcu-3d:best';
 
 export function createHud(stage: Stage, game: Game): Module {
   injectStyle();
@@ -43,6 +45,8 @@ export function createHud(stage: Stage, game: Game): Module {
   const titleGroup = el('div', 'ok-group', layer);
   const cardGroup = el('div', 'ok-group', layer);
   const resultGroup = el('div', 'ok-group', layer);
+  const menuGroup = el('div', 'ok-group', layer);
+  const toastGroup = el('div', 'ok-group', layer);
   const cornerGroup = el('div', 'ok-group', layer);
 
   const ui: Ui = { stage, game, layer, t, audio, unlock };
@@ -68,11 +72,15 @@ export function createHud(stage: Stage, game: Game): Module {
     e.stopPropagation();
     game.unleash();
   });
-  // top-right corner: the sound toggle (where the 2D game has pause in play and mute on the title)
+  // top-right corner: sound on the title, pause in play (the 2D game's muteButton / pauseBtn)
   const mute = roundButton(cornerGroup, HUD.cornerX, top, 96, audio.muted ? 'sound-off' : 'sound-on', unlock, () => {
     const muted = audio.toggleMute();
     mute.setIcon(muted ? 'sound-off' : 'sound-on');
     if (!muted) audio.play('pop');
+  });
+  const pauseBtn = roundButton(cornerGroup, HUD.cornerX, top, 96, 'pause', unlock, () => {
+    audio.play('tap');
+    openPause();
   });
 
   // ---- transient texts: banners, callouts, floats
@@ -88,7 +96,7 @@ export function createHud(stage: Stage, game: Game): Module {
     bannerUntil = 0;
   }
 
-  const overlayUp = (): boolean => cards.open || result.shown;
+  const overlayUp = (): boolean => cards.open || result.shown || menus.open || menus.pauseOpen;
 
   function showBanner(text: string, sub: string | null): void {
     // never over an overlay: no banner while the cards are up or the run is over
@@ -155,14 +163,111 @@ export function createHud(stage: Stage, game: Game): Module {
     };
   }
 
+  // ---- achievements and other good news: a toast at the top, one at a time (GameScene.queueToast)
+  const toasts: { title: string; sub: string; color: number }[] = [];
+  let toastBusy = false;
+  let toastEl: { root: HTMLElement; labels: Label[] } | null = null;
+
+  function queueToast(head: string, sub: string, color: number): void {
+    toasts.push({ title: head, sub, color });
+    if (!toastBusy) nextToast();
+  }
+
+  function dropToast(): void {
+    if (!toastEl) return;
+    for (const l of toastEl.labels) l.destroy();
+    toastEl.root.remove();
+    toastEl = null;
+  }
+
+  function nextToast(): void {
+    dropToast();
+    const n = toasts.shift();
+    if (!n || game.w.phase === 'over') {
+      toastBusy = false;
+      return;
+    }
+    toastBusy = true;
+    const c = el('div', 'ok-anchor', toastGroup);
+    c.style.left = `${CX}px`;
+    c.style.top = '62px';
+    const bg = el('div', '', c);
+    bg.style.cssText = `position:absolute;left:-300px;top:-48px;width:600px;height:96px;border-radius:28px;background:${rgba(PALETTE.ink, 0.92)};border:4px solid ${css(n.color)}`;
+    const labels = [new Label(c, 0, -18, n.title, { size: 30, color: n.color }), new Label(c, 0, 20, n.sub, { size: 28, color: PALETTE.cream, wrap: 560 })];
+    toastEl = { root: c, labels };
+    audio.playPreset(SFX.fanfare, { volume: 0.6 });
+    c.animate([{ transform: 'translateY(-142px)' }, { transform: 'none' }], { duration: 320, easing: EASE.backOut });
+    const out = c.animate([{ transform: 'none' }, { transform: 'translateY(-142px)' }], { delay: 1900, duration: 260, easing: EASE.cubicIn, fill: 'forwards' });
+    out.onfinish = () => {
+      if (toastEl?.root === c) nextToast();
+    };
+  }
+
+  function clearToasts(): void {
+    toasts.length = 0;
+    toastBusy = false;
+    dropToast();
+  }
+
+  // ---- what the run writes to the save
+  const tracker = createTracker(game, (id, coins) => queueToast(t('feat.title'), `${t(`feat.${id}.name`)} · +${coins}`, PALETTE.gold));
+
   // ---- screens
-  const title = createTitle(ui, titleGroup);
+  const title = createTitle(ui, titleGroup, {
+    shop: () => menus.openShop('title'),
+    forge: () => menus.openForge('title'),
+    ranks: () => menus.openRanks('title'),
+    daily: () => game.startRun({ daily: !game.daily }),
+    // chapter select: cycle through the chapters reached (and endless once unlocked)
+    chapter: () => game.startRun({ chapter: game.chapter >= game.save.data.chapter ? 0 : game.chapter + 1 }),
+  });
   const cards = createCards(ui, cardGroup, clearTransients, (syn) => callout(t('cards.synergy', { s: t(`syn.${syn}`) }), PALETTE.focus, 56));
-  const result = createResult(ui, resultGroup);
+  const result = createResult(ui, resultGroup, {
+    replay: () => game.startRun({ daily: game.daily, quick: true }),
+    shop: () => menus.openShop('result'),
+    forge: () => menus.openForge('result'),
+    home: () => game.toTitle(),
+    ranks: () => {
+      if (!menus.ceremonyOpen) menus.openRanks('result');
+    },
+  });
+  const menus = createMenus(ui, menuGroup, {
+    resume: () => {
+      menus.closePause();
+      game.setPaused(false);
+    },
+    quit: () => {
+      tracker.bank(game.w);
+      game.toTitle();
+    },
+    restart: () => {
+      tracker.bank(game.w);
+      game.startRun({ daily: game.daily, quick: true });
+    },
+    // 2D: back from the shop, forge or ranks is a fresh title, so a purchase shows on the next run at once
+    back: () => {
+      menus.closeAll();
+      game.toTitle();
+    },
+  });
+
+  function openPause(): void {
+    if (menus.pauseOpen) return;
+    const phase = game.w.phase;
+    if (phase === 'title' || phase === 'over') return;
+    clearTransients();
+    tracker.bank(game.w);
+    cancelDrag();
+    game.setPaused(true);
+    menus.openPause();
+  }
+  // the app may be killed while hidden: bank first (main.ts pauses the run)
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) tracker.bank(game.w);
+  });
 
   // ---- per-run state (the world object is replaced on restart)
   let world: World | null = null;
-  let runs = 0;
   let coinShown = 0;
   let coinsInFlight = 0;
   let hudAlpha = 0;
@@ -173,13 +278,14 @@ export function createHud(stage: Stage, game: Game): Module {
   const seen = new Set<string>();
   const brains = new Map<number, string>();
 
-  const readBest = (): number => Number(storage.getItem(BEST_KEY)) || 0;
-
   function resetRun(w: World): void {
-    if (world) runs += 1;
     world = w;
     timers.clear();
     clearTransients();
+    clearToasts();
+    tracker.reset(w);
+    menus.closeAll();
+    cancelDrag();
     painter.clearCoins();
     cards.close();
     result.hide();
@@ -193,7 +299,7 @@ export function createHud(stage: Stage, game: Game): Module {
     resultPending = false;
     painter.snapHp(w);
     hudAlpha = w.phase === 'title' ? 0 : 1;
-    if (w.phase === 'title') title.show(w, runs > 0, readBest());
+    if (w.phase === 'title') title.show(w);
     else showBanner(waveLabel(w), null); // a run that begins mid-way (?wave=N) announces where it is
   }
 
@@ -420,6 +526,8 @@ export function createHud(stage: Stage, game: Game): Module {
           onWaveStart(w, e);
           break;
         case 'waveClear':
+          // bank at every wave clear: nothing earned is lost if the app dies at the card pick
+          tracker.bank(w, e.wave + 1);
           // let the knockout land first
           later(0.9, (now) => {
             if (overlayUp() || now.phase !== 'clear') return;
@@ -494,6 +602,7 @@ export function createHud(stage: Stage, game: Game): Module {
     if (dragId !== -1) return;
     if (e.target instanceof Element && e.target.closest('[data-ui]')) return;
     if (e.pointerType === 'mouse' && e.button !== 0) return;
+    if (game.paused || menus.open || menus.pauseOpen) return;
     const phase = game.w.phase;
     if (phase === 'cards' || phase === 'dying' || phase === 'over') return;
     dragId = e.pointerId;
@@ -552,7 +661,7 @@ export function createHud(stage: Stage, game: Game): Module {
   // labels measured before the web font arrived are redrawn (and the title re-laid out) once it is in
   const onFont = (): void => {
     rerenderLabels();
-    if (title.shown && world && world.phase === 'title') title.show(world, runs > 0, readBest());
+    if (title.shown && world && world.phase === 'title') title.show(world);
   };
   void document.fonts?.load(`800 40px "Nunito"`, 'AĞİŞÇÖÜ ağışçöü').then(onFont, () => undefined);
 
@@ -591,7 +700,12 @@ export function createHud(stage: Stage, game: Game): Module {
         setLabelRes(Math.min(3, window.devicePixelRatio || 1) * painter.k);
       }
       if (w !== world) resetRun(w);
-      timers.update(real);
+      menus.update(real);
+      // a pause from elsewhere (the page was hidden) opens the menu; a resume closes it
+      if (game.paused && !menus.pauseOpen) openPause();
+      if (!game.paused && menus.pauseOpen) menus.closePause();
+      if (!game.paused) timers.update(real);
+      tracker.frame(w);
       handleEvents(w, frame.events);
 
       // the boss's entry beat: a roar as it lands
@@ -609,8 +723,15 @@ export function createHud(stage: Stage, game: Game): Module {
 
       // title → play: the first shot starts the run
       if (w.phase === 'title') {
-        if (!title.shown && !result.shown) title.show(w, runs > 0, readBest());
+        if (!title.shown && !result.shown) title.show(w);
       } else if (title.shown) title.hide();
+      // a menu screen replaces the title (the 2D game switches scenes)
+      const vis = menus.open ? 'hidden' : '';
+      if (titleGroup.style.visibility !== vis) titleGroup.style.visibility = vis;
+      // the corner: sound on the title, pause in play, nothing over the result or a menu
+      const phase = w.phase;
+      mute.el.style.display = phase === 'title' && !menus.open ? '' : 'none';
+      pauseBtn.el.style.display = phase !== 'title' && phase !== 'over' && !menus.pauseOpen && !menus.open ? '' : 'none';
       // the HUD fades in with the first shot and out under the result card
       hudAlpha = w.phase === 'title' ? 0 : result.shown ? Math.max(0, hudAlpha - real / 0.2) : Math.min(1, hudAlpha + real / 0.3);
 
@@ -620,7 +741,7 @@ export function createHud(stage: Stage, game: Game): Module {
       // the coin sits left of the counter, clear of it even while the number pops
       const coinX = HUD.coinTextRight - coinText.width * (1 + painter.coinPopValue * 0.35) - 30;
       if (hudAlpha > 0) painter.hud(w, coinX, hudAlpha);
-      if (w.phase === 'title' && !pull) painter.thumbHint();
+      if (w.phase === 'title' && !pull && !menus.open) painter.thumbHint();
       painter.coins(real, coinX);
       syncHud(w, real);
 
@@ -629,11 +750,21 @@ export function createHud(stage: Stage, game: Game): Module {
       if (w.phase === 'over' && !result.shown && !resultPending) {
         resultPending = true;
         clearTransients();
-        later(0.35, (now) => {
-          const before = readBest();
-          const newBest = now.wave > before;
-          if (newBest) storage.setItem(BEST_KEY, String(now.wave));
-          result.show(now, Math.max(before, now.wave), newBest);
+        clearToasts();
+        // GameScene.finish: bank everything (and the daily), then the result a beat later
+        const run = tracker.finish(w);
+        later(0.35, () => {
+          result.show(run);
+          // ResultScene: a higher rank than the one last celebrated plays the ceremony
+          const rank = rankOf(progressScore(game.save.data).total);
+          if (rank > game.save.data.rank) {
+            game.save.update((d) => {
+              d.rank = rank;
+            });
+            later(0.5, () => {
+              if (result.shown) menus.rankUp(rank);
+            });
+          }
         });
       }
       result.update(real);

@@ -11,6 +11,7 @@ import { clamp, minLaunchSpeed } from './geom';
 import { NO_META, type MetaLevels } from './meta';
 import { PT } from './ragdoll';
 import { TUNING } from './tuning';
+import type { Difficulty } from './waves';
 import { advance, aliveEnemies, arcClear, arrowSpeed, canShoot, createWorld, pickCard, playerOrigin, reachedWave, shoot, solveWithWind, takeEvents, targetPoint, unleash, type Archer, type World } from './world';
 
 export interface Profile {
@@ -176,6 +177,8 @@ export interface RunOptions {
   untilWave?: number;
   /** keep the player alive (robustness sweeps: every stage must be clearable) */
   god?: boolean;
+  /** enemy curves (waves.ts); default classic */
+  difficulty?: Difficulty;
   /** called after every step */
   each?: (w: World) => void;
 }
@@ -183,7 +186,7 @@ export interface RunOptions {
 /** Play one whole run headless with a scripted player. */
 export function playRun(seed: number, rng: Rng, p: Profile, opts: RunOptions | MetaLevels = {}, maxTime = 2400): RunReport {
   const o: RunOptions = 'hp' in opts ? { meta: opts } : opts;
-  const w = createWorld({ seed, meta: o.meta ?? NO_META, startChapter: o.startChapter ?? 0 });
+  const w = createWorld({ seed, meta: o.meta ?? NO_META, startChapter: o.startChapter ?? 0, difficulty: o.difficulty ?? 'classic' });
   let wait = 0;
   let need = p.think + rng.next() * (p.thinkJitter ?? 0);
   const step = 1 / 30;

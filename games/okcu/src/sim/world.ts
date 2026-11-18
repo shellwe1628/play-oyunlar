@@ -16,7 +16,7 @@ import { NO_META, type MetaLevels, type RunBank } from './meta';
 import type { DailyMod, RunSummary } from './progress';
 import { BOSS_PARTS, bowOrigin, createRagdoll, LEG_HEIGHT, PARTS, PT, setPose, type Part } from './ragdoll';
 import { PLAYER_LEDGE, PLAYER_SCALE, PLAYER_X, TUNING } from './tuning';
-import { bossHp, enemyAccuracy, enemyDamageMul, enemyHp, enemyScale, enemyTiming, graceStep, helmetChance, waveGrace } from './waves';
+import { bossHp, enemyAccuracy, enemyDamageMul, enemyHp, enemyScale, enemyTiming, graceStep, helmetChance, waveGrace, type Difficulty } from './waves';
 
 export type Phase = 'title' | 'play' | 'clear' | 'bonus' | 'cards' | 'dying' | 'over';
 export type ArcherType = EnemyType | 'player';
@@ -300,6 +300,8 @@ export interface World {
   seed: number;
   meta: MetaLevels;
   mod: DailyMod | null;
+  /** enemy aim, timing and damage curves (waves.ts); 'classic' unless the renderer asks */
+  difficulty: Difficulty;
   phase: Phase;
   wave: number;
   /** 0 … 3 a chapter, 4 endless */
@@ -447,7 +449,7 @@ function makeArcher(w: World, type: ArcherType, x: number, ledgeTop: number, fac
   const scale = type === 'player' ? PLAYER_SCALE : enemyScale(type);
   const ay = ledgeTop - LEG_HEIGHT * scale;
   const body = createRagdoll(x, ay, facing, scale);
-  const hp = type === 'player' ? w.stats.maxHp : Math.round(enemyHp(type, w.level) * (w.mod === 'giants' ? 1.3 : 1));
+  const hp = type === 'player' ? w.stats.maxHp : Math.round(enemyHp(type, w.level, w.difficulty) * (w.mod === 'giants' ? 1.3 : 1));
   const a: Archer = {
     id: w.nextId++,
     type,
@@ -530,6 +532,8 @@ export interface WorldOptions {
   startChapter?: number;
   /** daily challenge modifier */
   mod?: DailyMod | null;
+  /** 'hard' for the 3D build (apps/okcu-3d); default 'classic' */
+  difficulty?: Difficulty;
 }
 
 /** Cards in a hand drafted for a chapter-select start: five per chapter skipped. */
@@ -576,6 +580,7 @@ export function createWorld(opts: WorldOptions): World {
     seed: opts.seed,
     meta,
     mod: opts.mod ?? null,
+    difficulty: opts.difficulty ?? 'classic',
     phase: 'title',
     wave: 1,
     chapter: 0,
@@ -704,12 +709,12 @@ function spawnWave(w: World, wave: number, instant: boolean): void {
     const e = makeArcher(w, type, L.x + L.w / 2, L.y, -1, i + 1);
     e.helmet = type === 'elite' || (type !== 'boss' && w.waveRng.chance(helmetChance(w.level)));
     e.brain = 'wait';
-    e.timer = waveGrace(w.level) + i * graceStep(w.level) + w.brainRng.range(0, 0.4);
+    e.timer = waveGrace(w.level, w.difficulty) + i * graceStep(w.level, w.difficulty) + w.brainRng.range(0, 0.4);
     if (type === 'boss') {
       const kind = def.boss ?? 'shields';
       const lap = pos.endless ? Math.floor((wave - ENDLESS_WAVE) / STAGES) + 1 : 0;
       e.bossKind = kind;
-      e.hp = e.maxHp = Math.round(bossHp(kind, lap) * (w.mod === 'giants' ? 1.3 : 1));
+      e.hp = e.maxHp = Math.round(bossHp(kind, lap, w.difficulty) * (w.mod === 'giants' ? 1.3 : 1));
       e.special = kind === 'summoner' ? 3.5 : 2.5;
     }
     if (type === 'cover') {
@@ -1603,7 +1608,7 @@ function brain(w: World, a: Archer): void {
     a.draw = 0;
   }
   a.timer -= DT;
-  const timing = enemyTiming(w.level);
+  const timing = enemyTiming(w.level, w.difficulty);
   const drawTime = a.type === 'boss' ? timing.draw * 1.15 : a.type === 'imp' ? timing.draw * 0.8 : a.type === 'healer' ? 0.8 : timing.draw;
   switch (a.brain) {
     case 'wait':
@@ -1808,7 +1813,7 @@ export function enemyAimSolution(w: World, a: Archer): { angle: number; speed: n
 }
 
 function beginDraw(w: World, a: Archer, drawTime: number): void {
-  const acc = enemyAccuracy(w.level);
+  const acc = enemyAccuracy(w.level, w.difficulty);
   if (a.bossKind === 'warden') {
     // the warden aims its orb fan straight at the player (orbs fly without gravity)
     const o = bowOrigin(a.stanceX, a.anchorY, a.aim, a.scale);
@@ -2084,7 +2089,7 @@ function explode(w: World, a: Arrow, x: number, y: number): void {
         w.shieldLeft -= 1;
         w.events.push({ t: 'blocked', x, y });
       } else {
-        damagePlayer(w, 'body', TUNING.bombDamage * enemyDamageMul(w.level), x, y, (dx || 1) * 8, -300, a.by);
+        damagePlayer(w, 'body', TUNING.bombDamage * enemyDamageMul(w.level, w.difficulty), x, y, (dx || 1) * 8, -300, a.by);
       }
     }
   }
@@ -2410,11 +2415,11 @@ function enemyArrowHits(w: World, a: Arrow, x0: number, y0: number): void {
     const vy = a.vy;
     if (a.kind === 'orb') {
       a.active = false;
-      if (p.alive) damagePlayer(w, 'body', FX.orbDamage * enemyDamageMul(w.level) * (a.by === -2 ? 0.7 : 1), hx, hy, vx, vy, a.by);
+      if (p.alive) damagePlayer(w, 'body', FX.orbDamage * enemyDamageMul(w.level, w.difficulty) * (a.by === -2 ? 0.7 : 1), hx, hy, vx, vy, a.by);
       w.events.push({ t: 'orbPop', x: hx, y: hy });
       return;
     }
-    if (p.alive) damagePlayer(w, part.kind, resolveHit('player', part.kind, enemyDamageMul(w.level)).damage, hx, hy, vx, vy, a.by);
+    if (p.alive) damagePlayer(w, part.kind, resolveHit('player', part.kind, enemyDamageMul(w.level, w.difficulty)).damage, hx, hy, vx, vy, a.by);
     else pushBody(p.body, hx, hy, vx, vy, 0.3, 70);
     stickTo(a, p, p.body, part, hx, hy, 2);
     trimStuck(w, p.id);

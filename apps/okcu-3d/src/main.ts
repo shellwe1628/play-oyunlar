@@ -8,10 +8,17 @@
  *   ?auto=1      the aim bot plays         ?off=a,b  skip modules (stage is never skipped):
  *                                                     arena, archers, arrows, fx, bowglow, ui
  *   ?speed=K     game speed multiplier         ?armor=N  health upgrade level 0 … 8 (meta.hp; shown as armour)
+ *   ?difficulty=classic  the 2D game's difficulty (the 3D build plays 'hard')
+ *
+ * Without switches every run is set up from the save (ui/save.ts) the way the 2D game does it:
+ * `metaOf(save)` (shop upgrades + forged bow), the chapter select, the daily run. ?bow, ?armor,
+ * ?chapter and ?wave override the save for testing, and such a test run never writes to it.
  */
-import { createRng } from '@oyun/core/pure';
+import { createRng, hashSeed, webStorage } from '@oyun/core/pure';
 import { CAREFUL, planShot } from '@sim/aimbot';
-import { NO_META } from '@sim/meta';
+import { metaOf, newBank, NO_META } from '@sim/meta';
+import { dailyChallenge } from '@sim/progress';
+import type { Difficulty } from '@sim/waves';
 import {
   advance,
   aimAt,
@@ -28,8 +35,9 @@ import {
 } from '@sim/world';
 import { DRAG_DEAD, DRAG_FULL } from '@okcu/scenes/keys';
 import { loadAssets } from './assets';
-import type { AimState, ArchersView, Frame, FxView, Game, Module } from './contract';
+import type { AimState, ArchersView, Frame, FxView, Game, Module, RunOptions } from './contract';
 import { createHud } from './ui/hud';
+import { openSave, todayKey } from './ui/save';
 import { createArchers } from './view/archers';
 import { createArena } from './view/arena';
 import { createArrows } from './view/arrows';
@@ -49,15 +57,37 @@ const auto = params.get('auto') === '1';
 const root = document.getElementById('stage')!;
 const stage = createStage(root);
 
+const save = openSave(webStorage());
+const testRun = ['bow', 'armor', 'chapter', 'wave'].some((k) => params.has(k));
+/** the 3D build plays the harder setting; ?difficulty=classic for comparison */
+const difficulty: Difficulty = params.get('difficulty') === 'classic' ? 'classic' : 'hard';
+const randomSeed = (): number => Math.floor(Math.random() * 2 ** 31);
+
+/** the run being played: daily or not, the quick title; and the chapter select's choice (the 2D `session.chapter`) */
+let mode: { daily: boolean; quick: boolean } = { daily: false, quick: false };
+let chapterPick = 0;
+
+/** GameScene.create: the daily run is the same for everyone, so upgrades and the bow do not apply. */
 function newWorld(seed: number): World {
-  const w = createWorld({ seed, meta: { ...NO_META, bow: Math.max(0, Math.min(20, Math.round(num('bow', 0)))), hp: Math.max(0, Math.min(8, Math.round(num('armor', 0)))) }, startChapter: Math.round(num('chapter', 0)) });
+  const d = save.data;
+  const daily = mode.daily;
+  const key = todayKey();
+  const meta = daily ? { ...NO_META } : metaOf(d);
+  if (params.has('bow')) meta.bow = Math.max(0, Math.min(20, Math.round(num('bow', 0))));
+  if (params.has('armor')) meta.hp = Math.max(0, Math.min(8, Math.round(num('armor', 0))));
+  chapterPick = Math.max(0, Math.min(d.chapter, chapterPick));
+  const startChapter = params.has('chapter') ? Math.round(num('chapter', 0)) : daily ? 0 : chapterPick;
+  const w = createWorld({ seed: daily ? hashSeed(`okcu-daily-${key}`) : seed, meta, startChapter, mod: daily ? dailyChallenge(key).mod : null, difficulty });
   if (params.has('wave')) jumpToWave(w, Math.round(num('wave', 1)));
+  // what this run has written to the save (banked by the UI as the run goes)
+  w.bank = testRun ? null : newBank(d);
   return w;
 }
 
-let world = newWorld(Math.round(num('seed', Math.floor(Math.random() * 2 ** 31))));
+let world = newWorld(Math.round(num('seed', randomSeed())));
 let aim: AimState | null = null;
 let buffered: { angle: number; power: number } | null = null;
+let paused = false;
 
 function dragShot(a: AimState): { angle: number; power: number } | null {
   const dx = a.x0 - a.x;
@@ -68,6 +98,7 @@ function dragShot(a: AimState): { angle: number; power: number } | null {
 }
 
 function release(angle: number, power: number): boolean {
+  if (paused) return false;
   if (!canShoot(world)) {
     // let go a moment early: fire as soon as the arrow is nocked
     if (world.reload > 0 && world.reload < 0.3 && world.player.alive) buffered = { angle, power };
@@ -86,7 +117,43 @@ const game: Game = {
   get bowLevel() {
     return world.meta.bow;
   },
+  get save() {
+    return save;
+  },
+  get daily() {
+    return mode.daily;
+  },
+  get chapter() {
+    return chapterPick;
+  },
+  get quick() {
+    return mode.quick;
+  },
+  testRun,
+  get paused() {
+    return paused;
+  },
+  setPaused(on) {
+    if (on === paused) return;
+    paused = on;
+    // no half-drawn string under the menu, no shot fired on resume
+    aim = null;
+    buffered = null;
+    world.player.draw = 0;
+  },
+  startRun(opts: RunOptions = {}) {
+    mode = { daily: opts.daily ?? false, quick: opts.quick ?? false };
+    if (opts.chapter !== undefined) chapterPick = opts.chapter;
+    paused = false;
+    aim = null;
+    buffered = null;
+    world = newWorld(opts.seed ?? randomSeed());
+  },
+  toTitle() {
+    game.startRun({});
+  },
   dragStart(x, y) {
+    if (paused) return;
     aim = { x0: x, y0: y, x, y, shot: null };
   },
   dragMove(x, y) {
@@ -116,11 +183,16 @@ const game: Game = {
     unleash(world);
   },
   restart(seed) {
-    aim = null;
-    buffered = null;
-    world = newWorld(seed ?? Math.floor(Math.random() * 2 ** 31));
+    game.startRun({ daily: mode.daily, quick: true, ...(seed !== undefined ? { seed } : {}) });
   },
 };
+
+// the app may be killed while hidden: pause a run in progress (the UI banks and shows the menu)
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden) return;
+  const phase = world.phase;
+  if (phase !== 'title' && phase !== 'over') game.setPaused(true);
+});
 
 const failures = new Map<string, string>();
 function guard<T>(name: string, make: () => T, fallback: T): T {
@@ -186,6 +258,20 @@ async function start(): Promise<void> {
   function tick(now: number): void {
     const real = Math.min(0.2, (now - last) / 1000);
     last = now;
+    if (paused) {
+      // nothing advances; the view modules redraw a frozen frame, the UI keeps its own clock (menus animate)
+      const still: Frame = { w: world, dt: 0, real: 0, time, events: [], aim: null };
+      run('arena', arena, still);
+      run('archers', archers, still);
+      run('arrows', arrows, still);
+      run('fx', fx, still);
+      run('bowglow', bowglow, still);
+      run('ui', hud, { ...still, real });
+      stage.render(still);
+      frames++;
+      requestAnimationFrame(tick);
+      return;
+    }
     const dt = real * fx.timeScale() * speed;
 
     if (aim) {

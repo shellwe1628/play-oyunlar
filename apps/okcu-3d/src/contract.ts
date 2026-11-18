@@ -9,6 +9,8 @@
  * never hand-roll the conversion.
  */
 import type * as THREE from 'three';
+import type { SaveStore } from '@oyun/core/pure';
+import type { SaveData } from '@sim/meta';
 import type { GameEvent, World } from '@sim/world';
 
 export interface AimState {
@@ -78,11 +80,39 @@ export interface FxView extends Module {
   timeScale(): number;
 }
 
+/** How a run is set up (the 2D GameScene's `GameData`). */
+export interface RunOptions {
+  /** the daily run: today's seed and modifier, no upgrades, no bow */
+  daily?: boolean;
+  /** chapter select: start at this chapter (clamped to the chapters reached) */
+  chapter?: number;
+  /** straight back from the result screen: the small title */
+  quick?: boolean;
+  seed?: number;
+}
+
 /** The only way UI code acts on the game. */
 export interface Game {
   readonly w: World;
-  /** bow level shown on the player's bow (the 2D game reads it from the save; here it is meta.bow) */
+  /** bow level shown on the player's bow (the run's meta.bow, which comes from the save) */
   readonly bowLevel: number;
+  /** the persistent progress (coins, upgrades, bow, records, …); mutate only through `update` */
+  readonly save: SaveStore<SaveData>;
+  /** the current run is the daily run */
+  readonly daily: boolean;
+  /** the chapter the chapter select starts runs at */
+  readonly chapter: number;
+  /** the current title was opened straight from the result screen */
+  readonly quick: boolean;
+  /** this run does not touch the save (URL test switches ?wave ?bow ?armor ?chapter) */
+  readonly testRun: boolean;
+  readonly paused: boolean;
+  /** paused: the world does not advance and the view modules get dt = real = 0 (they keep drawing) */
+  setPaused(on: boolean): void;
+  /** a fresh world at the title, set up from the save (unpauses) */
+  startRun(opts?: RunOptions): void;
+  /** a fresh normal run at the full title */
+  toTitle(): void;
   /** begin / continue a drag from the pointer, logical px */
   dragStart(x: number, y: number): void;
   dragMove(x: number, y: number): void;
@@ -92,6 +122,6 @@ export interface Game {
   pickCard(index: number): void;
   reroll(): void;
   unleash(): void;
-  /** a fresh run (new seed unless given) */
+  /** a fresh run of the same kind (new seed unless given), at the quick title */
   restart(seed?: number): void;
 }

@@ -115,6 +115,11 @@ export function setLabelRes(next: number): void {
   for (const l of live) l.render();
 }
 
+/** The current backing-store resolution (for canvases that live in the logical layer). */
+export function labelRes(): number {
+  return res;
+}
+
 export function rerenderLabels(): void {
   for (const l of live) l.render(true);
 }
@@ -283,6 +288,8 @@ export class Label {
 export interface ButtonHandle {
   el: HTMLElement;
   setEnabled(on: boolean): void;
+  /** a new label, fitted to the face like the first one */
+  setText(text: string): void;
   fire(): void;
 }
 
@@ -323,11 +330,15 @@ export function button(parent: HTMLElement, x: number, y: number, text: string, 
   const h = Math.max(opts.height ?? 112, 88);
   const primary = (opts.variant ?? 'primary') === 'primary';
   const size = opts.fontSize ?? 44;
-  const fit = Math.min(1, (w - 30) / Math.max(1, textWidth(text, size)));
   const e = el('div', 'ok-btn', parent);
   const r = Math.min(THEME.radius, h / 2);
-  e.style.cssText = `left:${x - w / 2}px;top:${y - h / 2}px;width:${w}px;height:${h}px;border-radius:${r}px;background:${css(primary ? THEME.primary : THEME.secondary)};color:${css(primary ? THEME.primaryText : THEME.secondaryText)};font-size:${size * fit}px;box-shadow:0 8px 0 ${rgba(THEME.shadow, 0.55)};padding-bottom:4px`;
-  e.textContent = text;
+  e.style.cssText = `left:${x - w / 2}px;top:${y - h / 2}px;width:${w}px;height:${h}px;border-radius:${r}px;background:${css(primary ? THEME.primary : THEME.secondary)};color:${css(primary ? THEME.primaryText : THEME.secondaryText)};box-shadow:0 8px 0 ${rgba(THEME.shadow, 0.55)};padding-bottom:4px`;
+  const setText = (s: string): void => {
+    const fit = Math.min(1, (w - 30) / Math.max(1, textWidth(s, size)));
+    e.style.fontSize = `${size * fit}px`;
+    e.textContent = s;
+  };
+  setText(text);
   let enabled = true;
   const fire = (): void => {
     if (!enabled) return;
@@ -341,11 +352,12 @@ export function button(parent: HTMLElement, x: number, y: number, text: string, 
       enabled = on;
       e.classList.toggle('off', !on);
     },
+    setText,
     fire,
   };
 }
 
-export type RoundIcon = 'sound-on' | 'sound-off';
+export type RoundIcon = 'sound-on' | 'sound-off' | 'pause' | 'home' | 'replay';
 
 /** The core's round icon button (visual 96 px). Returns a setter for its glyph. */
 export function roundButton(parent: HTMLElement, x: number, y: number, size: number, icon: RoundIcon, onDown: () => void, onTap: () => void): { el: HTMLElement; setIcon(icon: RoundIcon): void } {
@@ -364,6 +376,21 @@ export function roundButton(parent: HTMLElement, x: number, y: number, size: num
     const s = size * 0.6;
     const u = s / 2;
     g.fillStyle(THEME.secondaryText, 1).lineStyle(s * 0.12, THEME.secondaryText, 1);
+    // the core's other glyphs (pause, home, replay)
+    if (name === 'pause') {
+      g.fillRoundedRect(-u * 0.5, -u * 0.55, u * 0.32, u * 1.1, 4).fillRoundedRect(u * 0.18, -u * 0.55, u * 0.32, u * 1.1, 4);
+      return;
+    }
+    if (name === 'home') {
+      g.fillTriangle(-u * 0.6, -u * 0.02, u * 0.6, -u * 0.02, 0, -u * 0.6);
+      g.fillRect(-u * 0.42, -u * 0.05, u * 0.84, u * 0.6);
+      return;
+    }
+    if (name === 'replay') {
+      g.beginPath().arc(0, 0, u * 0.45, -2.6, 2.2).strokePath();
+      g.fillTriangle(-u * 0.62, -u * 0.5, -u * 0.12, -u * 0.42, -u * 0.5, -u * 0.05);
+      return;
+    }
     g.fillRect(-u * 0.6, -u * 0.22, u * 0.3, u * 0.44);
     g.fillTriangle(-u * 0.32, -u * 0.22, -u * 0.32, u * 0.22, u * 0.05, -u * 0.55);
     g.fillTriangle(-u * 0.32, u * 0.22, u * 0.05, u * 0.55, u * 0.05, -u * 0.55);
@@ -385,6 +412,47 @@ export function roundButton(parent: HTMLElement, x: number, y: number, size: num
     },
   );
   return { el: e, setIcon: draw };
+}
+
+// ---------------------------------------------------------------------------- canvases
+
+/**
+ * A canvas over a rectangle of the logical layer, drawn in logical px (the game's own drawing
+ * functions run on it through Gfx). `begin()` clears it and follows the label resolution.
+ */
+export class Sketch {
+  readonly cv: HTMLCanvasElement;
+  readonly g: Gfx;
+  private r = 0;
+
+  constructor(
+    parent: HTMLElement,
+    readonly x: number,
+    readonly y: number,
+    readonly w: number,
+    readonly h: number,
+    cls = '',
+  ) {
+    this.cv = el('canvas', cls, parent);
+    this.cv.style.cssText = `position:absolute;left:${x}px;top:${y}px;width:${w}px;height:${h}px;pointer-events:none`;
+    this.g = new Gfx(this.cv.getContext('2d')!);
+  }
+
+  begin(): Gfx {
+    const r = Math.min(3, res);
+    const c = this.g.ctx;
+    if (r !== this.r) {
+      this.r = r;
+      this.cv.width = Math.max(1, Math.ceil(this.w * r));
+      this.cv.height = Math.max(1, Math.ceil(this.h * r));
+    }
+    c.setTransform(1, 0, 0, 1, 0, 0);
+    c.globalAlpha = 1;
+    c.globalCompositeOperation = 'source-over';
+    c.clearRect(0, 0, this.cv.width, this.cv.height);
+    c.setTransform(r, 0, 0, r, -this.x * r, -this.y * r);
+    return this.g;
+  }
 }
 
 // ---------------------------------------------------------------------------- timers

@@ -114,6 +114,20 @@ export class Gfx {
     return this;
   }
 
+  /** A filled polygon through plain {x, y} points (Phaser's fillPoints; the game passes plain objects). */
+  fillPoints(points: readonly { x: number; y: number }[]): this {
+    const c = this.ctx;
+    const first = points[0];
+    if (!first) return this;
+    c.beginPath();
+    c.moveTo(first.x, first.y);
+    for (let i = 1; i < points.length; i++) c.lineTo(points[i]!.x, points[i]!.y);
+    c.closePath();
+    c.fillStyle = this.fill;
+    c.fill();
+    return this;
+  }
+
   lineBetween(x0: number, y0: number, x1: number, y1: number): this {
     const c = this.ctx;
     c.beginPath();

@@ -30,9 +30,9 @@ macOS ve Linux'ta `python` yoksa `python3` yapın.
 
 ## Bilmeniz gerekenler
 
-- **Bu depodaki oyunlar 2D'dir ve Mixamo'yu kullanmaz.** Mixamo 3D insan biçimli karakter
-  animasyonu verir. Şu anki oyunların görselleri kodla çizilir; indirilen bir FBX dosyasını
-  kullanacak bir yer yoktur. Bu bağlantı, ileride 3D bir oyun yapılırsa işe yarar.
+- **Bu depodaki oyunlar 2D'dir.** Mixamo 3D insan biçimli karakter animasyonu verir; indirilen
+  FBX dosyası oyunda doğrudan kullanılamaz. `tools/mixamo/fbx-kareler.mjs` bir FBX'i 2B kare
+  dizisine (PNG şeridi + JSON) çevirir; ayrıntı `tools/mixamo/README.md` içinde.
 - **Üçüncü taraf kod.** Sunucu tek kişinin yazdığı küçük bir projedir, lisans dosyası yoktur;
   bu yüzden kodu depoya kopyalanmadı, kurulum sırasında indirilir. 2026-11-17'de incelenen
   sürüm (`8bdb0a3`) yalnızca `mixamo.com` ile konuşuyor ve indirdiği dosyayı yalnızca

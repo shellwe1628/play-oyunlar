@@ -168,7 +168,8 @@ değerlerini hiçbir issue, yorum ya da commit'e yapıştırmayın.
 
 - oyunun web paketini derler ve denetler (bütün yollar göreli, internetten hiçbir şey çekmez);
 - yalnız o oyun için bir Android projesi üretir: paket adı ve adlar `store/apps.json`'dan
-  (telefon dili Türkçeyse simge altındaki ad Türkçe), yalnız dikey, kenardan kenara ekran,
+  (telefon dili Türkçeyse simge altındaki ad Türkçe), yalnız dikey, tam ekran (eylem çubuğu yok,
+  durum/gezinme çubukları gizli, kenardan kaydırınca bir an görünür, çentiğe kadar),
   simge (aşağıda), düz renk açılış ekranı;
 - **güvenlik ayarları:** hata ayıklanamaz (debuggable değil), şifresiz HTTP kapalı, Android
   yedeklemesi ve cihazdan cihaza aktarım kayıtlar için kapalı (kayıtlar yalnız telefonda kalır;

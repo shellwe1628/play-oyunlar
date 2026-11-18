@@ -5,7 +5,7 @@
 // Per-app settings come from store/apps.json (application id, names per language, version name,
 // platform adapter, colours); nothing in games/<slug>/ is edited. Each run builds from scratch in
 // build/aab/<slug>/ (git-ignored): web bundle → offline/URL check → fresh Capacitor Android
-// project → patches (id, names, portrait, back button, edge to edge, icon, splash, no cleartext,
+// project → patches (id, names, portrait, full screen, back button, icon, splash, no cleartext,
 // no cloud backup, signing) → `gradlew bundleRelease` → checks on the merged manifest, the
 // bundle's contents and its signature.
 //
@@ -24,6 +24,7 @@ import { createHash } from 'node:crypto';
 import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { isAbsolute, join, relative, resolve } from 'node:path';
 import { findIconSource, writeIcon } from './aab/icon.mjs';
+import { checkThemeDump, fullScreenStyles } from './aab/theme.mjs';
 import { ROOT } from './template.mjs';
 
 const BIN = join(ROOT, 'node_modules', '.bin');
@@ -49,6 +50,7 @@ function run(cmd, args, opts = {}) {
     cwd: opts.cwd ?? ROOT,
     stdio: ['ignore', opts.capture ? 'pipe' : 'inherit', opts.capture ? 'pipe' : 'inherit'],
     encoding: 'utf8',
+    maxBuffer: 64 * 1024 * 1024,
     env: { ...process.env, FORCE_COLOR: '0', ...opts.env },
   });
   if (r.error) fail(`${cmd} could not start: ${r.error.message}`);
@@ -210,8 +212,10 @@ function capacitor(app, work) {
     android: { allowMixedContent: false, webContentsDebuggingEnabled: false },
     plugins: {
       // Core's built-in SystemBars plugin: edge to edge, insets passed to the page as
-      // env(safe-area-inset-*) (index.html has viewport-fit=cover). DARK = light bar icons.
-      SystemBars: { insetsHandling: 'css', style: 'DARK', initialViewportFitValueHint: 'cover' },
+      // env(safe-area-inset-*) (index.html has viewport-fit=cover). DARK = light bar icons (seen
+      // only when an edge swipe shows the bars for a moment). hidden: the plugin's start-up call
+      // hides the bars instead of showing them again over MainActivity's immersive mode.
+      SystemBars: { insetsHandling: 'css', style: 'DARK', initialViewportFitValueHint: 'cover', hidden: true },
     },
   };
   writeFileSync(join(work, 'capacitor.config.json'), `${JSON.stringify(config, null, 2)}\n`);
@@ -221,7 +225,7 @@ function capacitor(app, work) {
 }
 
 function patchNative(app, work, info) {
-  step('patch android/ (id, names, portrait, back button, edge to edge, icon, splash, cleartext, backup, signing)');
+  step('patch android/ (id, names, portrait, full screen, back button, icon, splash, cleartext, backup, signing)');
   const android = join(work, 'android');
   const main = join(android, 'app', 'src', 'main');
   const res = join(main, 'res');
@@ -241,6 +245,13 @@ function patchNative(app, work, info) {
     );
     return x;
   });
+  // Themes: no action bar on the launch (splash) theme or any other, cutout drawn into.
+  try {
+    edit(join(res, 'values', 'styles.xml'), fullScreenStyles);
+  } catch (e) {
+    fail(e.message);
+  }
+
   const exclude = ['root', 'file', 'database', 'sharedpref', 'external'].map((d) => `        <exclude domain="${d}" path="."/>`);
   mkdirSync(join(res, 'xml'), { recursive: true });
   writeFileSync(
@@ -294,7 +305,7 @@ function patchNative(app, work, info) {
     return x;
   });
 
-  // MainActivity: back button (press twice → background) + edge to edge.
+  // MainActivity: back button (press twice → background) + full screen (immersive, cutout).
   const activity = join(main, 'java', ...app.applicationId.split('.'), 'MainActivity.java');
   if (!existsSync(activity)) fail(`MainActivity not found at ${relative(ROOT, activity)} (did cap add use appId ${app.applicationId}?)`);
   writeFileSync(activity, readFileSync(join(ROOT, 'tools', 'aab', 'MainActivity.java'), 'utf8').replace('__PACKAGE__', app.applicationId));
@@ -332,7 +343,7 @@ function attr(xml, tag, name) {
   return new RegExp(`android:${name}="([^"]*)"`).exec(el)?.[1] ?? (name === 'package' ? /\spackage="([^"]*)"/.exec(el)?.[1] : undefined);
 }
 
-function verify(app, work, info) {
+function verify(app, work, info, sdk) {
   step('verify bundle');
   const android = join(work, 'android');
   const aab = join(android, 'app', 'build', 'outputs', 'bundle', 'release', 'app-release.aab');
@@ -377,6 +388,27 @@ function verify(app, work, info) {
   const wwwCount = filesUnder(join(work, 'www')).length;
   if (assets.filter((e) => !e.endsWith('/')).length < wwwCount) problems.push(`bundle has ${assets.length} web files, www/ has ${wwwCount}`);
 
+  // Full screen: read the bundle's own manifest and resource table (proto format) with aapt2,
+  // repacked as a base-module zip it can open: the activity starts with the launch theme, and
+  // that theme and the ones after it have no action bar or title (tools/aab/theme.mjs).
+  const buildTools = existsSync(join(sdk, 'build-tools')) ? readdirSync(join(sdk, 'build-tools')).sort((a, b) => a.localeCompare(b, 'en', { numeric: true })) : [];
+  const aapt2 = buildTools.map((v) => join(sdk, 'build-tools', v, 'aapt2')).filter((f) => existsSync(f)).at(-1);
+  let themes = { summary: [] };
+  if (!aapt2) problems.push(`no aapt2 in ${join(sdk, 'build-tools')}: cannot check the themes`);
+  else {
+    const base = join(work, 'theme-check');
+    rmSync(base, { recursive: true, force: true });
+    mkdirSync(join(base, 'p'), { recursive: true });
+    writeFileSync(join(base, 'p', 'resources.pb'), execFileSync('unzip', ['-p', aab, 'base/resources.pb'], { maxBuffer: 64 * 1024 * 1024 }));
+    writeFileSync(join(base, 'p', 'AndroidManifest.xml'), execFileSync('unzip', ['-p', aab, 'base/manifest/AndroidManifest.xml']));
+    run('jar', ['cfM', join(base, 'base.zip'), '-C', join(base, 'p'), '.']);
+    const tree = run(aapt2, ['dump', 'xmltree', '--file', 'AndroidManifest.xml', join(base, 'base.zip')], { capture: true });
+    const activityTheme = /E: activity[\s\S]*?android:theme\(0x01010000\)=@style\/(\S+)/.exec(tree)?.[1];
+    if (activityTheme !== 'AppTheme.NoActionBarLaunch') problems.push(`activity theme is ${activityTheme ?? 'missing'}, expected AppTheme.NoActionBarLaunch`);
+    themes = checkThemeDump(run(aapt2, ['dump', 'resources', join(base, 'base.zip')], { capture: true }), ['AppTheme', 'AppTheme.NoActionBar', 'AppTheme.NoActionBarLaunch']);
+    problems.push(...themes.problems);
+  }
+
   const sig = spawnSync('jarsigner', ['-verify', aab], { encoding: 'utf8' });
   if (sig.status !== 0 || !/jar verified/.test(sig.stdout)) problems.push(`jarsigner -verify: ${(sig.stdout + sig.stderr).trim().split('\n').slice(-2).join(' ')}`);
   const cert = spawnSync('keytool', ['-printcert', '-jarfile', aab], { encoding: 'utf8' });
@@ -385,6 +417,7 @@ function verify(app, work, info) {
 
   if (problems.length) fail(`bundle check:\n  ${problems.join('\n  ')}`);
   console.log(`manifest: ${JSON.stringify(facts)}`);
+  console.log(`themes: activity = AppTheme.NoActionBarLaunch; ${themes.summary.join('; ')}`);
   console.log(`contents: ${assets.filter((e) => !e.endsWith('/')).length} web files under base/assets/public/, no native libraries`);
   console.log(`signature: jar verified, upload certificate SHA-256 ${certSha}`);
   return { aab, facts };
@@ -447,5 +480,5 @@ checkWeb(app, join(work, 'www'));
 capacitor(app, work);
 const iconNote = patchNative(app, work, info);
 gradle(work, sdk, signEnv);
-const { aab, facts } = verify(app, work, info);
+const { aab, facts } = verify(app, work, info, sdk);
 deliver(app, aab, info, facts, iconNote);

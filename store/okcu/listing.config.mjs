@@ -4,7 +4,8 @@
 // Shots drive the real game through its ?test=1 hook (packages/core/README.md): the scripted
 // player shoots through the same release handler a finger uses; the aiming shots are real touch
 // drags (Chrome DevTools touch events, as tests/e2e/smoke.spec.ts does). Later stages are reached
-// with the chapter select (what a player taps) or the documented capture aid `jump-wave`.
+// with the chapter select (what a player taps) and played; the documented capture aid `god` keeps
+// the scripted player alive on the way, `unleash` spends a full focus meter before a shot.
 import { stageCareer } from './career.mjs';
 
 const SAVE_KEY = 'oyun:okcu:save';
@@ -14,10 +15,10 @@ const SAVE_VERSION = 3;
  * Game time only (no frames): the scripted player shoots while `stop(data)` is false. Card
  * screens get a pick by preference. Returns the data when `stop` holds; fails if the run ends.
  */
-async function playUntil(g, stop, { error = 0.004, max = 6000, pick = true } = {}) {
+async function playUntil(g, stop, { error = 0.012, max = 6000, pick = true, god = false } = {}) {
   for (let round = 0; round < 60; round++) {
     const res = await g.page.evaluate(
-      ([src, error, max]) => {
+      ([src, error, max, god]) => {
         const H = window.__OYUN__;
         const stop = new Function('d', `return (${src})(d)`);
         for (let i = 0; i < max; i++) {
@@ -25,13 +26,16 @@ async function playUntil(g, stop, { error = 0.004, max = 6000, pick = true } = {
           const d = s.data;
           if (s.scene !== 'game' || d.phase === 'over' || d.phase === 'dying') return { fail: `run ended on wave ${d.wave}` };
           if (stop(d)) return { done: true };
+          // capture aid `god` (no damage taken; GAME.md test hook): health cards reset it, keep it on
+          if (god && (d.health < 1e5 || d.health !== d.maxHealth) && d.phase !== 'cards') H.act('god');
           if (d.phase === 'cards') return { cards: d.offer };
           if ((d.phase === 'title' || d.phase === 'play' || d.phase === 'bonus') && d.reload === 0) H.act('aimbot', { error });
           H.act('advance', 0.1);
         }
-        return { fail: 'too long' };
+        const d = H.state().data;
+        return { fail: `too long: wave ${d.wave} phase ${d.phase} enemies ${JSON.stringify(d.enemies.map((e) => [e.type, e.alive, e.hp]))} bonus ${JSON.stringify(d.bonus)}` };
       },
-      [stop.toString(), error, max],
+      [stop.toString(), error, max, god],
     );
     if (res.fail) throw new Error(`playUntil: ${res.fail}`);
     if (res.done) return g.data();
@@ -95,29 +99,30 @@ async function toChapter(g, c) {
 const COMBOS = [['fire', 'boom'], ['pierce', 'chain'], ['split', 'seeker'], ['heavy', 'overdraw'], ['keen', 'longsight']];
 const completesCombo = (held, c) => COMBOS.some(([a, b]) => (c === a && held.includes(b) && !held.includes(a)) || (c === b && held.includes(a) && !held.includes(b)));
 
-/** Spend a full focus meter (its "Tap!" cue is a prompt, not a screenshot), let banners clear. */
-async function settle(g) {
-  if ((await g.data()).focus >= 1) await g.act('unleash');
-  await g.until((s) => s.data.focus < 1 && s.data.focusT <= 0 && !s.data.bannerUp && s.data.reload === 0, { step: 150, max: 30000, what: 'calm' });
+/** In god mode (a capture aid used while playing up to a shot) keep it on, with health == max so the HUD bar reads full. */
+const needGod = (d) => d.phase === 'play' && (d.health < 1e5 || d.health !== d.maxHealth);
+
+/**
+ * Before a gameplay shot: spend a full focus meter (its "Tap!" cue is a prompt, not a screenshot),
+ * wait for stage banners to clear and the bow to be ready.
+ */
+async function settle(g, { god = false } = {}) {
+  await g.until(
+    async (s) => {
+      const d = s.data;
+      if (!d) return false;
+      if (god && needGod(d)) await g.act('god');
+      if (d.focus >= 1 && d.focusT <= 0 && d.phase === 'play') await g.act('unleash');
+      return d.focus < 1 && d.focusT <= 0 && !d.bannerUp && d.reload === 0 && d.phase === 'play';
+    },
+    { step: 150, max: 40000, what: 'calm' },
+  ).catch(async (e) => {
+    const st = await g.state();
+    const d = st.data ?? {};
+    throw new Error(`${e.message}: scene ${st.scene} focus ${d.focus} focusT ${d.focusT} banner ${d.bannerUp} "${d.banner}" reload ${d.reload} phase ${d.phase}`);
+  });
   await g.run(600, 150);
 }
-
-const FORGE_T = Number(process.env.FORGE_T ?? 300);
-const BOSS_SCOUT = [7, 14, 21, 28].map((wave) => ({
-  id: `boss${wave}`,
-  save: 'golden',
-  caption: { 'en-US': 'x', 'tr-TR': 'x' },
-  async run(g) {
-    await g.act('jump-wave', wave);
-    await g.act('god');
-    await g.run(800, 150);
-    const hp0 = (await g.data()).enemies.find((e) => e.type === 'boss').hp;
-    await playUntil(g, new Function('d', `return d.enemies.some((e) => e.type === 'boss' && e.alive && e.hp < ${hp0 * 0.45})`));
-    await settle(g);
-    await g.act('aimbot', { error: 0.002 });
-    await g.run(260, 40);
-  },
-}));
 
 export default {
   slug: 'okcu',
@@ -139,13 +144,12 @@ export default {
   icon: { emblem: 'bow', bg: ['#4fc3ff', '#1d6fd1'], glow: '#fff2a8', mono: true },
 
   async stage(load) {
-    const { save, at, forgeAt } = await stageCareer(load, { bowTarget: 20, snapshots: [9, 12, 16] });
+    const { save, at, forgeAt } = await stageCareer(load, { bowTarget: 20, snapshots: [6, 9, 12] });
     const wrap = (data, cosmetic) => ({ v: SAVE_VERSION, data: { ...data, cosmetic } });
     return {
-      fresh: { v: SAVE_VERSION, data: (await load('/src/sim/meta.ts')).freshSave() },
+      verdant: wrap(at[6], 'flower'),
       golden: wrap(at[9], 'feather'),
       azure: wrap(at[12], 'tophat'),
-      magenta: wrap(at[16], 'horns'),
       prism: wrap(save, 'crown'),
       forge16: wrap(forgeAt[16], 'horns'),
     };
@@ -170,21 +174,32 @@ export default {
       caption: { 'en-US': 'Forge your bow to +20 and watch it blaze', 'tr-TR': 'Yayını +20’ye kadar döv, alev alev parlasın' },
       async run(g) {
         await toChapter(g, 3);
-        await g.act('god');
-        await g.act('jump-wave', 27);
+        await playUntil(g, (d) => d.wave >= 27 && d.phase === 'play', { god: true });
         await g.run(1500, 150);
-        await settle(g);
+        await settle(g, { god: true });
         const t = await holdAim(g, { power: 0.95 });
         await g.run(250, 50);
         await t.send('touchEnd', [{ ...t.css(400, 900), id: 1 }]);
         await g.run(160, 40);
       },
     },
-    ...BOSS_SCOUT,
+    {
+      id: 'boss',
+      save: 'verdant',
+      caption: { 'en-US': 'Four bosses that change tactics halfway', 'tr-TR': 'Yarı yolda taktik değiştiren dört patron' },
+      async run(g) {
+        // Frozen Peaks from the chapter select, played up to the Frost Giant on its sliding ledge
+        await toChapter(g, 1);
+        await playUntil(g, (d) => d.wave >= 14 && d.phase === 'play' && d.enemies.some((e) => e.type === 'boss' && e.alive), { god: true });
+        await settle(g, { god: true });
+        await g.act('aimbot', { error: 0.002 });
+        await g.run(140, 35);
+      },
+    },
     {
       id: 'forge',
       save: 'forge16',
-      caption: { 'en-US': 'x', 'tr-TR': 'x' },
+      caption: { 'en-US': 'Every forge chance is shown before you try', 'tr-TR': 'Demircide her şans denemeden önce yazar' },
       async run(g) {
         await g.run(600, 120);
         await g.act('forge');
@@ -192,49 +207,30 @@ export default {
         await g.run(800, 120);
         await g.act('forge');
         await g.until((s) => s.data.shown === 16, { step: 60, max: 10000, what: 'forge payoff' });
-        await g.run(FORGE_T, 40);
+        await g.run(1100, 40);
       },
     },
     {
       id: 'dunes',
       save: 'azure',
-      caption: { 'en-US': 'x', 'tr-TR': 'x' },
+      caption: { 'en-US': 'Swinging ledges, elites and arrow-catchers', 'tr-TR': 'Sallanan platformlar, seçkin rakipler, ok yakalayanlar' },
       async run(g) {
         await toChapter(g, 2);
-        await g.act('god');
-        await g.act('jump-wave', 20);
+        await playUntil(g, (d) => d.wave >= 18 && d.phase === 'play', { god: true });
         await g.run(1500, 150);
-        await settle(g);
-        const kos = (await g.data()).kos;
+        await settle(g, { god: true });
         await g.act('aimbot', { error: 0.002 });
-        const hit = await watch(g, `(d) => d.kos > ${kos}`);
-        if (!hit) throw new Error('no knockout from the shot');
-        await g.run(60, 30);
-      },
-    },
-    {
-      id: 'snow',
-      save: 'azure',
-      caption: { 'en-US': 'x', 'tr-TR': 'x' },
-      async run(g) {
-        await toChapter(g, 1);
-        await g.act('god');
-        await g.act('jump-wave', 12);
-        await g.run(1500, 150);
-        await settle(g);
-        await g.act('aimbot', { error: 0.004 });
-        await g.run(450, 50);
+        await g.run(160, 40);
       },
     },
     {
       id: 'cards',
       save: 'golden',
-      caption: { 'en-US': 'x', 'tr-TR': 'x' },
+      caption: { 'en-US': 'Pick a trick each stage and find the combos', 'tr-TR': 'Her aşamada bir numara seç, uyumları yakala' },
       async run(g) {
         await toChapter(g, 1);
-        await g.act('god');
         for (let i = 0; i < 12; i++) {
-          await playUntil(g, (d) => d.phase === 'cards', { pick: false });
+          await playUntil(g, (d) => d.phase === 'cards', { pick: false, god: true });
           const d = await g.data();
           if (d.offer.some((c) => completesCombo(d.cards, c))) break;
           await g.run(1000, 200);
@@ -247,7 +243,7 @@ export default {
     {
       id: 'ranks',
       save: 'azure',
-      caption: { 'en-US': 'x', 'tr-TR': 'x' },
+      caption: { 'en-US': 'Climb 12 ranks and beat your own records', 'tr-TR': '12 rütbeyi tırman, kendi rekorlarını kır' },
       async run(g) {
         await g.run(600, 120);
         await g.act('ranks');
@@ -258,10 +254,10 @@ export default {
   ],
 
   feature: {
-    tagline: { 'en-US': 'Pull back, let go, knock them off!', 'tr-TR': 'Geri çek, bırak, düşür!' },
+    tagline: { 'en-US': 'Knock them off, forge a blazing bow!', 'tr-TR': 'Okçuları düşür, yayını parlat!' },
     cards: [
-      ['night', 0, 220, 540, 960],
-      ['forge', 100, 120, 560, 996],
+      ['glow', 40, 200, 640, 896],
+      ['boss', 40, 300, 600, 840],
     ],
   },
 };

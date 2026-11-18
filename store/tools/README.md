@@ -7,6 +7,7 @@ klasördeki betiklerle üretilir. Çıktı fastlane'in Android düzenindedir:
 ```text
 store/<slug>/
   listing.config.mjs                 çekimler, altyazılar, renkler, simge ve tanıtım ayarları
+  career.mjs                         kayıt hazırlama: oyunun sim'i ve betikli oyuncusuyla oynanan bir oyuncu kariyeri
   icon/                              simge kaynakları (SVG) + adaptive katmanlar + README.md
   metadata/android/<en-US|tr-TR>/
     title.txt  short_description.txt  full_description.txt  changelogs/default.txt   (elle yazılır)
@@ -47,7 +48,13 @@ ilerletilir, her çekim aynı kareye düşer. Betikler açtıkları sunucu ve ta
 - **İlerleme gerçek kurallarla.** `stage()` kayıtları oyunun saf sim'iyle (`src/sim`) ve testlerin
   kullandığı betikli oyuncuyla üretir (ör. Fosil Şansı'nda pacing testinin "fast" oyuncusu); kayıt
   sayfa açılmadan `localStorage`'a yazılır. Ekranda görünen her durum oyunda oynayarak varılan bir
-  durumdur.
+  durumdur. Uzun ilerlemeler (bölümler, demirci, seferler, rütbeler) `store/<slug>/career.mjs`
+  içinde oynanır: Sallanan Okçular'da `aimbot.ts` CAREFUL oyuncusu koşuları oynar, ilerlemeyi
+  oyunun kendi `bank*`/`unlockFeats` işlevleriyle yazar ve yayı `attemptForge` ile döver; Fosil
+  Şansı'nda pacing testinin "fast" oyuncusu on katmanı kazar; Kıvılcım'da insan modeli 40 bölümü
+  sırayla dener, `settle()` başarımları ve kazanılan izleri verir. Belgelenmiş çekim yardımları
+  (ör. Sallanan Okçular'ın `god`'u) yalnızca bir çekime giden yolda oyuncuyu ayakta tutmak için
+  kullanılır.
 - **Dil.** Her çekim `&lang=en` veya `&lang=tr` ile ayrı açılır; tr-TR görüntülerinde oyun Türkçe.
 - **Yazı tipi.** Altyazı ve başlıklar oyunların kendi Nunito'su (OFL, `@fontsource/nunito`).
 - **Simge ailesi.** Her oyun aynı çerçeveyi kullanır (oyunun renginde degrade, yumuşak parıltı,

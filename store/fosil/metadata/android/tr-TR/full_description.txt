@@ -1,28 +1,37 @@
 Kazıp çıkardığın her fosilin üstünde gerçek şansı yazar: 2'de 1'den 1.000.000'da 1'e kadar.
-Kayaya dokun, müzeni doldur, milyonda bir gelen o bulgunun peşine düş.
+Kazmanı Dünya'nın geçmişinden on katmana savur, müzeni doldur, milyonda bir gelen o bulgunun peşine düş.
 
-Fosil Şansı, şansın gözle görüldüğü sakin ve hızlı bir kazı oyunu. Bulgunun üstündeki sayı, o fosilin o katmandaki gerçek olasılığıdır; o anki şans çarpanın da hep ekranda durur.
+Fosil Şansı, şansın gözle görüldüğü hızlı ve keyifli bir kazı oyunu. Bulgunun üstündeki sayı, o fosilin o katmandaki gerçek olasılığıdır; hangi şansla çekildiği de hep yanında yazar.
 
 NASIL OYNANIR
-• Kazmak için kayaya dokun. Kırılan her blok o katmandan bir fosil çıkarır.
-• Elindeki her fosil kazı gücüne eklenir; her bulgu bir sonraki bloğu daha hızlı kırar.
-• Ritimle dokunmaya devam et: seri, dokunuşlarının şansını ×2'ye kadar artırır.
-• Parıltıyı sönmeden yakala, 10× şansla bir çekiliş kazan.
-• Bulgu ne kadar nadirse açılışı o kadar büyük: sıradanlar fırlayıp çıkar, nadirler kartla dönerek gelir, en nadirlerinde zaman durur.
+• Kayaya dokun: kazman iner, kıymıklar uçuşur, blok yuvarlanan parçalara ayrılır.
+• Kırılan her blok o katmandan bir fosil çeker; sahip olduğun her fosil kazı gücüne eklenir.
+• Ritmi bozmadan dokun, kombo dokunuşlarının şansını ×2'ye kadar çıkarsın. Ateş göstergesini doldur: sekiz saniye boyunca çift hasar, çift toz.
+• Blokları peş peşe hızla kır, zincir bonusu kazan. Parıltıyı yakala, 10× şansla bir çekiliş yap.
+• Yardımcın yanında kazar; seviyesi arttıkça donanımı da güzelleşir.
+• Bulgu ne kadar nadirse gösteri o kadar büyük: sıradanlar fırlar, nadirler kartla döner, en nadirleri zamanı durdurur.
 
-TOPLA VE BÜYÜT
-• Dört çağda 48 fosil: Toprak Üstü, Buzul Çağı, Kretase ve Derin Deniz.
-• Yaygın'dan Eşsiz'e yedi nadirlik seviyesi.
-• Bir fosilin üç kopyası birleşip bir üst dereceye çıkar: bronz, gümüş, altın. Her derece daha çok kazı gücü verir.
-• Bir katmanın setini tamamla, kalıcı bir ödül kazan.
-• Müzende bulduğun her fosil durur; bulamadıkların da gölge hâlinde, şansları yazılı olarak bekler.
+HER BİRİ AYRI SÜRPRİZLİ ON KATMAN
+• Toprak Üstü, Buzul Çağı, Kretase, Derin Deniz, Kömür Bataklığı, Kehribar Ormanı, Tuz Mağaraları, Kristal Jeot, Magma Bacaları ve İlk Denizler; her birinin kendi manzarası, kayası ve 12 fosili var.
+• Basılı tutup bırakarak parçaladığın sert damarlar, zamanında kırarsan bonus çekiliş veren dengesiz bloklar, iki fosilli ikiz bloklar, kalıntı parçaları, tozla dolu göçükler ve üç kat şansla çeken patron blok.
+• Oyun ilerledikçe her katmanda altın bloklar çıkar: iki fosil ve beş kat toz.
 
-GELİŞTİRMELER
-• Kazma: her dokunuşta daha çok kazı gücü.
-• Uğur taşı: nadir bulgularda daha iyi şans.
-• Yardımcı: kendi kendine kazar, sen yokken bile (daha yavaş ve sınırlı bir süre).
-• Gece vardiyası: sen yokken yardımcının daha uzun kazmasını sağlar.
+ADİL ŞANS
+• Patron çekilişleri dahil her olasılık açıkça yazar.
+• Şans serisi: 100'de 1 ya da daha nadir bir şey çıkmadan art arda 150 bulgudan sonra, sıradaki bulgu kesinlikle öyle biri olur ve tam yazılı oranlarla seçilir. Kural oyunda gösterilir.
+• Şansla ilgili hiçbir şey satın alınamaz.
+
+TOPLA VE BÜYÜ
+• Yaygın'dan Eşsiz'e yedi nadirlik seviyesinde 120 fosil.
+• Üç kopya birleşip bronz, gümüş, sonra altın olur; her derece daha çok kazı gücü verir. Bir katmanın setini tamamla, kalıcı bonus kazan.
+• Müzende gez: her katman için raflar, en nadir bulgunun üstünde bir spot ışığı ve henüz bulamadığın her siluetin altında yazılı şansı.
+• Kazmanı (tahtadan kristale beş görünüm), uğur taşını, yardımcını ve gece vardiyanı geliştir.
+
+KENDİ İLERLEMEN
+• Seferler: İlk Denizler'e ulaşınca daha derin bir tabakada Toprak Üstü'nden yeniden başla. Müzen, set bonusların, kalıntıların, rekorların ve hedeflerin seninle kalır; kazı gücün ve tozun kalıcı olarak artar.
+• Çakıl Toplayıcı'dan Katmanların Efsanesi'ne 12 rütbeyi tırman. Merdiven yalnızca senin ilerlemeni sayar.
+• En nadir bulgularının ve en hızlı setlerinin rekor tablosu, toz kazandıran 25 hedef ve serisi olan günlük kazı.
 
 BİLMEKTE FAYDA VAR
-• İnternetsiz oynanır. Hesap gerekmez.
+• İnternetsiz oynanır. Hesap gerekmez. Sen yokken yardımcın bir süre kazmaya devam eder.
 • Türkçe ve İngilizce.

@@ -1,28 +1,37 @@
 Every fossil you dig up comes stamped with its true odds, from 1 in 2 to 1 in 1,000,000.
-Tap the rock, fill your museum and chase the one-in-a-million find.
+Swing your pickaxe through ten layers of Earth's past, fill your museum and chase the one-in-a-million find.
 
-Fossil Odds is a calm, quick digging game about luck you can actually see. The number printed on a find is the real chance of that fossil in its layer, and your current luck multiplier is always on screen.
+Fossil Odds is a quick, satisfying digging game about luck you can actually see. The number printed on a find is the real chance of that fossil in its layer, and the luck it was rolled at is always shown with it.
 
 HOW IT PLAYS
-• Tap the rock to dig. Each broken block rolls one fossil from that layer.
-• Every fossil you own adds to your dig power, so each find makes the next block break faster.
-• Keep tapping in rhythm to build a combo that raises the luck of your taps up to ×2.
-• Catch a glint before it fades for one roll at 10× luck.
-• The rarer the find, the bigger the reveal: common finds pop out, rare ones flip in on a card, and the rarest stop time.
+• Tap the rock: your pickaxe swings, chips fly and the block splits into tumbling chunks.
+• Each broken block rolls one fossil from that layer, and every fossil you own adds to your dig power.
+• Keep tapping in rhythm for a combo that raises the luck of your taps up to ×2. Fill the fever meter for eight seconds of double damage and double dust.
+• Break blocks quickly one after another for a chain bonus. Catch a glint for one roll at 10× luck.
+• Your helper digs beside you and gets better gear as you level it up.
+• The rarer the find, the bigger the reveal: common finds pop out, rare ones flip in on a card, the rarest stop time.
+
+TEN LAYERS, EACH WITH A TWIST
+• Topsoil, Ice Age, Cretaceous, Deep Sea, Coal Swamp, Amber Forest, Salt Caves, Crystal Geode, Magma Vents and First Seas, each with its own scenery, rock and 12 fossils.
+• Hard veins you hold and release to smash, unstable blocks that pay a bonus roll if you break them in time, twin blocks with two fossils, relic fragments, cave-ins full of dust, and a boss block that rolls at triple luck.
+• Golden blocks turn up everywhere once you are going: two fossils and five times the dust.
+
+FAIR LUCK
+• Every probability is printed, including the boss rolls.
+• Lucky streak: after 150 finds in a row without a 1 in 100 or rarer, the next find is guaranteed to be one, drawn in exactly the printed proportions. The rule is shown in the game.
+• Nothing about luck can be bought.
 
 COLLECT AND GROW
-• 48 fossils across four ages: Topsoil, Ice Age, Cretaceous and Deep Sea.
-• Seven rarity tiers, from Common to Singular.
-• Three copies of a fossil fuse into the next grade: bronze, silver, then gold, each worth more dig power.
-• Complete a layer's set for a permanent bonus.
-• Your museum shows every fossil you have found, and a silhouette with printed odds for every one you have not.
+• 120 fossils in seven rarity tiers, from Common to Singular.
+• Three copies fuse into bronze, silver, then gold, each worth more dig power. Complete a layer's set for a permanent bonus.
+• Walk your museum: shelves for every layer, a spotlight on your rarest find and printed odds under every silhouette you have not found yet.
+• Upgrade your pickaxe (five looks, from wood to crystal), lucky charm, helper and night shift.
 
-UPGRADES
-• Pick: more dig power with every tap.
-• Lucky charm: better odds on rare finds.
-• Assistant: digs on its own, even while you are away (at a lower rate, for a limited time).
-• Night shift: lets the assistant keep digging longer while you are away.
+YOUR OWN PROGRESS
+• Expeditions: once you reach First Seas, start again from Topsoil in a deeper stratum. You keep your museum, set bonuses, relics, records and goals, and gain dig power and dust for good.
+• Climb 12 ranks, from Pebble Picker to Legend of the Layers. The ladder counts only your own progress.
+• A records board of your rarest finds and fastest sets, 25 goals that pay dust, and a daily dig with a streak.
 
 GOOD TO KNOW
-• Plays offline. No account needed.
+• Plays offline. No account needed. Your helper keeps digging for a while when you are away.
 • Available in English and Turkish.

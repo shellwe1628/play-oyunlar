@@ -1,5 +1,5 @@
 Geri çek, bırak ve sallanan erişte kollu okçuları uçan platformlarından düşür.
-Dört dünyayı ve dört patronu geç, yayını demirhanede güçlendir; önce eflatun, sonra gökkuşağı renkleriyle alev alsın.
+Dört dünyayı ve dört patronu geç, yayını demircide güçlendir; önce eflatun, sonra gökkuşağı renkleriyle alev alsın.
 
 Sallanan Okçular, ragdoll fiziğiyle zıplayan, rengârenk bir okçuluk oyunu. İlk okun saniyeler içinde havada: nişan almak için ekranın herhangi bir yerinden sürükle, noktalı yayı izle, bırakınca ok fırlasın.
 
@@ -18,14 +18,14 @@ DÖRT BÖLÜM
 • Yeni rakipler: şifacılar, siper arkasındaki okçular, ok yakalayanlar ve fener şövalyeleri.
 
 YAYINI GÜÇLENDİR
-• Demirhanede yayını +0'dan +20'ye kadar yükselt. Her seviye hasarı artırır.
+• Demircide yayını +0'dan +20'ye kadar yükselt. Her seviye hasarı artırır.
 • Sade tahtadan efsaneviye altı yay görünümü ve seviyeyle renk değiştiren bir parıltı: ayaz, yeşil, altın alev, safir, eflatun cehennem ve en sonunda gökkuşağı.
 • +1 ile +6 arası her zaman tutar. Sonraki seviyelerin şansı denemeden önce açıkça yazar; tutmazsa yalnızca altın gider ve ocak ısınır, bir sonraki denemenin şansı artar.
 
 BÜYÜK ANLAR
 • Kafadan vuruş serileri, tek okla çoklu nakavt, hasar almadan seriler ve kritik vuruşlar; her birinin kendi coşkulu yazısı var.
 • Odak göstergesini doldur, göze dokun, güçlendirilmiş bir atış yap.
-• Her aşamadan sonra üç numara kartından birini seç: yelpaze ve ateşli oktan arayıcı oka ve kıvılcıma 18 numara, iki numara buluşunca açılan beş kombo.
+• Her aşamadan sonra üç numara kartından birini seç: yelpaze ve ateşli oktan arayıcı oka ve kıvılcıma 18 numara, iki numara buluşunca açılan beş uyum.
 
 İLERLEMEN
 • Acemi'den Destansı Okçu'ya, sana özel 12 rütbelik bir merdivende yüksel.

@@ -271,7 +271,7 @@ const base = `http://127.0.0.1:${web.address().port}`;
 const releaseUrl = `http://127.0.0.1:${rel.address().port}`;
 rmSync(SHOTS, { recursive: true, force: true });
 mkdirSync(SHOTS, { recursive: true });
-check(['', 'kivilcim', 'okcu', 'fosil'].every((d) => readFileSync(join(dir, d, 'index.html'), 'utf8').includes('src="./oyun-test-update.js"')), 'every page of the APK web folder loads oyun-test-update.js');
+check(['', 'kivilcim', 'okcu', 'okcu3d', 'fosil'].every((d) => readFileSync(join(dir, d, 'index.html'), 'utf8').includes('src="./oyun-test-update.js"')), 'every page of the APK web folder loads oyun-test-update.js');
 const browser = await launch();
 
 async function scenario(name, fn) {
@@ -294,7 +294,7 @@ try {
     check(t.includes('Update') && t.includes('Later'), 'buttons Update and Later');
     const box = await banner(page).boundingBox();
     check(box.y >= 0 && box.y < 80 && box.height >= 44 && box.height <= 64, `compact banner at the top (y ${box.y.toFixed(0)}, h ${box.height.toFixed(0)})`);
-    check((await page.locator('a.card').count()) === 3, 'launcher still usable under it (3 cards)');
+    check((await page.locator('a.card').count()) === 4, 'launcher still usable under it (4 cards)');
     await shot(page, '01-available-en');
     check(!errors.length, `no page errors ${JSON.stringify(errors)}`);
     await context.close();
@@ -324,7 +324,7 @@ try {
       await page.goto(`${base}/`);
       await settled(page);
       check(!(await visible(page)) && ['idle', 'absent'].includes(await bannerState(page)), `no banner (state ${await bannerState(page)})`);
-      check((await page.locator('a.card').count()) === 3 && !errors.length, `launcher works, no page errors ${JSON.stringify(errors)}`);
+      check((await page.locator('a.card').count()) === 4 && !errors.length, `launcher works, no page errors ${JSON.stringify(errors)}`);
       if (label === 'no network') await shot(page, '03-no-network-no-banner');
       await context.close();
     });

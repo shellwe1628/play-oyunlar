@@ -11,6 +11,7 @@ Görseller kodla çizilir, sesler WebAudio ile üretilir; indirilmiş varlık yo
 | Yol | Ne |
 |---|---|
 | `packages/core/` | `@oyun/core`: tüm oyunların ortak çekirdeği (açılış, sahne kabukları, kayıt, ses, his, arayüz, dil, `platform` arayüzü, test kancası). Sözleşme: `packages/core/README.md` |
+| `apps/okcu-3d/` | Sallanan Okçular'ın 3D sürümü (deneme): okcu'nun simülasyonunu three.js ve Mixamo karakteriyle çizer; test APK'larında ayrı uygulama ve paket kartı olarak var. Ayrıntı: `apps/okcu-3d/README.md` |
 | `templates/game/` | Yeni oyun iskeleti (küçük, çalışan bir referans oyun) |
 | `games/<slug>/` | Her oyun ayrı bir Vite uygulaması. `games/ornek` şablonun değiştirilmemiş çıktısıdır, elle düzenlenmez |
 | `tools/` | `gate.mjs` (kalite kapısı), `new-game.mjs` (oyun üretir), `apk.mjs` + `test-apk/` + `test-imza/` (test APK'ları, uygulama içi güncelleme, herkese açık test anahtarı), `aab.mjs` + `aab/` (Play için imzalı AAB), `play-metadata.mjs` (sürüm notları), `gizlilik.mjs` (gizlilik sayfaları), `research/` (CrazyGames veri çekme ve mağaza arama) |

@@ -1,10 +1,13 @@
-/** The games in the test APK. `slug` is the folder under dist/ (and under games/ in the repo). */
+/**
+ * The games in the test APK. `slug` is the folder under dist/ (and under games/ in the repo, except
+ * okcu3d: apps/okcu-3d, the 3D renderer of okcu).
+ */
 import type { Lang } from './lang';
 
 export { pickLang, type Lang } from './lang';
 
 export interface LauncherGame {
-  slug: 'kivilcim' | 'okcu' | 'fosil';
+  slug: 'kivilcim' | 'okcu' | 'okcu3d' | 'fosil';
   name: Record<Lang, string>;
   pitch: Record<Lang, string>;
   /** Card accent colour (CSS). */
@@ -40,6 +43,18 @@ const okcuMark = svg(
     '<circle cx="52" cy="38" r="5" fill="#a46be8"/>',
 );
 
+/** The okcu mark at dusk: a glowing bow drawn on a floating island, an arrow on its arc. */
+const okcu3dMark = svg(
+  '<defs><linearGradient id="o3-sky" x1="0" y1="0" x2="0" y2="1">' +
+    '<stop offset="0" stop-color="#2b3a8f"/><stop offset="1" stop-color="#ff8a5c"/></linearGradient></defs>' +
+    '<rect width="64" height="64" rx="16" fill="url(#o3-sky)"/>' +
+    '<path d="M6 46 H26 L22 53 L16 58 L10 53 Z" fill="#5a3a26"/><rect x="6" y="43" width="20" height="5" rx="2" fill="#6fcf4f"/>' +
+    '<path d="M20 22 Q30 32 20 42" fill="none" stroke="#ffd34d" stroke-width="3" stroke-linecap="round"/>' +
+    '<path d="M20 22 L20 42" stroke="#fff3d6" stroke-width="1"/>' +
+    '<path d="M22 32 Q38 12 56 20" fill="none" stroke="#fff3d6" stroke-width="2.5" stroke-dasharray="1 5" stroke-linecap="round"/>' +
+    '<text x="58" y="60" text-anchor="end" font-family="sans-serif" font-weight="800" font-size="13" fill="#ffffff">3D</text>',
+);
+
 /** Ammonite spiral in ochre on dark soil. */
 const fosilMark = svg(
   '<rect width="64" height="64" rx="16" fill="#24160e"/>' +
@@ -68,6 +83,16 @@ export const GAMES: readonly LauncherGame[] = [
     },
     accent: '#4fc3ff',
     mark: okcuMark,
+  },
+  {
+    slug: 'okcu3d',
+    name: { tr: 'Sallanan Okçular 3D', en: 'Noodle Archers 3D' },
+    pitch: {
+      tr: 'Aynı oyun, 3D: yüzen adalar, parlayan yay, zırhlı okçu. Deneme sürümü.',
+      en: 'The same game in 3D: floating islands, a glowing bow, armoured archers. Trial build.',
+    },
+    accent: '#ff8a5c',
+    mark: okcu3dMark,
   },
   {
     slug: 'fosil',

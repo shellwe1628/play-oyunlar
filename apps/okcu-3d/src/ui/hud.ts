@@ -1,0 +1,642 @@
+/**
+ * The interface layer and the sound of the 3D renderer: input, aim feedback, HUD, banners and
+ * callouts, title, card pick, result. A port of the 2D game's GameScene HUD code (buildHud,
+ * syncHud, renderAim, handleEvents, onWaveStart, showBanner, callout, flyCoins) onto DOM + a 2D
+ * canvas; texts, colours, sounds and icons are the game's own, imported from games/okcu.
+ *
+ *   ?lang=en   English (Turkish is the default)
+ *   ?markers=0 hide the world markers this module draws (enemy health pills, "!" telegraph,
+ *              reload ring) in case the 3D modules draw their own
+ */
+import { CORE_STRINGS, createAudio, createI18n, pickLanguage, webStorage } from '@oyun/core/pure';
+import { DRAG_DEAD } from '@okcu/scenes/keys';
+import { SFX } from '@okcu/sfx';
+import { STRINGS } from '@okcu/strings';
+import { PALETTE } from '@okcu/textures';
+import { bowTier } from '@sim/bow';
+import { CHAPTERS, stageOf, STAGES } from '@sim/chapters';
+import type { GameEvent, World } from '@sim/world';
+import type { Frame, Game, Module, Stage } from '../contract';
+import { EASE, el, injectStyle, Label, rerenderLabels, roundButton, setLabelRes, Timers } from './dom';
+import { rgba } from './gfx';
+import { createPainter, HUD, type PullState } from './paint';
+import { createCards, createResult, createTitle, type T, type Ui } from './screens';
+
+const CX = 360;
+const BEST_KEY = 'oyun:okcu-3d:best';
+
+export function createHud(stage: Stage, game: Game): Module {
+  injectStyle();
+  const params = new URLSearchParams(location.search);
+  const i18n = createI18n(STRINGS, pickLanguage(['tr'], params.get('lang')), { base: CORE_STRINGS, onMissing: (key) => console.warn(`[okcu-3d] missing string ${key}`) });
+  const t: T = (key, p) => i18n.t(key as Parameters<typeof i18n.t>[0], p);
+  const storage = webStorage();
+  const audio = createAudio({ storage, key: 'oyun:okcu-3d:audio' });
+  const unlock = (): void => audio.unlock();
+  const showMarkers = params.get('markers') !== '0';
+
+  // ---- layers, bottom to top: shapes canvas, the logical DOM layer
+  const painter = createPainter(stage);
+  const layer = el('div', 'ok-layer', stage.overlay);
+  const hudGroup = el('div', 'ok-group', layer);
+  const floatGroup = el('div', 'ok-group', layer);
+  const titleGroup = el('div', 'ok-group', layer);
+  const cardGroup = el('div', 'ok-group', layer);
+  const resultGroup = el('div', 'ok-group', layer);
+  const cornerGroup = el('div', 'ok-group', layer);
+
+  const ui: Ui = { stage, game, layer, t, audio, unlock };
+  const timers = new Timers();
+
+  // ---- HUD texts (GameScene.buildHud, L.top = 0)
+  const top = HUD.top;
+  const waveText = new Label(hudGroup, CX, top + 78, '', { size: 38, stroke: 10 });
+  const objText = new Label(hudGroup, CX, top + 124, '', { size: 28, color: PALETTE.cream, stroke: 8 });
+  const bowText = new Label(hudGroup, 24, top + 46, '', { size: 24, color: PALETTE.cream, stroke: 7, originX: 0 });
+  const bonusText = new Label(hudGroup, CX, top + 170, '', { size: 40, color: PALETTE.gold, stroke: 10 });
+  const coinText = new Label(hudGroup, HUD.coinTextRight, top, '0', { size: 44, color: PALETTE.coin, stroke: 10, originX: 1 });
+  const focusText = new Label(hudGroup, HUD.focusX, HUD.focusY - 92, '', { size: 30, color: PALETTE.focus, stroke: 8 });
+  // the focus gauge is tapped to unleash when full; a tap there never starts a drag
+  const focusZone = el('div', '', hudGroup);
+  focusZone.dataset.ui = '1';
+  focusZone.style.cssText = `position:absolute;left:${HUD.focusX - 75}px;top:${HUD.focusY - 75}px;width:150px;height:150px;border-radius:50%;pointer-events:auto;cursor:pointer;touch-action:none`;
+  focusZone.addEventListener('pointerdown', (e) => {
+    e.stopPropagation();
+    unlock();
+  });
+  focusZone.addEventListener('pointerup', (e) => {
+    e.stopPropagation();
+    game.unleash();
+  });
+  // top-right corner: the sound toggle (where the 2D game has pause in play and mute on the title)
+  const mute = roundButton(cornerGroup, HUD.cornerX, top, 96, audio.muted ? 'sound-off' : 'sound-on', unlock, () => {
+    const muted = audio.toggleMute();
+    mute.setIcon(muted ? 'sound-off' : 'sound-on');
+    if (!muted) audio.play('pop');
+  });
+
+  // ---- transient texts: banners, callouts, floats
+  const banners = new Set<HTMLElement>();
+  const floats = new Set<Label>();
+  let bannerUntil = 0;
+
+  function clearTransients(): void {
+    for (const b of banners) b.remove();
+    banners.clear();
+    for (const f of floats) f.destroy();
+    floats.clear();
+    bannerUntil = 0;
+  }
+
+  const overlayUp = (): boolean => cards.open || result.shown;
+
+  function showBanner(text: string, sub: string | null): void {
+    // never over an overlay: no banner while the cards are up or the run is over
+    const phase = game.w.phase;
+    if (overlayUp() || phase === 'cards' || phase === 'over') return;
+    // one banner at a time: a new headline replaces whatever is still fading
+    for (const b of banners) b.remove();
+    banners.clear();
+    const c = el('div', 'ok-anchor', floatGroup);
+    c.style.left = `${CX}px`;
+    c.style.top = '230px';
+    banners.add(c);
+    const size = text.length > 13 ? 56 : 76;
+    const head = new Label(c, 0, 0, text, { size, color: PALETTE.cream, wrap: 680, stroke: size > 60 ? 18 : 14 });
+    if (sub) {
+      const row = el('div', '', c);
+      row.style.cssText = `position:absolute;left:-330px;width:660px;top:${head.height / 2 + 14}px;display:flex;justify-content:center`;
+      const pill = el('div', '', row);
+      pill.style.cssText = `background:${rgba(PALETTE.ink, 0.78)};border-radius:22px;padding:14px 30px;font-size:34px;line-height:40px;text-align:center;max-width:660px`;
+      pill.textContent = sub;
+    }
+    c.animate([{ transform: 'scale(2.2) rotate(-8deg)', opacity: 0 }, { transform: 'none', opacity: 1 }], { duration: 260, easing: EASE.backOut });
+    // the banner stands in for the HUD's wave line while it is up
+    bannerUntil = painter.t + (sub ? 2.9 : 1.55);
+    const out = c.animate([{ transform: 'none', opacity: 1 }, { transform: 'translateY(-60px)', opacity: 0 }], { delay: sub ? 2300 : 950, duration: 300, fill: 'forwards' });
+    out.onfinish = () => {
+      head.destroy();
+      c.remove();
+      banners.delete(c);
+    };
+  }
+
+  /** A punchy callout in the upper sky. The combat ones (multi-kills, streaks, chains, focus, loot) are the fx module's; this is for the HUD's own news. */
+  function callout(text: string, color: number, size: number): void {
+    if (overlayUp()) return;
+    const l = new Label(floatGroup, CX, 450, text, { size, color, wrap: 660, stroke: Math.round(size / 5) });
+    floats.add(l);
+    const tilt = -6 + Math.random() * 12;
+    l.el.animate([{ transform: `scale(2.4) rotate(${tilt}deg)` }, { transform: 'none' }], { duration: 220, easing: EASE.backOut });
+    const out = l.el.animate([{ transform: 'none', opacity: 1 }, { transform: 'translateY(-70px)', opacity: 0 }], { delay: 700, duration: 380, fill: 'forwards' });
+    out.onfinish = () => {
+      l.destroy();
+      floats.delete(l);
+    };
+  }
+
+  /** Rising text (tips, the tap hint). */
+  function float(x: number, y: number, text: string, o: { size: number; color: number; rise?: number; duration?: number }): void {
+    const l = new Label(floatGroup, x, y, text, { size: o.size, color: o.color, wrap: 660, stroke: Math.round(o.size / 5) });
+    floats.add(l);
+    const dur = o.duration ?? 800;
+    l.el.animate([{ transform: 'scale(0.6)' }, { transform: 'scale(1)' }], { duration: 160, easing: EASE.backOut });
+    const out = l.el.animate(
+      [
+        { transform: 'none', opacity: 1 },
+        { transform: `translateY(${-(o.rise ?? 80) * 0.7}px)`, opacity: 1, offset: 0.7 },
+        { transform: `translateY(${-(o.rise ?? 80)}px)`, opacity: 0 },
+      ],
+      { delay: 160, duration: dur, fill: 'forwards' },
+    );
+    out.onfinish = () => {
+      l.destroy();
+      floats.delete(l);
+    };
+  }
+
+  // ---- screens
+  const title = createTitle(ui, titleGroup);
+  const cards = createCards(ui, cardGroup, clearTransients, (syn) => callout(t('cards.synergy', { s: t(`syn.${syn}`) }), PALETTE.focus, 56));
+  const result = createResult(ui, resultGroup);
+
+  // ---- per-run state (the world object is replaced on restart)
+  let world: World | null = null;
+  let runs = 0;
+  let coinShown = 0;
+  let coinsInFlight = 0;
+  let hudAlpha = 0;
+  let treasurePick = false;
+  let resultPending = false;
+  let lastTeach = -9;
+  let lastCreak = 0;
+  const seen = new Set<string>();
+  const brains = new Map<number, string>();
+
+  const readBest = (): number => Number(storage.getItem(BEST_KEY)) || 0;
+
+  function resetRun(w: World): void {
+    if (world) runs += 1;
+    world = w;
+    timers.clear();
+    clearTransients();
+    painter.clearCoins();
+    cards.close();
+    result.hide();
+    title.clear();
+    seen.clear();
+    brains.clear();
+    for (const e of w.enemies) seen.add(e.type);
+    coinShown = w.run.coins;
+    coinsInFlight = 0;
+    treasurePick = false;
+    resultPending = false;
+    painter.snapHp(w);
+    hudAlpha = w.phase === 'title' ? 0 : 1;
+    if (w.phase === 'title') title.show(w, runs > 0, readBest());
+    else showBanner(waveLabel(w), null); // a run that begins mid-way (?wave=N) announces where it is
+  }
+
+  /** delayed work that must not outlive the run it was scheduled in */
+  function later(seconds: number, fn: (w: World) => void): void {
+    const w = game.w;
+    timers.after(seconds, () => {
+      if (game.w === w) fn(w);
+    });
+  }
+
+  const chapterName = (c: number): string => t(`chapter.${Math.min(CHAPTERS, c)}`);
+  const objectiveText = (kind: string, limit: number): string => t(`obj.${kind}`, { n: limit });
+
+  function waveLabel(w: World): string {
+    const p = stageOf(w.wave);
+    if (p.endless) return t('hud.endlessWave', { n: w.wave - CHAPTERS * STAGES });
+    return `${t('hud.chapterNo', { n: p.chapter + 1 })} · ${t('hud.stage', { s: p.stage })}`;
+  }
+
+  /** a world point (logical px) in the HUD's logical px, wherever the stage's camera puts it */
+  function hudPoint(x: number, y: number): { x: number; y: number } {
+    const s = stage.toScreen(x, y);
+    return { x: (s.x - painter.ox) / painter.k, y: (s.y - painter.oy) / painter.k };
+  }
+
+  function flyCoins(x: number, y: number, amount: number): void {
+    if (amount <= 0) return;
+    const n = Math.min(12, Math.max(3, Math.round(amount / 2)));
+    let left = amount;
+    let i = 0;
+    coinsInFlight += n;
+    painter.flyCoins(x, y, n, () => {
+      i += 1;
+      coinsInFlight -= 1;
+      const add = i === n ? left : Math.floor(amount / n);
+      left -= add;
+      coinShown += add;
+      painter.coinPop();
+      audio.playPreset(SFX.tick, { pitch: Math.min(12, i), jitter: 0 });
+    });
+  }
+
+  /** A one-time tip the first time something new shows up in this run. */
+  function teach(key: string, text: string): void {
+    if (seen.has(`tip-${key}`)) return;
+    seen.add(`tip-${key}`);
+    float(CX, 420, text, { size: 34, color: PALETTE.cream, rise: 30, duration: 2600 });
+  }
+
+  const hasIntro = (type: string): boolean => type === 'shield' || type === 'jumper' || type === 'bomber' || type === 'healer' || type === 'cover' || type === 'catcher' || type === 'ward' || type === 'elite';
+
+  function onWaveStart(w: World, e: Extract<GameEvent, { t: 'waveStart' }>): void {
+    const wave = e.wave;
+    const types = new Set(w.enemies.map((x) => x.type));
+    let intro: string | null = null;
+    for (const type of types) {
+      if (type === 'imp' || type === 'boss') continue;
+      if (!seen.has(type) || (wave > 1 && type !== 'archer' && !seen.has(`intro-${type}`) && hasIntro(type))) {
+        if (hasIntro(type)) intro = t(`hud.new.${type}`);
+        seen.add(`intro-${type}`);
+      }
+      seen.add(type);
+    }
+    // field tips, once a run each: wind, ropes, barrels, rocks
+    const tip = (key: string, on: boolean, text: string): void => {
+      if (intro || !on || seen.has(`tip-${key}`)) return;
+      intro = t(text);
+      seen.add(`tip-${key}`);
+    };
+    tip('wind', w.wind !== 0, 'hud.windTip');
+    tip('rope', w.movers.some((m) => m.kind === 'swing'), 'hud.ropeTip');
+    tip('barrel', w.props.some((p) => p.active && p.kind === 'barrel'), 'hud.barrelTip');
+    tip('rock', w.props.some((p) => p.active && p.kind === 'rock'), 'hud.rockTip');
+    const obj = e.objective ? objectiveText(e.objective, e.limit) : null;
+    if (e.boss) {
+      showBanner(t(`boss.${e.boss}`), t(`boss.tip.${e.boss}`));
+    } else if (e.stage === 1 && wave > 1 && !stageOf(wave).endless) {
+      // a new chapter: its name over the cross-fade into the new world
+      audio.play('win', { volume: 0.5 });
+      showBanner(chapterName(e.chapter), t('hud.chapterNo', { n: e.chapter + 1 }));
+    } else {
+      audio.playPreset(SFX.drum);
+      if (wave > 1 || w.startChapter > 0) showBanner(e.elite ? t('hud.elite') : waveLabel(w), intro ?? obj);
+    }
+    // landing thumps for archers dropping in (the first wave's archers were already standing at the title)
+    if (wave > 1) later(0.56, (now) => {
+      if (now.enemies.length) audio.playPreset(SFX.slam, { volume: 0.6 });
+    });
+  }
+
+  /**
+   * GameScene.handleEvents: every sound, and the HUD's share of the feedback (coins, banners, tips, the
+   * objective line). World effects, damage numbers and words, combat call-outs, the flash and the
+   * vignettes are the fx module's.
+   */
+  function handleEvents(w: World, events: readonly GameEvent[]): void {
+    for (const e of events) {
+      switch (e.t) {
+        case 'shot':
+          audio.playPreset(SFX.snap, { pitch: e.power * 3 });
+          audio.playPreset(SFX.whistle, { volume: 0.6 + e.power * 0.4, pitch: e.power * 2 });
+          break;
+        case 'hit':
+          audio.playPreset(SFX.thunk, { pitch: e.part === 'head' ? 3 : 0 });
+          if (e.crit) audio.playPreset(SFX.crit);
+          if (e.slowmo) audio.playPreset(SFX.ping);
+          break;
+        case 'bodyThunk':
+          audio.playPreset(SFX.thunk, { volume: 0.6, pitch: -2 });
+          break;
+        case 'playerHit':
+          audio.playPreset(SFX.ouch);
+          audio.playPreset(SFX.thunk, { volume: 0.7, pitch: -3 });
+          painter.hpPop(1);
+          break;
+        case 'blocked':
+          audio.playPreset(SFX.bubble);
+          break;
+        case 'ko': {
+          audio.playPreset(SFX.boing, { pitch: e.enemy === 'boss' ? -5 : 0 });
+          const s = hudPoint(e.x, e.y);
+          flyCoins(s.x, s.y, e.coins);
+          break;
+        }
+        case 'loot': {
+          const s = hudPoint(e.x, e.y);
+          audio.playPreset(SFX.loot);
+          if (e.kind === 'boss') audio.play('win');
+          flyCoins(s.x, s.y, e.coins);
+          break;
+        }
+        case 'poof':
+          audio.playPreset(SFX.poof);
+          brains.delete(e.id);
+          break;
+        case 'thunk':
+          audio.playPreset(SFX.thock, { volume: e.owner === 'player' ? 1 : 0.5 });
+          break;
+        case 'bounce':
+          audio.playPreset(SFX.thock, { pitch: 7 });
+          break;
+        case 'shieldHit':
+          audio.playPreset(SFX.clang, { pitch: e.broke ? -4 : 0 });
+          break;
+        case 'plate':
+          audio.playPreset(SFX.clang, { pitch: 4 });
+          break;
+        case 'bomb':
+          audio.playPreset(SFX.boom, { volume: e.popped ? 0.7 : 1 });
+          break;
+        case 'barrel':
+          audio.playPreset(SFX.boom);
+          break;
+        case 'blast':
+          audio.playPreset(SFX.boom, { volume: 0.6, pitch: 4 });
+          break;
+        case 'orbPop':
+          audio.playPreset(SFX.plink);
+          break;
+        case 'apple':
+          audio.playPreset(SFX.crunch);
+          break;
+        case 'heal':
+          painter.hpPop(0.7);
+          break;
+        case 'healBeam':
+          audio.playPreset(SFX.heal);
+          break;
+        case 'zap':
+          audio.playPreset(SFX.zap);
+          break;
+        case 'caught':
+          audio.playPreset(SFX.caught);
+          teach('catcher-caught', t('hud.new.catcher'));
+          break;
+        case 'ward':
+          audio.playPreset(SFX.ward, { pitch: e.up ? 5 : 0 });
+          break;
+        case 'bossPhase':
+          audio.playPreset(SFX.roar);
+          showBanner(t('hud.phase2'), null);
+          break;
+        case 'summon':
+          audio.playPreset(SFX.summon);
+          break;
+        case 'rope':
+          audio.playPreset(SFX.snapRope);
+          break;
+        case 'rockHit':
+          audio.playPreset(SFX.crumble);
+          break;
+        case 'rockBreak':
+          audio.playPreset(SFX.crumble, { volume: 0.8 });
+          break;
+        case 'multi':
+          audio.playPreset(SFX.stinger, { pitch: e.n * 2 });
+          break;
+        case 'streak':
+          audio.playPreset(SFX.stinger, { pitch: Math.min(12, e.n / 2) });
+          break;
+        case 'chain': {
+          // an escalating payoff: higher pitch and a golden coin pop (the text is the fx module's)
+          audio.playPreset(SFX.ping, { pitch: Math.min(12, e.n * 2) });
+          const s = hudPoint(e.x, e.y);
+          flyCoins(s.x, s.y, e.coins);
+          break;
+        }
+        case 'focusReady':
+          audio.playPreset(SFX.ready);
+          break;
+        case 'focus':
+          if (e.on) audio.playPreset(SFX.focus);
+          break;
+        case 'enemyDraw':
+          audio.playPreset(SFX.enemyDraw, { volume: 0.8 });
+          break;
+        case 'enemyShot':
+          audio.playPreset(SFX.enemySnap);
+          if (e.kind === 'bomb') audio.playPreset(SFX.fuse);
+          if (e.kind === 'orb') audio.playPreset(SFX.summon, { pitch: 6, volume: 0.6 });
+          break;
+        case 'waveStart':
+          onWaveStart(w, e);
+          break;
+        case 'waveClear':
+          // let the knockout land first
+          later(0.9, (now) => {
+            if (overlayUp() || now.phase !== 'clear') return;
+            audio.play('win', { volume: 0.7 });
+            showBanner(t('hud.clear'), null);
+            flyCoins(CX, 520, e.coins);
+          });
+          break;
+        case 'objective': {
+          const msg = e.ok ? t('obj.done', { n: e.coins }) : t('obj.fail');
+          later(e.ok ? 1.3 : 1.2, () => {
+            if (overlayUp()) return;
+            if (e.ok) {
+              audio.playPreset(SFX.loot);
+              callout(msg, PALETTE.heal, 50);
+              flyCoins(CX, 600, e.coins);
+            } else callout(msg, PALETTE.locked, 40);
+          });
+          break;
+        }
+        case 'bonusStart':
+          clearTransients();
+          audio.play('win', { volume: 0.6 });
+          showBanner(t(`bonus.${e.kind}`), t(`bonus.tip.${e.kind}`));
+          break;
+        case 'bonusHit': {
+          const s = hudPoint(e.x, e.y);
+          audio.playPreset(e.bull ? SFX.ping : SFX.tick, { pitch: e.bull ? 4 : 6 });
+          flyCoins(s.x, s.y, e.coins);
+          break;
+        }
+        case 'bonusEnd':
+          if (e.grade !== 'none') audio.playPreset(SFX.fanfare);
+          showBanner(t(`bonus.${e.grade}`), t('bonus.hits', { n: e.hits, c: e.coins }));
+          if (e.grade !== 'none') flyCoins(CX, 560, Math.max(3, Math.round(e.coins / 3)));
+          break;
+        case 'cards':
+          treasurePick = e.treasure;
+          break;
+        case 'dying':
+          audio.play('lose');
+          break;
+        default:
+          break;
+      }
+    }
+  }
+
+  // ---- input: drag anywhere on the stage; buttons win
+  let dragId = -1;
+  let pull: PullState | null = null;
+  let lx0 = 0;
+  let ly0 = 0;
+  let lx = 0;
+  let ly = 0;
+  const root = stage.root;
+
+  const local = (e: PointerEvent): { x: number; y: number } => {
+    const r = root.getBoundingClientRect();
+    return { x: e.clientX - r.left, y: e.clientY - r.top };
+  };
+
+  function cancelDrag(): void {
+    if (dragId === -1) return;
+    dragId = -1;
+    pull = null;
+    game.dragCancel();
+  }
+
+  root.addEventListener('pointerdown', (e) => {
+    unlock();
+    if (dragId !== -1) return;
+    if (e.target instanceof Element && e.target.closest('[data-ui]')) return;
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    const phase = game.w.phase;
+    if (phase === 'cards' || phase === 'dying' || phase === 'over') return;
+    dragId = e.pointerId;
+    const c = local(e);
+    pull = { x0: c.x, y0: c.y, x: c.x, y: c.y };
+    const p = stage.toLogical(e.clientX, e.clientY);
+    lx0 = lx = p.x;
+    ly0 = ly = p.y;
+    lastCreak = 0;
+    game.dragStart(p.x, p.y);
+    try {
+      root.setPointerCapture(e.pointerId);
+    } catch {
+      /* synthetic pointers cannot be captured */
+    }
+  });
+  root.addEventListener('pointermove', (e) => {
+    if (e.pointerId !== dragId || !pull) return;
+    const c = local(e);
+    pull.x = c.x;
+    pull.y = c.y;
+    const p = stage.toLogical(e.clientX, e.clientY);
+    lx = p.x;
+    ly = p.y;
+    game.dragMove(p.x, p.y);
+  });
+  root.addEventListener('pointerup', (e) => {
+    if (e.pointerId !== dragId) return;
+    const p = stage.toLogical(e.clientX, e.clientY);
+    lx = p.x;
+    ly = p.y;
+    game.dragMove(p.x, p.y);
+    const tap = Math.hypot(lx0 - lx, ly0 - ly) < DRAG_DEAD;
+    const at = pull;
+    dragId = -1;
+    pull = null;
+    game.dragEnd();
+    if (!tap) return;
+    // a tap or a tiny drag: no dud arrow, but show what to do instead
+    audio.playPreset(SFX.cancel);
+    const phase = game.w.phase;
+    if ((phase === 'title' || phase === 'play') && at && painter.t - lastTeach >= 0.9) {
+      lastTeach = painter.t;
+      title.nudge();
+      float((at.x - painter.ox) / painter.k, (at.y - painter.oy) / painter.k - 70, t('title.tapHint'), { size: 40, color: PALETTE.cream, rise: 60, duration: 900 });
+    }
+  });
+  root.addEventListener('pointercancel', (e) => {
+    if (e.pointerId === dragId) cancelDrag();
+  });
+  root.addEventListener('lostpointercapture', (e) => {
+    if (e.pointerId === dragId) cancelDrag();
+  });
+  root.addEventListener('contextmenu', (e) => e.preventDefault());
+  window.addEventListener('blur', cancelDrag);
+  // labels measured before the web font arrived are redrawn (and the title re-laid out) once it is in
+  const onFont = (): void => {
+    rerenderLabels();
+    if (title.shown && world && world.phase === 'title') title.show(world, runs > 0, readBest());
+  };
+  void document.fonts?.load(`800 40px "Nunito"`, 'AĞİŞÇÖÜ ağışçöü').then(onFont, () => undefined);
+
+  // ---- frame
+  function syncHud(w: World, real: number): void {
+    const showWave = w.phase !== 'title' && w.phase !== 'cards' && w.phase !== 'bonus';
+    const bannerUp = painter.t < bannerUntil;
+    waveText.setText(showWave ? waveLabel(w) : '').setVisible(!bannerUp);
+    objText.setText(w.objective && showWave ? objectiveText(w.objective.kind, w.objective.limit) : '').setVisible(!bannerUp);
+    const level = game.bowLevel;
+    bowText.setText(level > 0 ? t('bow.name', { name: t(`bow.${bowTier(level)}`), n: level }) : '');
+    const b = w.bonus;
+    bonusText.setText(b && b.t >= 0 && b.grade === null ? t('bonus.hits', { n: b.hits, c: b.coins }) : '');
+    // coins count up as the flying coins land; with none in the air the counter is simply the truth
+    if (coinsInFlight <= 0 && coinShown !== w.run.coins) {
+      const d = w.run.coins - coinShown;
+      coinShown += Math.abs(d) <= 1 ? d : Math.sign(d) * Math.max(1, Math.round(Math.abs(d) * Math.min(1, real * 10)));
+      if (d > 0) painter.coinPop();
+    }
+    coinText.setText(String(coinShown)).setScale(1 + painter.coinPopValue * 0.35);
+    // the focus gauge's caption
+    const live = w.phase !== 'title' && w.phase !== 'cards' && w.player.alive;
+    const ready = live && painter.focusReady;
+    focusZone.style.display = live ? '' : 'none';
+    focusText.setText(!live ? '' : ready ? t('hud.focusTap') : w.focusT > 0 ? t('hud.focus') : '').setScale(ready ? 1 + Math.sin(painter.t * 8) * 0.08 : 1);
+    const op = hudAlpha.toFixed(2);
+    if (hudGroup.style.opacity !== op) hudGroup.style.opacity = op;
+  }
+
+  return {
+    update(frame: Frame) {
+      const w = frame.w;
+      const real = frame.real;
+      if (painter.resize()) {
+        layer.style.transform = `translate(${painter.ox}px, ${painter.oy}px) scale(${painter.k})`;
+        setLabelRes(Math.min(3, window.devicePixelRatio || 1) * painter.k);
+      }
+      if (w !== world) resetRun(w);
+      timers.update(real);
+      handleEvents(w, frame.events);
+
+      // the boss's entry beat: a roar as it lands
+      for (const a of w.enemies) {
+        const was = brains.get(a.id);
+        if (a.type === 'boss' && was === 'spawn' && a.brain !== 'spawn' && a.brain !== 'jump') audio.playPreset(SFX.roar);
+        brains.set(a.id, a.brain);
+      }
+      // string creak: a tick every 8 % of extra pull
+      const shot = frame.aim?.shot;
+      if (shot && dragId !== -1 && Math.abs(shot.power - lastCreak) > 0.08) {
+        audio.playPreset(SFX.creak, { pitch: shot.power * 9, volume: 0.9 });
+        lastCreak = shot.power;
+      }
+
+      // title → play: the first shot starts the run
+      if (w.phase === 'title') {
+        if (!title.shown && !result.shown) title.show(w, runs > 0, readBest());
+      } else if (title.shown) title.hide();
+      // the HUD fades in with the first shot and out under the result card
+      hudAlpha = w.phase === 'title' ? 0 : result.shown ? Math.max(0, hudAlpha - real / 0.2) : Math.min(1, hudAlpha + real / 0.3);
+
+      painter.begin(real);
+      if (showMarkers) painter.markers(w, w.time);
+      painter.aim(w, frame.aim, pull);
+      // the coin sits left of the counter, clear of it even while the number pops
+      const coinX = HUD.coinTextRight - coinText.width * (1 + painter.coinPopValue * 0.35) - 30;
+      if (hudAlpha > 0) painter.hud(w, coinX, hudAlpha);
+      if (w.phase === 'title' && !pull) painter.thumbHint();
+      painter.coins(real, coinX);
+      syncHud(w, real);
+
+      cards.sync(w, treasurePick);
+      // dead → the result card, a beat after the fall
+      if (w.phase === 'over' && !result.shown && !resultPending) {
+        resultPending = true;
+        clearTransients();
+        later(0.35, (now) => {
+          const before = readBest();
+          const newBest = now.wave > before;
+          if (newBest) storage.setItem(BEST_KEY, String(now.wave));
+          result.show(now, Math.max(before, now.wave), newBest);
+        });
+      }
+      result.update(real);
+    },
+  };
+}

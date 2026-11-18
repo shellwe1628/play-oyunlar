@@ -24,6 +24,7 @@ on:
       - 'games/**'
       - 'packages/core/**'
       - 'apps/test-paketi/**'
+      - 'apps/okcu-3d/**'
       - 'tools/apk.mjs'
       - 'tools/test-apk/**'
       - 'tools/test-imza/**'
@@ -84,7 +85,7 @@ jobs:
           yes | "$SDKM" --licenses > /dev/null || true
           "$SDKM" --install "platforms;android-36" "build-tools;35.0.0" > /dev/null
           ls "$ANDROID_HOME/platforms" "$ANDROID_HOME/build-tools"
-      - name: Build the four test APKs
+      - name: Build the five test APKs (bundle, three games, okcu3d)
         run: npm run apk -- all
       - name: Update banner check (Chromium, fake native bridge)
         run: node apps/test-paketi/tests/update-check.mjs
@@ -93,7 +94,7 @@ jobs:
           set -euo pipefail
           node -e '
             const m = require("./build/test-apk/versions.json");
-            if (m.apps.length !== 4) { console.log(`::error::versions.json lists ${m.apps.length} apps, expected 4`); process.exit(1); }
+            if (m.apps.length !== 5) { console.log(`::error::versions.json lists ${m.apps.length} apps, expected 5`); process.exit(1); }
             for (const a of m.apps) console.log(`${a.applicationId} ${a.versionCode} ${a.file} ${a.size} ${a.sha256}`);
           '
           ls -l build/test-apk/*.apk

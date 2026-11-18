@@ -1,0 +1,11 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "types": ["vite/client"],
+    "paths": {
+      "@sim/*": ["../../games/okcu/src/sim/*"],
+      "@okcu/*": ["../../games/okcu/src/*"]
+    }
+  },
+  "include": ["src", "*.ts"]
+}

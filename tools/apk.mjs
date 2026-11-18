@@ -4,7 +4,8 @@
 //                                 a launcher with every real game
 //   npm run apk -- <slug>       → one game as its own test app (com.playoyunlar.<name>.test,
 //                                 label "<title> (Test)"), e.g. npm run apk -- kivilcim
-//   npm run apk -- all          → all four
+//   npm run apk -- all          → all five (bundle, three games, okcu3d)
+//   npm run apk -- okcu3d       → the 3D renderer of okcu (apps/okcu-3d) as its own test app
 // Output: build/test-apk/<name>-<versionCode>.apk for each, plus build/test-apk/versions.json
 // (the manifest the in-app updater reads; it lists the apps built in this run).
 //
@@ -19,7 +20,7 @@
 // Steps per app: web build (VITE_OYUN_PLATFORM=web) → updater script added to every page →
 // offline/relative-path checks → Capacitor project in build/test-apk/work/<key>/ (created once,
 // synced every run) → native patches applied to pristine template copies → Gradle assembleDebug
-// → checks on the APK (id, labels, version, permissions, full-screen themes, provider, signature, contents).
+// → checks on the APK (id, labels, version, permissions, provider, signature, contents).
 // Env: OYUN_GRADLE=<gradle binary> uses that instead of the project's ./gradlew (same version).
 import { execFileSync, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
@@ -27,17 +28,29 @@ import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync,
 import { join, relative } from 'node:path';
 import { foregroundVector, adaptiveIconXml, ICON_BG, LEGACY_SIZES, legacyIconPng } from '../apps/test-paketi/native/icon.mjs';
 import { findIconSource, writeIcon } from './aab/icon.mjs';
-import { checkThemeDump, fullScreenStyles } from './aab/theme.mjs';
 import { ROOT } from './template.mjs';
 import { buildManifest, MANIFEST_FILE, releaseBase, repository } from './test-apk/release.mjs';
 
 /** Games in the bundle, in launcher order (must match apps/test-paketi/src/games.ts). */
-export const SLUGS = ['kivilcim', 'okcu', 'fosil'];
+export const SLUGS = ['kivilcim', 'okcu', 'okcu3d', 'fosil'];
+/**
+ * Where each game's Vite app lives. The real games are games/<slug> (template-made, with the
+ * platform adapter); okcu3d is apps/okcu-3d, the 3D renderer of okcu's simulation, which has no
+ * platform adapter (no ads) and no store listing.
+ */
+const SOURCE = { okcu3d: join('apps', 'okcu-3d') };
+const sourceDir = (slug) => join(ROOT, SOURCE[slug] ?? join('games', slug));
+const hasAdapter = (slug) => !SOURCE[slug];
 const APP = join(ROOT, 'apps', 'test-paketi');
 const OUT_DIR = join(ROOT, 'build', 'test-apk');
 const WORK = join(OUT_DIR, 'work');
 const BIN = join(ROOT, 'node_modules', '.bin');
 const UPDATER = 'oyun-test-update.js';
+const WIN = process.platform === 'win32';
+/** node_modules/.bin tool (a .cmd shim on Windows) */
+const bin = (name) => join(BIN, WIN ? `${name}.cmd` : name);
+/** an SDK build tool (aapt.exe / apksigner.bat on Windows) */
+const sdkTool = (dir, name) => join(dir, WIN ? (name === 'aapt' ? 'aapt.exe' : `${name}.bat`) : name);
 
 /** The committed public test key (tools/test-imza/README.md). Never used by tools/aab.mjs. */
 const TEST_KEY = {
@@ -63,8 +76,12 @@ function fail(msg) {
 }
 
 function run(cmd, args, opts = {}) {
-  console.log(`$ ${relative(ROOT, opts.cwd ?? ROOT) || '.'}: ${cmd.replace(`${BIN}/`, '')} ${args.join(' ')}`);
-  const r = spawnSync(cmd, args, {
+  console.log(`$ ${relative(ROOT, opts.cwd ?? ROOT) || '.'}: ${relative(BIN, cmd).startsWith('..') ? cmd : relative(BIN, cmd)} ${args.join(' ')}`);
+  // Windows .cmd/.bat shims need a shell; quote every part (the repo path may hold spaces).
+  const shell = WIN && /\.(cmd|bat)$/i.test(cmd);
+  const q = (s) => (/[\s"&|<>^]/.test(s) ? `"${s.replace(/"/g, '\\"')}"` : s);
+  const r = spawnSync(shell ? [cmd, ...args].map(q).join(' ') : cmd, shell ? [] : args, {
+    shell,
     cwd: opts.cwd ?? ROOT,
     // stdin closed: no interactive prompt (e.g. Capacitor's telemetry question) can block.
     stdio: ['ignore', opts.capture ? 'pipe' : 'inherit', opts.capture ? 'pipe' : 'inherit'],
@@ -130,7 +147,21 @@ function allTargets() {
     background: app.background,
     icon: app.icon,
   }));
-  return [bundle, ...games];
+  // The 3D trial of okcu: not a Play app (no store/apps.json entry), its own test app next to
+  // "Sallanan Okçular (Test)", with okcu's Play icon.
+  const okcu = cfg.apps.find((a) => a.slug === 'okcu');
+  const okcu3d = {
+    key: 'okcu3d',
+    applicationId: 'com.playoyunlar.noodlearchers3d.test',
+    label: { en: 'Noodle Archers 3D (Test)', tr: 'Sallanan Okçular 3D (Test)' },
+    games: ['okcu3d'],
+    launcher: false,
+    fileBase: 'okcu3d-test',
+    background: '#0d1018',
+    icon: okcu?.icon,
+    iconSlug: 'okcu',
+  };
+  return [bundle, ...games, okcu3d];
 }
 
 function pickTargets(arg) {
@@ -162,8 +193,8 @@ function preflight(targets) {
   if (!platforms.includes('android-36')) fail(`Android SDK at ${sdk} has no platforms/android-36 (found: ${platforms.join(', ') || 'none'}).\n${howTo}`);
   const buildTools = existsSync(join(sdk, 'build-tools')) ? readdirSync(join(sdk, 'build-tools')).sort((a, b) => a.localeCompare(b, 'en', { numeric: true })) : [];
   const tools = buildTools.length ? join(sdk, 'build-tools', buildTools.at(-1)) : null;
-  if (!tools || !['aapt', 'aapt2', 'apksigner'].every((f) => existsSync(join(tools, f)))) fail(`Android SDK at ${sdk} has no build-tools with aapt, aapt2 and apksigner.\n${howTo}`);
-  for (const t of targets) for (const slug of t.games) if (!existsSync(join(ROOT, 'games', slug, 'oyun.config.json'))) fail(`games/${slug} is missing`);
+  if (!tools || !existsSync(sdkTool(tools, 'aapt')) || !existsSync(sdkTool(tools, 'apksigner'))) fail(`Android SDK at ${sdk} has no build-tools with aapt and apksigner.\n${howTo}`);
+  for (const t of targets) for (const slug of t.games) if (!existsSync(join(sourceDir(slug), 'index.html'))) fail(`${relative(ROOT, sourceDir(slug))} is missing`);
 
   // The test key: present, opens with the known passwords, and is exactly the expected key.
   if (!existsSync(TEST_KEY.file)) fail(`test signing key missing: ${relative(ROOT, TEST_KEY.file)} (see tools/test-imza/README.md)`);
@@ -179,7 +210,7 @@ function preflight(targets) {
 function buildUpdater() {
   step(`updater script (${UPDATER})`);
   const out = join(OUT_DIR, 'updater');
-  run(join(BIN, 'vite'), ['build', '-c', 'vite.updater.config.ts', '--outDir', out, '--logLevel', 'warn'], { cwd: APP });
+  run(bin('vite'), ['build', '-c', 'vite.updater.config.ts', '--outDir', out, '--logLevel', 'warn'], { cwd: APP });
   const file = join(out, UPDATER);
   if (!existsSync(file)) fail(`vite did not write ${relative(ROOT, file)}`);
   return file;
@@ -192,15 +223,15 @@ const gameDirs = (t, www) => (t.launcher ? t.games.map((s) => [s, join(www, s)])
 function buildWeb(t, www, info) {
   if (t.launcher) {
     step(`${t.key}: launcher`);
-    run(join(BIN, 'vite'), ['build', '--outDir', www, '--emptyOutDir'], { cwd: APP, env: { OYUN_BUILD_DATE: info.date, OYUN_BUILD_COMMIT: info.commit } });
+    run(bin('vite'), ['build', '--outDir', www, '--emptyOutDir'], { cwd: APP, env: { OYUN_BUILD_DATE: info.date, OYUN_BUILD_COMMIT: info.commit } });
   }
   for (const [slug, out] of gameDirs(t, www)) {
-    step(`${t.key}: game ${slug} → ${relative(ROOT, out)} (web platform adapter)`);
+    step(`${t.key}: game ${slug} → ${relative(ROOT, out)}${hasAdapter(slug) ? ' (web platform adapter)' : ''}`);
     // VITE_OYUN_PLATFORM=web: core's build-time choice beats the Capacitor native shell, so
     // rewarded ads resolve 'granted' in test APKs. Only these builds get it; the games'
     // own dist/ and the gate are untouched.
-    run(join(BIN, 'vite'), ['build', '--base', './', '--outDir', out, '--emptyOutDir'], {
-      cwd: join(ROOT, 'games', slug),
+    run(bin('vite'), ['build', '--base', './', '--outDir', out, '--emptyOutDir'], {
+      cwd: sourceDir(slug),
       env: { VITE_OYUN_PLATFORM: 'web' },
     });
   }
@@ -258,7 +289,7 @@ function checkWeb(t, www) {
   for (const [slug, dir] of gameDirs(t, www)) {
     const js = filesUnder(dir).filter((f) => f.endsWith('.js') && !f.endsWith(UPDATER));
     // Vite inlines import.meta.env.VITE_OYUN_PLATFORM as a string literal.
-    if (!js.some((f) => /forced:\s*["'`]web["'`]/.test(readFileSync(f, 'utf8')))) problems.push(`${slug}: web platform choice not found in the bundle`);
+    if (hasAdapter(slug) && !js.some((f) => /forced:\s*["'`]web["'`]/.test(readFileSync(f, 'utf8')))) problems.push(`${slug}: web platform choice not found in the bundle`);
   }
   if (problems.length) fail(`web folder check:\n  ${problems.join('\n  ')}`);
   const kb = Math.round(files.reduce((s, f) => s + statSync(f).size, 0) / 1024);
@@ -267,7 +298,7 @@ function checkWeb(t, www) {
 
 // ---------------------------------------------------------------- native
 /** Template files the patch step rewrites: kept as pristine copies so every run patches the original. */
-const PRISTINE = ['app/src/main/AndroidManifest.xml', 'app/build.gradle', 'app/src/main/res/values/strings.xml', 'app/src/main/res/values/styles.xml'];
+const PRISTINE = ['app/src/main/AndroidManifest.xml', 'app/build.gradle', 'app/src/main/res/values/strings.xml'];
 
 function capacitor(t, work) {
   step(`${t.key}: capacitor project ${relative(ROOT, work)}`);
@@ -282,10 +313,8 @@ function capacitor(t, work) {
     plugins: {
       // Core's built-in SystemBars plugin: draw edge to edge and pass the insets to the page as
       // env(safe-area-inset-*) (WebView >= 140) — every page sets viewport-fit=cover. DARK = light
-      // icons, for the dark backgrounds of the launcher and every game (seen only when an edge
-      // swipe shows the bars for a moment). hidden: the plugin's start-up call hides the bars
-      // instead of showing them again over MainActivity's immersive mode.
-      SystemBars: { insetsHandling: 'css', style: 'DARK', initialViewportFitValueHint: 'cover', hidden: true },
+      // icons, for the dark backgrounds of the launcher and every game.
+      SystemBars: { insetsHandling: 'css', style: 'DARK', initialViewportFitValueHint: 'cover' },
     },
   };
   writeFileSync(join(work, 'capacitor.config.json'), `${JSON.stringify(config, null, 2)}\n`);
@@ -295,17 +324,17 @@ function capacitor(t, work) {
   if (!ready) {
     rmSync(android, { recursive: true, force: true }); // half-made folder
     rmSync(pristine, { recursive: true, force: true });
-    run(join(BIN, 'cap'), ['add', 'android'], { cwd: work });
+    run(bin('cap'), ['add', 'android'], { cwd: work });
     for (const f of PRISTINE) {
       mkdirSync(join(pristine, f, '..'), { recursive: true });
       copyFileSync(join(android, f), join(pristine, f));
     }
   }
-  run(join(BIN, 'cap'), ['sync', 'android'], { cwd: work });
+  run(bin('cap'), ['sync', 'android'], { cwd: work });
 }
 
 function patchNative(t, work, info) {
-  step(`${t.key}: patch android/ (id ${t.applicationId}, labels, portrait, full screen, icon, splash, back button, updater, signing)`);
+  step(`${t.key}: patch android/ (id ${t.applicationId}, labels, portrait, icon, splash, back button, edge to edge, updater, signing)`);
   const android = join(work, 'android');
   const main = join(android, 'app', 'src', 'main');
   const res = join(main, 'res');
@@ -343,13 +372,6 @@ function patchNative(t, work, info) {
     'AndroidManifest INTERNET permission',
   );
   writeFileSync(join(main, 'AndroidManifest.xml'), xml);
-
-  // Themes: no action bar on the launch (splash) theme or any other, cutout drawn into.
-  try {
-    writeFileSync(join(res, 'values', 'styles.xml'), fullScreenStyles(pristine('app/src/main/res/values/styles.xml')));
-  } catch (e) {
-    fail(e.message);
-  }
   mkdirSync(join(res, 'xml'), { recursive: true });
   writeFileSync(
     join(res, 'xml', 'test_update_paths.xml'),
@@ -404,7 +426,7 @@ function patchNative(t, work, info) {
   );
   writeFileSync(join(android, 'app', 'build.gradle'), gradle);
 
-  // Java: MainActivity (back button, full screen, plugin registration) + the updater plugin.
+  // Java: MainActivity (back button, edge to edge, plugin registration) + the updater plugin.
   const pkgDir = join(main, 'java', ...t.applicationId.split('.'));
   if (!existsSync(join(pkgDir, 'MainActivity.java'))) fail(`MainActivity not found in ${relative(ROOT, pkgDir)} (did cap add use appId ${t.applicationId}?)`);
   const fill = {
@@ -435,7 +457,8 @@ function patchNative(t, work, info) {
     }
   } else {
     try {
-      console.log(`icon: ${writeIcon(res, findIconSource(join(ROOT, 'store', t.games[0], 'icon')), t.icon).replace('<slug>', t.games[0])}`);
+      const iconSlug = t.iconSlug ?? t.games[0];
+      console.log(`icon: ${writeIcon(res, findIconSource(join(ROOT, 'store', iconSlug, 'icon')), t.icon).replace('<slug>', iconSlug)}`);
     } catch (e) {
       fail(`launcher icon: ${e.message}`);
     }
@@ -452,10 +475,11 @@ function patchNative(t, work, info) {
 function gradle(t, work, sdk) {
   step(`${t.key}: gradle assembleDebug`);
   const android = join(work, 'android');
-  writeFileSync(join(android, 'local.properties'), `sdk.dir=${sdk}\n`);
+  // local.properties is a Java properties file: escape backslashes and the drive colon (Windows).
+  writeFileSync(join(android, 'local.properties'), `sdk.dir=${sdk.replace(/\\/g, '\\\\').replace(/:/g, '\\:')}\n`);
   const own = process.env.OYUN_GRADLE;
-  const gradlew = join(android, 'gradlew');
-  if (!own) run('chmod', ['+x', gradlew]);
+  const gradlew = join(android, WIN ? 'gradlew.bat' : 'gradlew');
+  if (!own && !WIN) run('chmod', ['+x', gradlew]);
   // --no-daemon: nothing keeps running after the build.
   run(own || gradlew, ['assembleDebug', '--no-daemon', '--console=plain', '--warning-mode=summary'], { cwd: android });
 }
@@ -466,7 +490,7 @@ function verify(t, work, tools, info) {
   const apk = join(work, 'android', 'app', 'build', 'outputs', 'apk', 'debug', 'app-debug.apk');
   if (!existsSync(apk)) fail(`Gradle finished but ${relative(ROOT, apk)} does not exist`);
   const problems = [];
-  const badging = run(join(tools, 'aapt'), ['dump', 'badging', apk], { capture: true });
+  const badging = run(sdkTool(tools, 'aapt'), ['dump', 'badging', apk], { capture: true });
   const pkg = /^package: name='([^']+)' versionCode='(\d+)' versionName='([^']*)'/m.exec(badging);
   const label = (suffix) => new RegExp(`^application-label${suffix}:'([^']*)'`, 'm').exec(badging)?.[1];
   const facts = {
@@ -486,18 +510,9 @@ function verify(t, work, tools, info) {
   const okPerm = new Set(['android.permission.INTERNET', 'android.permission.REQUEST_INSTALL_PACKAGES', `${t.applicationId}.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION`]);
   for (const p of facts.permissions.filter((p) => !okPerm.has(p))) problems.push(`unexpected permission ${p}`);
 
-  const tree = run(join(tools, 'aapt'), ['dump', 'xmltree', apk, 'AndroidManifest.xml'], { capture: true });
+  const tree = run(sdkTool(tools, 'aapt'), ['dump', 'xmltree', apk, 'AndroidManifest.xml'], { capture: true });
   const provider = `${t.applicationId}.testupdate`;
   if (!tree.includes(`"${provider}"`) || !tree.includes(`"${t.applicationId}.UpdateFileProvider"`)) problems.push(`provider ${provider} (UpdateFileProvider) not in the manifest`);
-
-  // Full screen: the activity's theme (the manifest's launch theme) and the theme BridgeActivity
-  // switches to have no action bar or title (tools/aab/theme.mjs).
-  const activityTheme = /E: activity[\s\S]*?android:theme\(0x01010000\)=@(0x[0-9a-f]+)/.exec(tree)?.[1];
-  const resources = run(join(tools, 'aapt2'), ['dump', 'resources', apk], { capture: true });
-  const launchId = /resource (0x[0-9a-f]+) style\/AppTheme\.NoActionBarLaunch\n/.exec(resources)?.[1];
-  if (!activityTheme || activityTheme !== launchId) problems.push(`activity theme ${activityTheme ?? 'missing'} is not style/AppTheme.NoActionBarLaunch (${launchId ?? 'missing'})`);
-  const themes = checkThemeDump(resources, ['AppTheme', 'AppTheme.NoActionBar', 'AppTheme.NoActionBarLaunch']);
-  problems.push(...themes.problems);
 
   const entries = run('unzip', ['-Z1', apk], { capture: true }).split('\n').filter(Boolean);
   for (const dir of pages(t)) {
@@ -509,7 +524,7 @@ function verify(t, work, tools, info) {
   for (const cls of ['TestUpdatePlugin', 'UpdateFileProvider']) if (!dexText.includes(`L${t.applicationId.replaceAll('.', '/')}/${cls};`)) problems.push(`${cls} not in the dex`);
   if (!releaseInDex) problems.push(`release URL ${info.releaseBase} not in the dex`);
 
-  const certs = run(join(tools, 'apksigner'), ['verify', '--print-certs', '-v', apk], { capture: true });
+  const certs = run(sdkTool(tools, 'apksigner'), ['verify', '--print-certs', '-v', apk], { capture: true });
   const certSha = /certificate SHA-256 digest: ([0-9a-f]+)/.exec(certs)?.[1];
   const expected = TEST_KEY.sha256.replaceAll(':', '').toLowerCase();
   if (!/^Verifies$/m.test(certs)) problems.push('apksigner: does not verify');
@@ -518,7 +533,6 @@ function verify(t, work, tools, info) {
 
   if (problems.length) fail(`APK check (${t.key}):\n  ${problems.join('\n  ')}`);
   console.log(`manifest: ${JSON.stringify(facts)}`);
-  console.log(`themes: activity = AppTheme.NoActionBarLaunch; ${themes.summary.join('; ')}`);
   console.log(`provider: ${provider} → UpdateFileProvider; dex: TestUpdatePlugin, UpdateFileProvider, ${info.releaseBase}`);
   console.log(`contents: ${entries.filter((e) => e.startsWith('assets/public/') && !e.endsWith('/')).length} web files; updater on ${pages(t).map((d) => `/${d}`).join(', ')}`);
   console.log(`signature: verifies (${schemes.join(', ')}), certificate SHA-256 ${certSha} = test key`);

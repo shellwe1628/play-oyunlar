@@ -23,6 +23,8 @@ git -C "$TARGET" fetch --quiet origin
 git -C "$TARGET" checkout --quiet "$COMMIT"
 
 "$PY" -m pip install -r "$TARGET/requirements.txt"
+# Sabitlenen sürüm mcp 1.x'in FastMCP arayüzünü kullanır; mcp 2.x ile sunucu açılmaz.
+"$PY" -m pip install "mcp<2"
 "$PY" -m playwright install chromium
 
 echo

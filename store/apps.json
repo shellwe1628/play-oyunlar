@@ -2,7 +2,7 @@
   "_doc": "Per-app Google Play release settings, read by tools/aab.mjs, tools/play-metadata.mjs and .github/workflows/play-yukle.yml. Package names (applicationId) are permanent once an app exists in Play Console: never change them. Optional source: the Vite app the Play build ships when it is not games/<slug> (okcu ships the 3D renderer apps/okcu-3d). Guide: docs/production/play-yayin.md.",
   "defaultLanguage": "en-US",
   "languages": ["en-US", "tr-TR"],
-  "privacyPolicyBase": "https://shellwe1628.github.io/play-oyunlar/gizlilik/",
+  "privacyPolicyBase": "https://oyunlar.carsihani.me/gizlilik/",
   "apps": [
     {
       "slug": "fosil",

@@ -27,9 +27,9 @@ Varsayılan dil İngilizce (en-US), ikinci dil Türkçe (tr-TR). Ayarların tek 
 
 Gizlilik politikası adresleri (GitHub Pages açıldıktan sonra, adım A6):
 
-- https://shellwe1628.github.io/play-oyunlar/gizlilik/fosil/
-- https://shellwe1628.github.io/play-oyunlar/gizlilik/kivilcim/
-- https://shellwe1628.github.io/play-oyunlar/gizlilik/okcu/
+- https://oyunlar.carsihani.me/gizlilik/fosil/
+- https://oyunlar.carsihani.me/gizlilik/kivilcim/
+- https://oyunlar.carsihani.me/gizlilik/okcu/
 
 ---
 
@@ -228,7 +228,7 @@ oyunu `production` kanalına göndermeyi reddeder):
 2. **Build and deployment → Source: Deploy from a branch**.
 3. **Branch: `main`**, klasör: **`/docs`** → **Save**.
 4. Birkaç dakika sonra sayfanın üstünde site adresi görünür. Kontrol edin:
-   https://shellwe1628.github.io/play-oyunlar/gizlilik/ (üç oyunun listesi) ve her oyunun sayfası
+   https://oyunlar.carsihani.me/gizlilik/ (üç oyunun listesi) ve her oyunun sayfası
    (yukarıdaki adresler). Her sayfada önce Türkçe, sonra İngilizce metin var.
 
 Not: Pages bütün `docs/` klasörünü yayımlar (depo zaten herkese açık olduğu için yeni bir şey
@@ -248,7 +248,7 @@ alma) cevaplar da değişir. Sorular Console'da farklı sözcüklerle ya da fark
 çıkabilir: ekrandakini okuyun, anlamı aşağıdakiyle uyuşmuyorsa cevaplamadan önce sorun.
 
 ### B1. Gizlilik politikası
-Adres: yukarıdaki oyuna özel adres (ör. `https://shellwe1628.github.io/play-oyunlar/gizlilik/okcu/`).
+Adres: yukarıdaki oyuna özel adres (ör. `https://oyunlar.carsihani.me/gizlilik/okcu/`).
 Önce A6'yı yapıp adresin açıldığını görün.
 
 ### B2. Uygulama erişimi (App access)
@@ -313,7 +313,7 @@ mikrofon, ağ isteği, reklam, analitik yok; buna göre cevaplayın, emin değil
 ### B9. İletişim bilgileri (Store listing contact details)
 - E-posta: **Play Console hesabınızın e-posta adresi** (Console'da kendiniz girip onaylıyorsunuz;
   bu adres depoya hiçbir yerde yazılmadı, yazılmamalı).
-- Web sitesi: isteğe bağlı (`https://shellwe1628.github.io/play-oyunlar/gizlilik/` verilebilir).
+- Web sitesi: isteğe bağlı (`https://oyunlar.carsihani.me/gizlilik/` verilebilir).
 - Telefon: isteğe bağlı.
 
 ### B10. Mağaza kaydı (Main store listing)

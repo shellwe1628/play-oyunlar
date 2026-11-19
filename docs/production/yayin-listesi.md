@@ -86,7 +86,7 @@ Bunlar hukuki beyanlardır: metni agent hazırlayabilir, **beyanı insan verir v
   SDK'sı eklenince bu cümleler ve aşağıdaki formlar değişir.
 - [AGENT] Yapıldı: `docs/gizlilik/` (her oyun için Türkçe + İngilizce sayfa, `node tools/gizlilik.mjs` üretir).
 - [İNSAN: hesap] GitHub Pages'i aç (Settings → Pages → Deploy from a branch → `main`, `/docs`); adresler
-  `https://shellwe1628.github.io/play-oyunlar/gizlilik/<slug>/` (`play-yayin.md` A6).
+  `https://oyunlar.carsihani.me/gizlilik/<slug>/` (`play-yayin.md` A6).
 - [İNSAN: hesap] Google Play formlarının bugünkü cevapları: `play-yayin.md` bölüm B.
 - [İNSAN: hesap] Google Play "veri güvenliği" formu ve Apple "uygulama gizliliği" bildirimi: cevaplar gerçek SDK ve
   veri akışıyla tutarlı olmalı. Her ekleme (reklam, analitik, satın alma) sonrası yeniden gözden geçir.

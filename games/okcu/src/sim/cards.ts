@@ -3,6 +3,7 @@ import type { Rng } from '@oyun/core/pure';
 import { bowDamage } from './bow';
 import { UPGRADE_EFFECT, type MetaLevels } from './meta';
 import { TUNING } from './tuning';
+import type { Difficulty } from './waves';
 
 export const CARD_IDS = [
   'heavy',
@@ -121,14 +122,22 @@ export function countCards(cards: readonly CardId[], id: CardId): number {
 export const BASE_CRIT = 0.06;
 export const FOCUS_TIME = 5;
 
-export function statsFor(cards: readonly CardId[], meta: MetaLevels): PlayerStats {
+/**
+ * 'hard' (the 3D build) moves power from the run's cards to the forged bow: heavy cards add
+ * (+20 % damage, +22 % push each) instead of multiplying, and the bow's damage counts
+ * ×bowDamage^HARD_BOW_POW (×5.2 at +20), so every forge strike is a jump players feel.
+ */
+export const HARD_BOW_POW = 1.6;
+
+export function statsFor(cards: readonly CardId[], meta: MetaLevels, d: Difficulty = 'classic'): PlayerStats {
   const n = (id: CardId) => countCards(cards, id);
+  const hard = d === 'hard';
   const fire = n('fire');
   const syn = activeSynergies(cards);
   const hawk = syn.includes('hawk');
   return {
-    dmgMul: 1.3 ** n('heavy') * bowDamage(meta.bow),
-    impulseMul: 1.35 ** n('heavy'),
+    dmgMul: hard ? (1 + 0.2 * n('heavy')) * bowDamage(meta.bow) ** HARD_BOW_POW : 1.3 ** n('heavy') * bowDamage(meta.bow),
+    impulseMul: hard ? 1 + 0.22 * n('heavy') : 1.35 ** n('heavy'),
     volleys: 1 + n('double'),
     splitPairs: n('split'),
     fireDps: fire > 0 ? 8 + 6 * fire : 0,

@@ -30,8 +30,14 @@ export const BOSS_ARMOUR: Record<HitPart, number> = { head: 0.4, body: 0.15, arm
 
 /** Veteran archers (late waves) wear a helmet: a head hit is a big hit, not a knockout. */
 export const HELMET_HEAD_MUL = 1.6;
+/**
+ * The 3D build's rules ('hard', see waves.ts): a headshot is a huge hit (this × head damage) and
+ * keeps its slow-motion moment, but knocks out only if it takes the last of the health. A strong
+ * enough bow still one-shots with it; an under-forged one leaves the archer reeling.
+ */
+export const HARD_HEAD_MUL = 3;
 
-export function resolveHit(target: TargetKind, part: HitPart, dmgMul: number, helmet = false): HitOutcome {
+export function resolveHit(target: TargetKind, part: HitPart, dmgMul: number, helmet = false, hard = false): HitOutcome {
   const out: HitOutcome = { damage: 0, ko: false, slowmo: false, aimPenalty: 0, wobble: 0, stagger: 0, shove: 0 };
   if (target === 'player') {
     out.damage = PLAYER_DAMAGE[part] * dmgMul;
@@ -43,7 +49,8 @@ export function resolveHit(target: TargetKind, part: HitPart, dmgMul: number, he
   const armour = target === 'boss' ? BOSS_ARMOUR[part] : part === 'head' && helmet ? HELMET_HEAD_MUL * (ENEMY_DAMAGE.body / ENEMY_DAMAGE.head) : 1;
   out.damage = Math.round(ENEMY_DAMAGE[part] * dmgMul * armour * 100) / 100;
   if (part === 'head' && target !== 'boss') {
-    out.ko = !helmet;
+    if (hard) out.damage = Math.round(ENEMY_DAMAGE.head * HARD_HEAD_MUL * dmgMul * (helmet ? 0.55 : 1) * 100) / 100;
+    out.ko = !helmet && !hard;
     out.slowmo = true;
   }
   if (part === 'weak') out.slowmo = true;

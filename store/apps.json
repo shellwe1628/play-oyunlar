@@ -1,5 +1,5 @@
 {
-  "_doc": "Per-app Google Play release settings, read by tools/aab.mjs, tools/play-metadata.mjs and .github/workflows/play-yukle.yml. Package names (applicationId) are permanent once an app exists in Play Console: never change them. Guide: docs/production/play-yayin.md.",
+  "_doc": "Per-app Google Play release settings, read by tools/aab.mjs, tools/play-metadata.mjs and .github/workflows/play-yukle.yml. Package names (applicationId) are permanent once an app exists in Play Console: never change them. Optional source: the Vite app the Play build ships when it is not games/<slug> (okcu ships the 3D renderer apps/okcu-3d). Guide: docs/production/play-yayin.md.",
   "defaultLanguage": "en-US",
   "languages": ["en-US", "tr-TR"],
   "privacyPolicyBase": "https://shellwe1628.github.io/play-oyunlar/gizlilik/",
@@ -35,8 +35,9 @@
       "applicationId": "com.playoyunlar.noodlearchers",
       "title": { "en-US": "Noodle Archers", "tr-TR": "Sallanan Okçular" },
       "versionName": "0.1.0",
+      "source": "apps/okcu-3d",
       "platform": "web",
-      "background": "#1b1f3b",
+      "background": "#0d1018",
       "icon": { "background": "#0f2233", "accent": "#4fc3ff" },
       "releaseNotes": {
         "en-US": "Internal test build. Rewarded buttons give their reward straight away: no ads are shown.",

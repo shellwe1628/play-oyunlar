@@ -30,7 +30,7 @@ const CX = 360;
 export function createHud(stage: Stage, game: Game): Module {
   injectStyle();
   const params = new URLSearchParams(location.search);
-  const i18n = createI18n(STRINGS, pickLanguage(['tr'], params.get('lang')), { base: CORE_STRINGS, onMissing: (key) => console.warn(`[okcu-3d] missing string ${key}`) });
+  const i18n = createI18n(STRINGS, pickLanguage(navigator.languages, params.get('lang')), { base: CORE_STRINGS, onMissing: (key) => console.warn(`[okcu-3d] missing string ${key}`) });
   const t: T = (key, p) => i18n.t(key as Parameters<typeof i18n.t>[0], p);
   const storage = webStorage();
   const audio = createAudio({ storage, key: 'oyun:okcu-3d:audio' });

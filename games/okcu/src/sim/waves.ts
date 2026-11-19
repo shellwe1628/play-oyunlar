@@ -70,10 +70,30 @@ export const BASE_HP: Record<EnemyType, number> = {
 /** Each chapter boss's health at its own chapter (endless cycles add 35 % per lap). */
 export const BOSS_HP: Record<BossKind, number> = { shields: 170, giant: 420, summoner: 380, warden: 520 };
 
+/** hard: enemy health growth per difficulty level (≈ ×4.5 a chapter) */
+export const HARD_HP_GROWTH = 1.2;
+/** hard: how much heavier (harder to shove, whip and knock off) enemies get per difficulty level */
+export const HARD_WEIGHT_GROWTH = 1.12;
+/** hard: coins earned in a run, as a share of classic (the forged bow is the long climb) */
+export const HARD_COIN_MUL = 0.6;
+
+/**
+ * How hard an enemy is to push around: arrows' whip, stance shove and knockout kick are divided
+ * by it. 'classic' is 1; 'hard' grows with the level, so a knock-off later in the run needs the
+ * run's heavy cards and a forged bow (the bow adds push in hard, see `bowPush`).
+ */
+export function enemyWeight(level: number, d: Difficulty = 'classic'): number {
+  if (d !== 'hard') return 1;
+  return HARD_WEIGHT_GROWTH ** (Math.max(1, level) - 1);
+}
+
 export function enemyHp(type: EnemyType, level: number, d: Difficulty = 'classic'): number {
   // +12 % a level from level 8 to 22 (the chapters), then +8 % a level in endless
   const L = Math.max(1, level);
-  return Math.round(BASE_HP[type] * (d === 'hard' ? 1.3 : 1) * (1 + 0.6 * (L - 1)) * 1.12 ** Math.min(14, Math.max(0, L - 8)) * 1.08 ** Math.max(0, L - 22));
+  // hard: one smooth climb that tracks the forged bow (×1 at +0 … ×2.8 at +20) and the run's cards,
+  // so a stronger bow makes earlier chapters fall in one or two arrows and later ones ask for more
+  if (d === 'hard') return Math.round(BASE_HP[type] * 1.3 * HARD_HP_GROWTH ** (L - 1));
+  return Math.round(BASE_HP[type] * (1 + 0.6 * (L - 1)) * 1.12 ** Math.min(14, Math.max(0, L - 8)) * 1.08 ** Math.max(0, L - 22));
 }
 
 export function bossHp(kind: BossKind, lap: number, d: Difficulty = 'classic'): number {

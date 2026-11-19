@@ -3,7 +3,8 @@
 // screenshot: the game's own backdrop, a caption in that locale on top, the gameplay below as a
 // rounded card. Writes metadata/android/<locale>/images/phoneScreenshots/N.png (24-bit, no alpha).
 import { existsSync, mkdirSync, readdirSync, rmSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { loadConfig, locales } from './lib/config.mjs';
 import { backdrop } from './lib/look.mjs';
 import { LOCALES, rawDir, shotsDir, slugArg } from './lib/paths.mjs';
@@ -35,7 +36,8 @@ export async function composeShot(look, raw, caption, out) {
   return renderHtml(body, { width: SHOT.w, height: SHOT.h, out, alpha: false, css: captionCss(look) });
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+// run as a script (also on Windows, where argv[1] is a C:\ path, not a file:// URL)
+if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
   const slug = slugArg();
   const cfg = await loadConfig(slug);
   try {

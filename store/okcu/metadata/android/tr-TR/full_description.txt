@@ -1,14 +1,14 @@
-Geri çek, bırak ve sallanan erişte kollu okçuları uçan platformlarından düşür.
+Geri çek, bırak ve sallanan okçuları uçan adalarından düşür, artık 3D.
 Dört dünyayı ve dört patronu geç, yayını demircide güçlendir; önce eflatun, sonra gökkuşağı renkleriyle alev alsın.
 
-Sallanan Okçular, ragdoll fiziğiyle zıplayan, rengârenk bir okçuluk oyunu. İlk okun saniyeler içinde havada: nişan almak için ekranın herhangi bir yerinden sürükle, noktalı yayı izle, bırakınca ok fırlasın.
+Sallanan Okçular, yandan görünümlü 3D, ragdoll fiziğiyle zıplayan, rengârenk bir okçuluk oyunu. İlk okun saniyeler içinde havada: nişan almak için ekranın herhangi bir yerinden sürükle, noktalı yayı izle, bırakınca ok fırlasın.
 
 NASIL OYNANIR
 • Açıyı ve gücü ayarlamak için geri çek, sonra bırak. Öğrenecek düğme yok.
 • Oklar gerçekten uçar: kavis çizer, düştüğü yere saplanır, çarptığını iter.
 • Nereden vurduğun önemli: kafaya gelen ok nakavt eder, bacağa gelen okçuyu platformdan düşürebilir.
-• Rakipler de karşılık verir. Can toplamak için süzülen elmaları vur.
-• Her okçu gözünü kısar, irkilir, güler, kendine has bir şekilde sallanır.
+• Rakipler de karşılık verir, hem de iyi nişan alır. Can toplamak için süzülen elmaları vur.
+• Her okçu ragdoll üstünde bir 3D karakter: ok çarpınca sendeler, nakavt olunca uçup gider.
 
 DÖRT BÖLÜM
 • Güneşli Çayır, Donuk Zirveler, Gün Batımı Kumulları ve Fener Gecesi; her biri yedi aşama, ardından bitmeyen dalgalar.
@@ -31,7 +31,7 @@ BÜYÜK ANLAR
 • Acemi'den Destansı Okçu'ya, sana özel 12 rütbelik bir merdivende yüksel.
 • Tarihleriyle kendi rekorlarının tutulduğu bir tablo ve altın kazandıran 19 başarım.
 • Her gün farklı bir kuralı ve hedefi olan günlük görev; her gün dönersen serin büyür.
-• Dört kalıcı geliştirme ve on iki görünüm: şapkalar, atkılar, yay kaplamaları.
+• Dört kalıcı geliştirme. Can geliştirmeleri okçunu zırhla donatır.
 • Ulaştığın her bölüme giriş ekranından doğrudan başla.
 
 BİLMEKTE FAYDA VAR

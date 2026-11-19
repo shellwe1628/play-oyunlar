@@ -28,6 +28,9 @@ import { checkThemeDump, fullScreenStyles } from './aab/theme.mjs';
 import { ROOT } from './template.mjs';
 
 const BIN = join(ROOT, 'node_modules', '.bin');
+const WIN = process.platform === 'win32';
+/** node_modules/.bin tool (a .cmd shim on Windows) */
+const bin = (name) => join(BIN, WIN ? `${name}.cmd` : name);
 const OUT_DIR = join(ROOT, 'build');
 /** Lowest targetSdk this script accepts. Play's yearly target-API rule: check the Console. */
 const MIN_TARGET_SDK = 35;
@@ -45,8 +48,12 @@ function fail(msg) {
 
 /** Runs a command; arguments are printed, the environment never is. */
 function run(cmd, args, opts = {}) {
-  console.log(`$ ${relative(ROOT, opts.cwd ?? ROOT) || '.'}: ${cmd.replace(`${BIN}/`, '')} ${args.join(' ')}`);
-  const r = spawnSync(cmd, args, {
+  console.log(`$ ${relative(ROOT, opts.cwd ?? ROOT) || '.'}: ${relative(BIN, cmd).startsWith('..') ? cmd : relative(BIN, cmd)} ${args.join(' ')}`);
+  // Windows .cmd/.bat shims need a shell; quote every part (the repo path may hold spaces).
+  const shell = WIN && /\.(cmd|bat)$/i.test(cmd);
+  const q = (s) => (/[\s"&|<>^]/.test(s) ? `"${s.replace(/"/g, '\\"')}"` : s);
+  const r = spawnSync(shell ? [cmd, ...args].map(q).join(' ') : cmd, shell ? [] : args, {
+    shell,
     cwd: opts.cwd ?? ROOT,
     stdio: ['ignore', opts.capture ? 'pipe' : 'inherit', opts.capture ? 'pipe' : 'inherit'],
     encoding: 'utf8',
@@ -55,7 +62,8 @@ function run(cmd, args, opts = {}) {
   });
   if (r.error) fail(`${cmd} could not start: ${r.error.message}`);
   if (r.status !== 0) fail(`${cmd} ${args.join(' ')} exited with ${r.status} (cwd ${relative(ROOT, opts.cwd ?? ROOT) || '.'})${opts.capture ? `\n${r.stdout}${r.stderr}` : ''}`);
-  return opts.capture ? `${r.stdout}${r.stderr}` : '';
+  // CRLF -> LF: Windows tools (aapt2, jar) end lines with CR LF; every parser below expects LF
+  return opts.capture ? `${r.stdout}${r.stderr}`.replace(/\r\n/g, '\n') : '';
 }
 
 function git(args) {
@@ -105,10 +113,18 @@ function loadApp(slug) {
   for (const lang of cfg.languages) if (!app.title?.[lang]) fail(`${slug}: store/apps.json has no title for ${lang}`);
   if (!['web', 'capacitor'].includes(app.platform)) fail(`${slug}: platform must be "web" or "capacitor", not "${app.platform}"`);
   if (!/^\d+\.\d+\.\d+$/.test(app.versionName)) fail(`${slug}: versionName must look like 1.2.3, not "${app.versionName}"`);
-  if (!existsSync(join(ROOT, 'games', slug, 'oyun.config.json'))) fail(`games/${slug} is missing`);
-  const meta = JSON.parse(readFileSync(join(ROOT, 'games', slug, 'oyun.config.json'), 'utf8'));
-  if (meta.orientation !== 'portrait') fail(`${slug}: oyun.config.json orientation is ${meta.orientation}; this script locks portrait`);
-  return { ...app, defaultLanguage: cfg.defaultLanguage, languages: cfg.languages };
+  // `source`: the Vite app the Play build ships, when it is not games/<slug> (okcu ships its 3D
+  // renderer, apps/okcu-3d, which runs the same simulation). Only template-made games carry
+  // oyun.config.json and the platform adapter; any other source is portrait-only by design.
+  const source = app.source ?? join('games', slug);
+  if (!existsSync(join(ROOT, source, 'index.html'))) fail(`${slug}: ${source} is missing`);
+  const configFile = join(ROOT, source, 'oyun.config.json');
+  const adapter = existsSync(configFile);
+  if (adapter) {
+    const meta = JSON.parse(readFileSync(configFile, 'utf8'));
+    if (meta.orientation !== 'portrait') fail(`${slug}: oyun.config.json orientation is ${meta.orientation}; this script locks portrait`);
+  }
+  return { ...app, source, adapter, defaultLanguage: cfg.defaultLanguage, languages: cfg.languages };
 }
 
 // ---------------------------------------------------------------- preflight
@@ -152,9 +168,9 @@ function preflight() {
 
 // ---------------------------------------------------------------- web
 function buildWeb(app, work) {
-  step(`web bundle (VITE_OYUN_PLATFORM=${app.platform})`);
-  run(join(BIN, 'vite'), ['build', '--base', './', '--outDir', join(work, 'www'), '--emptyOutDir'], {
-    cwd: join(ROOT, 'games', app.slug),
+  step(`web bundle from ${app.source}${app.adapter ? ` (VITE_OYUN_PLATFORM=${app.platform})` : ''}`);
+  run(bin('vite'), ['build', '--base', './', '--outDir', join(work, 'www'), '--emptyOutDir'], {
+    cwd: join(ROOT, app.source),
     env: { VITE_OYUN_PLATFORM: app.platform },
   });
 }
@@ -195,10 +211,10 @@ function checkWeb(app, www) {
   }
   const js = files.filter((f) => f.endsWith('.js'));
   const forced = new RegExp(`forced:\\s*["'\`]${app.platform}["'\`]`);
-  if (!js.some((f) => forced.test(readFileSync(f, 'utf8')))) problems.push(`platform choice "${app.platform}" not found in the bundle`);
+  if (app.adapter && !js.some((f) => forced.test(readFileSync(f, 'utf8')))) problems.push(`platform choice "${app.platform}" not found in the bundle`);
   if (problems.length) fail(`web bundle check:\n  ${problems.join('\n  ')}`);
   const kb = Math.round(files.reduce((s, f) => s + statSync(f).size, 0) / 1024);
-  console.log(`ok: ${files.length} files, ${kb} KB; relative paths, no external URLs, ${app.platform} adapter`);
+  console.log(`ok: ${files.length} files, ${kb} KB; relative paths, no external URLs, ${app.adapter ? `${app.platform} adapter` : 'no platform adapter (no ads)'}`);
 }
 
 // ---------------------------------------------------------------- native
@@ -221,7 +237,7 @@ function capacitor(app, work) {
   writeFileSync(join(work, 'capacitor.config.json'), `${JSON.stringify(config, null, 2)}\n`);
   writeFileSync(join(work, 'package.json'), `${JSON.stringify({ name: `aab-${app.slug}`, private: true, type: 'module' }, null, 2)}\n`);
   rmSync(join(work, 'android'), { recursive: true, force: true });
-  run(join(BIN, 'cap'), ['add', 'android'], { cwd: work });
+  run(bin('cap'), ['add', 'android'], { cwd: work });
 }
 
 function patchNative(app, work, info) {
@@ -330,11 +346,13 @@ function patchNative(app, work, info) {
 function gradle(work, sdk, signEnv) {
   step('gradle bundleRelease');
   const android = join(work, 'android');
-  writeFileSync(join(android, 'local.properties'), `sdk.dir=${sdk}\n`);
+  // local.properties is a Java properties file: escape backslashes and the drive colon (Windows).
+  writeFileSync(join(android, 'local.properties'), `sdk.dir=${sdk.replace(/\\/g, '\\\\').replace(/:/g, '\\:')}\n`);
   const own = process.env.OYUN_GRADLE;
-  if (!own) run('chmod', ['+x', join(android, 'gradlew')]);
+  const gradlew = join(android, WIN ? 'gradlew.bat' : 'gradlew');
+  if (!own && !WIN) run('chmod', ['+x', gradlew]);
   // --no-daemon: nothing keeps running after the build.
-  run(own || join(android, 'gradlew'), ['bundleRelease', '--no-daemon', '--console=plain', '--warning-mode=summary'], { cwd: android, env: signEnv });
+  run(own || gradlew, ['bundleRelease', '--no-daemon', '--console=plain', '--warning-mode=summary'], { cwd: android, env: signEnv });
 }
 
 // ---------------------------------------------------------------- checks + delivery
@@ -380,7 +398,7 @@ function verify(app, work, info, sdk) {
   const okPerm = (p) => p === 'android.permission.INTERNET' || p === `${app.applicationId}.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION`;
   for (const p of facts.permissions.filter((p) => !okPerm(p))) problems.push(`unexpected permission ${p}`);
 
-  const entries = run('jar', ['tf', aab], { capture: true }).split('\n').filter(Boolean);
+  const entries = run('jar', ['tf', aab], { capture: true }).split(/\r?\n/).filter(Boolean);
   const assets = entries.filter((e) => e.startsWith('base/assets/public/'));
   if (!entries.includes('base/assets/public/index.html')) problems.push('base/assets/public/index.html missing from the bundle');
   const libs = entries.filter((e) => e.startsWith('base/lib/'));
@@ -392,7 +410,7 @@ function verify(app, work, info, sdk) {
   // repacked as a base-module zip it can open: the activity starts with the launch theme, and
   // that theme and the ones after it have no action bar or title (tools/aab/theme.mjs).
   const buildTools = existsSync(join(sdk, 'build-tools')) ? readdirSync(join(sdk, 'build-tools')).sort((a, b) => a.localeCompare(b, 'en', { numeric: true })) : [];
-  const aapt2 = buildTools.map((v) => join(sdk, 'build-tools', v, 'aapt2')).filter((f) => existsSync(f)).at(-1);
+  const aapt2 = buildTools.map((v) => join(sdk, 'build-tools', v, WIN ? 'aapt2.exe' : 'aapt2')).filter((f) => existsSync(f)).at(-1);
   let themes = { summary: [] };
   if (!aapt2) problems.push(`no aapt2 in ${join(sdk, 'build-tools')}: cannot check the themes`);
   else {

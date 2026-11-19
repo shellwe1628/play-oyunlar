@@ -61,6 +61,29 @@ ilerletilir, her çekim aynı kareye düşer. Betikler açtıkları sunucu ve ta
   ince halka) ve tek bir kalın amblem (`lib/icons.mjs` → `EMBLEMS`): Fosil Şansı amonit,
   Sallanan Okçular yay ve ok, Kıvılcım zikzak izli kıvılcım.
 
+## Oyun `games/` dışında bir web uygulamasıysa (ör. Sallanan Okçular 3D)
+
+`listing.config.mjs` içinde `app: 'apps/<ad>'` varsa `capture.mjs` o uygulamayı çeker
+(`lib/webapp.mjs`): uygulama kendi `vite.config.ts`'iyle **değiştirilmeden** derlenir (yama yok;
+three.js zaten `devicePixelRatio` ile çizer, sayfa 2× aygıt ölçeğiyle açılır), WebGL yazılımla
+(swiftshader) çalışır. `hook: '__okcu3d'` uygulamanın test kancasıdır; `g.eval((H, a) => …)`
+sayfada `H = window[hook]` ile çalışır, `g.run(33, 33)` tek bir çizilmiş karedir (sahte saat
+`requestAnimationFrame` ve `performance.now`'ı da sürer), `g.tap('Metin')` o yazılı düğmeye gerçek
+bir dokunuş (pointerdown + pointerup) gönderir, `g.animRate(0.08)` gerçek zamanla akan DOM
+animasyonlarını sahte saatin hızına yaklaştırır. `bot: 'capture-bot.mjs'` oyunun sim'ini içe
+aktaran bir dosyadır; Vite ile tek betik olarak paketlenip sayfaya eklenir (uygulamaya dokunmaz).
+`htmlLang: true` sayfanın `<html lang>`'ını çekimin diline ayarlar. Kayıtlar yine
+`games/<slug>`'ın sim'iyle hazırlanır (`stage()`).
+
+Çekimler üzerinde çalışırken `capture.mjs <slug> --only id --cached-saves` bir önceki çalıştırmanın
+hazırladığı kayıtları yeniden kullanır (kariyeri tekrar oynamaz).
+
+## Windows
+
+Betikler Windows'ta da çalışır (Git Bash veya PowerShell, boşluklu yollar dahil). Playwright'ın
+headless modu kendi "headless shell"ini kullanır; tam Chromium açılmazsa (ör. "side-by-side
+configuration" hatası) sorun olmaz. O da açılmazsa kurulu Chrome (`channel: 'chrome'`) denenir.
+
 ## Çekimi değiştirmek
 
 `store/<slug>/listing.config.mjs` → `shots`: her çekimin `id`'si, `save`'i (stage'den), iki dilde

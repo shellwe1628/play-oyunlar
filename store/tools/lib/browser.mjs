@@ -4,12 +4,23 @@
 import { chromium } from 'playwright';
 import { existsSync } from 'node:fs';
 
-export async function launch() {
+/**
+ * Chromium for captures and renders. Playwright's headless mode uses its headless shell, which
+ * also starts on Windows machines where the full bundled Chromium does not; installed Chrome
+ * (`channel: 'chrome'`) and the Linux image's /opt/pw-browsers/chromium are fallbacks.
+ * `opts.args`: extra flags (e.g. software WebGL for a three.js app, see webapp.mjs WEBGL_ARGS).
+ */
+export async function launch(opts = {}) {
+  const args = opts.args ?? [];
   try {
-    return await chromium.launch();
+    return await chromium.launch({ args });
   } catch (e) {
-    if (existsSync('/opt/pw-browsers/chromium')) return chromium.launch({ executablePath: '/opt/pw-browsers/chromium' });
-    throw e;
+    if (existsSync('/opt/pw-browsers/chromium')) return chromium.launch({ executablePath: '/opt/pw-browsers/chromium', args });
+    try {
+      return await chromium.launch({ channel: 'chrome', args });
+    } catch {
+      throw e;
+    }
   }
 }
 

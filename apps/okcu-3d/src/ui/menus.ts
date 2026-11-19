@@ -11,7 +11,8 @@ import { auraColor, drawBadge, drawBowItem } from '@okcu/scenes/gear';
 import { drawCoin, drawUpgradeIcon } from '@okcu/scenes/icons';
 import { SFX } from '@okcu/sfx';
 import { PALETTE } from '@okcu/textures';
-import { attemptForge, BOW_MAX, bowCost, bowDamage, bowGlow, bowTier, forgeChance, GLOW_BANDS, glowBand, HEAT_STEP, nextGlowBand, type ForgeResult } from '@sim/bow';
+import { HARD_BOW_POW } from '@sim/cards';
+import { attemptForge, BOW_MAX, bowCost, bowDamage as baseBowDamage, bowGlow, bowTier, forgeChance, GLOW_BANDS, glowBand, HEAT_STEP, nextGlowBand, type ForgeResult } from '@sim/bow';
 import { CHAPTERS } from '@sim/chapters';
 import { buyUpgrade, COSMETICS, isUnlocked, UPGRADE_IDS, UPGRADES, upgradeCost, type UpgradeId } from '@sim/meta';
 import { FEATS, progressScore, RANKS, rankOf, SCORE, toNextRank, unlockFeats } from '@sim/progress';
@@ -139,6 +140,9 @@ function drawGlow(g: Gfx, x: number, y: number, size: number, level: number, tim
   }
   c.restore();
 }
+
+/** The 3D build plays 'hard', where the forged bow counts ×bowDamage^HARD_BOW_POW (sim/cards.ts). */
+const bowDamage = (level: number): number => baseBowDamage(level) ** HARD_BOW_POW;
 
 export type From = 'title' | 'result' | 'shop';
 

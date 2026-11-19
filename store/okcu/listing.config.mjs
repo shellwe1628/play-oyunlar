@@ -1,133 +1,131 @@
-// Store listing config for Noodle Archers (games/okcu). Read by store/tools/*.mjs.
-// Saves come from a career played headless through the game's own rules (./career.mjs: the
-// careful scripted player from src/sim/aimbot.ts, banked and forged by the game's own functions).
-// Shots drive the real game through its ?test=1 hook (packages/core/README.md): the scripted
-// player shoots through the same release handler a finger uses; the aiming shots are real touch
-// drags (Chrome DevTools touch events, as tests/e2e/smoke.spec.ts does). Later stages are reached
-// with the chapter select (what a player taps) and played; the documented capture aid `god` keeps
-// the scripted player alive on the way, `unleash` spends a full focus meter before a shot.
+// Store listing config for Noodle Archers (Sallanan Okçular). Read by store/tools/*.mjs.
+//
+// The Play app ships the 3D build, apps/okcu-3d: the same simulation (games/okcu/src/sim) drawn
+// in side-view 3D with three.js and the Mixamo "Erika Archer" character, played on the 'hard'
+// enemy curve. So the shots capture that app (`app`), built unchanged and driven through its own
+// test hook `window.__okcu3d` (w, game, stage, shoot, skip).
+//
+// How a state is reached, honestly:
+// - Saves: ./career.mjs plays a career headless with the game's own rules on the 3D build's
+//   difficulty ('hard'): the CAREFUL scripted player from src/sim/aimbot.ts plays every run,
+//   progress is banked with the game's own bank*/unlockFeats functions and the bow is forged at
+//   the real anvil (attemptForge). The save goes into localStorage under the 3D app's key with
+//   the 2D game's schema (apps/okcu-3d/src/ui/save.ts).
+// - Runs: a chapter is chosen like the chapter select does (Game.startRun({ chapter }), with a
+//   fixed seed so the capture repeats), then played by ./capture-bot.mjs: the same CAREFUL
+//   player, shooting through the app's release path (__okcu3d.shoot), picking cards through
+//   Game.pickCard, time stepped with the app's skip(). If the player loses a run on the way, the
+//   next seed is tried; nothing keeps the player alive and no world field is written.
+// - The aiming shots are real touch drags (Chrome DevTools touch events) on the 3D stage.
+// - Menus (forge, ranks) are opened by tapping their buttons; the forge strike is a real
+//   attempt on the staged save (seeded roll, the chance printed on screen).
 import { stageCareer } from './career.mjs';
 
-const SAVE_KEY = 'oyun:okcu:save';
+const SAVE_KEY = 'oyun:okcu-3d:save';
 const SAVE_VERSION = 3;
+const DRAG_DEAD = 30;
+const DRAG_FULL = 300;
+
+/** Button labels in the game's two languages (games/okcu/src/strings.ts). */
+const L = {
+  forge: { en: 'Forge', tr: 'Demirci' },
+  forgeGo: { en: 'Forge ', tr: 'Döv ' },
+  ranks: { en: 'Ranks', tr: 'Rütbeler' },
+  records: { en: 'Records', tr: 'Rekorlar' },
+};
 
 /**
- * Game time only (no frames): the scripted player shoots while `stop(data)` is false. Card
- * screens get a pick by preference. Returns the data when `stop` holds; fails if the run ends.
+ * Start a run at chapter `c` the way the chapter select does, then let the careful player play
+ * until `stop(w, stageOf)` holds. A lost run is retried with the next seed.
  */
-async function playUntil(g, stop, { error = 0.012, max = 6000, pick = true, god = false } = {}) {
-  for (let round = 0; round < 60; round++) {
-    const res = await g.page.evaluate(
-      ([src, error, max, god]) => {
-        const H = window.__OYUN__;
-        const stop = new Function('d', `return (${src})(d)`);
-        for (let i = 0; i < max; i++) {
-          const s = H.state();
-          const d = s.data;
-          if (s.scene !== 'game' || d.phase === 'over' || d.phase === 'dying') return { fail: `run ended on wave ${d.wave}` };
-          if (stop(d)) return { done: true };
-          // capture aid `god` (no damage taken; GAME.md test hook): health cards reset it, keep it on
-          if (god && (d.health < 1e5 || d.health !== d.maxHealth) && d.phase !== 'cards') H.act('god');
-          if (d.phase === 'cards') return { cards: d.offer };
-          if ((d.phase === 'title' || d.phase === 'play' || d.phase === 'bonus') && d.reload === 0) H.act('aimbot', { error });
-          H.act('advance', 0.1);
-        }
-        const d = H.state().data;
-        return { fail: `too long: wave ${d.wave} phase ${d.phase} enemies ${JSON.stringify(d.enemies.map((e) => [e.type, e.alive, e.hp]))} bonus ${JSON.stringify(d.bonus)}` };
-      },
-      [stop.toString(), error, max, god],
-    );
-    if (res.fail) throw new Error(`playUntil: ${res.fail}`);
-    if (res.done) return g.data();
-    if (!pick) return g.data();
-    // the card screen needs real frames: the cards slam in before they take a pick
-    await g.run(1000, 200);
-    await g.act('pick-card', 0);
-    await g.run(400, 200);
+async function playTo(g, c, stop, { seed = 1, tries = 8, pick = true } = {}) {
+  let last = '';
+  for (let i = 0; i < tries; i++) {
+    await g.eval((H, a) => {
+      H.game.startRun({ chapter: a.c, seed: a.seed });
+      window.__storeBot.reseed(a.seed);
+    }, { c, seed: seed + i * 101 });
+    await g.run(200, 100);
+    const r = await g.eval((H, a) => window.__storeBot.play(a.stop, { pick: a.pick }), { stop: stop.toString(), pick });
+    if (r.done || r.cards) return r;
+    last = r.fail;
   }
-  throw new Error('playUntil: too many rounds');
+  throw new Error(`playTo chapter ${c}: ${last}`);
 }
 
-/** Step short frames until `test(data)` holds. */
-async function watch(g, test, frame = 30, max = 3000) {
-  for (let t = 0; t < max; t += frame) {
-    await g.run(frame, frame);
-    if (await g.page.evaluate((src) => new Function('d', `return (${src})(d)`)(window.__OYUN__.state().data), test.toString())) return true;
-  }
-  return false;
-}
-
-async function touch(g) {
-  const cdp = await g.page.context().newCDPSession(g.page);
-  const box = await g.page.evaluate(() => {
-    const r = document.querySelector('canvas').getBoundingClientRect();
-    return { x: r.x, y: r.y, k: r.width / 720 };
-  });
-  const css = (x, y) => ({ x: box.x + x * box.k, y: box.y + y * box.k });
-  const send = (type, pts) => cdp.send('Input.dispatchTouchEvent', { type, touchPoints: pts });
-  return { css, send };
-}
-
-/** A real finger drag that holds the string at the solved aim (does not release). */
-async function holdAim(g, { x0 = 470, y0 = 820, power = 0.92, dAngle = -0.06 } = {}) {
-  const d = await g.data();
-  if (!d.solution) throw new Error('no target to aim at');
-  const pull = d.drag.dead + d.solution.power * power * (d.drag.full - d.drag.dead);
-  const a = d.solution.angle + dAngle;
-  const t = await touch(g);
-  await t.send('touchStart', [{ ...t.css(x0, y0), id: 1 }]);
-  for (let i = 1; i <= 6; i++) {
-    await t.send('touchMove', [{ ...t.css(x0 - (Math.cos(a) * pull * i) / 6, y0 - (Math.sin(a) * pull * i) / 6), id: 1 }]);
-    await g.run(40, 40);
-  }
-  return t;
-}
-
-/** Title → chapter select: tap the chapter pill until it shows chapter `c` (0 … 3). */
-async function toChapter(g, c) {
-  for (let i = 0; i < 6; i++) {
-    const d = await g.data();
-    if (d.chapter === c) return;
-    await g.act('chapter');
-    await g.scene('game');
-    await g.run(900, 150);
-  }
-  throw new Error(`chapter select did not reach ${c}`);
-}
-
-/** Same as src/sim/cards.ts SYNERGIES: two tricks that make a combo. */
-const COMBOS = [['fire', 'boom'], ['pierce', 'chain'], ['split', 'seeker'], ['heavy', 'overdraw'], ['keen', 'longsight']];
-const completesCombo = (held, c) => COMBOS.some(([a, b]) => (c === a && held.includes(b) && !held.includes(a)) || (c === b && held.includes(a) && !held.includes(b)));
-
-/** In god mode (a capture aid used while playing up to a shot) keep it on, with health == max so the HUD bar reads full. */
-const needGod = (d) => d.phase === 'play' && (d.health < 1e5 || d.health !== d.maxHealth);
-
-/**
- * Before a gameplay shot: spend a full focus meter (its "Tap!" cue is a prompt, not a screenshot),
- * wait for stage banners to clear and the bow to be ready.
- */
-async function settle(g, { god = false } = {}) {
+/** Render frames until the archers stand ready (no arrow in the air, bow nocked, enemies landed). */
+async function calm(g, ms = 1200) {
+  await g.run(ms, 66);
   await g.until(
-    async (s) => {
-      const d = s.data;
-      if (!d) return false;
-      if (god && needGod(d)) await g.act('god');
-      if (d.focus >= 1 && d.focusT <= 0 && d.phase === 'play') await g.act('unleash');
-      return d.focus < 1 && d.focusT <= 0 && !d.bannerUp && d.reload === 0 && d.phase === 'play';
+    (H) => {
+      const w = H.w;
+      return w.phase === 'play' && w.reload === 0 && !w.arrows.some((a) => a.active && a.owner === 'player') && w.enemies.every((e) => !e.alive || e.brain !== 'spawn');
     },
-    { step: 150, max: 40000, what: 'calm' },
-  ).catch(async (e) => {
-    const st = await g.state();
-    const d = st.data ?? {};
-    throw new Error(`${e.message}: scene ${st.scene} focus ${d.focus} focusT ${d.focusT} banner ${d.bannerUp} "${d.banner}" reload ${d.reload} phase ${d.phase}`);
-  });
-  await g.run(600, 150);
+    { step: 66, frame: 66, max: 15000, what: 'calm' },
+  );
+}
+
+/** A real finger drag that holds the string at `aim` (angle, power). Returns a release function. */
+async function holdAim(g, aim, { x0 = 470, y0 = 860, frames = 8 } = {}) {
+  const pull = DRAG_DEAD + aim.power * (DRAG_FULL - DRAG_DEAD);
+  const cdp = await g.page.context().newCDPSession(g.page);
+  const at = (x, y) => g.eval((H, p) => H.stage.toScreen(p.x, p.y), { x, y });
+  const send = (type, pts) => cdp.send('Input.dispatchTouchEvent', { type, touchPoints: pts });
+  const p0 = await at(x0, y0);
+  await send('touchStart', [{ ...p0, id: 1 }]);
+  let last = p0;
+  for (let i = 1; i <= frames; i++) {
+    const k = Math.min(1, i / (frames - 2));
+    last = await at(x0 - Math.cos(aim.angle) * pull * k, y0 - Math.sin(aim.angle) * pull * k);
+    await send('touchMove', [{ ...last, id: 1 }]);
+    await g.run(33, 33);
+  }
+  return async () => send('touchEnd', [{ ...last, id: 1 }]);
+}
+
+/**
+ * Fire the careful player's clean shot at `where` (a real drag and release) and step frames until
+ * a hit of that kind lands: the sim's own 'hit' event with its slow motion (a headshot or a weak
+ * spot), read from the frame's events after the view has drawn them. A shot that lands elsewhere
+ * is followed by another one, as a player would.
+ */
+async function shootAndLand(g, where, { after = 3, tries = 6, aimAt = where } = {}) {
+  for (let n = 0; n < tries; n++) {
+    await calm(g, 400);
+    const aim = await g.eval((H, w) => window.__storeBot.aimAt(w), aimAt);
+    if (!aim) throw new Error('nothing to shoot at');
+    const release = await holdAim(g, aim, { frames: 6 });
+    await release();
+    for (let i = 0; i < 90; i++) {
+      await g.run(33, 33);
+      // the events of the frame just drawn (world.ts takeEvents keeps them in spareEvents until the next frame)
+      const hit = await g.eval((H, part) => {
+        const evs = H.w.spareEvents ?? [];
+        if (evs.some((e) => e.t === 'hit' && e.slowmo && e.part === part)) return 'yes';
+        if (evs.some((e) => e.t === 'hit') || !H.w.arrows.some((a) => a.active && a.owner === 'player')) return 'other';
+        return null;
+      }, where);
+      if (hit === 'yes') {
+        await g.run(after * 33, 33);
+        return aim;
+      }
+      if (hit === 'other') break;
+    }
+  }
+  throw new Error(`no ${where} hit in ${tries} shots`);
 }
 
 export default {
   slug: 'okcu',
   name: { 'en-US': 'Noodle Archers', 'tr-TR': 'Sallanan Okçular' },
   seed: 1,
+  // the Play app is the 3D build; its test hook (apps/okcu-3d/src/main.ts) and the in-page player
+  app: 'apps/okcu-3d',
+  hook: '__okcu3d',
+  bot: 'capture-bot.mjs',
+  // the 3D view's world callouts (view/fx.ts) take their language from <html lang> (index.html
+  // says "tr"), not from ?lang: give the page the shot's language like a phone in that language
+  htmlLang: true,
 
   look: {
     bg: ['#2fa8f5', '#a9e6ff'],
@@ -140,18 +138,21 @@ export default {
     frame: '#ffffffaa',
   },
 
-  // Icon: a drawn bow with its arrow on the game's sky, in the family frame.
+  // Icon: a drawn bow with its arrow on the game's sky, in the family frame (unchanged).
   icon: { emblem: 'bow', bg: ['#4fc3ff', '#1d6fd1'], glow: '#fff2a8', mono: true },
 
   async stage(load) {
-    const { save, at, forgeAt } = await stageCareer(load, { bowTarget: 20, snapshots: [6, 9, 12] });
-    const wrap = (data, cosmetic) => ({ v: SAVE_VERSION, data: { ...data, cosmetic } });
+    const { save, at, forgeAt } = await stageCareer(load, { bowTarget: 20, snapshots: [10, 16], difficulty: 'hard' });
+    const wrap = (data) => ({ v: SAVE_VERSION, data });
     return {
-      verdant: wrap(at[6], 'flower'),
-      golden: wrap(at[9], 'feather'),
-      azure: wrap(at[12], 'tophat'),
-      prism: wrap(save, 'crown'),
-      forge16: wrap(forgeAt[16], 'horns'),
+      // after the first runs: bow +10, every chapter reached
+      early: wrap(at[10]),
+      // later: bow +16
+      mid: wrap(at[16]),
+      // the end of the career: bow +20, armour (health upgrades) maxed
+      full: wrap(save),
+      // just before the forge strike that took the bow to +20
+      forge20: wrap(forgeAt[20]),
     };
   },
   storageFor: (save) => ({ [SAVE_KEY]: save }),
@@ -159,105 +160,115 @@ export default {
   shots: [
     {
       id: 'aim',
-      save: 'golden',
-      caption: { 'en-US': 'Pull back, let go, knock them off their ledges', 'tr-TR': 'Geri çek, bırak, rakipleri platformdan düşür' },
+      save: 'early',
+      caption: { 'en-US': 'Pull back, let go, knock them off their islands', 'tr-TR': 'Geri çek, bırak, rakipleri adalarından düşür' },
       async run(g) {
-        await playUntil(g, (d) => d.wave >= 3 && d.phase === 'play');
-        await settle(g);
-        await holdAim(g, { power: 0.9 });
-        await g.run(400, 50);
+        await playTo(g, 0, (w) => w.wave >= 3 && w.phase === 'play' && w.enemies.filter((e) => e.alive).length >= 2, { seed: 3 });
+        await calm(g);
+        const aim = await g.eval(() => window.__storeBot.aimAt('head'));
+        await holdAim(g, { angle: aim.angle - 0.05, power: aim.power * 0.92 });
+        await g.run(200, 33);
+      },
+    },
+    {
+      id: 'headshot',
+      save: 'mid',
+      caption: { 'en-US': 'Land a headshot and watch them fly', 'tr-TR': 'Kafadan vur, rakipler uçup gitsin' },
+      async run(g) {
+        await playTo(g, 1, (w, stageOf) => w.wave >= 10 && w.phase === 'play', { seed: 7 });
+        await calm(g);
+        await shootAndLand(g, 'head', { after: 8 });
       },
     },
     {
       id: 'glow',
-      save: 'prism',
+      save: 'full',
       caption: { 'en-US': 'Forge your bow to +20 and watch it blaze', 'tr-TR': 'Yayını +20’ye kadar döv, alev alev parlasın' },
       async run(g) {
-        await toChapter(g, 3);
-        await playUntil(g, (d) => d.wave >= 27 && d.phase === 'play', { god: true });
-        await g.run(1500, 150);
-        await settle(g, { god: true });
-        const t = await holdAim(g, { power: 0.95 });
-        await g.run(250, 50);
-        await t.send('touchEnd', [{ ...t.css(400, 900), id: 1 }]);
-        await g.run(160, 40);
-      },
-    },
-    {
-      id: 'boss',
-      save: 'verdant',
-      caption: { 'en-US': 'Four bosses that change tactics halfway', 'tr-TR': 'Yarı yolda taktik değiştiren dört patron' },
-      async run(g) {
-        // Frozen Peaks from the chapter select, played up to the Frost Giant on its sliding ledge
-        await toChapter(g, 1);
-        await playUntil(g, (d) => d.wave >= 14 && d.phase === 'play' && d.enemies.some((e) => e.type === 'boss' && e.alive), { god: true });
-        await settle(g, { god: true });
-        await g.act('aimbot', { error: 0.002 });
-        await g.run(140, 35);
+        await playTo(g, 3, (w) => w.wave >= 23 && w.phase === 'play', { seed: 5 });
+        await calm(g);
+        const aim = await g.eval(() => window.__storeBot.aimAt('head'));
+        await holdAim(g, { angle: aim.angle, power: Math.min(1, aim.power * 1.02) });
+        await g.run(300, 33);
       },
     },
     {
       id: 'forge',
-      save: 'forge16',
-      caption: { 'en-US': 'Every forge chance is shown before you try', 'tr-TR': 'Demircide her şans denemeden önce yazar' },
-      async run(g) {
-        await g.run(600, 120);
-        await g.act('forge');
-        await g.scene('forge');
-        await g.run(800, 120);
-        await g.act('forge');
-        await g.until((s) => s.data.shown === 16, { step: 60, max: 10000, what: 'forge payoff' });
-        await g.run(1100, 40);
+      save: 'forge20',
+      caption: { 'en-US': 'Every forge chance is shown before you strike', 'tr-TR': 'Demircide her şans vurmadan önce yazar' },
+      async run(g, { lang }) {
+        // the menus' DOM animations run on real time: slow them to the fake clock's pace
+        await g.animRate(0.08);
+        await g.run(600, 100);
+        await g.tap(L.forge[lang]);
+        await g.run(900, 100);
+        await g.tap(L.forgeGo[lang]);
+        // the strike in progress: the bow rises and blazes, the printed chance (15 % at +19) stays
+        // on screen until the payoff (this attempt, with the career's seeded roll, succeeds)
+        await g.run(1200, 66);
       },
     },
     {
-      id: 'dunes',
-      save: 'azure',
-      caption: { 'en-US': 'Swinging ledges, elites and arrow-catchers', 'tr-TR': 'Sallanan platformlar, seçkin rakipler, ok yakalayanlar' },
+      id: 'boss',
+      // mid-career (bow +10), a fresh run from the chapter select up to the Desert boss
+      save: 'early',
+      caption: { 'en-US': 'Bosses with a weak spot and a second phase', 'tr-TR': 'Zayıf noktası ve ikinci evresi olan patronlar' },
       async run(g) {
-        await toChapter(g, 2);
-        await playUntil(g, (d) => d.wave >= 18 && d.phase === 'play', { god: true });
-        await g.run(1500, 150);
-        await settle(g, { god: true });
-        await g.act('aimbot', { error: 0.002 });
-        await g.run(160, 40);
+        await playTo(g, 2, (w) => w.wave >= 21 && w.phase === 'play' && w.enemies.some((e) => e.type === 'boss' && e.alive && e.brain !== 'spawn'), { seed: 9 });
+        await calm(g, 900);
+        // the boss is plated everywhere; its bare head is the weak spot (ragdoll.ts BOSS_PARTS): draw on it
+        const aim = await g.eval(() => window.__storeBot.aimAt('head'));
+        if (aim.type !== 'boss') throw new Error(`aiming at a ${aim.type}, not the boss`);
+        await holdAim(g, aim);
+        await g.run(300, 33);
       },
     },
     {
-      id: 'cards',
-      save: 'golden',
-      caption: { 'en-US': 'Pick a trick each stage and find the combos', 'tr-TR': 'Her aşamada bir numara seç, uyumları yakala' },
+      id: 'bonus',
+      save: 'full',
+      caption: { 'en-US': 'Bonus rounds: shoot the floating targets', 'tr-TR': 'Bonus turları: uçan hedefleri vur' },
       async run(g) {
-        await toChapter(g, 1);
-        for (let i = 0; i < 12; i++) {
-          await playUntil(g, (d) => d.phase === 'cards', { pick: false, god: true });
-          const d = await g.data();
-          if (d.offer.some((c) => completesCombo(d.cards, c))) break;
-          await g.run(1000, 200);
-          await g.act('pick-card', 0);
-          await g.run(400, 200);
+        await playTo(g, 0, (w) => w.phase === 'bonus' && w.bonus && w.bonus.t >= 1.5, { seed: 4 });
+        await g.run(800, 66);
+        // the careful player's bonus aim (it leads the flying apples), until one is struck
+        for (let n = 0; n < 8; n++) {
+          await g.until((H) => H.w.reload === 0, { step: 66, frame: 66, max: 4000, what: 'nocked' });
+          const p = await g.eval(() => window.__storeBot.plan(0));
+          if (!p) {
+            await g.run(200, 66);
+            continue;
+          }
+          await g.eval((H, s) => H.shoot(s.angle, s.power), p);
+          for (let i = 0; i < 40; i++) {
+            await g.run(33, 33);
+            if (await g.eval((H) => (H.w.spareEvents ?? []).some((e) => e.t === 'bonusHit'))) {
+              await g.run(4 * 33, 33);
+              return;
+            }
+          }
         }
-        await g.run(2400, 200);
+        throw new Error('no bonus hit');
       },
     },
     {
       id: 'ranks',
-      save: 'azure',
+      save: 'full',
       caption: { 'en-US': 'Climb 12 ranks and beat your own records', 'tr-TR': '12 rütbeyi tırman, kendi rekorlarını kır' },
-      async run(g) {
-        await g.run(600, 120);
-        await g.act('ranks');
-        await g.scene('ranks');
-        await g.run(1500, 120);
+      async run(g, { lang }) {
+        await g.run(600, 100);
+        await g.tap(L.ranks[lang]);
+        await g.run(1500, 100);
       },
     },
   ],
 
+  // Feature graphic: the name and tagline beside two crops of the real 3D captures (the armoured
+  // archer drawing the +20 bow at night; a headshot in the snow).
   feature: {
-    tagline: { 'en-US': 'Knock them off, forge a blazing bow!', 'tr-TR': 'Okçuları düşür, yayını parlat!' },
+    tagline: { 'en-US': 'Knock them off in 3D, forge a blazing bow!', 'tr-TR': '3D okçuları düşür, yayını alev alev parlat!' },
     cards: [
-      ['glow', 40, 200, 640, 896],
-      ['boss', 40, 300, 600, 840],
+      ['glow', 0, 650, 280, 440],
+      ['headshot', 300, 470, 420, 660],
     ],
   },
 };

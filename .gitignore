@@ -27,3 +27,6 @@ games/*/.readme-check-*/
 
 # store listing metadata uses fastlane's "android" folder name: keep it tracked
 !store/*/metadata/android/
+
+# promo videos are release assets (GitHub release "tanitim-videolari"), not tracked: store/tools/video/README.md
+store/*/video/*.mp4

@@ -16,7 +16,8 @@ import { NO_META, type MetaLevels, type RunBank } from './meta';
 import type { DailyMod, RunSummary } from './progress';
 import { BOSS_PARTS, bowOrigin, createRagdoll, LEG_HEIGHT, PARTS, PT, setPose, type Part } from './ragdoll';
 import { PLAYER_LEDGE, PLAYER_SCALE, PLAYER_X, TUNING } from './tuning';
-import { bossHp, enemyAccuracy, enemyDamageMul, enemyHp, enemyScale, enemyTiming, graceStep, helmetChance, waveGrace, type Difficulty } from './waves';
+import { bossHp, enemyAccuracy, enemyDamageMul, enemyHp, enemyScale, enemyTiming, enemyWeight, graceStep, HARD_COIN_MUL, helmetChance, waveGrace, type Difficulty } from './waves';
+import { bowDamage } from './bow';
 
 export type Phase = 'title' | 'play' | 'clear' | 'bonus' | 'cards' | 'dying' | 'over';
 export type ArcherType = EnemyType | 'player';
@@ -605,7 +606,7 @@ export function createWorld(opts: WorldOptions): World {
     objective: null,
     wind: 0,
     cards: [],
-    stats: statsFor([], meta),
+    stats: statsFor([], meta, opts.difficulty ?? 'classic'),
     offer: [],
     offerExtra: false,
     treasure: false,
@@ -641,7 +642,7 @@ export function createWorld(opts: WorldOptions): World {
     if (offer.length === 0) break;
     w.cards.push(offer[draftPick(offer)]!);
   }
-  w.stats = statsFor(w.cards, meta);
+  w.stats = statsFor(w.cards, meta, w.difficulty);
   w.rerollsLeft = w.stats.rerolls;
   w.player = makeArcher(w, 'player', PLAYER_X, PLAYER_LEDGE.y, 1, 0);
   w.player.hp = w.player.maxHp = w.stats.maxHp;
@@ -651,8 +652,12 @@ export function createWorld(opts: WorldOptions): World {
 
 // ---------------------------------------------------------------- waves
 
+/** hard: damage share of split's side arrows and of double's later volleys */
+const HARD_SIDE_ARROW = 0.5;
+const HARD_EXTRA_VOLLEY = 0.6;
+
 function coinMul(w: World): number {
-  return w.stats.coinMul * (w.mod === 'giants' ? 1.5 : 1);
+  return w.stats.coinMul * (w.mod === 'giants' ? 1.5 : 1) * (w.difficulty === 'hard' ? HARD_COIN_MUL : 1);
 }
 
 function clearProps(w: World): void {
@@ -878,8 +883,12 @@ function fireVolley(w: World, angle: number, power: number, first: boolean): voi
     const o = playerOrigin(w, angle);
     const ar = spawnArrow(w, 'player', 'arrow', o.x, o.y, Math.cos(ang) * speed, Math.sin(ang) * speed);
     if (!ar) continue;
-    ar.dmgMul = w.stats.dmgMul * (over ? w.stats.overdraw : 1) * (focus ? FX.focusDmg : 1);
-    ar.impulseMul = w.stats.impulseMul * (over && w.stats.siege ? 1.5 : 1);
+    // hard: extra arrows (split's side arrows, double's later volleys) hit for a share, so the
+    // run's cards widen the shot without multiplying its damage four to six times
+    const extra = w.difficulty === 'hard' ? (k !== 0 ? HARD_SIDE_ARROW : 1) * (first ? 1 : HARD_EXTRA_VOLLEY) : 1;
+    ar.dmgMul = w.stats.dmgMul * (over ? w.stats.overdraw : 1) * (focus ? FX.focusDmg : 1) * extra;
+    // hard: the forged bow pushes as well as it hurts (a stronger bow sends archers flying)
+    ar.impulseMul = w.stats.impulseMul * (over && w.stats.siege ? 1.5 : 1) * (w.difficulty === 'hard' ? bowDamage(w.meta.bow) : 1);
     ar.fire = w.stats.fireDps > 0;
     ar.pierce = w.stats.pierce + (focus ? 1 : 0);
     ar.bounces = w.stats.bounces;
@@ -965,7 +974,7 @@ export function pickCard(w: World, index: number): boolean {
   if (!card) return false;
   w.cards.push(card);
   const before = w.stats.maxHp;
-  w.stats = statsFor(w.cards, w.meta);
+  w.stats = statsFor(w.cards, w.meta, w.difficulty);
   const gain = w.stats.maxHp - before;
   w.player.maxHp = w.stats.maxHp;
   if (gain > 0) {
@@ -2250,7 +2259,8 @@ function hitEnemy(w: World, a: Arrow, e: Archer, part: Part, hx: number, hy: num
     w.events.push({ t: 'ward', id: e.id, x: hx, y: hy, up: false });
     return;
   }
-  const k = TUNING.impulse * a.impulseMul;
+  const weight = e.type === 'boss' ? 1 : enemyWeight(w.level, w.difficulty);
+  const k = (TUNING.impulse * a.impulseMul) / weight;
   // the body whips around the hit point
   pushBody(e.body, hx, hy, vx, vy, k, 70 * e.scale);
   if (part.a !== part.b && part.u === undefined) {
@@ -2269,7 +2279,7 @@ function hitEnemy(w: World, a: Arrow, e: Archer, part: Part, hx: number, hy: num
   const crit = w.critRng.chance(w.stats.crit + (a.focus ? FX.focusCrit : 0));
   // the first chapter's boss relies on its shields, not its armour: body hits count four times
   const armourK = e.bossKind === 'shields' && part.kind !== 'weak' ? 4 : 1;
-  const out = resolveHit(e.type, part.kind, a.dmgMul * (crit ? w.stats.critMul : 1) * armourK, e.helmet);
+  const out = resolveHit(e.type, part.kind, a.dmgMul * (crit ? w.stats.critMul : 1) * armourK, e.helmet, w.difficulty === 'hard');
   if (crit) w.run.crits += 1;
   e.hurt = 0;
   e.body.muscle = Math.min(e.body.muscle, e.type === 'boss' ? 0.35 : TUNING.hitMuscle);
@@ -2281,7 +2291,7 @@ function hitEnemy(w: World, a: Arrow, e: Archer, part: Part, hx: number, hy: num
     e.draw = 0;
   }
   // shove the stance; off the edge means a fall
-  const shove = (out.shove + (part.kind === 'body' ? 0.35 : 0) * (a.impulseMul > 1.2 ? 1 : 0)) * TUNING.legShove * a.impulseMul;
+  const shove = ((out.shove + (part.kind === 'body' ? 0.35 : 0) * (a.impulseMul > 1.2 ? 1 : 0)) * TUNING.legShove * a.impulseMul) / weight;
   if (shove > 0 && e.type !== 'boss' && e.type !== 'elite' && e.brain !== 'jump') {
     e.anchorX += Math.sign(vx || 1) * shove;
     const L = enemyLedge(w, e);

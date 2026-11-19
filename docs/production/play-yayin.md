@@ -20,7 +20,7 @@ olmayan biri) yapması gerekenleri sırasıyla anlatır. Teknik parça hazır: G
 |---|---|---|---|---|
 | 1 | `com.playoyunlar.fossilodds` | Fossil Odds | Fosil Şansı | `games/fosil` |
 | 2 | `com.playoyunlar.sparkrise` | Sparkrise | Kıvılcım | `games/kivilcim` |
-| 3 | `com.playoyunlar.noodlearchers` | Noodle Archers | Sallanan Okçular | `games/okcu` |
+| 3 | `com.playoyunlar.noodlearchers` | Noodle Archers | Sallanan Okçular | `apps/okcu-3d` (3D sürüm; kurallar `games/okcu/src/sim`'den gelir, `store/apps.json` → `source`) |
 
 Varsayılan dil İngilizce (en-US), ikinci dil Türkçe (tr-TR). Ayarların tek kaynağı
 `store/apps.json`; mağaza metinleri ve görselleri `store/<slug>/metadata/android/`.

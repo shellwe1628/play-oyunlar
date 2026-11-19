@@ -6,11 +6,11 @@
 // attemptForge, seeded rolls, printed chances). Nothing in the save is typed in by hand.
 
 /** Shoot one run like aimbot.playRun does, but keep the world so it can be banked like the scene. */
-function playBanked(mods, save, seed, date) {
+function playBanked(mods, save, seed, date, difficulty = 'classic') {
   const { world, aimbot, meta, progress, core } = mods;
   const rng = core.createRng(seed * 31 + 7);
   const p = aimbot.CAREFUL;
-  const w = world.createWorld({ seed, meta: meta.metaOf(save), startChapter: 0 });
+  const w = world.createWorld({ seed, meta: meta.metaOf(save), startChapter: 0, difficulty });
   const bank = meta.newBank(save);
   w.bank = bank;
   let wait = 0;
@@ -61,9 +61,10 @@ function playBanked(mods, save, seed, date) {
  * Play runs until the bow reaches `bowTarget` (forging after every run while the coins last, a
  * health level when the bow is out of reach, as aimbot.career does). Returns the save after the
  * run on which each bow level in `snapshots` was first reached, and (`forgeAt[level]`) the save
- * just before the forge attempt that first reached each level.
+ * just before the forge attempt that first reached each level. `difficulty` is the enemy curve the
+ * runs are played on (the 3D build, apps/okcu-3d, plays 'hard').
  */
-export async function stageCareer(load, { bowTarget = 20, snapshots = [], maxRuns = 160 } = {}) {
+export async function stageCareer(load, { bowTarget = 20, snapshots = [], maxRuns = 160, difficulty = 'classic' } = {}) {
   const mods = {
     world: await load('/src/sim/world.ts'),
     aimbot: await load('/src/sim/aimbot.ts'),
@@ -82,7 +83,7 @@ export async function stageCareer(load, { bowTarget = 20, snapshots = [], maxRun
     return d.toISOString().slice(0, 10);
   };
   for (let i = 0; i < maxRuns && save.bow.level < bowTarget; i++) {
-    const r = playBanked(mods, save, 5000 + i, day(i));
+    const r = playBanked(mods, save, 5000 + i, day(i), difficulty);
     for (;;) {
       const cost = mods.bow.bowCost(save.bow.level);
       if (cost === null || save.coins < cost || save.bow.level >= bowTarget) break;

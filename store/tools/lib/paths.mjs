@@ -23,7 +23,7 @@ export const FONT_DIR = join(REPO, 'node_modules', '@fontsource', 'nunito', 'fil
 export function slugArg() {
   const slug = process.argv[2];
   if (!slug || slug.startsWith('-')) {
-    console.error(`usage: node ${process.argv[1].split('/').slice(-3).join('/')} <slug> [options]`);
+    console.error(`usage: node ${process.argv[1].split(/[\\/]/).slice(-3).join('/')} <slug> [options]`);
     process.exit(2);
   }
   return slug;

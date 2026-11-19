@@ -20,7 +20,7 @@
 // Steps per app: web build (VITE_OYUN_PLATFORM=web) → updater script added to every page →
 // offline/relative-path checks → Capacitor project in build/test-apk/work/<key>/ (created once,
 // synced every run) → native patches applied to pristine template copies → Gradle assembleDebug
-// → checks on the APK (id, labels, version, permissions, provider, signature, contents).
+// → checks on the APK (id, labels, version, permissions, full-screen themes, provider, signature, contents).
 // Env: OYUN_GRADLE=<gradle binary> uses that instead of the project's ./gradlew (same version).
 import { execFileSync, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
@@ -28,6 +28,7 @@ import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync,
 import { join, relative } from 'node:path';
 import { foregroundVector, adaptiveIconXml, ICON_BG, LEGACY_SIZES, legacyIconPng } from '../apps/test-paketi/native/icon.mjs';
 import { findIconSource, writeIcon } from './aab/icon.mjs';
+import { checkThemeDump, fullScreenStyles } from './aab/theme.mjs';
 import { ROOT } from './template.mjs';
 import { buildManifest, MANIFEST_FILE, releaseBase, repository } from './test-apk/release.mjs';
 
@@ -50,7 +51,7 @@ const WIN = process.platform === 'win32';
 /** node_modules/.bin tool (a .cmd shim on Windows) */
 const bin = (name) => join(BIN, WIN ? `${name}.cmd` : name);
 /** an SDK build tool (aapt.exe / apksigner.bat on Windows) */
-const sdkTool = (dir, name) => join(dir, WIN ? (name === 'aapt' ? 'aapt.exe' : `${name}.bat`) : name);
+const sdkTool = (dir, name) => join(dir, WIN ? (name === 'apksigner' ? 'apksigner.bat' : `${name}.exe`) : name);
 
 /** The committed public test key (tools/test-imza/README.md). Never used by tools/aab.mjs. */
 const TEST_KEY = {
@@ -91,7 +92,8 @@ function run(cmd, args, opts = {}) {
   });
   if (r.error) fail(`${cmd} could not start: ${r.error.message}`);
   if (r.status !== 0) fail(`${cmd} ${args.join(' ')} exited with ${r.status} (cwd ${relative(ROOT, opts.cwd ?? ROOT) || '.'})${opts.capture ? `\n${r.stdout}${r.stderr}` : ''}`);
-  return opts.capture ? `${r.stdout}${r.stderr}` : '';
+  // CRLF -> LF: Windows tools (aapt2, jar) end lines with CR LF; every parser below expects LF
+  return opts.capture ? `${r.stdout}${r.stderr}`.replace(/\r\n/g, '\n') : '';
 }
 
 function git(args) {
@@ -193,7 +195,8 @@ function preflight(targets) {
   if (!platforms.includes('android-36')) fail(`Android SDK at ${sdk} has no platforms/android-36 (found: ${platforms.join(', ') || 'none'}).\n${howTo}`);
   const buildTools = existsSync(join(sdk, 'build-tools')) ? readdirSync(join(sdk, 'build-tools')).sort((a, b) => a.localeCompare(b, 'en', { numeric: true })) : [];
   const tools = buildTools.length ? join(sdk, 'build-tools', buildTools.at(-1)) : null;
-  if (!tools || !existsSync(sdkTool(tools, 'aapt')) || !existsSync(sdkTool(tools, 'apksigner'))) fail(`Android SDK at ${sdk} has no build-tools with aapt and apksigner.\n${howTo}`);
+  if (!tools || !['aapt', 'aapt2', 'apksigner'].every((f) => existsSync(sdkTool(tools, f)))) fail(`Android SDK at ${sdk} has no build-tools with aapt, aapt2 and apksigner.
+${howTo}`);
   for (const t of targets) for (const slug of t.games) if (!existsSync(join(sourceDir(slug), 'index.html'))) fail(`${relative(ROOT, sourceDir(slug))} is missing`);
 
   // The test key: present, opens with the known passwords, and is exactly the expected key.
@@ -298,7 +301,7 @@ function checkWeb(t, www) {
 
 // ---------------------------------------------------------------- native
 /** Template files the patch step rewrites: kept as pristine copies so every run patches the original. */
-const PRISTINE = ['app/src/main/AndroidManifest.xml', 'app/build.gradle', 'app/src/main/res/values/strings.xml'];
+const PRISTINE = ['app/src/main/AndroidManifest.xml', 'app/build.gradle', 'app/src/main/res/values/strings.xml', 'app/src/main/res/values/styles.xml'];
 
 function capacitor(t, work) {
   step(`${t.key}: capacitor project ${relative(ROOT, work)}`);
@@ -313,8 +316,10 @@ function capacitor(t, work) {
     plugins: {
       // Core's built-in SystemBars plugin: draw edge to edge and pass the insets to the page as
       // env(safe-area-inset-*) (WebView >= 140) — every page sets viewport-fit=cover. DARK = light
-      // icons, for the dark backgrounds of the launcher and every game.
-      SystemBars: { insetsHandling: 'css', style: 'DARK', initialViewportFitValueHint: 'cover' },
+      // icons, for the dark backgrounds of the launcher and every game (seen only when an edge
+      // swipe shows the bars for a moment). hidden: the plugin's start-up call hides the bars
+      // instead of showing them again over MainActivity's immersive mode.
+      SystemBars: { insetsHandling: 'css', style: 'DARK', initialViewportFitValueHint: 'cover', hidden: true },
     },
   };
   writeFileSync(join(work, 'capacitor.config.json'), `${JSON.stringify(config, null, 2)}\n`);
@@ -334,7 +339,7 @@ function capacitor(t, work) {
 }
 
 function patchNative(t, work, info) {
-  step(`${t.key}: patch android/ (id ${t.applicationId}, labels, portrait, icon, splash, back button, edge to edge, updater, signing)`);
+  step(`${t.key}: patch android/ (id ${t.applicationId}, labels, portrait, full screen, icon, splash, back button, updater, signing)`);
   const android = join(work, 'android');
   const main = join(android, 'app', 'src', 'main');
   const res = join(main, 'res');
@@ -372,6 +377,13 @@ function patchNative(t, work, info) {
     'AndroidManifest INTERNET permission',
   );
   writeFileSync(join(main, 'AndroidManifest.xml'), xml);
+
+  // Themes: no action bar on the launch (splash) theme or any other, cutout drawn into.
+  try {
+    writeFileSync(join(res, 'values', 'styles.xml'), fullScreenStyles(pristine('app/src/main/res/values/styles.xml')));
+  } catch (e) {
+    fail(e.message);
+  }
   mkdirSync(join(res, 'xml'), { recursive: true });
   writeFileSync(
     join(res, 'xml', 'test_update_paths.xml'),
@@ -426,7 +438,7 @@ function patchNative(t, work, info) {
   );
   writeFileSync(join(android, 'app', 'build.gradle'), gradle);
 
-  // Java: MainActivity (back button, edge to edge, plugin registration) + the updater plugin.
+  // Java: MainActivity (back button, full screen, plugin registration) + the updater plugin.
   const pkgDir = join(main, 'java', ...t.applicationId.split('.'));
   if (!existsSync(join(pkgDir, 'MainActivity.java'))) fail(`MainActivity not found in ${relative(ROOT, pkgDir)} (did cap add use appId ${t.applicationId}?)`);
   const fill = {
@@ -514,6 +526,15 @@ function verify(t, work, tools, info) {
   const provider = `${t.applicationId}.testupdate`;
   if (!tree.includes(`"${provider}"`) || !tree.includes(`"${t.applicationId}.UpdateFileProvider"`)) problems.push(`provider ${provider} (UpdateFileProvider) not in the manifest`);
 
+  // Full screen: the activity's theme (the manifest's launch theme) and the theme BridgeActivity
+  // switches to have no action bar or title (tools/aab/theme.mjs).
+  const activityTheme = /E: activity[\s\S]*?android:theme\(0x01010000\)=@(0x[0-9a-f]+)/.exec(tree)?.[1];
+  const resources = run(sdkTool(tools, 'aapt2'), ['dump', 'resources', apk], { capture: true });
+  const launchId = /resource (0x[0-9a-f]+) style\/AppTheme\.NoActionBarLaunch\n/.exec(resources)?.[1];
+  if (!activityTheme || activityTheme !== launchId) problems.push(`activity theme ${activityTheme ?? 'missing'} is not style/AppTheme.NoActionBarLaunch (${launchId ?? 'missing'})`);
+  const themes = checkThemeDump(resources, ['AppTheme', 'AppTheme.NoActionBar', 'AppTheme.NoActionBarLaunch']);
+  problems.push(...themes.problems);
+
   const entries = run('unzip', ['-Z1', apk], { capture: true }).split('\n').filter(Boolean);
   for (const dir of pages(t)) {
     for (const f of ['index.html', UPDATER]) if (!entries.includes(`assets/public/${dir ? `${dir}/` : ''}${f}`)) problems.push(`assets/public/${dir ? `${dir}/` : ''}${f} missing`);
@@ -533,6 +554,7 @@ function verify(t, work, tools, info) {
 
   if (problems.length) fail(`APK check (${t.key}):\n  ${problems.join('\n  ')}`);
   console.log(`manifest: ${JSON.stringify(facts)}`);
+  console.log(`themes: activity = AppTheme.NoActionBarLaunch; ${themes.summary.join('; ')}`);
   console.log(`provider: ${provider} → UpdateFileProvider; dex: TestUpdatePlugin, UpdateFileProvider, ${info.releaseBase}`);
   console.log(`contents: ${entries.filter((e) => e.startsWith('assets/public/') && !e.endsWith('/')).length} web files; updater on ${pages(t).map((d) => `/${d}`).join(', ')}`);
   console.log(`signature: verifies (${schemes.join(', ')}), certificate SHA-256 ${certSha} = test key`);

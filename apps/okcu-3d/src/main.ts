@@ -14,7 +14,7 @@
  * `metaOf(save)` (shop upgrades + forged bow), the chapter select, the daily run. ?bow, ?armor,
  * ?chapter and ?wave override the save for testing, and such a test run never writes to it.
  */
-import { createRng, hashSeed, webStorage } from '@oyun/core/pure';
+import { createRng, hashSeed, pickLanguage, webStorage } from '@oyun/core/pure';
 import { CAREFUL, planShot } from '@sim/aimbot';
 import { metaOf, newBank, NO_META } from '@sim/meta';
 import { dailyChallenge } from '@sim/progress';
@@ -46,6 +46,9 @@ import { createFx } from './view/fx';
 import { createStage } from './view/stage';
 
 const params = new URLSearchParams(location.search);
+// One language for every module (the HUD's i18n and the fx module, which reads <html lang>): the
+// device's, or ?lang=tr|en. index.html ships lang="tr" only as the pre-boot default.
+document.documentElement.lang = pickLanguage(navigator.languages, params.get('lang'));
 const num = (key: string, fallback: number): number => {
   const v = Number(params.get(key));
   return params.has(key) && Number.isFinite(v) ? v : fallback;

@@ -259,6 +259,17 @@ function patchNative(app, work, info) {
       'android:allowBackup="false"\n        android:dataExtractionRules="@xml/data_extraction_rules"\n        android:usesCleartextTraffic="false"',
       'AndroidManifest allowBackup',
     );
+    // screenOrientation="portrait" implies a required android.hardware.screen.portrait,
+    // which Play flags as excluding tablets, ChromeOS, Play Games on PC and XR. The game
+    // still runs portrait there; declare the feature optional.
+    if (!x.includes('android.hardware.screen.portrait')) {
+      x = replaceOnce(
+        x,
+        /<application\b/,
+        '<uses-feature android:name="android.hardware.screen.portrait" android:required="false" />\n\n    <application',
+        'AndroidManifest application',
+      );
+    }
     return x;
   });
   // Themes: no action bar on the launch (splash) theme or any other, cutout drawn into.
@@ -393,6 +404,10 @@ function verify(app, work, info, sdk) {
   if (facts.allowBackup !== 'false') problems.push(`allowBackup is ${facts.allowBackup}, expected false`);
   if (facts.dataExtractionRules !== '@xml/data_extraction_rules') problems.push('dataExtractionRules missing (saves could be transferred off the device)');
   if (facts.orientation !== 'portrait') problems.push(`screenOrientation is ${facts.orientation}`);
+  const portraitFeature = [...xml.matchAll(/<uses-feature\b[^>]*>/g)].map((m) => m[0]).find((t) => t.includes('"android.hardware.screen.portrait"'));
+  if (!portraitFeature?.includes('android:required="false"')) {
+    problems.push('android.hardware.screen.portrait is not declared optional (Play limits devices)');
+  }
   // Permissions the shell itself adds: INTERNET (Capacitor template) and AndroidX core's
   // signature-protected DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION (own package only).
   const okPerm = (p) => p === 'android.permission.INTERNET' || p === `${app.applicationId}.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION`;

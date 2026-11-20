@@ -283,7 +283,7 @@ describe('sling pebbles', () => {
     expect(a.state).toBe(1); // stuck in the ledge after its one bounce
   });
 
-  it('a pebble off a shield still hurts: the shield takes the hit, the pebble glances off and flies on, then ends without sticking', () => {
+  it('a pebble glances off the shield (0.7), damages the shield and never sticks', () => {
     const w = slingWorld();
     jumpToWave(w, 6);
     const e = w.enemies.find((q) => q.alive && q.shield && q.shieldOn)!;
@@ -325,6 +325,73 @@ describe('sling pebbles', () => {
     run();
     expect(p.active).toBe(false);
     expect(p.state).toBe(0);
+  });
+
+  it('a pebble that bounced then hits an unshielded archer still hurts him, is spent, and the bounce is no miss', () => {
+    const w = slingWorld();
+    jumpToWave(w, 6);
+    const e = w.enemies.find((q) => q.alive && !q.shield)!;
+    for (let i = 0; i < 90; i++) {
+      for (const q of w.enemies) {
+        q.timer = 999;
+        q.hp = q.maxHp = 1e6;
+      }
+      advance(w, 1 / 60);
+    }
+    const p = fire(w);
+    takeEvents(w);
+    w.run.chain = 3;
+    p.primary = true;
+    p.scored = false;
+    const L = w.ledges.find((l) => l.x > 300)!;
+    p.x = L.x - 3;
+    p.y = L.y + L.h / 2;
+    p.vx = 420;
+    p.vy = 0;
+    p.gravityMul = 0;
+    p.fromLedge = -1;
+    advance(w, 1 / 60);
+    expect(takeEvents(w).some((x) => x.t === 'bounce')).toBe(true);
+    expect(p.active).toBe(true);
+    expect(w.run.chain).toBe(3); // a bounce in flight is not a miss
+    const c = targetPoint(e, 'chest');
+    p.x = c.x - 4;
+    p.y = c.y;
+    p.vx = 400;
+    p.vy = 0;
+    p.gravityMul = 0;
+    p.bounces = 0;
+    const hp0 = e.hp;
+    advance(w, 1 / 60);
+    expect(takeEvents(w).some((x) => x.t === 'hit' && x.id === e.id)).toBe(true);
+    expect(e.hp).toBeLessThan(hp0);
+    expect(p.active).toBe(false);
+    expect(p.state).toBe(0);
+  });
+
+  it('a pebble bounce off a shield is no miss either', () => {
+    const w = slingWorld();
+    jumpToWave(w, 6);
+    const e = w.enemies.find((q) => q.alive && q.shield && q.shieldOn)!;
+    for (let i = 0; i < 90; i++) {
+      for (const q of w.enemies) {
+        q.timer = 999;
+        q.hp = q.maxHp = 1e6;
+      }
+      advance(w, 1 / 60);
+    }
+    const p = fire(w);
+    w.run.chain = 3;
+    p.primary = true;
+    p.scored = false;
+    p.x = e.shield!.x[0]! - 20;
+    p.y = (e.shield!.y[0]! + e.shield!.y[1]!) / 2;
+    p.vx = 400;
+    p.vy = 0;
+    p.gravityMul = 0;
+    advance(w, 1 / 60);
+    expect(p.active).toBe(true);
+    expect(w.run.chain).toBe(3);
   });
 
   it('a pebble that hits an archer is spent, not stuck in him', () => {

@@ -2556,7 +2556,8 @@ function playerArrowHits(w: World, a: Arrow, x0: number, y0: number): void {
 
 function hitShield(w: World, a: Arrow, e: Archer, hx: number, hy: number): void {
   const s = e.shield!;
-  missed(w, a);
+  // a pebble still in flight after glancing off is not a miss; it is one only when finally spent
+  if (a.kind !== 'pebble' || a.bounces <= 0) missed(w, a);
   if (a.kind === 'pebble') {
     // a pebble never sticks: it glances off the shield (0.7 restitution about the contact normal) while bounces last
     if (a.bounces > 0) {

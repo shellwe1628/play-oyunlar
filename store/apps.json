@@ -1,47 +1,87 @@
 {
   "_doc": "Per-app Google Play release settings, read by tools/aab.mjs, tools/play-metadata.mjs and .github/workflows/play-yukle.yml. Package names (applicationId) are permanent once an app exists in Play Console: never change them. Optional source: the Vite app the Play build ships when it is not games/<slug> (okcu ships the 3D renderer apps/okcu-3d). Guide: docs/production/play-yayin.md.",
   "defaultLanguage": "en-US",
-  "languages": ["en-US", "tr-TR"],
+  "languages": [
+    "en-US",
+    "tr-TR"
+  ],
   "privacyPolicyBase": "https://oyunlar.carsihani.me/gizlilik/",
   "apps": [
     {
       "slug": "fosil",
       "applicationId": "com.playoyunlar.fossilodds",
-      "title": { "en-US": "Fossil Odds", "tr-TR": "Fosil Şansı" },
+      "title": {
+        "en-US": "Fossil Odds",
+        "tr-TR": "Fosil Şansı"
+      },
       "versionName": "0.1.0",
       "platform": "web",
       "background": "#1b1f3b",
-      "icon": { "background": "#2a1e14", "accent": "#d99a3e" },
+      "icon": {
+        "background": "#2a1e14",
+        "accent": "#d99a3e"
+      },
       "releaseNotes": {
         "en-US": "Internal test build. Rewarded buttons give their reward straight away: no ads are shown.",
         "tr-TR": "Dahili test sürümü. Ödüllü düğmeler ödülü hemen verir: reklam gösterilmez."
+      },
+      "playGames": {
+        "appId": "827157218292",
+        "boards": {
+          "score": "CgkI9Iems4kYEAIQAQ"
+        }
       }
     },
     {
       "slug": "kivilcim",
       "applicationId": "com.playoyunlar.sparkrise",
-      "title": { "en-US": "Sparkrise", "tr-TR": "Kıvılcım" },
+      "title": {
+        "en-US": "Sparkrise",
+        "tr-TR": "Kıvılcım"
+      },
       "versionName": "0.1.0",
       "platform": "web",
       "background": "#1b1f3b",
-      "icon": { "background": "#1a0f2e", "accent": "#ff4fa3" },
+      "icon": {
+        "background": "#1a0f2e",
+        "accent": "#ff4fa3"
+      },
       "releaseNotes": {
         "en-US": "Internal test build. Rewarded buttons give their reward straight away: no ads are shown.",
         "tr-TR": "Dahili test sürümü. Ödüllü düğmeler ödülü hemen verir: reklam gösterilmez."
+      },
+      "playGames": {
+        "appId": "219939713455",
+        "boards": {
+          "rank": "CgkIr-O2q7MGEAIQAQ",
+          "endless": "CgkIr-O2q7MGEAIQAg"
+        }
       }
     },
     {
       "slug": "okcu",
       "applicationId": "com.playoyunlar.noodlearchers",
-      "title": { "en-US": "Noodle Archers", "tr-TR": "Sallanan Okçular" },
+      "title": {
+        "en-US": "Noodle Archers",
+        "tr-TR": "Sallanan Okçular"
+      },
       "versionName": "0.1.0",
       "source": "apps/okcu-3d",
       "platform": "web",
       "background": "#0d1018",
-      "icon": { "background": "#0f2233", "accent": "#4fc3ff" },
+      "icon": {
+        "background": "#0f2233",
+        "accent": "#4fc3ff"
+      },
       "releaseNotes": {
         "en-US": "Internal test build. Rewarded buttons give their reward straight away: no ads are shown.",
         "tr-TR": "Dahili test sürümü. Ödüllü düğmeler ödülü hemen verir: reklam gösterilmez."
+      },
+      "playGames": {
+        "appId": "894259071727",
+        "boards": {
+          "wave": "CgkI75X6r4MaEAIQAQ"
+        }
       }
     }
   ]

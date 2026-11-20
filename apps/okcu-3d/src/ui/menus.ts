@@ -19,6 +19,7 @@ import { FEATS, progressScore, RANKS, rankOf, SCORE, toNextRank, unlockFeats } f
 import { BOSS_KINDS } from '@sim/world';
 import { button, EASE, el, Label, roundButton, Sketch, Timers, type ButtonHandle, type LabelOpts } from './dom';
 import { css, rgba, type Gfx } from './gfx';
+import { openOnline } from './online';
 import type { Ui } from './screens';
 
 const CX = 360;
@@ -748,6 +749,13 @@ export function createMenus(ui: Ui, parent: HTMLElement, hooks: MenuHooks): Menu
     let tab: 'ladder' | 'records' | 'feats' = 'ladder';
     let clock = 0;
     labels.push(text(root, CX, TOP + 66, t('ranks.title'), 58, PALETTE.cream, { stroke: 14 }));
+    // Online ranking (Google Play Games): the shared panel from @oyun/core/online.
+    const onlineBtn = button(root, 648, TOP + 66, '🌐', ui.unlock, () => {
+      ui.audio.play('tap');
+      openOnline();
+    }, { width: 96, height: 88, fontSize: 44, variant: 'secondary' });
+    onlineBtn.el.dataset.testid = 'ranks-online';
+    onlineBtn.el.setAttribute('aria-label', t('ranks.online'));
     const tabBtns = new Map<string, ButtonHandle>();
     (['ladder', 'records', 'feats'] as const).forEach((k, i) => {
       const key = k === 'ladder' ? 'ranks.tabLadder' : k === 'records' ? 'ranks.tabRecords' : 'ranks.tabFeats';

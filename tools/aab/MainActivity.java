@@ -56,6 +56,9 @@ public class MainActivity extends BridgeActivity {
             lp.layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES;
             getWindow().setAttributes(lp);
         }
+        // Local Capacitor plugins (tools/aab.mjs fills this in: PlayGamesPlugin for apps with a
+        // playGames block in store/apps.json). Must come before super.onCreate.
+        /*__PLUGINS__*/
         super.onCreate(savedInstanceState);
         hideSystemBars();
         getOnBackPressedDispatcher().addCallback(this, new OnBackPressedCallback(true) {

@@ -37,6 +37,7 @@ import { DRAG_DEAD, DRAG_FULL } from '@okcu/scenes/keys';
 import { loadAssets } from './assets';
 import type { AimState, ArchersView, Frame, FxView, Game, Module, RunOptions } from './contract';
 import { createHud } from './ui/hud';
+import { startOnline, syncOnline } from './ui/online';
 import { openSave, todayKey } from './ui/save';
 import { createArchers } from './view/archers';
 import { createArena } from './view/arena';
@@ -64,6 +65,8 @@ const save = openSave(webStorage());
 const testRun = ['bow', 'armor', 'chapter', 'wave'].some((k) => params.has(k));
 /** the 3D build plays the harder setting; ?difficulty=classic for comparison */
 const difficulty: Difficulty = params.get('difficulty') === 'classic' ? 'classic' : 'hard';
+// Online board (Play Games, adults only): real play only, never test runs or the classic setting.
+if (!testRun && difficulty === 'hard') startOnline(webStorage(), save);
 const randomSeed = (): number => Math.floor(Math.random() * 2 ** 31);
 
 /** the run being played: daily or not, the quick title; and the chapter select's choice (the 2D `session.chapter`) */
@@ -153,6 +156,7 @@ const game: Game = {
     world = newWorld(opts.seed ?? randomSeed());
   },
   toTitle() {
+    syncOnline();
     game.startRun({});
   },
   dragStart(x, y) {

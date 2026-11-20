@@ -142,7 +142,7 @@ export function button(
   return new Button(scene, x, y, text, onTap, opts);
 }
 
-export type IconName = 'pause' | 'play' | 'sound-on' | 'sound-off' | 'home' | 'replay' | 'close';
+export type IconName = 'pause' | 'play' | 'sound-on' | 'sound-off' | 'home' | 'replay' | 'close' | 'globe';
 
 function drawIcon(g: Phaser.GameObjects.Graphics, icon: IconName, color: number, s: number): void {
   g.clear();
@@ -181,6 +181,14 @@ function drawIcon(g: Phaser.GameObjects.Graphics, icon: IconName, color: number,
       g.arc(0, 0, u * 0.45, -2.6, 2.2);
       g.strokePath();
       g.fillTriangle(-u * 0.62, -u * 0.5, -u * 0.12, -u * 0.42, -u * 0.5, -u * 0.05);
+      break;
+    case 'globe':
+      // online ranking
+      g.lineStyle(s * 0.08, color, 1);
+      g.strokeCircle(0, 0, u * 0.55);
+      g.strokeEllipse(0, 0, u * 0.5, u * 1.1);
+      g.lineBetween(-u * 0.55, 0, u * 0.55, 0);
+      g.lineBetween(-u * 0.45, -u * 0.3, u * 0.45, -u * 0.3).lineBetween(-u * 0.45, u * 0.3, u * 0.45, u * 0.3);
       break;
     case 'close':
       g.lineBetween(-u * 0.4, -u * 0.4, u * 0.4, u * 0.4).lineBetween(-u * 0.4, u * 0.4, u * 0.4, -u * 0.4);

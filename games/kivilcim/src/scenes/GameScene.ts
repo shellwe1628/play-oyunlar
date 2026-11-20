@@ -22,6 +22,7 @@ import { ensureBadges } from '../render/badges';
 import { Boss } from '../render/Boss';
 import { MechView } from '../render/MechView';
 import { hue, Trail, TRAIL_LEN } from '../render/Trail';
+import { gameOnline } from '../online';
 import { gameSave } from '../save';
 import { BEAT_PX, DT, MINI_R, SHAFT_W, SPARK_R, START_X } from '../sim/constants';
 import { EdgeQueue } from '../sim/input';
@@ -298,6 +299,8 @@ export class GameScene extends OyunScene {
   // ───────────────────────────────────────────────────────────── create
 
   create(data: GameStart = {}): void {
+    // Title and after every run: Play Games starts (adults only) and new bests go up.
+    void gameOnline(this.oyun).sync();
     ensureCanvasArt(this);
     ensureWorldArt(this);
     ensureBadges(this);

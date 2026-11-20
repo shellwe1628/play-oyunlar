@@ -9,6 +9,7 @@ import Phaser from 'phaser';
 import { Backdrop } from '../render/Backdrop';
 import { ensureBadges } from '../render/badges';
 import { ensureCanvasArt } from '../render/canvasArt';
+import { gameOnline, openOnline } from '../online';
 import { gameSave } from '../save';
 import { WORLD_COUNT, WORLD_SIZE } from '../sim/levels';
 import { ACHIEVEMENTS, nextRank, progressScore, RANKS, rankOf, scoreParts, totalStars } from '../sim/meta';
@@ -22,6 +23,7 @@ type Tab = 'ladder' | 'records' | 'feats';
 export class RanksScene extends OyunScene {
   private backdrop!: Backdrop;
   private back!: IconTile;
+  private online!: IconTile;
   private page!: Phaser.GameObjects.Container;
   private tabs: Phaser.GameObjects.Container[] = [];
   private badge!: Phaser.GameObjects.Image;
@@ -39,8 +41,11 @@ export class RanksScene extends OyunScene {
     const L = this.layout;
     this.tabs = [];
     this.backdrop = new Backdrop(this, PALETTES[8]!, L.width, L.height);
-    fitText(bigText(this, L.cx, L.top + 70, this.t('ranks.title'), 70), 2 * (L.right - 160 - L.cx));
+    fitText(bigText(this, L.cx, L.top + 70, this.t('ranks.title'), 70), 2 * (L.right - 140 - L.cx));
     this.back = new IconTile(this, L.left + 70, L.top + 70, 'ic-back', null, () => this.scene.start(SCENES.game, { phase: 'title' } satisfies GameStart), { radius: 46 });
+    // Online ranking (Google Play Games): the shared panel from @oyun/core/online.
+    this.online = new IconTile(this, L.right - 70, L.top + 70, 'ic-globe', null, () => openOnline(this.oyun), { radius: 46 });
+    void gameOnline(this.oyun).sync();
 
     // The current rank.
     const d = gameSave(this.oyun).data;
@@ -217,6 +222,7 @@ export class RanksScene extends OyunScene {
         this.show('records');
       },
       back: () => this.back.fire(),
+      online: () => this.online.fire(),
     };
   }
 }

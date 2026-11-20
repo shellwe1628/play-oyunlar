@@ -420,6 +420,21 @@ export const TEXTURES: readonly TextureRecipe[] = [
     },
   },
   {
+    // online ranking: a globe
+    key: 'ic-globe',
+    width: 72,
+    height: 72,
+    draw(g) {
+      g.lineStyle(6, 0xffffff, 1);
+      g.strokeCircle(36, 36, 26);
+      g.strokeEllipse(36, 36, 24, 52);
+      g.lineBetween(10, 36, 62, 36);
+      g.lineStyle(5, 0xffffff, 1);
+      g.lineBetween(15, 22, 57, 22);
+      g.lineBetween(15, 50, 57, 50);
+    },
+  },
+  {
     key: 'finger',
     width: 120,
     height: 120,

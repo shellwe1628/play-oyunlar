@@ -1,6 +1,7 @@
 import { button, cssColor, iconButton, label, OyunScene, panel, progressBar, toast, type Button, type IconButton, type ProgressBar } from '@oyun/core';
 import type { PauseReason } from '@oyun/core/pure';
 import Phaser from 'phaser';
+import { gameOnline } from '../online';
 import { backgroundAware, session, type Session } from '../session';
 import { SFX } from '../sfx';
 import { ACHIEVEMENTS, at, BOSS, FEVER, FOSSIL_BY_ID, GRADE_COLORS, LAYERS, LUCK_BOOST, PITY, RANKS, RELIC, TIERS, UPGRADE_ORDER, VEIN, type UpgradeId } from '../sim/data';
@@ -112,6 +113,8 @@ export class DigScene extends OyunScene {
   }
 
   create(): void {
+    // Every return to the dig: Play Games starts (adults only) and a higher score goes up.
+    void gameOnline(this.oyun).sync();
     this.ses = session(this.oyun);
     this.sim = this.ses.sim;
     this.travelling = false;

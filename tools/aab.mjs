@@ -36,7 +36,9 @@ const OUT_DIR = join(ROOT, 'build');
 const MIN_TARGET_SDK = 35;
 /** Same allow-list as tools/apk.mjs: XML namespaces and Phaser's (disabled) banner link. */
 const ALLOWED_URLS = new Set(['http://www.w3.org/2000/svg', 'http://www.w3.org/1999/xhtml', 'https://phaser.io', 'https://phaser.io/']);
-const SIGNING_ENV = ['OYUN_UPLOAD_KEYSTORE', 'OYUN_UPLOAD_KEYSTORE_PASSWORD', 'OYUN_UPLOAD_KEY_ALIAS'];
+/** com.google.android.gms:play-services-games-v2, pinned (apps with a playGames block only). */
+const PLAY_GAMES_V2 = '21.0.0';
+const SIGNING_ENV =['OYUN_UPLOAD_KEYSTORE', 'OYUN_UPLOAD_KEYSTORE_PASSWORD', 'OYUN_UPLOAD_KEY_ALIAS'];
 
 const t0 = Date.now();
 const step = (msg) => console.log(`\n=== ${msg}`);
@@ -335,7 +337,14 @@ function patchNative(app, work, info) {
   // MainActivity: back button (press twice → background) + full screen (immersive, cutout).
   const activity = join(main, 'java', ...app.applicationId.split('.'), 'MainActivity.java');
   if (!existsSync(activity)) fail(`MainActivity not found at ${relative(ROOT, activity)} (did cap add use appId ${app.applicationId}?)`);
-  writeFileSync(activity, readFileSync(join(ROOT, 'tools', 'aab', 'MainActivity.java'), 'utf8').replace('__PACKAGE__', app.applicationId));
+  const pgs = playGamesConfig(app);
+  writeFileSync(
+    activity,
+    readFileSync(join(ROOT, 'tools', 'aab', 'MainActivity.java'), 'utf8')
+      .replace('__PACKAGE__', app.applicationId)
+      .replace('/*__PLUGINS__*/', pgs ? 'registerPlugin(PlayGamesPlugin.class);' : ''),
+  );
+  if (pgs) patchPlayGames(app, pgs, main, android);
 
   let iconNote;
   try {
@@ -352,6 +361,53 @@ function patchNative(app, work, info) {
     `<?xml version="1.0" encoding="utf-8"?>\n<shape xmlns:android="http://schemas.android.com/apk/res/android">\n    <solid android:color="${app.background}"/>\n</shape>\n`,
   );
   return iconNote;
+}
+
+/**
+ * store/apps.json `playGames`: { "appId": "<Console's Play Games project id, digits>",
+ * "boards": { "<logical id>": "<Console leaderboard id>" } }. Absent = no Play Games in the app.
+ */
+function playGamesConfig(app) {
+  const p = app.playGames;
+  if (!p) return null;
+  if (!/^\d{6,}$/.test(String(p.appId ?? ''))) fail(`${app.slug}: playGames.appId must be the numeric Play Games project id`);
+  const boards = Object.entries(p.boards ?? {});
+  if (!boards.length) fail(`${app.slug}: playGames.boards is empty`);
+  for (const [id, cid] of boards) {
+    if (!/^[a-z][a-z0-9_]*$/.test(id)) fail(`${app.slug}: playGames board id "${id}" must be lower_snake_case`);
+    if (!/^[A-Za-z0-9_-]{6,}$/.test(String(cid))) fail(`${app.slug}: playGames.boards.${id} is not a leaderboard id`);
+  }
+  return { appId: String(p.appId), boards };
+}
+
+/** Play Games Services v2: dependency, APP_ID meta-data, ids as string resources, the plugin. */
+function patchPlayGames(app, pgs, main, android) {
+  writeFileSync(
+    join(main, 'res', 'values', 'pgs.xml'),
+    [
+      '<?xml version="1.0" encoding="utf-8"?>',
+      '<!-- tools/aab.mjs from store/apps.json playGames; ids are not translatable -->',
+      '<resources>',
+      `    <string name="pgs_app_id" translatable="false">${pgs.appId}</string>`,
+      ...pgs.boards.map(([id, cid]) => `    <string name="pgs_board_${id}" translatable="false">${cid}</string>`),
+      '</resources>',
+      '',
+    ].join('\n'),
+  );
+  edit(join(main, 'AndroidManifest.xml'), (xml) =>
+    replaceOnce(
+      xml,
+      /<\/application>/,
+      '    <meta-data android:name="com.google.android.gms.games.APP_ID" android:value="@string/pgs_app_id" />\n    </application>',
+      'AndroidManifest </application>',
+    ),
+  );
+  edit(join(android, 'app', 'build.gradle'), (g) =>
+    replaceOnce(g, /\ndependencies \{\n/, `\ndependencies {\n    implementation "com.google.android.gms:play-services-games-v2:${PLAY_GAMES_V2}"\n`, 'app/build.gradle dependencies'),
+  );
+  const dir = join(main, 'java', ...app.applicationId.split('.'));
+  writeFileSync(join(dir, 'PlayGamesPlugin.java'), readFileSync(join(ROOT, 'tools', 'aab', 'PlayGamesPlugin.java'), 'utf8').replace('__PACKAGE__', app.applicationId));
+  console.log(`play games: project ${pgs.appId}, boards ${pgs.boards.map(([id]) => id).join(', ')}, play-services-games-v2 ${PLAY_GAMES_V2}`);
 }
 
 function gradle(work, sdk, signEnv) {
@@ -410,8 +466,17 @@ function verify(app, work, info, sdk) {
   }
   // Permissions the shell itself adds: INTERNET (Capacitor template) and AndroidX core's
   // signature-protected DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION (own package only).
-  const okPerm = (p) => p === 'android.permission.INTERNET' || p === `${app.applicationId}.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION`;
+  // Play Games (apps with a playGames block) may add ACCESS_NETWORK_STATE; never the AD_ID one
+  // (the Console's advertising ID declaration says no).
+  const pgs = Boolean(app.playGames);
+  const okPerm = (p) =>
+    p === 'android.permission.INTERNET' ||
+    p === `${app.applicationId}.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION` ||
+    (pgs && p === 'android.permission.ACCESS_NETWORK_STATE');
   for (const p of facts.permissions.filter((p) => !okPerm(p))) problems.push(`unexpected permission ${p}`);
+  const pgsMeta = /android:name="com\.google\.android\.gms\.games\.APP_ID"/.test(xml);
+  if (pgs !== pgsMeta) problems.push(pgs ? 'Play Games APP_ID meta-data missing' : 'Play Games APP_ID meta-data present without a playGames block');
+  facts.playGames = pgs;
 
   const entries = run('jar', ['tf', aab], { capture: true }).split(/\r?\n/).filter(Boolean);
   const assets = entries.filter((e) => e.startsWith('base/assets/public/'));

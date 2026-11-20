@@ -1,8 +1,9 @@
-import { button, cssColor, label, OyunScene, panel, progressBar, toast, type Button } from '@oyun/core';
+import { button, cssColor, iconButton, label, OyunScene, panel, progressBar, toast, type Button, type IconButton } from '@oyun/core';
 import type { PauseReason } from '@oyun/core/pure';
 import Phaser from 'phaser';
 import { badgeKey } from '../art/badges';
 import { Particles } from '../fx/Particles';
+import { gameOnline, openOnline } from '../online';
 import { backgroundAware, session } from '../session';
 import { SFX } from '../sfx';
 import { ACHIEVEMENTS, at, EXPEDITION, FOSSIL_BY_ID, LAYERS, RANKS, TIERS } from '../sim/data';
@@ -23,7 +24,7 @@ const TABS: readonly Tab[] = ['ladder', 'records', 'goals'];
 /**
  * Your own progress, never anyone else's: the rank ladder with the score breakdown, the records
  * board of your bests, the goals list, and the expedition. Test actions: tab {name}, expedition,
- * confirm, cancel, back, scroll {px}.
+ * confirm, cancel, back, online, scroll {px}.
  */
 export class RanksScene extends OyunScene {
   protected override autoPause = true;
@@ -32,6 +33,7 @@ export class RanksScene extends OyunScene {
   private body!: Phaser.GameObjects.Container;
   private tabs: { bg: Phaser.GameObjects.Graphics; text: Phaser.GameObjects.Text; id: Tab }[] = [];
   private backButton!: Button;
+  private onlineButton!: IconButton;
   private expButton!: Button;
   private confirm: { box: Phaser.GameObjects.Container; go: Button; cancel: Button } | null = null;
   private scroll = { y: 0, max: 0, list: null as Phaser.GameObjects.Container | null, top: 0, bottom: 0 };
@@ -56,6 +58,9 @@ export class RanksScene extends OyunScene {
     const g = this.add.graphics();
     g.fillStyle(0x3a2618, 1).fillRect(0, 0, L.width, L.top + 112);
     label(this, L.cx, L.top + 58, this.t('ranks.title'), { size: 58, color: PALETTE.ochreLight });
+    // Online ranking (Google Play Games): the shared panel from @oyun/core/online.
+    this.onlineButton = iconButton(this, L.right - 64, L.top + 58, 'globe', () => openOnline(this.oyun), 88);
+    void gameOnline(this.oyun).sync();
     const tabW = (L.right - L.left - 40) / TABS.length;
     TABS.forEach((id, i) => {
       const x = L.left + 20 + tabW * (i + 0.5);
@@ -420,6 +425,7 @@ export class RanksScene extends OyunScene {
       confirm: () => this.confirm?.go.fire(),
       cancel: () => this.confirm?.cancel.fire(),
       back: () => this.backButton.fire(),
+      online: () => this.onlineButton.fire(),
       scroll: (p: unknown) => this.scrollBy(typeof p === 'number' ? p : 200),
     };
   }

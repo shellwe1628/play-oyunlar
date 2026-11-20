@@ -1,5 +1,5 @@
 {
-  "_doc": "Per-app Google Play release settings, read by tools/aab.mjs, tools/play-metadata.mjs and .github/workflows/play-yukle.yml. Package names (applicationId) are permanent once an app exists in Play Console: never change them. Optional source: the Vite app the Play build ships when it is not games/<slug> (okcu ships the 3D renderer apps/okcu-3d). Guide: docs/production/play-yayin.md. ios: the App Store build (tools/ipa.mjs): bundle id = applicationId, version = CFBundleShortVersionString, gameCenter.boards = logical board id → App Store Connect leaderboard id (create them with exactly these ids).",
+  "_doc": "Per-app Google Play release settings, read by tools/aab.mjs, tools/play-metadata.mjs and .github/workflows/play-yukle.yml. Package names (applicationId) are permanent once an app exists in Play Console: never change them. Optional source: the Vite app the Play build ships when it is not games/<slug> (okcu ships the 3D renderer apps/okcu-3d). Guide: docs/production/play-yayin.md. ios: the App Store build (tools/ipa.mjs): bundle id = applicationId, version = CFBundleShortVersionString, gameCenter.boards = logical board id → App Store Connect leaderboard id (create them with exactly these ids). admob: AdMob (account shellwe28) app ids and the one rewarded ad unit per platform; public ids, they ship inside the apps.",
   "defaultLanguage": "en-US",
   "languages": [
     "en-US",
@@ -38,6 +38,16 @@
             "score": "com.playoyunlar.fossilodds.score"
           }
         }
+      },
+      "admob": {
+        "android": {
+          "appId": "ca-app-pub-2168768230994740~1471170704",
+          "rewarded": "ca-app-pub-2168768230994740/7636676694"
+        },
+        "ios": {
+          "appId": "ca-app-pub-2168768230994740~4611058100",
+          "rewarded": "ca-app-pub-2168768230994740/8358731423"
+        }
       }
     },
     {
@@ -73,6 +83,16 @@
             "endless": "com.playoyunlar.sparkrise.endless"
           }
         }
+      },
+      "admob": {
+        "android": {
+          "appId": "ca-app-pub-2168768230994740~3432661626",
+          "rewarded": "ca-app-pub-2168768230994740/3714190660"
+        },
+        "ios": {
+          "appId": "ca-app-pub-2168768230994740~3049518244",
+          "rewarded": "ca-app-pub-2168768230994740/2384350010"
+        }
       }
     },
     {
@@ -106,6 +126,16 @@
           "boards": {
             "wave": "com.playoyunlar.noodlearchers.wave"
           }
+        }
+      },
+      "admob": {
+        "android": {
+          "appId": "ca-app-pub-2168768230994740~7186531814",
+          "rewarded": "ca-app-pub-2168768230994740/2401108999"
+        },
+        "ios": {
+          "appId": "ca-app-pub-2168768230994740~2771362824",
+          "rewarded": "ca-app-pub-2168768230994740/5205954472"
         }
       }
     }

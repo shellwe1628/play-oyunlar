@@ -205,3 +205,149 @@ describe('bolt and spear behaviour', () => {
     expect(sp.shove).toBeGreaterThanOrEqual(2 * bw.shove);
   });
 });
+
+describe('sling pebbles', () => {
+  const slingWorld = (seed = 3) => createWorld({ seed, difficulty: 'hard', meta: { ...NO_META, weapon: 'sling', wlevel: 1 } });
+  const fire = (w: ReturnType<typeof createWorld>) => {
+    w.wind = 0;
+    expect(shoot(w, -0.3, 1)).toBe(true);
+    return w.arrows.find((x) => x.active && x.owner === 'player')!;
+  };
+
+  it('pebble bounces twice off a ledge face (0.7 restitution) and the third contact ends it', () => {
+    const w = slingWorld();
+    const p = fire(w);
+    expect(p.kind).toBe('pebble');
+    expect(p.bounces).toBe(2);
+    const L = w.ledges.find((l) => l.x > 300)!;
+    const IN_VX = 420;
+    const contacts: { vxAfter: number; active: boolean; state: number }[] = [];
+    for (let c = 0; c < 3; c++) {
+      // aim it flat at the ledge's left face, just in front of it
+      p.x = L.x - 3;
+      p.y = L.y + L.h / 2;
+      p.vx = IN_VX;
+      p.vy = 0;
+      p.gravityMul = 0;
+      p.fromLedge = -1;
+      takeEvents(w);
+      advance(w, 1 / 60);
+      contacts.push({ vxAfter: p.vx, active: p.active, state: p.state });
+    }
+    expect(contacts[0]!.vxAfter).toBeCloseTo(-0.7 * IN_VX, 3);
+    expect(contacts[0]!.active).toBe(true);
+    expect(contacts[1]!.vxAfter).toBeCloseTo(-0.7 * IN_VX, 3);
+    expect(contacts[1]!.active).toBe(true);
+    expect(contacts[2]!.active).toBe(false);
+    expect(contacts[2]!.state).toBe(0); // never stuck
+  });
+
+  it('the bounce card adds a third pebble bounce; an arrow with the card keeps its old bounce, then sticks', () => {
+    const w = slingWorld();
+    w.cards.push('bounce');
+    w.stats = statsFor(w.cards, w.meta, 'hard');
+    const p = fire(w);
+    expect(p.bounces).toBe(3);
+    const L = w.ledges.find((l) => l.x > 300)!;
+    let bounced = 0;
+    for (let c = 0; c < 4; c++) {
+      p.x = L.x - 3;
+      p.y = L.y + L.h / 2;
+      p.vx = 420;
+      p.vy = 0;
+      p.gravityMul = 0;
+      p.fromLedge = -1;
+      advance(w, 1 / 60);
+      if (p.active) bounced++;
+    }
+    expect(bounced).toBe(3);
+    expect(p.active).toBe(false);
+
+    const wb = createWorld({ seed: 3, difficulty: 'hard', meta: NO_META });
+    wb.cards.push('bounce');
+    wb.stats = statsFor(wb.cards, wb.meta, 'hard');
+    wb.wind = 0;
+    expect(shoot(wb, -0.3, 1)).toBe(true);
+    const a = wb.arrows.find((x) => x.active && x.owner === 'player')!;
+    expect(a.kind).toBe('arrow');
+    for (let c = 0; c < 2; c++) {
+      a.x = L.x - 3;
+      a.y = L.y + L.h / 2;
+      a.vx = 420;
+      a.vy = 0;
+      a.gravityMul = 0;
+      a.fromLedge = -1;
+      advance(wb, 1 / 60);
+      if (c === 0) expect(a.vx).toBeCloseTo(-420 * 0.78 * 0.92, 3);
+    }
+    expect(a.state).toBe(1); // stuck in the ledge after its one bounce
+  });
+
+  it('a pebble off a shield still hurts: the shield takes the hit, the pebble glances off and flies on, then ends without sticking', () => {
+    const w = slingWorld();
+    jumpToWave(w, 6);
+    const e = w.enemies.find((q) => q.alive && q.shield && q.shieldOn)!;
+    expect(e).toBeTruthy();
+    for (let i = 0; i < 90; i++) {
+      for (const q of w.enemies) {
+        q.timer = 999;
+        q.hp = q.maxHp = 1e6;
+      }
+      advance(w, 1 / 60);
+    }
+    const p = fire(w);
+    takeEvents(w);
+    const mid = (e.shield!.y[0]! + e.shield!.y[1]!) / 2;
+    const run = (): { ev: string[]; vx: number } => {
+      // flat at the shield's face from the player's side
+      p.x = e.shield!.x[0]! - 20;
+      p.y = mid;
+      p.vx = 400;
+      p.vy = 0;
+      p.gravityMul = 0;
+      p.fromLedge = -1;
+      p.ignore = -1;
+      advance(w, 1 / 60);
+      return { ev: takeEvents(w).map((x) => x.t), vx: p.vx };
+    };
+    const hp0 = e.shieldHp;
+    const hits0 = w.run.hits;
+    const r1 = run();
+    expect(r1.ev).toContain('shieldHit');
+    expect(r1.ev).toContain('bounce');
+    expect(r1.vx).toBeCloseTo(-0.7 * 400, 3);
+    expect(p.active && p.state === 0).toBe(true);
+    expect(e.shieldHp).toBeLessThan(hp0);
+    expect(w.run.hits).toBe(hits0 + 1);
+    run();
+    expect(p.active && p.state === 0).toBe(true);
+    // third contact: no bounce left, so it ends instead of sticking to the shield
+    run();
+    expect(p.active).toBe(false);
+    expect(p.state).toBe(0);
+  });
+
+  it('a pebble that hits an archer is spent, not stuck in him', () => {
+    const w = slingWorld();
+    jumpToWave(w, 6);
+    const e = w.enemies.find((q) => q.alive && !q.shield)!;
+    for (let i = 0; i < 90; i++) {
+      for (const q of w.enemies) {
+        q.timer = 999;
+        q.hp = q.maxHp = 1e6;
+      }
+      advance(w, 1 / 60);
+    }
+    const p = fire(w);
+    takeEvents(w);
+    const c = targetPoint(e, 'chest');
+    p.x = c.x - 4;
+    p.y = c.y;
+    p.vx = 400;
+    p.vy = 0;
+    p.gravityMul = 0;
+    advance(w, 1 / 60);
+    expect(takeEvents(w).some((x) => x.t === 'hit' && x.id === e.id)).toBe(true);
+    expect(p.active && p.state !== 0).toBe(false);
+  });
+});

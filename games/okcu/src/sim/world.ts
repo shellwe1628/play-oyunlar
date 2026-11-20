@@ -2302,6 +2302,9 @@ function homeOrb(w: World, a: Arrow): void {
   a.vy = Math.sin(cur + turn) * sp;
 }
 
+/** A sling pebble keeps 70% of its normal speed off ledges, walls and shields. */
+const PEBBLE_REST = 0.7;
+
 function updateArrows(w: World): void {
   for (const a of w.arrows) {
     if (!a.active) continue;
@@ -2381,13 +2384,21 @@ function ledgeHit(w: World, a: Arrow, x0: number, y0: number): boolean {
     w.events.push({ t: 'orbPop', x: hx, y: hy });
     return true;
   }
+  if (a.kind === 'pebble' && a.bounces <= 0) {
+    // a pebble never sticks: the contact after its last bounce ends it
+    missed(w, a);
+    a.active = false;
+    w.events.push({ t: 'thunk', x: hx, y: hy, owner: a.owner });
+    return true;
+  }
   if (a.bounces > 0) {
+    const pebble = a.kind === 'pebble';
     a.bounces -= 1;
     a.x = hx + best.nx * 2;
     a.y = hy + best.ny * 2;
-    if (best.nx !== 0) a.vx = -a.vx * 0.78;
-    if (best.ny !== 0) a.vy = -a.vy * 0.78;
-    a.vx *= 0.92;
+    if (best.nx !== 0) a.vx = -a.vx * (pebble ? PEBBLE_REST : 0.78);
+    if (best.ny !== 0) a.vy = -a.vy * (pebble ? PEBBLE_REST : 0.78);
+    if (!pebble) a.vx *= 0.92;
     a.ignore = -1;
     w.events.push({ t: 'bounce', x: hx, y: hy });
     return true;
@@ -2546,7 +2557,35 @@ function playerArrowHits(w: World, a: Arrow, x0: number, y0: number): void {
 function hitShield(w: World, a: Arrow, e: Archer, hx: number, hy: number): void {
   const s = e.shield!;
   missed(w, a);
-  stickTo(a, e, s, SHIELD_PARTS[0]!, hx, hy, 3);
+  if (a.kind === 'pebble') {
+    // a pebble never sticks: it glances off the shield (0.7 restitution about the contact normal) while bounces last
+    if (a.bounces > 0) {
+      a.bounces -= 1;
+      let nx = hx - s.x[0]!;
+      let ny = hy - s.y[0]!;
+      const sx = s.x[1]! - s.x[0]!;
+      const sy = s.y[1]! - s.y[0]!;
+      const t = clamp((nx * sx + ny * sy) / (sx * sx + sy * sy || 1), 0, 1);
+      nx -= sx * t;
+      ny -= sy * t;
+      const len = Math.hypot(nx, ny);
+      if (len < 1e-6) {
+        nx = -Math.sign(a.vx || 1);
+        ny = 0;
+      } else {
+        nx /= len;
+        ny /= len;
+      }
+      const vn = a.vx * nx + a.vy * ny;
+      if (vn < 0) {
+        a.vx -= (1 + PEBBLE_REST) * vn * nx;
+        a.vy -= (1 + PEBBLE_REST) * vn * ny;
+      }
+      a.x = hx + nx * 2;
+      a.y = hy + ny * 2;
+      w.events.push({ t: 'bounce', x: hx, y: hy });
+    } else a.active = false;
+  } else stickTo(a, e, s, SHIELD_PARTS[0]!, hx, hy, 3);
   w.run.hits += 1;
   let broke = false;
   if (e.shieldOn) {
@@ -2700,6 +2739,10 @@ function stickOrPierce(w: World, a: Arrow, e: Archer, part: Part, hx: number, hy
     a.ignore = e.id;
     a.vx *= 0.85;
     a.vy *= 0.85;
+    return;
+  }
+  if (a.kind === 'pebble') {
+    a.active = false;
     return;
   }
   stickTo(a, e, e.body, part, hx, hy, 2);

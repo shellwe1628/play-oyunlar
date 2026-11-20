@@ -3,6 +3,7 @@ import { bowDamage } from '../../src/sim/bow';
 import { ENEMY_DAMAGE, HARD_HEAD_MUL } from '../../src/sim/combat';
 import { HARD_BOW_POW, statsFor } from '../../src/sim/cards';
 import { NO_META } from '../../src/sim/meta';
+import { velX } from '../../src/sim/body';
 import { TUNING } from '../../src/sim/tuning';
 import { arrowSpeed, createWorld, playerOrigin, shoot, advance, jumpToWave, takeEvents, targetPoint } from '../../src/sim/world';
 import { WEAPON_IDS, WEAPONS, bowEquivalent, levelForBow, weaponDamage, weaponPerks } from '../../src/sim/weapons';
@@ -175,15 +176,22 @@ describe('bolt and spear behaviour', () => {
       w.reload = 0;
       expect(shoot(w, best.angle, POWER)).toBe(true);
       const hits = new Set<number>();
+      const meanVx = () => a!.body.x.reduce((acc, _x, k) => acc + velX(a!.body, k, 1 / 60), 0) / a!.body.n;
+      let shove = 0;
       for (let i = 0; i < 90; i++) {
         for (const e of w.enemies) {
           e.hp = e.maxHp = 1e6;
           e.shield = null; // nothing but flesh in the way
         }
+        const before = meanVx();
         advance(w, 1 / 60);
-        for (const ev of takeEvents(w)) if (ev.t === 'hit') hits.add(ev.id);
+        for (const ev of takeEvents(w)) {
+          if (ev.t !== 'hit') continue;
+          if (ev.id === a!.id && shove === 0) shove = meanVx() - before;
+          hits.add(ev.id);
+        }
       }
-      return { ids: [a!.id, b!.id], hits };
+      return { ids: [a!.id, b!.id], hits, shove };
     };
     const sp = throwAt('spear');
     expect(sp.hits.has(sp.ids[0]!)).toBe(true);
@@ -191,5 +199,9 @@ describe('bolt and spear behaviour', () => {
     const bw = throwAt('bow');
     expect(bw.hits.has(bw.ids[0]!)).toBe(true);
     expect(bw.hits.has(bw.ids[1]!)).toBe(false);
+    // the measured shove: A's mean body velocity change on the hit frame, same seed, setup and aim point
+    expect(bw.shove).toBeGreaterThan(0);
+    // measured 1.63x: the spear's 2.2 impulseMul is partly eaten by its 0.8 speed (the shove scales with arrow velocity)
+    expect(sp.shove).toBeGreaterThanOrEqual(1.5 * bw.shove);
   });
 });

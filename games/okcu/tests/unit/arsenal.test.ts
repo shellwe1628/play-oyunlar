@@ -74,7 +74,7 @@ describe('arsenal', () => {
       d.bosses = [3, 0, 1, 0, 2, 0];
     });
     migrateArsenal(s);
-    // chapter 1 → crossbow, chapter 3 → boomerang, chapter 5 → sling
+    // chapter index 0 → crossbow, index 2 → boomerang, index 4 → sling
     expect(owned(s)).toEqual(['bow', 'crossbow', 'boomerang', 'sling']);
     expect(s.arsenal.weapons.bow.level).toBeGreaterThan(1);
   });

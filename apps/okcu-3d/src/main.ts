@@ -14,6 +14,8 @@
  * Without switches every run is set up from the save (ui/save.ts) the way the 2D game does it:
  * `metaOf3d(save)` (shop upgrades + the selected weapon at its level), the chapter select, the daily run. ?bow, ?armor,
  * ?chapter and ?wave override the save for testing, and such a test run never writes to it.
+ * ?bow=N (debug only) sets the bow-derived weapon level (levelForBow(N)) on whatever weapon the
+ * arsenal has selected, not only the bow.
  *
  * The platform (rewarded ads, haptics) is chosen like core's createGame does it for the Phaser
  * games: VITE_OYUN_PLATFORM at build time (the Play / App Store builds pass "capacitor": AdMob

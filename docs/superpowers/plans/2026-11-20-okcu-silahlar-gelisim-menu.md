@@ -49,7 +49,7 @@
   - `type WeaponId = 'bow' | 'crossbow' | 'spear' | 'boomerang' | 'sling' | 'firework'`; `WEAPON_IDS: readonly WeaponId[]` (that order).
   - `type Projectile = 'arrow' | 'bolt' | 'spear' | 'boomerang' | 'pebble' | 'rocket'`.
   - `interface WeaponDef { id; projectile: Projectile; speedMul: number; gravityMul: number; reloadMul: number; dmgMul: number; impulseMul: number; pierce: number; bounces: number; headMul: number; unlockBoss: number | null }` and `WEAPONS: Record<WeaponId, WeaponDef>`.
-  - `WEAPON_MAX = 20`; `weaponDamage(level: number): number`; `levelForBow(bowLevel: number): number`.
+  - `WEAPON_MAX = 20`; `weaponDamage(level: number): number`; `levelForBow(bowLevel: number): number`; `bowEquivalent(level: number): number` (largest bow +N with `bowDamage(N) ≤ weaponDamage(level)`; used for rank points).
   - `weaponPerks(id: WeaponId, level: number): WeaponPerks` with `interface WeaponPerks { pierce: number; bounces: number; reloadMul: number; returnSpeedMul: number; blastRadiusMul: number }` (perk steps at levels 5, 10, 15, 20; values the builder's call).
 
 Starting values (spec 5.1; tune in Task 8): bow 1/1/1/1/1, pierce 0, bounces 0, headMul 1, unlockBoss null · crossbow speedMul 1.45, gravityMul 0.35, reloadMul 1.6, unlockBoss 0 · spear speedMul 0.8, gravityMul 1.15, impulseMul 2.2, dmgMul 1.35, pierce 1, unlockBoss 1 · boomerang dmgMul 0.6, unlockBoss 2 · sling dmgMul 0.55, bounces 2, headMul 1 (no head bonus: `headMul` replaces the head multiplier), unlockBoss 4 · firework reloadMul 2.0, dmgMul 0.8, unlockBoss 3. Bow keeps the normal head multiplier.
@@ -66,6 +66,8 @@ it('old bow levels map to a level with at least the same damage', () => {
   for (let n = 0; n <= 25; n++) expect(weaponDamage(levelForBow(n))).toBeGreaterThanOrEqual(bowDamage(n) - 1e-9);
   expect(levelForBow(0)).toBe(1);
   expect(levelForBow(25)).toBe(20);
+  expect(bowEquivalent(20)).toBe(25);
+  for (let n = 0; n <= 25; n++) expect(bowEquivalent(levelForBow(n))).toBeGreaterThanOrEqual(n);
 });
 it('every weapon except the bow is unlocked by a different boss', () => {
   const bosses = WEAPON_IDS.filter((id) => id !== 'bow').map((id) => WEAPONS[id].unlockBoss);
@@ -192,7 +194,7 @@ Builder fills the table so every remaining card does something with each weapon 
 
 **Interfaces:**
 - `CHEST_ODDS: Record<ChestKind, { coins: [number, number]; shards: [number, number]; newWeaponChance: number }>` (displayed verbatim by the UI).
-- `openChest(save: SaveData, kind: ChestKind, rng: Rng): ChestLoot` with `interface ChestLoot { coins: number; shards: { weapon: WeaponId; n: number }[]; unlocked: WeaponId | null }` — shards go to owned weapons and to the sling even when unowned; 10 sling shards unlock it (`unlocked`).
+- `openChest(save: SaveData, kind: ChestKind, rng: Rng): ChestLoot` with `interface ChestLoot { coins: number; shards: { weapon: WeaponId; n: number }[]; unlocked: WeaponId | null }` — shards go to owned weapons and, once `save.chapter ≥ 1`, to the sling even when unowned; 10 sling shards unlock it (`unlocked`).
 - `runChest(reached: number): ChestKind` (wood below wave 8, silver from 8, gold from 22).
 - `FREE_CHEST_MS = 4 * 3600_000`; `freeChestReady(a: Arsenal, now: number): boolean`; `claimFreeChest(save, now: number, adWatched: boolean): ChestKind | null` (wood, or silver when `adWatched`; sets `freeChestAt = now + FREE_CHEST_MS`).
 - Rng seed for chests: `createRng(hash(save.runs, a.chests.length, kind))` (deterministic per save state).
@@ -203,7 +205,7 @@ Builder fills the table so every remaining card does something with each weapon 
 
 **Files:** Modify `games/okcu/src/sim/progress.ts` (`SCORE`, `progressScore`, `FEATS` forge entries), `arsenal.ts`, `games/okcu/src/sim/chapters.ts`; Test `arsenal.test.ts`, `games/okcu/tests/unit/progress.test.ts`
 
-**Interfaces:** `powerOf(save: SaveData): number` (integer; from selected weapon level × weapon base, hp/coins/reroll/starter upgrades; builder's formula, monotonic in each input); `RECOMMENDED_POWER: readonly number[]` (per chapter 0…5, from the Task 8 balance runs: the power at which CAREFUL clears the chapter in ≥ 6/8); `progressScore` uses `levelForBowEquivalent(highest weapon level) × 80 + 40 × (owned weapons − 1)` instead of `save.bow.level × 80`, and returns `max(total, arsenal.rankFloor)`; feats `forge5…forge25` keep ids but test `highest weapon level ≥ 5/10/15/20/20`.
+**Interfaces:** `powerOf(save: SaveData): number` (integer; from selected weapon level × weapon base, hp/coins/reroll/starter upgrades; builder's formula, monotonic in each input); `RECOMMENDED_POWER: readonly number[]` (per chapter 0…5, from the Task 8 balance runs: the power at which CAREFUL clears the chapter in ≥ 6/8); `progressScore` uses `bowEquivalent(highest weapon level) × 80 + 40 × (owned weapons − 1)` instead of `save.bow.level × 80`, and returns `max(total, arsenal.rankFloor)`; feats `forge5…forge25` keep ids but test `highest weapon level ≥ 5/10/15/20/20`.
 - [ ] **Step 1: Failing tests:** `power rises with every upgrade`; `rank never drops after migration`; `forge feats follow weapon levels`; `recommended power increases by chapter`.
 - [ ] **Step 2–4:** FAIL → implement → PASS (update existing progress tests whose expectations used `bow.level`). **Step 5:** Commit `okcu: power number, recommended power, rank from weapons`.
 
@@ -226,7 +228,7 @@ Builder fills the table so every remaining card does something with each weapon 
 
 **Files:** Modify `apps/okcu-3d/src/ui/progress.ts` (banking at run end), `apps/okcu-3d/src/main.ts` (create the world with `metaOf3d`, emit chest grants on boss kills / run end / daily goal)
 
-**Interfaces:** run end pushes `runChest(reached)` to `arsenal.chests`; first boss kill of chapter c pushes `'boss'` (and unlocks the weapon with `unlockBoss === c` if not owned); the daily goal's coin reward becomes a `'gold'` chest.
+**Interfaces:** run end pushes `runChest(reached)` to `arsenal.chests`; first boss kill of chapter c pushes `'boss'` (and unlocks the weapon with `unlockBoss === c` if not owned); the daily goal's coin reward becomes a `'gold'` chest; the first chapter-6 (sky) boss kill also grants the "göksel" (celestial) look for every weapon (`arsenal.celestial = true`, add to `Arsenal`; drawn in Task 20).
 
 - [ ] **Step 1:** `npm run typecheck -w apps/okcu-3d` and `npm run build -w apps/okcu-3d` pass; manual run with `?wave=7` shows a boss chest in the save (`localStorage['oyun:okcu-3d:save']`). **Step 2:** Commit `okcu 3D: runs, bosses and the daily grant chests`.
 
@@ -238,7 +240,7 @@ UI tasks are verified with typecheck, build, and a Playwright screenshot script 
 
 **Files:** Create `apps/okcu-3d/src/ui/shell.ts`, `apps/okcu-3d/tools/menu-shots.mjs`; modify `ui/title.ts` (Home tab content: sign, chapter card, PLAY, ready state; remove the medallion dock), `ui/hud.ts` (mount shell), `ui/strings.ts`
 
-**Interfaces:** `createShell(ui: Ui, parent: HTMLElement, hooks: ShellHooks): Shell` with `type TabId = 'shop' | 'weapons' | 'home' | 'ranks' | 'events'`, `Shell.show(tab: TabId)`, `Shell.badge(tab: TabId, n: number | '!')`, `Shell.hide()` (during play). Top bar: rank chip + power (`powerOf`), coins, settings/sound. Side buttons: free chest with countdown (`freeChestReady`), daily. Chapter card shows "Önerilen güç N", green when `powerOf ≥ RECOMMENDED_POWER[c]`, orange otherwise. Tab bar: 5 tabs, centre Home larger; horizontal swipe + tap; test ids `tab-shop|tab-weapons|tab-home|tab-ranks|tab-events`; keep `title-play`, `title-chapter*`, `title-ranks`, `title-forge` (→ opens Weapons), `title-shop`.
+**Interfaces:** `createShell(ui: Ui, parent: HTMLElement, hooks: ShellHooks): Shell` with `type TabId = 'shop' | 'weapons' | 'home' | 'ranks' | 'events'`, `Shell.show(tab: TabId)`, `Shell.badge(tab: TabId, n: number | '!')`, `Shell.hide()` (during play). Top bar: rank chip + power (`powerOf`), coins, settings/sound. Side buttons: free chest with countdown (`freeChestReady`), daily. Chapter card shows "Önerilen güç N", green when `powerOf ≥ RECOMMENDED_POWER[c]`, orange otherwise. Tab bar: 5 tabs, centre Home larger; horizontal swipe + tap, tabs slide, buttons squash on press, badges pulse, the free-chest button glows when ready; the home scene's archer holds the selected weapon (Task 20); test ids `tab-shop|tab-weapons|tab-home|tab-ranks|tab-events`; keep `title-play`, `title-chapter*`, `title-ranks`, `title-forge` (→ opens Weapons), `title-shop`.
 - [ ] Steps: implement → typecheck/build → screenshots inspected → commit `okcu 3D: tabbed main menu shell`.
 
 ### Task 17: Weapons tab
@@ -266,7 +268,7 @@ Chest shakes, lid pops, shards fly into weapon cards one by one, coins count; ne
 
 **Files:** Modify `apps/okcu-3d/src/view/archers/gear.ts` (hold the selected weapon), `view/arrows.ts` (meshes per projectile kind: bolt, spear, boomerang spin trail, pebble, rocket smoke + confetti burst), `view/fx/particles.ts`
 
-Code-drawn geometry only (no generated or paid assets). Player rig animations: crossbow recoil, spear throw arm, boomerang throw, sling pull, firework tube kick.
+Code-drawn geometry only (no generated or paid assets). Celestial variant of every weapon model when `arsenal.celestial`. Player rig animations: crossbow recoil, spear throw arm, boomerang throw, sling pull, firework tube kick.
 - [ ] Steps: implement → `npm run shot -w apps/okcu-3d` per weapon (`?weapon=<id>` debug param) → inspect → commit `okcu 3D: weapon models and shot animations`.
 
 ## Phase 4 — Maps and variety
@@ -296,3 +298,8 @@ Per chapter 1–2 designed stages with the mods; armored enemies from chapter 2;
 - [ ] Step 2: Regenerate okcu store screenshots (Play + App Store) and inspect them.
 - [ ] Step 3: `ANDROID_HOME=$LOCALAPPDATA/Android/Sdk npm run apk -- okcu3d` → send the APK to the owner.
 - [ ] Step 4: Commit `okcu: store screenshots for weapons and the new menu`; push. Play upload only after the owner tries the APK and the reviews in flight are done.
+
+
+---
+
+Out of scope here (spec 9 and the earlier request): the same menu pattern for Fosil and Kıvılcım, and Kıvılcım's new animation/VFX — each gets its own short design after this plan ships.

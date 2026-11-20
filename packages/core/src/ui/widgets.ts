@@ -42,6 +42,8 @@ export interface ButtonOptions {
   haptic?: HapticKind | null;
   /** Phaser key name that also triggers the button, e.g. 'ENTER', 'SPACE', 'ESC'. */
   hotkey?: string;
+  /** Rewarded-ad button: a "▶ AD" tag on its top-right corner, so the player knows an ad plays. */
+  ad?: boolean;
 }
 
 /**
@@ -77,6 +79,7 @@ export class Button extends Phaser.GameObjects.Container {
     this.face.fillStyle(0xffffff, 0.18).fillRoundedRect(-w / 2 + 10, -h / 2 + 8, w - 20, h * 0.34, r * 0.6);
     this.text = label(scene, 0, -2, labelText, { size: opts.fontSize ?? 44, color: textColor });
     this.add([this.face, this.text]);
+    if (opts.ad) this.add(adTag(scene, w / 2 - 12, -h / 2 + 2));
 
     const hit = touchHitSize(w, h);
     this.setSize(hit.width, hit.height);
@@ -140,6 +143,23 @@ export function button(
   opts: ButtonOptions = {},
 ): Button {
   return new Button(scene, x, y, text, onTap, opts);
+}
+
+/** "▶ AD" pill (core.ad), right edge at `right`, centred on `y`. The triangle is drawn, not a glyph. */
+function adTag(scene: Phaser.Scene, right: number, y: number): Phaser.GameObjects.Container {
+  const th = theme(scene);
+  const text = label(scene, 0, 0, getContext(scene.game).t('core.ad'), { size: 22, color: th.colors.shadow });
+  const ph = 36;
+  const pw = text.width + 44;
+  const c = scene.add.container(right - pw / 2, y);
+  const g = scene.add.graphics();
+  g.fillStyle(th.colors.accent, 1).fillRoundedRect(-pw / 2, -ph / 2, pw, ph, ph / 2);
+  g.lineStyle(3, th.colors.shadow, 1).strokeRoundedRect(-pw / 2, -ph / 2, pw, ph, ph / 2);
+  const x0 = -pw / 2 + 13;
+  g.fillStyle(th.colors.shadow, 1).fillTriangle(x0, -7, x0, 7, x0 + 12, 0);
+  text.setPosition(x0 + 18 + text.width / 2, -1);
+  c.add([g, text]);
+  return c;
 }
 
 export type IconName = 'pause' | 'play' | 'sound-on' | 'sound-off' | 'home' | 'replay' | 'close' | 'globe';

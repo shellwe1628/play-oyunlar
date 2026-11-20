@@ -23,12 +23,14 @@
 import { execFileSync, spawnSync } from 'node:child_process';
 import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { join, relative, resolve } from 'node:path';
+import { ADMOB_PLUGIN, admobIds, admobPluginVersion, admobViteEnv, checkBundleAdIds, SKADNETWORK_IDS } from './admob.mjs';
 import { ROOT } from './template.mjs';
 
 const BIN = join(ROOT, 'node_modules', '.bin');
 const OUT_DIR = join(ROOT, 'build');
 const HERE = join(ROOT, 'tools', 'ipa');
-const ALLOWED_URLS = new Set(['http://www.w3.org/2000/svg', 'http://www.w3.org/1999/xhtml', 'https://phaser.io', 'https://phaser.io/']);
+// + the games' own privacy policy pages, linked from the online panel (App Store 5.1.1)
+const ALLOWED_URLS = new Set(['http://www.w3.org/2000/svg', 'http://www.w3.org/1999/xhtml', 'https://phaser.io', 'https://phaser.io/', ...['fosil', 'kivilcim', 'okcu'].map((s) => `https://oyunlar.carsihani.me/gizlilik/${s}/`)]);
 const SIGNING_ENV = ['APPLE_TEAM_ID', 'ASC_KEY_ID', 'ASC_ISSUER_ID', 'ASC_KEY_PATH'];
 const UNSIGNED = process.argv.includes('--unsigned');
 const UPLOAD = process.argv.includes('--upload');
@@ -103,7 +105,7 @@ function loadApp(slug) {
   for (const f of ['icon-1024.png', 'splash-2732.png']) if (!existsSync(join(art, f))) fail(`${slug}: store/${slug}/appstore/${f} missing: run node store/tools/appstore.mjs ${slug} --only icon`);
   const boards = ios.gameCenter?.boards ?? null;
   if (boards) for (const [k, v] of Object.entries(boards)) if (!/^[a-z][a-z0-9_]*$/.test(k) || !/^[A-Za-z0-9._]+$/.test(v)) fail(`${slug}: bad ios.gameCenter board ${k}=${v}`);
-  return { ...app, source, bundleId, version, boards, art, defaultLanguage: cfg.defaultLanguage };
+  return { ...app, source, bundleId, version, boards, art, ads: admobApp(app, source), defaultLanguage: cfg.defaultLanguage };
 }
 
 // ---------------------------------------------------------------- preflight
@@ -130,10 +132,10 @@ function buildWeb(app, work) {
   step(`web bundle from ${app.source}`);
   run(join(BIN, 'vite'), ['build', '--base', './', '--outDir', join(work, 'www'), '--emptyOutDir'], {
     cwd: join(ROOT, app.source),
-    env: { VITE_OYUN_PLATFORM: app.platform },
+    env: { VITE_OYUN_PLATFORM: app.platform, ...admobViteEnv(app.ads) },
   });
   const www = join(work, 'www');
-  const problems = [];
+  const problems = checkBundleAdIds(filesUnder(www).filter((f) => f.endsWith('.js')).map((f) => readFileSync(f, 'utf8')), app.ads);
   for (const f of filesUnder(www)) {
     if (!/\.(js|css|html)$/.test(f)) continue;
     for (const m of readFileSync(f, 'utf8').matchAll(/https?:\/\/[A-Za-z0-9._~:/?#@!$&'*+,;=%-]+/g)) {
@@ -147,7 +149,7 @@ function buildWeb(app, work) {
     for (const word of ['Google Play', 'Play Store', 'App Store']) if (text.includes(word)) problems.push(`${relative(www, f)}: mentions "${word}"`);
   }
   if (problems.length) fail(`web bundle check:\n  ${problems.join('\n  ')}`);
-  console.log('ok: relative paths, no external URLs');
+  console.log(`ok: relative paths, no external URLs${app.ads ? `, AdMob rewarded ${app.ads.rewarded}${app.ads.test ? ' (TEST ads)' : ''}` : ', no ad ids'}`);
 }
 
 // ---------------------------------------------------------------- native
@@ -167,7 +169,9 @@ function capacitor(app, work) {
     },
   };
   writeFileSync(join(work, 'capacitor.config.json'), `${JSON.stringify(config, null, 2)}\n`);
-  writeFileSync(join(work, 'package.json'), `${JSON.stringify({ name: `ipa-${app.slug}`, private: true, type: 'module' }, null, 2)}\n`);
+  // plugins come from this package.json's dependencies, resolved upwards to the root node_modules
+  const pkg = { name: `ipa-${app.slug}`, private: true, type: 'module', ...(app.ads ? { dependencies: { [ADMOB_PLUGIN]: app.ads.plugin } } : {}) };
+  writeFileSync(join(work, 'package.json'), `${JSON.stringify(pkg, null, 2)}\n`);
   rmSync(join(work, 'ios'), { recursive: true, force: true });
   run(join(BIN, 'cap'), ['add', 'ios'], { cwd: work });
 }
@@ -189,6 +193,7 @@ function patchNative(app, work, info, sign) {
   plist(infoPlist, '-replace', 'CFBundleDevelopmentRegion', '-string', 'en');
   plist(infoPlist, '-replace', 'CFBundleLocalizations', '-json', '["en","tr"]');
   if (gc) plist(infoPlist, '-replace', 'GCBoards', '-json', JSON.stringify(app.boards));
+  if (app.ads) patchAdMobPlist(app, infoPlist);
 
   // the storyboard's bridge view controller → ours (plugin registration, full screen)
   edit(join(appDir, 'Base.lproj', 'Main.storyboard'), (x) => {
@@ -241,6 +246,62 @@ function patchNative(app, work, info, sign) {
   writeFileSync(planFile, JSON.stringify(plan, null, 2));
   run('ruby', [join(HERE, 'patch-project.rb'), join(work, 'ios', 'App', 'App.xcodeproj'), planFile]);
   run(join(BIN, 'cap'), ['sync', 'ios'], { cwd: work });
+  checkAdMobLinked(app, work);
+}
+
+// ---------------------------------------------------------------- AdMob (tools/admob.mjs)
+// Template games built with platform "capacitor" show rewarded ads. Child-directed: the adapter
+// tags requests TFCD/TFUA/G and non-personalised, and the app never asks for App Tracking
+// Transparency: no NSUserTrackingUsageDescription, no IDFA. Info.plist gets the AdMob app id and
+// Google's SKAdNetwork list (Google's own id first).
+
+function admobApp(app, source) {
+  if (app.platform !== 'capacitor') return null;
+  if (!existsSync(join(ROOT, source, 'oyun.config.json'))) fail(`${app.slug}: platform "capacitor" needs the platform adapter, which ${source} does not use`);
+  try {
+    return { ...admobIds(app, 'ios'), plugin: admobPluginVersion(), test: process.env.OYUN_ADMOB_TEST === '1' };
+  } catch (e) {
+    fail(e.message);
+  }
+}
+
+function patchAdMobPlist(app, infoPlist) {
+  plist(infoPlist, '-replace', 'GADApplicationIdentifier', '-string', app.ads.appId);
+  plist(infoPlist, '-replace', 'SKAdNetworkItems', '-json', JSON.stringify(SKADNETWORK_IDS.map((id) => ({ SKAdNetworkIdentifier: id }))));
+  if ('NSUserTrackingUsageDescription' in plistJson(infoPlist)) plist(infoPlist, '-remove', 'NSUserTrackingUsageDescription');
+  console.log(`admob: app ${app.ads.appId}, rewarded ${app.ads.rewarded}${app.ads.test ? ' (TEST ads)' : ''}, ${SKADNETWORK_IDS.length} SKAdNetwork ids, no ATT`);
+}
+
+/** Capacitor 8 iOS links plugins as Swift packages: cap sync writes them into CapApp-SPM/Package.swift. */
+function checkAdMobLinked(app, work) {
+  const spm = join(work, 'ios', 'App', 'CapApp-SPM', 'Package.swift');
+  const text = existsSync(spm) ? readFileSync(spm, 'utf8') : '';
+  if (!text) console.warn(`warning: ${relative(ROOT, spm)} not found (not a Swift Package Manager project?)`);
+  const linked = text.includes('CapacitorCommunityAdmob');
+  if (app.ads && !linked) fail(`cap sync ios did not add ${ADMOB_PLUGIN} to ${relative(ROOT, spm)}`);
+  if (!app.ads && linked) fail(`${ADMOB_PLUGIN} linked into an app without ads`);
+  if (app.ads) console.log(`admob: ${ADMOB_PLUGIN}@${app.ads.plugin} in CapApp-SPM`);
+}
+
+/** Built app: app id + SKAdNetwork list in Info.plist, no tracking prompt text, the SDK in the binary. */
+function verifyAdMob(app, appPath, p) {
+  const problems = [];
+  const items = (p.SKAdNetworkItems ?? []).map((i) => i?.SKAdNetworkIdentifier);
+  if ('NSUserTrackingUsageDescription' in p) problems.push('Info.plist has NSUserTrackingUsageDescription (the app never asks for tracking)');
+  const binary = join(appPath, 'App');
+  const bin = existsSync(binary) ? readFileSync(binary) : Buffer.alloc(0);
+  // the SDK reads this key at start-up, so its name is in a binary that links GoogleMobileAds
+  const sdkIn = bin.includes(Buffer.from('GADApplicationIdentifier')) || filesUnder(appPath).some((f) => /GoogleMobileAds/.test(f));
+  if (!app.ads) {
+    if ('GADApplicationIdentifier' in p || items.length) problems.push('AdMob keys in Info.plist of an app without ads');
+    return problems;
+  }
+  if (p.GADApplicationIdentifier !== app.ads.appId) problems.push(`Info.plist GADApplicationIdentifier = ${JSON.stringify(p.GADApplicationIdentifier)}, want ${app.ads.appId} (store/apps.json)`);
+  if (items[0] !== 'cstr6suwn9.skadnetwork') problems.push('SKAdNetworkItems does not start with Google\'s cstr6suwn9.skadnetwork');
+  if (items.length !== SKADNETWORK_IDS.length || SKADNETWORK_IDS.some((id) => !items.includes(id))) problems.push(`SKAdNetworkItems has ${items.length} ids, want the ${SKADNETWORK_IDS.length} of tools/admob.mjs`);
+  if (!sdkIn) problems.push('Google Mobile Ads SDK not found in the built app');
+  if (!bin.includes(Buffer.from('AdMobPlugin'))) console.warn('warning: AdMobPlugin symbol not found in the app binary (check the plugin is linked)');
+  return problems;
 }
 
 // ---------------------------------------------------------------- build
@@ -284,12 +345,13 @@ function verify(app, appPath, info) {
   want('ITSAppUsesNonExemptEncryption', false);
   want('UIRequiresFullScreen', true);
   if (app.boards) want('GCBoards', app.boards);
+  problems.push(...verifyAdMob(app, appPath, p));
   if (!existsSync(join(appPath, 'PrivacyInfo.xcprivacy'))) problems.push('PrivacyInfo.xcprivacy not in the app bundle');
   if (!existsSync(join(appPath, 'Assets.car'))) problems.push('no compiled asset catalog (icon)');
   if (!existsSync(join(appPath, 'public', 'index.html'))) problems.push('web bundle (public/index.html) missing');
   for (const f of filesUnder(appPath)) if (/capacitor\.svg|splash\.png$/i.test(f) && !/Assets\.car/.test(f)) problems.push(`template leftover ${relative(appPath, f)}`);
   if (problems.length) fail(`checks:\n  ${problems.join('\n  ')}`);
-  console.log(`ok: ${app.bundleId} ${app.version} (${info.build}), iPhone only, portrait, compliance key, privacy manifest${app.boards ? ', Game Center boards' : ''}`);
+  console.log(`ok: ${app.bundleId} ${app.version} (${info.build}), iPhone only, portrait, compliance key, privacy manifest${app.boards ? ', Game Center boards' : ''}${app.ads ? ', AdMob (app id, SKAdNetwork, SDK linked, no ATT)' : ', no ad SDK'}`);
 }
 
 // ---------------------------------------------------------------- main

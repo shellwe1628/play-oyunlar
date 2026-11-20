@@ -150,11 +150,11 @@ export class ResultScene extends ResultShell {
     const slots = [p2, p3];
     if (canRevive) {
       const at = slots.shift()!;
-      this.reviveBtn = button(this, at.x, at.y, this.t('result.revive'), () => void this.revive(), { width: 440, height: 96, fontSize: 40 });
+      this.reviveBtn = button(this, at.x, at.y, this.t('result.revive'), () => void this.revive(), { width: 440, height: 96, fontSize: 40, ad: true });
     }
     if (canDouble) {
       const at = slots.shift()!;
-      this.doubleBtn = button(this, at.x, at.y, this.t('result.double'), () => void this.double(), { width: 440, height: 96, fontSize: 40, variant: 'secondary' });
+      this.doubleBtn = button(this, at.x, at.y, this.t('result.double'), () => void this.double(), { width: 440, height: 96, fontSize: 40, variant: 'secondary', ad: true });
     }
     if (this.doubled) toast(this, this.t('result.doubled'), { position: (slots[0] ?? p3).y });
     if (this.rankUp) {
@@ -234,6 +234,7 @@ export class ResultScene extends ResultShell {
     // a late answer after the player left (or the scene restarted) grants nothing
     if (token !== this.visits || !this.sys.isActive()) return false;
     this.setButtons(true);
+    if (r === 'unavailable') toast(this, this.t('core.noAd'), { position: 'bottom' });
     if (r !== 'granted') return false;
     this.oyun.platform.track('reward_claimed', { placement });
     return true;

@@ -93,7 +93,7 @@ export const STRINGS = defineStrings({
     'offline.found': '{fossils} · {k} new',
     'offline.best': 'Best: {name} · {odds}',
     'offline.claim': 'Great!',
-    'offline.double': 'Double dust (ad)',
+    'offline.double': 'Double dust',
     'offline.doubled': 'Dust doubled!',
     'offline.cap': 'Capped at {min} min',
 
@@ -511,7 +511,7 @@ export const STRINGS = defineStrings({
     'offline.found': '{fossils} · {k} yeni',
     'offline.best': 'En iyisi: {name} · {odds}',
     'offline.claim': 'Harika!',
-    'offline.double': 'Tozu ikiye katla (reklam)',
+    'offline.double': 'Tozu ikiye katla',
     'offline.doubled': 'Toz ikiye katlandı!',
     'offline.cap': 'Sınır: {min} dk',
 

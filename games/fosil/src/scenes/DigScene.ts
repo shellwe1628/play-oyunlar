@@ -289,7 +289,7 @@ export class DigScene extends OyunScene {
     this.strip = this.add.container(L.cx + 20, L.bottom - 300);
     this.museumButton = button(this, L.cx - 168, L.bottom - 76, this.t('dig.museum'), () => this.goTo(SCENES.museum), { width: 300, height: 104, fontSize: 40, variant: 'secondary' });
     this.upgradesButton = button(this, L.cx + 168, L.bottom - 76, this.t('dig.upgrades'), () => this.drawer.toggle(), { width: 300, height: 104, fontSize: 40 });
-    this.boostButton = button(this, L.cx, L.bottom - 190, this.t('dig.boost'), () => void this.onBoost(), { width: 360, height: 88, fontSize: 34, variant: 'secondary' });
+    this.boostButton = button(this, L.cx, L.bottom - 190, this.t('dig.boost'), () => void this.onBoost(), { width: 360, height: 88, fontSize: 34, variant: 'secondary', ad: true });
     this.museumButton.setDepth(400);
     this.upgradesButton.setDepth(400);
     // lucky-streak gauge left of the boost button; the daily dig right of it
@@ -899,7 +899,7 @@ export class DigScene extends OyunScene {
       this.oyun.audio.play('win');
       this.oyun.platform.track('reward_claimed', { placement: 'luck_boost' });
       this.ses.flush();
-    }
+    } else if (r === 'unavailable') toast(this, this.t('core.noAd'));
     this.refreshHud(true);
   }
 
@@ -1195,7 +1195,7 @@ export class DigScene extends OyunScene {
     }
     const by = top + 60 + textH + 40 + 50;
     const claim = button(this, L.cx, by, this.t('offline.claim'), () => this.closePopup(), { width: 440, height: 100 });
-    const double = button(this, L.cx, by + 118, this.t('offline.double'), () => void this.doubleOffline(), { width: 500, height: 92, fontSize: 34, variant: 'secondary' });
+    const double = button(this, L.cx, by + 118, this.t('offline.double'), () => void this.doubleOffline(), { width: 500, height: 92, fontSize: 34, variant: 'secondary', ad: true });
     box.add([claim, double]);
     this.juice.pop(card, 0.5, 320);
     this.oyun.audio.play('coin');
@@ -1215,7 +1215,10 @@ export class DigScene extends OyunScene {
       this.oyun.audio.play('win');
       this.ses.flush();
       this.closePopup();
-    } else p.double.setEnabled(true);
+    } else {
+      if (r === 'unavailable' && this.popup === p) toast(this, this.t('core.noAd'));
+      p.double.setEnabled(true);
+    }
   }
 
   private closePopup(): void {

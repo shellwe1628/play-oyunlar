@@ -25,6 +25,7 @@ import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync,
 import { isAbsolute, join, relative, resolve } from 'node:path';
 import { findIconSource, writeIcon } from './aab/icon.mjs';
 import { checkThemeDump, fullScreenStyles } from './aab/theme.mjs';
+import { ADMOB_PLUGIN, admobIds, admobPluginVersion, admobViteEnv, checkBundleAdIds } from './admob.mjs';
 import { ROOT } from './template.mjs';
 
 const BIN = join(ROOT, 'node_modules', '.bin');
@@ -35,7 +36,8 @@ const OUT_DIR = join(ROOT, 'build');
 /** Lowest targetSdk this script accepts. Play's yearly target-API rule: check the Console. */
 const MIN_TARGET_SDK = 35;
 /** Same allow-list as tools/apk.mjs: XML namespaces and Phaser's (disabled) banner link. */
-const ALLOWED_URLS = new Set(['http://www.w3.org/2000/svg', 'http://www.w3.org/1999/xhtml', 'https://phaser.io', 'https://phaser.io/']);
+// + the games' own privacy policy pages, linked from the online panel (App Store 5.1.1)
+const ALLOWED_URLS = new Set(['http://www.w3.org/2000/svg', 'http://www.w3.org/1999/xhtml', 'https://phaser.io', 'https://phaser.io/', ...['fosil', 'kivilcim', 'okcu'].map((s) => `https://oyunlar.carsihani.me/gizlilik/${s}/`)]);
 /** com.google.android.gms:play-services-games-v2, pinned (apps with a playGames block only). */
 const PLAY_GAMES_V2 = '21.0.0';
 const SIGNING_ENV =['OYUN_UPLOAD_KEYSTORE', 'OYUN_UPLOAD_KEYSTORE_PASSWORD', 'OYUN_UPLOAD_KEY_ALIAS'];
@@ -126,7 +128,17 @@ function loadApp(slug) {
     const meta = JSON.parse(readFileSync(configFile, 'utf8'));
     if (meta.orientation !== 'portrait') fail(`${slug}: oyun.config.json orientation is ${meta.orientation}; this script locks portrait`);
   }
-  return { ...app, source, adapter, defaultLanguage: cfg.defaultLanguage, languages: cfg.languages };
+  // AdMob rewarded ads (tools/admob.mjs): template games built with the capacitor adapter only
+  if (app.platform === 'capacitor' && !adapter) fail(`${slug}: platform "capacitor" needs the platform adapter, which ${source} does not use`);
+  let ads = null;
+  if (app.platform === 'capacitor') {
+    try {
+      ads = { ...admobIds(app, 'android'), plugin: admobPluginVersion(), test: process.env.OYUN_ADMOB_TEST === '1' };
+    } catch (e) {
+      fail(e.message);
+    }
+  }
+  return { ...app, source, adapter, ads, defaultLanguage: cfg.defaultLanguage, languages: cfg.languages };
 }
 
 // ---------------------------------------------------------------- preflight
@@ -173,7 +185,7 @@ function buildWeb(app, work) {
   step(`web bundle from ${app.source}${app.adapter ? ` (VITE_OYUN_PLATFORM=${app.platform})` : ''}`);
   run(bin('vite'), ['build', '--base', './', '--outDir', join(work, 'www'), '--emptyOutDir'], {
     cwd: join(ROOT, app.source),
-    env: { VITE_OYUN_PLATFORM: app.platform },
+    env: { VITE_OYUN_PLATFORM: app.platform, ...admobViteEnv(app.ads) },
   });
 }
 
@@ -214,9 +226,10 @@ function checkWeb(app, www) {
   const js = files.filter((f) => f.endsWith('.js'));
   const forced = new RegExp(`forced:\\s*["'\`]${app.platform}["'\`]`);
   if (app.adapter && !js.some((f) => forced.test(readFileSync(f, 'utf8')))) problems.push(`platform choice "${app.platform}" not found in the bundle`);
+  problems.push(...checkBundleAdIds(js.map((f) => readFileSync(f, 'utf8')), app.ads));
   if (problems.length) fail(`web bundle check:\n  ${problems.join('\n  ')}`);
   const kb = Math.round(files.reduce((s, f) => s + statSync(f).size, 0) / 1024);
-  console.log(`ok: ${files.length} files, ${kb} KB; relative paths, no external URLs, ${app.adapter ? `${app.platform} adapter` : 'no platform adapter (no ads)'}`);
+  console.log(`ok: ${files.length} files, ${kb} KB; relative paths, no external URLs, ${app.adapter ? `${app.platform} adapter` : 'no platform adapter (no ads)'}${app.ads ? `, AdMob rewarded ${app.ads.rewarded}${app.ads.test ? ' (TEST ads)' : ''}` : ', no ad ids'}`);
 }
 
 // ---------------------------------------------------------------- native
@@ -237,9 +250,16 @@ function capacitor(app, work) {
     },
   };
   writeFileSync(join(work, 'capacitor.config.json'), `${JSON.stringify(config, null, 2)}\n`);
-  writeFileSync(join(work, 'package.json'), `${JSON.stringify({ name: `aab-${app.slug}`, private: true, type: 'module' }, null, 2)}\n`);
+  // Capacitor finds plugins through this package.json's dependencies and resolves them like
+  // Node, upwards from build/aab/<slug>/: the root node_modules install is used, nothing is
+  // installed here.
+  const pkg = { name: `aab-${app.slug}`, private: true, type: 'module', ...(app.ads ? { dependencies: { [ADMOB_PLUGIN]: app.ads.plugin } } : {}) };
+  writeFileSync(join(work, 'package.json'), `${JSON.stringify(pkg, null, 2)}\n`);
   rmSync(join(work, 'android'), { recursive: true, force: true });
   run(bin('cap'), ['add', 'android'], { cwd: work });
+  const settings = join(work, 'android', 'capacitor.settings.gradle');
+  const linked = existsSync(settings) && readFileSync(settings, 'utf8').includes("':capacitor-community-admob'");
+  if (Boolean(app.ads) !== linked) fail(app.ads ? `cap add did not link ${ADMOB_PLUGIN} (android/capacitor.settings.gradle)` : `${ADMOB_PLUGIN} linked into an app without ads`);
 }
 
 function patchNative(app, work, info) {
@@ -345,6 +365,7 @@ function patchNative(app, work, info) {
       .replace('/*__PLUGINS__*/', pgs ? 'registerPlugin(PlayGamesPlugin.class);' : ''),
   );
   if (pgs) patchPlayGames(app, pgs, main, android);
+  if (app.ads) patchAdMob(app, main);
 
   let iconNote;
   try {
@@ -410,6 +431,37 @@ function patchPlayGames(app, pgs, main, android) {
   console.log(`play games: project ${pgs.appId}, boards ${pgs.boards.map(([id]) => id).join(', ')}, play-services-games-v2 ${PLAY_GAMES_V2}`);
 }
 
+/**
+ * AdMob (tools/admob.mjs): the SDK's APPLICATION_ID meta-data (the SDK refuses to start without
+ * it) and, because every user is treated as a child (Families), no advertising id: the AD_ID
+ * permission the SDK merges in is removed, and so are the Privacy Sandbox ad id, topics and
+ * attribution permissions (identifiers / targeting a child-directed app does not use).
+ */
+const ADMOB_REMOVED_PERMISSIONS = [
+  'com.google.android.gms.permission.AD_ID',
+  'android.permission.ACCESS_ADSERVICES_AD_ID',
+  'android.permission.ACCESS_ADSERVICES_TOPICS',
+  'android.permission.ACCESS_ADSERVICES_ATTRIBUTION',
+];
+function patchAdMob(app, main) {
+  edit(join(main, 'AndroidManifest.xml'), (xml) => {
+    let x = xml.includes('xmlns:tools=') ? xml : replaceOnce(xml, /<manifest\b/, '<manifest xmlns:tools="http://schemas.android.com/tools"', 'AndroidManifest <manifest>');
+    x = replaceOnce(
+      x,
+      /\n(\s*)<application\b/,
+      `\n$1<!-- tools/aab.mjs: child-directed app, no advertising id -->\n${ADMOB_REMOVED_PERMISSIONS.map((p) => `$1<uses-permission android:name="${p}" tools:node="remove" />`).join('\n')}\n\n$1<application`,
+      'AndroidManifest <application>',
+    );
+    return replaceOnce(
+      x,
+      /<\/application>/,
+      `    <meta-data android:name="com.google.android.gms.ads.APPLICATION_ID" android:value="${app.ads.appId}" />\n    </application>`,
+      'AndroidManifest </application>',
+    );
+  });
+  console.log(`admob: app ${app.ads.appId}, rewarded ${app.ads.rewarded}${app.ads.test ? ' (TEST ads)' : ''}, plugin ${ADMOB_PLUGIN}@${app.ads.plugin}; removed ${ADMOB_REMOVED_PERMISSIONS.join(', ')}`);
+}
+
 function gradle(work, sdk, signEnv) {
   step('gradle bundleRelease');
   const android = join(work, 'android');
@@ -468,12 +520,24 @@ function verify(app, work, info, sdk) {
   // signature-protected DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION (own package only).
   // Play Games (apps with a playGames block) may add ACCESS_NETWORK_STATE; never the AD_ID one
   // (the Console's advertising ID declaration says no).
+  // AdMob apps: the Mobile Ads SDK (play-services-ads) declares ACCESS_NETWORK_STATE, and its
+  // WorkManager dependency WAKE_LOCK, RECEIVE_BOOT_COMPLETED and FOREGROUND_SERVICE (normal
+  // permissions, no user data). AD_ID and the Privacy Sandbox ones are removed (patchAdMob).
   const pgs = Boolean(app.playGames);
+  const ads = Boolean(app.ads);
+  const adsPerms = ['android.permission.ACCESS_NETWORK_STATE', 'android.permission.WAKE_LOCK', 'android.permission.RECEIVE_BOOT_COMPLETED', 'android.permission.FOREGROUND_SERVICE'];
   const okPerm = (p) =>
     p === 'android.permission.INTERNET' ||
     p === `${app.applicationId}.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION` ||
-    (pgs && p === 'android.permission.ACCESS_NETWORK_STATE');
+    (pgs && p === 'android.permission.ACCESS_NETWORK_STATE') ||
+    (ads && adsPerms.includes(p));
   for (const p of facts.permissions.filter((p) => !okPerm(p))) problems.push(`unexpected permission ${p}`);
+  for (const p of ADMOB_REMOVED_PERMISSIONS) if (facts.permissions.includes(p)) problems.push(`${p} is in the merged manifest (child-directed app: must be removed)`);
+  const adMeta = /<meta-data\b[^>]*android:name="com\.google\.android\.gms\.ads\.APPLICATION_ID"[^>]*>/.exec(xml)?.[0];
+  const adAppId = adMeta ? /android:value="([^"]*)"/.exec(adMeta)?.[1] : undefined;
+  if (ads && adAppId !== app.ads.appId) problems.push(`AdMob APPLICATION_ID meta-data is ${adAppId ?? 'missing'}, want ${app.ads.appId} (store/apps.json)`);
+  if (!ads && adMeta) problems.push('AdMob APPLICATION_ID meta-data in an app without ads');
+  facts.admob = ads ? { appId: adAppId, rewarded: app.ads.rewarded, test: app.ads.test } : false;
   const pgsMeta = /android:name="com\.google\.android\.gms\.games\.APP_ID"/.test(xml);
   if (pgs !== pgsMeta) problems.push(pgs ? 'Play Games APP_ID meta-data missing' : 'Play Games APP_ID meta-data present without a playGames block');
   facts.playGames = pgs;
@@ -483,6 +547,16 @@ function verify(app, work, info, sdk) {
   if (!entries.includes('base/assets/public/index.html')) problems.push('base/assets/public/index.html missing from the bundle');
   const libs = entries.filter((e) => e.startsWith('base/lib/'));
   if (libs.length) problems.push(`native libraries in the bundle (64-bit / 16 KB page checks needed): ${libs.slice(0, 5).join(', ')}`);
+  // AdMob compiled in (or not): the plugin and the SDK classes in the dex files, and the plugin in
+  // Capacitor's generated plugin list (BridgeActivity registers the plugins listed there).
+  const dex = entries.filter((e) => /^base\/dex\/classes\d*\.dex$/.test(e)).map((e) => execFileSync('unzip', ['-p', aab, e], { maxBuffer: 256 * 1024 * 1024 }));
+  const inDex = (cls) => dex.some((b) => b.includes(Buffer.from(cls)));
+  const adClasses = ['Lcom/getcapacitor/community/admob/AdMob;', 'Lcom/google/android/gms/ads/MobileAds;'];
+  const pluginList = entries.includes('base/assets/capacitor.plugins.json') ? execFileSync('unzip', ['-p', aab, 'base/assets/capacitor.plugins.json'], { encoding: 'utf8' }) : '';
+  if (ads) {
+    for (const c of adClasses) if (!inDex(c)) problems.push(`${c} not in the bundle's dex (AdMob plugin/SDK not compiled in)`);
+    if (!pluginList.includes('com.getcapacitor.community.admob.AdMob')) problems.push('AdMob plugin missing from assets/capacitor.plugins.json');
+  } else if (adClasses.some(inDex)) problems.push('Google Mobile Ads classes in an app without ads');
   const wwwCount = filesUnder(join(work, 'www')).length;
   if (assets.filter((e) => !e.endsWith('/')).length < wwwCount) problems.push(`bundle has ${assets.length} web files, www/ has ${wwwCount}`);
 
@@ -516,7 +590,7 @@ function verify(app, work, info, sdk) {
   if (problems.length) fail(`bundle check:\n  ${problems.join('\n  ')}`);
   console.log(`manifest: ${JSON.stringify(facts)}`);
   console.log(`themes: activity = AppTheme.NoActionBarLaunch; ${themes.summary.join('; ')}`);
-  console.log(`contents: ${assets.filter((e) => !e.endsWith('/')).length} web files under base/assets/public/, no native libraries`);
+  console.log(`contents: ${assets.filter((e) => !e.endsWith('/')).length} web files under base/assets/public/, no native libraries${ads ? ', AdMob plugin + Mobile Ads SDK compiled in' : ', no ad SDK'}`);
   console.log(`signature: jar verified, upload certificate SHA-256 ${certSha}`);
   return { aab, facts };
 }
@@ -541,6 +615,7 @@ function deliver(app, aab, info, facts, iconNote) {
     minSdk: Number(facts.minSdk),
     targetSdk: Number(facts.targetSdk),
     permissions: facts.permissions,
+    admob: facts.admob,
     icon: iconNote,
   };
   writeFileSync(join(OUT_DIR, `${app.slug}-release.json`), `${JSON.stringify(report, null, 2)}\n`);

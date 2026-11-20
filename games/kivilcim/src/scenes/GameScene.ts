@@ -621,7 +621,7 @@ export class GameScene extends OyunScene {
     this.deadAttempt = bigText(this, L.cx, L.cy + 50, '', 32);
     this.deadRetry = fitText(bigText(this, L.cx, L.cy + 230, this.t('dead.retry'), 66), L.width - 120);
     this.tweens.add({ targets: this.deadRetry, scale: 1.1, yoyo: true, repeat: -1, duration: 380, ease: 'Sine.easeInOut' });
-    this.continueBtn = button(this, L.cx, L.bottom - 150, this.t('dead.continue'), () => void this.continueRun(), { width: 380, height: 104, fontSize: 40, variant: 'secondary' });
+    this.continueBtn = button(this, L.cx, L.bottom - 150, this.t('dead.continue'), () => void this.continueRun(), { width: 380, height: 104, fontSize: 40, variant: 'secondary', ad: true });
     const adIcon = this.add.image(-150, 0, 'ic-ad').setScale(0.6);
     this.continueBtn.add(adIcon);
     c.add([band, this.deadBadge, this.deadPct, this.deadBarBg, this.deadBarBest, this.deadBarNow, this.deadBarMark, this.deadBest, this.deadAttempt, this.deadRetry, this.continueBtn]);
@@ -644,7 +644,7 @@ export class GameScene extends OyunScene {
     for (let k = 0; k < 3; k++) this.finishStars.push(this.add.image(L.cx + (k - 1) * 96, L.cy - 138, 'star-off').setScale(1.5));
     this.finishNext = fitText(bigText(this, L.cx, L.cy + 170, this.t('finish.next'), 56), L.width - 120);
     this.tweens.add({ targets: this.finishNext, scale: 1.08, alpha: 0.8, yoyo: true, repeat: -1, duration: 400, ease: 'Sine.easeInOut' });
-    this.doubleBtn = button(this, L.cx, L.bottom - 170, this.t('finish.double'), () => void this.doubleGems(), { width: 440, height: 104, fontSize: 40 });
+    this.doubleBtn = button(this, L.cx, L.bottom - 170, this.t('finish.double'), () => void this.doubleGems(), { width: 440, height: 104, fontSize: 40, ad: true });
     const adIcon = this.add.image(-180, 0, 'ic-ad').setScale(0.6).setTint(PALETTE.ink);
     this.doubleBtn.add(adIcon);
     c.add([band, this.finishRays, this.finishTitle, pct, gemIcon, this.finishGems, this.finishStyle, this.finishBonus, ...this.finishStars, this.finishNext, this.doubleBtn]);
@@ -1360,7 +1360,10 @@ export class GameScene extends OyunScene {
     const snap = this.gateSnap;
     const stale = this.leaving || this.phase !== 'dead' || this.attemptId !== attempt || !snap || this.continueUsed;
     if (outcome !== 'granted' || stale) {
-      if (!stale) this.continueBtn.setEnabled(true);
+      if (!stale) {
+        this.continueBtn.setEnabled(true);
+        if (outcome === 'unavailable') toast(this, this.t('core.noAd'), { position: 'bottom' });
+      }
       return;
     }
     this.oyun.platform.track('reward_claimed', { placement: 'continue' });
@@ -1393,7 +1396,10 @@ export class GameScene extends OyunScene {
     const outcome = await this.oyun.platform.showRewarded('double_gems');
     if (outcome !== 'granted') {
       this.doubled = false;
-      if (this.finishId === finishId && this.phase === 'finished') this.doubleBtn.setEnabled(true);
+      if (this.finishId === finishId && this.phase === 'finished' && !this.leaving) {
+        this.doubleBtn.setEnabled(true);
+        if (outcome === 'unavailable') toast(this, this.t('core.noAd'), { position: 'bottom' });
+      }
       return;
     }
     gameSave(this.oyun).update((d) => void (d.gems += n));

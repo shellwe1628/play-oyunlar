@@ -1,4 +1,4 @@
-import { button, cssColor, hashSeed, iconButton, label, muteButton, OyunScene, type Button, type IconButton } from '@oyun/core';
+import { button, cssColor, hashSeed, iconButton, label, muteButton, OyunScene, toast, type Button, type IconButton } from '@oyun/core';
 import Phaser from 'phaser';
 import { gameSave } from '../save';
 import { planShot, solveShot, CAREFUL, type Profile } from '../sim/aimbot';
@@ -1890,7 +1890,7 @@ export class GameScene extends OyunScene {
     const by = Math.min(L.bottom - 80, startY + n * (ch + gap) + 40);
     this.rerollBtn = button(this, L.cx - 165, by, this.t('cards.reroll', { n: this.w.rerollsLeft }), () => this.onReroll(), { width: 300, height: 100, fontSize: 38, variant: 'secondary' });
     this.rerollBtn.setEnabled(this.w.rerollsLeft > 0);
-    this.extraBtn = button(this, L.cx + 165, by, this.t('cards.extra'), () => void this.onExtra(), { width: 300, height: 100, fontSize: 38 });
+    this.extraBtn = button(this, L.cx + 165, by, this.t('cards.extra'), () => void this.onExtra(), { width: 300, height: 100, fontSize: 38, ad: true });
     this.extraBtn.setEnabled(!this.w.offerExtra);
     c.add([this.rerollBtn, this.extraBtn]);
     this.cardRects.reroll = [L.cx - 315, by - 50, 300, 100];
@@ -1944,6 +1944,7 @@ export class GameScene extends OyunScene {
     const r = await this.oyun.platform.showRewarded('extra_card');
     if (r !== 'granted' || !addExtraCard(this.w)) {
       this.extraBtn?.setEnabled(!this.w.offerExtra);
+      if (r === 'unavailable' && this.extraBtn) toast(this, this.t('core.noAd'), { position: 'bottom' });
       return;
     }
     this.oyun.platform.track('reward_claimed', { placement: 'extra_card' });

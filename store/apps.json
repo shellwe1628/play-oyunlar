@@ -1,5 +1,5 @@
 {
-  "_doc": "Per-app Google Play release settings, read by tools/aab.mjs, tools/play-metadata.mjs and .github/workflows/play-yukle.yml. Package names (applicationId) are permanent once an app exists in Play Console: never change them. Optional source: the Vite app the Play build ships when it is not games/<slug> (okcu ships the 3D renderer apps/okcu-3d). Guide: docs/production/play-yayin.md. ios: the App Store build (tools/ipa.mjs): bundle id = applicationId, version = CFBundleShortVersionString, gameCenter.boards = logical board id → App Store Connect leaderboard id (create them with exactly these ids). admob: AdMob (account shellwe28) app ids and the one rewarded ad unit per platform; public ids, they ship inside the apps.",
+  "_doc": "Per-app Google Play release settings, read by tools/aab.mjs, tools/play-metadata.mjs and .github/workflows/play-yukle.yml. Package names (applicationId) are permanent once an app exists in Play Console: never change them. Optional source: the Vite app the Play build ships when it is not games/<slug> (okcu ships the 3D renderer apps/okcu-3d). Guide: docs/production/play-yayin.md. ios: the App Store build (tools/ipa.mjs): bundle id = applicationId, version = CFBundleShortVersionString, gameCenter.boards = logical board id → App Store Connect leaderboard id (create them with exactly these ids). admob: AdMob (account shellwe28) app ids and the one rewarded ad unit per platform; public ids, they ship inside the apps. platform capacitor = the native adapter with AdMob rewarded ads (tools/admob.mjs; template games only); web = no ad SDK (okcu: apps/okcu-3d has no rewarded buttons).",
   "defaultLanguage": "en-US",
   "languages": [
     "en-US",
@@ -15,15 +15,15 @@
         "tr-TR": "Fosil Şansı"
       },
       "versionName": "0.1.0",
-      "platform": "web",
+      "platform": "capacitor",
       "background": "#1b1f3b",
       "icon": {
         "background": "#2a1e14",
         "accent": "#d99a3e"
       },
       "releaseNotes": {
-        "en-US": "Internal test build. Rewarded buttons give their reward straight away: no ads are shown.",
-        "tr-TR": "Dahili test sürümü. Ödüllü düğmeler ödülü hemen verir: reklam gösterilmez."
+        "en-US": "Test build. Buttons marked AD play a short optional ad for a reward.",
+        "tr-TR": "Test sürümü. REKLAM etiketli düğmeler ödül için kısa, isteğe bağlı bir reklam oynatır."
       },
       "playGames": {
         "appId": "827157218292",
@@ -58,15 +58,15 @@
         "tr-TR": "Kıvılcım"
       },
       "versionName": "0.1.0",
-      "platform": "web",
+      "platform": "capacitor",
       "background": "#1b1f3b",
       "icon": {
         "background": "#1a0f2e",
         "accent": "#ff4fa3"
       },
       "releaseNotes": {
-        "en-US": "Internal test build. Rewarded buttons give their reward straight away: no ads are shown.",
-        "tr-TR": "Dahili test sürümü. Ödüllü düğmeler ödülü hemen verir: reklam gösterilmez."
+        "en-US": "Test build. Buttons marked AD play a short optional ad for a reward.",
+        "tr-TR": "Test sürümü. REKLAM etiketli düğmeler ödül için kısa, isteğe bağlı bir reklam oynatır."
       },
       "playGames": {
         "appId": "219939713455",

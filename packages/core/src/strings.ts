@@ -14,6 +14,9 @@ export const CORE_STRINGS = defineStrings({
     'core.newBest': 'New best!',
     'core.soundOn': 'Sound on',
     'core.soundOff': 'Sound off',
+    /** tag on rewarded-ad buttons */
+    'core.ad': 'AD',
+    'core.noAd': 'No ad available right now, try again later',
   },
   tr: {
     'core.play': 'Oyna',
@@ -27,6 +30,8 @@ export const CORE_STRINGS = defineStrings({
     'core.newBest': 'Yeni rekor!',
     'core.soundOn': 'Ses açık',
     'core.soundOff': 'Ses kapalı',
+    'core.ad': 'REKLAM',
+    'core.noAd': 'Şu an reklam yok, sonra tekrar dene',
   },
 });
 export type CoreStringKey = keyof typeof CORE_STRINGS.en;

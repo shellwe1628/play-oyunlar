@@ -1,5 +1,5 @@
 Pull back, let go and knock wobbly archers off their floating islands, now in 3D.
-Fight through four worlds and four bosses, and forge your bow until it blazes with a magenta, then prismatic, glow.
+Fight through six worlds and six bosses, and forge your bow until it blazes with a magenta, then prismatic, glow.
 
 Noodle Archers is a bright, bouncy archery game in side-view 3D with ragdoll physics. Your first arrow is in the air within seconds: drag anywhere to aim, watch the dotted arc, release to shoot.
 
@@ -10,9 +10,9 @@ HOW IT PLAYS
 • Rival archers shoot back, and they aim well. Shoot the apples that drift by to heal.
 • Every archer is a 3D character on a ragdoll: a hit shoves them, a knockout sends them flying.
 
-FOUR CHAPTERS
+SIX CHAPTERS
 • Sunny Meadow, Frozen Peaks, Sunset Dunes and Lantern Night, seven stages each, then endless waves.
-• An elite with loot in the middle of every chapter and a boss at the end: the Bramble Baron, the Frost Giant, the Sand Sultan and the Night Warden. Each one changes tactics at half health.
+• An elite with loot in the middle of every chapter and a boss at the end: the Bramble Baron, the Frost Giant, the Sand Sultan, the Night Warden, the Cinder King and the Storm Caller. Each one changes tactics at half health.
 • A bonus round after every chapter: target gallery, apple rain or defend the ledge, with medals.
 • Sliding ledges, ledges hanging on ropes you can cut, rocks to drop, explosive barrels and wind you have to aim into.
 • New rivals: healers, archers behind cover walls, arrow-catchers and lantern knights.

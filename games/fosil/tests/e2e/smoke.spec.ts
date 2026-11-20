@@ -1,7 +1,8 @@
 import { act, collectErrors, expect, openGame, setHidden, shot, state, test, waitForScene, type TestState } from '@oyun/core/e2e';
 import type { Page } from '@playwright/test';
+import { fileURLToPath } from 'node:url';
 
-const gameDir = new URL('../..', import.meta.url).pathname.replace(/\/$/, '');
+const gameDir = fileURLToPath(new URL('../..', import.meta.url)).replace(/[\\/]$/, '');
 
 type Dig = {
   layer: number;

@@ -1,7 +1,8 @@
 import { collectErrors, expect, openGame, shot, state, test, waitForScene } from '@oyun/core/e2e';
 import type { Page } from '@playwright/test';
+import { fileURLToPath } from 'node:url';
 
-const gameDir = new URL('../..', import.meta.url).pathname.replace(/\/$/, '');
+const gameDir = fileURLToPath(new URL('../..', import.meta.url)).replace(/[\\/]$/, '');
 
 interface Pt {
   x: number;
@@ -67,7 +68,8 @@ test('plays with real touch: dig, glint, upgrade, museum', async ({ page }) => {
   const errors = collectErrors(page);
   await openGame(page, { seed: 2, lang: 'en' });
   await page.waitForTimeout(400);
-  await touch(page, { x: 360, y: 1280 * 0.62 }); // Play
+  const menu = (await state(page)).data as unknown as { ui: { play: Pt } };
+  await touch(page, menu.ui.play); // Play
   await waitForScene(page, 'dig');
   await page.waitForTimeout(300);
 

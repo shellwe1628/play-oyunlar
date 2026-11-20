@@ -11,6 +11,10 @@ export const STRINGS = defineStrings({
     'menu.tagline': 'Every fossil shows its true odds.',
     'menu.rarest': 'Rarest find: {name} · {odds}',
     'menu.progress': 'Museum {a}/{b}',
+    'menu.rarestTitle': 'Rarest find',
+    'menu.noFind': 'Your rarest find will be shown here',
+    'menu.points': '{n} pts',
+    'menu.species': '{a}/{b} species',
 
     'odds.line': '1 in {n}',
 
@@ -429,6 +433,10 @@ export const STRINGS = defineStrings({
     'menu.tagline': 'Her fosil gerçek şansını gösterir.',
     'menu.rarest': 'En nadir bulgu: {name} · {odds}',
     'menu.progress': 'Müze {a}/{b}',
+    'menu.rarestTitle': 'En nadir bulgu',
+    'menu.noFind': 'En nadir bulgun burada sergilenecek',
+    'menu.points': '{n} puan',
+    'menu.species': '{a}/{b} tür',
 
     'odds.line': '{n} 1',
 

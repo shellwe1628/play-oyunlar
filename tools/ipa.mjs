@@ -183,7 +183,7 @@ function patchNative(app, work, info, sign) {
   if ('UISupportedInterfaceOrientations~ipad' in plistJson(infoPlist)) plist(infoPlist, '-remove', 'UISupportedInterfaceOrientations~ipad');
   plist(infoPlist, '-replace', 'UIRequiresFullScreen', '-bool', 'YES');
   plist(infoPlist, '-replace', 'UIStatusBarHidden', '-bool', 'YES');
-  plist(infoPlist, '-replace', 'UIViewControllerBasedStatusBarAppearance', '-bool', 'YES');
+  plist(infoPlist, '-replace', 'UIViewControllerBasedStatusBarAppearance', '-bool', 'NO');
   // the game uses only HTTPS through the OS (Game Center) and no encryption of its own
   plist(infoPlist, '-replace', 'ITSAppUsesNonExemptEncryption', '-bool', 'NO');
   plist(infoPlist, '-replace', 'CFBundleDevelopmentRegion', '-string', 'en');

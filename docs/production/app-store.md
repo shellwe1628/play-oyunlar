@@ -1,11 +1,13 @@
 # App Store'a yayın: reddedilmeden geçmek için adım adım kontrol listesi
 
-> **Güncel durum (20 Kasım 2026):** Fossil Odds ve Sparkrise'ta artık **AdMob ödüllü reklamlar var**
-> (herkes için çocuklara yönelik istek, kişiselleştirme yok, IDFA/ATT yok, AD_ID izni kaldırıldı). Bu iki
-> oyun için aşağıdaki "Reklamlar eklenince (AdMob)" bölümü **geçerlidir**: App Privacy "Data Not
-> Collected" değil, yaş derecelendirmesinde "Advertising: Yes", inceleme notunda reklam açıklaması.
-> Noodle Archers'ta reklam yok; onun için metin olduğu gibi geçerli. Gizlilik politikası
-> (`tools/gizlilik.mjs`) ve App Store sürüm notları buna göre güncellendi.
+> **Güncel durum (20 Kasım 2026):** **Üç oyunda da AdMob ödüllü reklamlar var** (Fossil Odds, Sparkrise,
+> Noodle Archers; düğmelerde "▶ REKLAM" etiketi). İstekler herkes için çocuklara yönelik; kişiselleştirme,
+> IDFA ve ATT yok; Android'de AD_ID izni kaldırıldı. Bu yüzden aşağıdaki "Reklamlar eklenince (AdMob)"
+> bölümü **üç oyun için de geçerlidir**: App Privacy "Data Not Collected" değil (yaklaşık konum, cihaz
+> kimliği, ürün etkileşimi, tanılama: reklam/analiz/sahtekârlık önleme; izleme yok), yaş derecelendirmesinde
+> "Advertising: Yes". Aşağıda "reklam yok" diyen eski satırlar bu nota göre okunmalı. İnceleme notuna şunu
+> ekleyin: "Rewarded buttons marked ▶ AD show a Google AdMob rewarded ad only when tapped; requests are
+> child-directed (no personalised ads, no tracking)." Gizlilik politikası ve sürüm notları güncel.
 
 
 Bu belge üç oyunu (Fossil Odds / Fosil Şansı, Sparkrise / Kıvılcım, Noodle Archers / Sallanan

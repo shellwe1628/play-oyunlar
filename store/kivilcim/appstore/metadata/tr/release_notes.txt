@@ -1,1 +1,1 @@
-İlk sürüm. 13 yaş ve üstü oyuncular için isteğe bağlı Game Center sıralaması. Ödüllü düğmeler ödülü hemen verir: reklam gösterilmez.
+İlk sürüm. 13 yaş ve üstü oyuncular için isteğe bağlı Game Center sıralaması. Ödüllü düğmeler (▶ REKLAM) yalnızca dokunduğunda, herkes için çocuklara uygun ayarlarla kısa bir reklam gösterir.

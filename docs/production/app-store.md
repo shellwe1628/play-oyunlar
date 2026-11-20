@@ -1,5 +1,13 @@
 # App Store'a yayın: reddedilmeden geçmek için adım adım kontrol listesi
 
+> **Güncel durum (20 Kasım 2026):** Fossil Odds ve Sparkrise'ta artık **AdMob ödüllü reklamlar var**
+> (herkes için çocuklara yönelik istek, kişiselleştirme yok, IDFA/ATT yok, AD_ID izni kaldırıldı). Bu iki
+> oyun için aşağıdaki "Reklamlar eklenince (AdMob)" bölümü **geçerlidir**: App Privacy "Data Not
+> Collected" değil, yaş derecelendirmesinde "Advertising: Yes", inceleme notunda reklam açıklaması.
+> Noodle Archers'ta reklam yok; onun için metin olduğu gibi geçerli. Gizlilik politikası
+> (`tools/gizlilik.mjs`) ve App Store sürüm notları buna göre güncellendi.
+
+
 Bu belge üç oyunu (Fossil Odds / Fosil Şansı, Sparkrise / Kıvılcım, Noodle Archers / Sallanan
 Okçular) Apple App Store'a **üç ayrı uygulama** olarak çıkarmak için sahibin yapacaklarını
 sırasıyla anlatır. Google Play kılavuzunun (`play-yayin.md`) iOS karşılığıdır.

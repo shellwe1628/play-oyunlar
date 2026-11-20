@@ -64,10 +64,11 @@ export const CARDS: Record<CardId, { max: number; weight: number; from?: number 
  * rocket's contact hit included), quick (reload), boom (knockouts), zen (focus), vitality,
  * magnet, shield (the player). Limited ones (world.ts fireVolley / updateArrows / ledgeHit /
  * hitShield / stickOrPierce / burst):
- * - double, split: one slow rocket is the firework's shot (reload ×2, full-radius burst); more
+ * - double, split: one slow rocket is the firework's shot (reload ×1.8, full-radius burst); more
  *   rockets would stack whole bursts, so not for firework.
- * - bounce: ledgeHit turns a boomerang before any bounce and its shield glance ignores bounces;
- *   a rocket would bounce instead of bursting (the bounce branch runs first) - not for either.
+ * - bounce: a boomerang flies over ledges and walls (playerArrowHits never calls ledgeHit for it)
+ *   and its shield glance ignores bounces; a rocket would bounce instead of bursting (the bounce
+ *   branch runs first) - not for either.
  *   Sling: +1 bounce.
  * - pierce: stickOrPierce lets a boomerang cut through anyway (pierce is moot) and ends a rocket
  *   before pierce is read - not for either.

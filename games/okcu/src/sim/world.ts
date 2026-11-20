@@ -727,7 +727,7 @@ export function createWorld(opts: WorldOptions): World {
 // ---------------------------------------------------------------- waves
 
 /** a thrown spear is gone after this many seconds in the air (a bow arrow flies for 5) */
-const SPEAR_LIFE = 1.2;
+export const SPEAR_LIFE = 1.2;
 
 /** hard: damage share of split's side arrows and of double's later volleys */
 const HARD_SIDE_ARROW = 0.5;
@@ -2039,16 +2039,16 @@ function blocksArc(w: World, x: number, y: number): boolean {
 
 /**
  * True when an arrow launched from (ox, oy) reaches the vertical line x = tx (within `ty` ± 60
- * when it gets there) without passing through a ledge or wall (wind included). Used by enemies
- * (and the scripted player) to pick an arc that is not blocked.
+ * when it gets there) within `maxT` s without passing through a ledge or wall (wind included;
+ * gravity `g`, lighter for some weapons' projectiles). Used by enemies (and the scripted player)
+ * to pick an arc that is not blocked.
  */
-export function arcClear(w: World, ox: number, oy: number, angle: number, speed: number, tx: number, ty: number, windK = 1): boolean {
+export function arcClear(w: World, ox: number, oy: number, angle: number, speed: number, tx: number, ty: number, windK = 1, g: number = TUNING.gravity, maxT = 3): boolean {
   const vx = Math.cos(angle) * speed;
   const vy = Math.sin(angle) * speed;
-  const g = TUNING.gravity;
   const wind = w.wind * windK;
   const dir = Math.sign(tx - ox) || 1;
-  for (let t = 1 / 90; t < 3; t += 1 / 90) {
+  for (let t = 1 / 90; t < maxT; t += 1 / 90) {
     const x = ox + vx * t + 0.5 * wind * t * t;
     const y = oy + vy * t + 0.5 * g * t * t;
     if ((x - tx) * dir >= 0) return Math.abs(y - ty) < 60;
@@ -2066,14 +2066,14 @@ const LOB_STEPS = [0.88, 0.94, 1, 1.12, 1.25] as const;
 const HIGH_FIRST = [true, false] as const;
 
 /**
- * Launch angle to hit (tx, ty) from (ox, oy) at `speed` with gravity and wind: the wind shift
+ * Launch angle to hit (tx, ty) from (ox, oy) at `speed` with gravity `g` and wind: the wind shift
  * over the flight time is aimed off (two refinement passes). Null if out of reach.
  */
-export function solveWithWind(ox: number, oy: number, tx: number, ty: number, speed: number, wind: number, high: boolean): number | null {
+export function solveWithWind(ox: number, oy: number, tx: number, ty: number, speed: number, wind: number, high: boolean, g: number = TUNING.gravity): number | null {
   let aimX = tx;
   let angle: number | null = null;
   for (let i = 0; i < 3; i++) {
-    angle = solveLaunchAngle(aimX - ox, ty - oy, speed, TUNING.gravity, high);
+    angle = solveLaunchAngle(aimX - ox, ty - oy, speed, g, high);
     if (angle === null || wind === 0) return angle;
     const vx = Math.cos(angle) * speed;
     const T = Math.abs(vx) > 1 ? (aimX - ox) / vx : 1;
@@ -2381,7 +2381,8 @@ function updateArrows(w: World): void {
  * Boomerang flight: no gravity. Out along the launch line, slowing linearly to a stop at `turnT`
  * (wind pushes it at 0.3 of an arrow's push); then back toward the bow, speeding up, on a path
  * that curls up over the line it went out on and straightens as it nears the player, with the
- * wind's 0.3 drift. Back within BOOM.catchR of the bow it ends (it never hurts the player).
+ * wind's 0.3 drift. It flies over ledges and walls both ways (see playerArrowHits); a shield
+ * turns it early. Back within BOOM.catchR of the bow it ends (it never hurts the player).
  * Returns true when it ended this step.
  */
 function flyBoomerang(w: World, a: Arrow): boolean {
@@ -2431,10 +2432,10 @@ function endBoomerang(w: World, a: Arrow): boolean {
 }
 
 /** Boomerang: turn time 0.55 + 0.35 × power s; return acceleration (px/s²) and top speed (px/s), both × the return perk. */
-const BOOM = { turnBase: 0.55, turnPower: 0.35, windMul: 0.3, returnAcc: 1500, returnMax: 1400, curl: 0.7, driftT: 0.5, catchR: 60 } as const;
+export const BOOM = { turnBase: 0.55, turnPower: 0.35, windMul: 0.3, returnAcc: 1500, returnMax: 1400, curl: 0.7, driftT: 0.5, catchR: 60 } as const;
 
 /** Firework rocket: fuse (s), burst radius (px) and share of a body hit every archer in it takes; it leaves the field this far above it. */
-const ROCKET = { fuse: 0.45, radius: 95, share: 1, topEdge: 0 } as const;
+export const ROCKET = { fuse: 0.45, radius: 95, share: 1, topEdge: 0 } as const;
 
 const boomReturning = (a: Arrow): boolean => a.kind === 'boomerang' && a.age >= a.turnT;
 
@@ -2468,15 +2469,6 @@ function ledgeHit(w: World, a: Arrow, x0: number, y0: number): boolean {
   if (a.kind === 'orb') {
     a.active = false;
     w.events.push({ t: 'orbPop', x: hx, y: hy });
-    return true;
-  }
-  if (a.kind === 'boomerang') {
-    // a boomerang never sticks: going out it glances off and starts back (on the way back it
-    // passes over ledges, see playerArrowHits)
-    a.x = hx + best.nx * 2;
-    a.y = hy + best.ny * 2;
-    turnBoomerang(a);
-    w.events.push({ t: 'bounce', x: hx, y: hy });
     return true;
   }
   if (a.kind === 'pebble' && a.bounces <= 0) {
@@ -2619,15 +2611,16 @@ function playerArrowHits(w: World, a: Arrow, x0: number, y0: number): void {
       hy = y0 + (a.y - y0) * t;
     }
   }
-  // ledges in front of the hit? (a boomerang on its way back passes over them)
-  const back = boomReturning(a);
+  // ledges in front of the hit? (a boomerang flies over ledges and walls both ways: it curls
+  // over cover onto archers a straight shot cannot reach; only bodies and shields stop it)
+  const over = a.kind === 'boomerang';
   let ledgeT = 2;
-  for (let i = 0; i < w.ledges.length && !back; i++) {
+  for (let i = 0; i < w.ledges.length && !over; i++) {
     const L = w.ledges[i]!;
     const h = sweepAabb(x0, y0, a.x, a.y, L.x, L.y, L.w, L.h);
     if (h && h.t < ledgeT) ledgeT = h.t;
   }
-  for (let i = 0; i < w.walls.length && !back; i++) {
+  for (let i = 0; i < w.walls.length && !over; i++) {
     const L = w.walls[i]!;
     const h = sweepAabb(x0, y0, a.x, a.y, L.x, L.y, L.w, L.h);
     if (h && h.t < ledgeT) ledgeT = h.t;
@@ -2657,7 +2650,7 @@ function playerArrowHits(w: World, a: Arrow, x0: number, y0: number): void {
     }
     return;
   }
-  if (!back) ledgeHit(w, a, x0, y0);
+  if (!over) ledgeHit(w, a, x0, y0);
 }
 
 function hitShield(w: World, a: Arrow, e: Archer, hx: number, hy: number): void {

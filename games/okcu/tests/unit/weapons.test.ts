@@ -58,8 +58,8 @@ describe('weapon stats', () => {
     const xbow = statsFor([], { ...NO_META, weapon: 'crossbow', wlevel: 1 }, 'hard');
     expect(xbow.reload).toBeCloseTo(bow.reload * 1.6, 9);
     expect(xbow.projectile).toBe('bolt');
-    expect(xbow.speedMul).toBe(1.45);
-    expect(xbow.gravityMul).toBe(0.35);
+    expect(xbow.speedMul).toBe(1.3);
+    expect(xbow.gravityMul).toBe(0.45);
     const spear = statsFor([], { ...NO_META, weapon: 'spear', wlevel: 10 }, 'hard');
     expect(spear.dmgMul).toBeCloseTo(weaponDamage(10) ** HARD_BOW_POW * 1.35, 9);
     expect(spear.pierce).toBe(weaponPerks('spear', 10).pierce);
@@ -93,16 +93,16 @@ describe('weapon stats', () => {
     const a = w.arrows.find((x) => x.active && x.owner === 'player')!;
     const b = wb.arrows.find((x) => x.active && x.owner === 'player')!;
     expect(a.kind).toBe('bolt');
-    expect(a.gravityMul).toBe(0.35);
+    expect(a.gravityMul).toBe(0.45);
     expect(a.windMul).toBe(0.4);
-    expect(Math.hypot(a.vx, a.vy)).toBeCloseTo(Math.hypot(b.vx, b.vy) * 1.45, 6);
+    expect(Math.hypot(a.vx, a.vy)).toBeCloseTo(Math.hypot(b.vx, b.vy) * 1.3, 6);
     expect(b.kind).toBe('arrow');
     expect(b.gravityMul).toBe(1);
     expect(b.windMul).toBe(1);
     const [ay0, by0] = [a.vy, b.vy];
     advance(w, 0.03);
     advance(wb, 0.03);
-    expect((a.vy - ay0) / (b.vy - by0)).toBeCloseTo(0.35, 3);
+    expect((a.vy - ay0) / (b.vy - by0)).toBeCloseTo(0.45, 3);
   });
 });
 
@@ -202,7 +202,7 @@ describe('bolt and spear behaviour', () => {
     expect(bw.hits.has(bw.ids[1]!)).toBe(false);
     // the measured shove: A's mean body velocity change on the hit frame, same seed, setup and aim point
     expect(bw.shove).toBeGreaterThan(0);
-    // the shove scales with arrow velocity, so the spear's impulseMul is set above 2 to make up for its 0.8 speed
+    // the shove scales with arrow velocity, so the spear's impulseMul is set above 2 to make up for its 0.9 speed
     expect(sp.shove).toBeGreaterThanOrEqual(2 * bw.shove);
   });
 });

@@ -475,6 +475,21 @@ function gradle(work, sdk, signEnv) {
 }
 
 // ---------------------------------------------------------------- checks + delivery
+/** Smallest p_align over a 64-bit little-endian ELF's PT_LOAD segments, or null if it is not one. */
+function elfLoadAlign(buf) {
+  if (buf.length < 64 || buf.readUInt32BE(0) !== 0x7f454c46 || buf[4] !== 2 || buf[5] !== 1) return null;
+  const phoff = Number(buf.readBigUInt64LE(32));
+  const phentsize = buf.readUInt16LE(54);
+  const phnum = buf.readUInt16LE(56);
+  let min = Infinity;
+  for (let i = 0; i < phnum; i++) {
+    const o = phoff + i * phentsize;
+    if (o + 56 > buf.length) return null;
+    if (buf.readUInt32LE(o) === 1) min = Math.min(min, Number(buf.readBigUInt64LE(o + 48)));
+  }
+  return min === Infinity ? null : min;
+}
+
 function attr(xml, tag, name) {
   const el = new RegExp(`<${tag}\\b[^>]*>`, 's').exec(xml)?.[0] ?? '';
   return new RegExp(`android:${name}="([^"]*)"`).exec(el)?.[1] ?? (name === 'package' ? /\spackage="([^"]*)"/.exec(el)?.[1] : undefined);
@@ -546,7 +561,21 @@ function verify(app, work, info, sdk) {
   const assets = entries.filter((e) => e.startsWith('base/assets/public/'));
   if (!entries.includes('base/assets/public/index.html')) problems.push('base/assets/public/index.html missing from the bundle');
   const libs = entries.filter((e) => e.startsWith('base/lib/'));
-  if (libs.length) problems.push(`native libraries in the bundle (64-bit / 16 KB page checks needed): ${libs.slice(0, 5).join(', ')}`);
+  // Native code is allowed only from an ad SDK (AdMob's plugin brings a small PNG decoder), and only
+  // in the shape Play requires: a 64-bit build next to every 32-bit one, and every 64-bit library's
+  // LOAD segments aligned to 16 KB (Android 15+ devices with 16 KB pages).
+  const soFiles = libs.filter((e) => e.endsWith('.so'));
+  if (soFiles.length && !ads) problems.push(`native libraries in an app without an ad SDK: ${soFiles.slice(0, 5).join(', ')}`);
+  for (const so of soFiles) {
+    const abi = so.split('/')[2];
+    const name = so.split('/').pop();
+    if ((abi === 'armeabi-v7a' && !soFiles.includes(`base/lib/arm64-v8a/${name}`)) || (abi === 'x86' && !soFiles.includes(`base/lib/x86_64/${name}`))) problems.push(`${so}: no 64-bit build`);
+    if (abi !== 'arm64-v8a' && abi !== 'x86_64') continue;
+    const align = elfLoadAlign(execFileSync('unzip', ['-p', aab, so], { maxBuffer: 256 * 1024 * 1024 }));
+    if (align === null) problems.push(`${so}: not a 64-bit ELF library`);
+    else if (align < 16384) problems.push(`${so}: LOAD segments aligned to ${align} bytes, Play needs 16 KB`);
+  }
+  facts.nativeLibs = soFiles.map((e) => e.slice('base/lib/'.length));
   // AdMob compiled in (or not): the plugin and the SDK classes in the dex files, and the plugin in
   // Capacitor's generated plugin list (BridgeActivity registers the plugins listed there).
   const dex = entries.filter((e) => /^base\/dex\/classes\d*\.dex$/.test(e)).map((e) => execFileSync('unzip', ['-p', aab, e], { maxBuffer: 256 * 1024 * 1024 }));
@@ -590,7 +619,7 @@ function verify(app, work, info, sdk) {
   if (problems.length) fail(`bundle check:\n  ${problems.join('\n  ')}`);
   console.log(`manifest: ${JSON.stringify(facts)}`);
   console.log(`themes: activity = AppTheme.NoActionBarLaunch; ${themes.summary.join('; ')}`);
-  console.log(`contents: ${assets.filter((e) => !e.endsWith('/')).length} web files under base/assets/public/, no native libraries${ads ? ', AdMob plugin + Mobile Ads SDK compiled in' : ', no ad SDK'}`);
+  console.log(`contents: ${assets.filter((e) => !e.endsWith('/')).length} web files under base/assets/public/, ${soFiles.length ? `native libs (16 KB aligned): ${facts.nativeLibs.join(', ')}` : 'no native libraries'}${ads ? ', AdMob plugin + Mobile Ads SDK compiled in' : ', no ad SDK'}`);
   console.log(`signature: jar verified, upload certificate SHA-256 ${certSha}`);
   return { aab, facts };
 }

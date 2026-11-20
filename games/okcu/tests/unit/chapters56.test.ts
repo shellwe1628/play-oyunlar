@@ -15,6 +15,7 @@ import { bankRecords, FEATS, progressScore, RANKS, rankOf, unlockFeats, type Run
 import { PT } from '../../src/sim/ragdoll';
 import { PLAYER_X } from '../../src/sim/tuning';
 import { enemyDamageMul, enemyHp, HARD_LATE_LEVEL } from '../../src/sim/waves';
+import { levelForBow } from '../../src/sim/weapons';
 import { advance, BOSS_KINDS, canShoot, createWorld, shoot, ERUPTION_PHASE1, jumpToWave, takeEvents, type GameEvent, type World } from '../../src/sim/world';
 
 function run(w: World, seconds: number): GameEvent[] {
@@ -169,7 +170,7 @@ describe("the 3D build's setting plays through", () => {
   it('hard: a careful scripted player kept alive clears chapters 5 and 6, bosses and bonus rounds included', () => {
     for (const chapter of [4, 5]) {
       const start = chapterStart(chapter);
-      const r = playRun(21 + chapter, createRng(99 + chapter), CAREFUL, { startChapter: chapter, god: true, untilWave: start + 8, maxTime: 900, difficulty: 'hard', meta: { ...NO_META, bow: 15, hp: 8 } });
+      const r = playRun(21 + chapter, createRng(99 + chapter), CAREFUL, { startChapter: chapter, god: true, untilWave: start + 8, maxTime: 900, difficulty: 'hard', meta: { ...NO_META, bow: 15, wlevel: levelForBow(15), hp: 8 } });
       expect(r.reached, `chapter ${chapter}`).toBeGreaterThanOrEqual(start + 8);
       expect(r.bosses).toBeGreaterThanOrEqual(1);
     }

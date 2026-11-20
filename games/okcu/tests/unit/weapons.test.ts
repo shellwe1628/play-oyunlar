@@ -3,7 +3,8 @@ import { bowDamage } from '../../src/sim/bow';
 import { ENEMY_DAMAGE, HARD_HEAD_MUL } from '../../src/sim/combat';
 import { HARD_BOW_POW, statsFor } from '../../src/sim/cards';
 import { NO_META } from '../../src/sim/meta';
-import { createWorld, shoot, advance } from '../../src/sim/world';
+import { TUNING } from '../../src/sim/tuning';
+import { arrowSpeed, createWorld, playerOrigin, shoot, advance, jumpToWave, takeEvents, targetPoint } from '../../src/sim/world';
 import { WEAPON_IDS, WEAPONS, bowEquivalent, levelForBow, weaponDamage, weaponPerks } from '../../src/sim/weapons';
 
 describe('weapons', () => {
@@ -100,5 +101,95 @@ describe('weapon stats', () => {
     advance(w, 0.03);
     advance(wb, 0.03);
     expect((a.vy - ay0) / (b.vy - by0)).toBeCloseTo(0.35, 3);
+  });
+});
+
+describe('bolt and spear behaviour', () => {
+  const hard = (weapon: 'bow' | 'crossbow' | 'spear', seed = 3) => createWorld({ seed, difficulty: 'hard', meta: { ...NO_META, weapon, wlevel: 1 } });
+
+  it('bolt flies flatter: after 0.3 s it has dropped less than half as much as an arrow', () => {
+    const drop = (weapon: 'bow' | 'crossbow'): number => {
+      const w = hard(weapon);
+      expect(shoot(w, -1.2, 0.6)).toBe(true);
+      const a = w.arrows.find((x) => x.active && x.owner === 'player')!;
+      const [y0, vy0] = [a.y, a.vy];
+      for (let i = 0; i < 18; i++) advance(w, 1 / 60);
+      expect(a.active && a.state === 0).toBe(true);
+      return a.y - (y0 + vy0 * 0.3);
+    };
+    const d = drop('crossbow');
+    expect(d).toBeGreaterThan(0);
+    expect(d).toBeLessThan(0.5 * drop('bow'));
+  });
+
+  it('spear is thrown with pierce, a hard shove and a 1.2 s life', () => {
+    const ws = hard('spear');
+    const wa = hard('bow');
+    expect(shoot(ws, -0.3, 1)).toBe(true);
+    expect(shoot(wa, -0.3, 1)).toBe(true);
+    const s = ws.arrows.find((x) => x.active && x.owner === 'player')!;
+    const a = wa.arrows.find((x) => x.active && x.owner === 'player')!;
+    expect(s.kind).toBe('spear');
+    expect(s.pierce).toBe(1);
+    expect(s.impulseMul).toBeGreaterThanOrEqual(2 * a.impulseMul);
+    expect(s.life).toBe(1.2);
+    expect(a.life).toBe(5);
+  });
+
+  it('one spear damages two archers in line; an arrow stops at the first', () => {
+    const POWER = 0.5;
+    const throwAt = (weapon: 'bow' | 'spear') => {
+      const w = hard(weapon);
+      jumpToWave(w, 6);
+      const [a, b] = w.enemies.filter((e) => e.alive);
+      expect(a && b).toBeTruthy();
+      // B stands on A's ledge, 30 px further from the player
+      b!.ledge = a!.ledge;
+      b!.anchorY = a!.anchorY;
+      b!.anchorX = b!.stanceX = a!.anchorX + 30;
+      for (let i = 0; i < 90; i++) {
+        for (const e of w.enemies) {
+          e.timer = 999;
+          e.hp = e.maxHp = 1e6;
+          e.shield = null; // nothing but flesh in the way
+        }
+        advance(w, 1 / 60);
+      }
+      takeEvents(w);
+      // the throw whose flight (this weapon's speed and gravity, wind included) crosses A's chest while descending
+      const c = targetPoint(a!, 'chest');
+      const speed = arrowSpeed(POWER) * w.stats.speedMul;
+      const g = TUNING.gravity * (weapon === 'spear' ? WEAPONS.spear.gravityMul : 1);
+      let best = { err: Infinity, angle: -1 };
+      for (let ang = -1.4; ang < 0; ang += 0.0005) {
+        const o = playerOrigin(w, ang);
+        const vx = Math.cos(ang) * speed;
+        const vy = Math.sin(ang) * speed;
+        // time to reach x = c.x (wind ignored in the root, then corrected below)
+        let t = (c.x - o.x) / vx;
+        for (let k = 0; k < 4; k++) t = (c.x - o.x - 0.5 * w.wind * WEAPONS[weapon].windMul * t * t) / vx;
+        const y = o.y + vy * t + 0.5 * g * t * t;
+        const err = Math.abs(y - c.y) + (vy + g * t < 0 ? 1e3 : 0);
+        if (err < best.err) best = { err, angle: ang };
+      }
+      w.reload = 0;
+      expect(shoot(w, best.angle, POWER)).toBe(true);
+      const hits = new Set<number>();
+      for (let i = 0; i < 90; i++) {
+        for (const e of w.enemies) {
+          e.hp = e.maxHp = 1e6;
+          e.shield = null; // nothing but flesh in the way
+        }
+        advance(w, 1 / 60);
+        for (const ev of takeEvents(w)) if (ev.t === 'hit') hits.add(ev.id);
+      }
+      return { ids: [a!.id, b!.id], hits };
+    };
+    const sp = throwAt('spear');
+    expect(sp.hits.has(sp.ids[0]!)).toBe(true);
+    expect(sp.hits.has(sp.ids[1]!)).toBe(true);
+    const bw = throwAt('bow');
+    expect(bw.hits.has(bw.ids[0]!)).toBe(true);
+    expect(bw.hits.has(bw.ids[1]!)).toBe(false);
   });
 });

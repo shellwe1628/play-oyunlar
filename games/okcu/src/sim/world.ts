@@ -721,6 +721,8 @@ export function createWorld(opts: WorldOptions): World {
 // ---------------------------------------------------------------- waves
 
 /** hard: damage share of split's side arrows and of double's later volleys */
+/** a thrown spear is gone after this many seconds in the air (a bow arrow flies for 5) */
+const SPEAR_LIFE = 1.2;
 const HARD_SIDE_ARROW = 0.5;
 const HARD_EXTRA_VOLLEY = 0.6;
 
@@ -969,6 +971,7 @@ function fireVolley(w: World, angle: number, power: number, first: boolean): voi
     ar.frost = w.stats.frostTime > 0;
     ar.blast = w.stats.blastShare > 0;
     ar.pierce = w.stats.pierce + (focus ? 1 : 0);
+    if (ar.kind === 'spear') ar.life = SPEAR_LIFE;
     ar.bounces = w.stats.bounces;
     ar.seek = w.stats.seek > 0 && (k === 0 || w.stats.swarm);
     ar.over = over;

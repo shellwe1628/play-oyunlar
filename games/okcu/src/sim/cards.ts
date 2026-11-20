@@ -72,11 +72,11 @@ export const CARDS: Record<CardId, { max: number; weight: number; from?: number 
  *   Sling: +1 bounce.
  * - pierce: stickOrPierce lets a boomerang cut through anyway (pierce is moot) and ends a rocket
  *   before pierce is read - not for either.
- * - seeker: flyBoomerang never steers; the rocket bursts at a 0.45 s fuse before steering pays
+ * - seeker: flyBoomerang never steers; the rocket bursts at a 0.48 s fuse before steering pays
  *   off - not for either.
  * - overdraw: a boomerang's draw power sets how far it flies before turning, a range choice, not
  *   a power shot - not for boomerang.
- * - longsight: the 15-step preview already spans 0.48 s, past the rocket's 0.45 s fuse - not
+ * - longsight: the 15-step preview already spans 0.48 s, the rocket's whole 0.48 s fuse - not
  *   for firework.
  * - blast: burst() uses the rocket's own radius and share, never the card's - not for firework.
  */

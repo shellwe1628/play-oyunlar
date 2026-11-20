@@ -39,7 +39,7 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
   spear: { ...BASE, id: 'spear', projectile: 'spear', speedMul: 0.9, gravityMul: 0.9, impulseMul: 2.9, dmgMul: 1.35, pierce: 1, unlockBoss: 1 },
   boomerang: { ...BASE, id: 'boomerang', projectile: 'boomerang', dmgMul: 0.6, unlockBoss: 2 },
   sling: { ...BASE, id: 'sling', projectile: 'pebble', dmgMul: 0.65, bounces: 2, headMul: SLING_HEAD_MUL, unlockBoss: 4 },
-  firework: { ...BASE, id: 'firework', projectile: 'rocket', gravityMul: 0.15, reloadMul: 1.8, dmgMul: 2.0, unlockBoss: 3 },
+  firework: { ...BASE, id: 'firework', projectile: 'rocket', gravityMul: 0.15, reloadMul: 1.8, dmgMul: 2.4, unlockBoss: 3 },
 };
 
 export const WEAPON_MAX = 20;

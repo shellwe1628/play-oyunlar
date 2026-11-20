@@ -2431,11 +2431,11 @@ function endBoomerang(w: World, a: Arrow): boolean {
   return true;
 }
 
-/** Boomerang: turn time 0.55 + 0.35 × power s; return acceleration (px/s²) and top speed (px/s), both × the return perk. */
-export const BOOM = { turnBase: 0.55, turnPower: 0.35, windMul: 0.3, returnAcc: 1500, returnMax: 1400, curl: 0.7, driftT: 0.5, catchR: 60 } as const;
+/** Boomerang: turn time 0.55 + 0.5 × power s (a full draw reaches 919 px, the far corner of the widest fields); return acceleration (px/s²) and top speed (px/s), both × the return perk. */
+export const BOOM = { turnBase: 0.55, turnPower: 0.5, windMul: 0.3, returnAcc: 1500, returnMax: 1400, curl: 0.7, driftT: 0.5, catchR: 60 } as const;
 
-/** Firework rocket: fuse (s), burst radius (px) and share of a body hit every archer in it takes; it leaves the field this far above it. */
-export const ROCKET = { fuse: 0.45, radius: 95, share: 1, topEdge: 0 } as const;
+/** Firework rocket: fuse (s; a full draw flies 840 px before it, and its burst reaches the far corner of the widest fields), burst radius (px) and share of a body hit every archer in it takes; it leaves the field this far above it. */
+export const ROCKET = { fuse: 0.48, radius: 145, share: 1, topEdge: 0 } as const;
 
 const boomReturning = (a: Arrow): boolean => a.kind === 'boomerang' && a.age >= a.turnT;
 

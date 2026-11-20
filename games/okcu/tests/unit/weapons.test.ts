@@ -6,7 +6,7 @@ import { CARD_IDS, CARD_WEAPONS, HARD_BOW_POW, cardFits, drawOffer, statsFor, ty
 import { NO_META } from '../../src/sim/meta';
 import { velX } from '../../src/sim/body';
 import { TUNING } from '../../src/sim/tuning';
-import { arrowSpeed, createWorld, playerOrigin, shoot, advance, jumpToWave, takeEvents, targetPoint } from '../../src/sim/world';
+import { arrowSpeed, BOOM, createWorld, playerOrigin, ROCKET, shoot, advance, jumpToWave, takeEvents, targetPoint } from '../../src/sim/world';
 import { WEAPON_IDS, WEAPONS, bowEquivalent, levelForBow, weaponDamage, weaponPerks } from '../../src/sim/weapons';
 
 describe('weapons', () => {
@@ -467,8 +467,8 @@ describe('boomerang', () => {
       // no gravity: straight along the launch line on the way out, slowing down
       expect(f.off).toBeLessThan(1);
       expect(f.sp03).toBeLessThan(f.sp0);
-      // it turns at 0.55 + 0.35 × power s, far from the player
-      expect(f.far.t).toBeCloseTo(0.55 + 0.35 * power, 1);
+      // it turns at BOOM.turnBase + BOOM.turnPower × power s, far from the player
+      expect(f.far.t).toBeCloseTo(BOOM.turnBase + BOOM.turnPower * power, 1);
       expect(f.far.d).toBeGreaterThan(150);
       // back within 2.5 s, ended within 60 px of the bow, and the player is untouched
       expect(f.b.active).toBe(false);
@@ -521,7 +521,7 @@ describe('boomerang', () => {
     const o = playerOrigin(w, angle);
     const want = Math.hypot(c.x - o.x, c.y - o.y) + 25;
     let power = 0;
-    for (let p = 0; p <= 1; p += 0.001) if (Math.abs((arrowSpeed(p) * (0.55 + 0.35 * p)) / 2 - want) < Math.abs((arrowSpeed(power) * (0.55 + 0.35 * power)) / 2 - want)) power = p;
+    for (let p = 0; p <= 1; p += 0.001) if (Math.abs((arrowSpeed(p) * (BOOM.turnBase + BOOM.turnPower * p)) / 2 - want) < Math.abs((arrowSpeed(power) * (BOOM.turnBase + BOOM.turnPower * power)) / 2 - want)) power = p;
     w.reload = 0;
     takeEvents(w);
     expect(shoot(w, angle, power)).toBe(true);
@@ -552,6 +552,63 @@ describe('boomerang', () => {
     expect(e.hp).toBeLessThan(hpAfterFirst);
     expect(b.active).toBe(false);
     expect(b.state).toBe(0);
+  });
+
+  it('boomerang flies over a ledge corner onto the archer behind it; an arrow on that line sticks in the ledge; the player is never hurt', () => {
+    /** One shot straight at an archer's chest with a ledge corner across the line (ledge 1 moved there). */
+    const throwPast = (weapon: 'boomerang' | 'bow') => {
+      const w = createWorld({ seed: 3, difficulty: 'hard', meta: { ...NO_META, weapon, wlevel: 1 } });
+      jumpToWave(w, 6);
+      w.wind = 0;
+      w.walls.length = 0;
+      for (let i = 0; i < 90; i++) {
+        freeze(w);
+        advance(w, 1 / 60);
+      }
+      const e = w.enemies.find((q) => q.alive)!;
+      const c = targetPoint(e, 'chest');
+      let angle = -0.3;
+      for (let k = 0; k < 5; k++) {
+        const o = playerOrigin(w, angle);
+        angle = Math.atan2(c.y - o.y, c.x - o.x);
+      }
+      const o = playerOrigin(w, angle);
+      // a ledge whose top-right corner sits 12 px below the line, 55 % of the way there: the
+      // line crosses its top face
+      const L = w.ledges.find((l, i) => i > 0 && i !== e.ledge)!;
+      const mx = o.x + (c.x - o.x) * 0.55;
+      const my = o.y + (c.y - o.y) * 0.55;
+      L.x = mx - L.w + 30;
+      L.y = my - 12 + 30 * Math.tan(angle);
+      const d = Math.hypot(c.x - o.x, c.y - o.y);
+      let power = 1;
+      if (weapon === 'boomerang') {
+        for (let p = 0; p <= 1; p += 0.001) if (Math.abs((arrowSpeed(p) * (BOOM.turnBase + BOOM.turnPower * p)) / 2 - (d + 25)) < Math.abs((arrowSpeed(power) * (BOOM.turnBase + BOOM.turnPower * power)) / 2 - (d + 25))) power = p;
+      }
+      w.reload = 0;
+      takeEvents(w);
+      const hp0 = w.player.hp;
+      // a near-flat full-power arrow along the same line (gravity bends it little over this distance)
+      expect(shoot(w, angle, power)).toBe(true);
+      const a = w.arrows.find((x) => x.active && x.owner === 'player')!;
+      if (weapon === 'bow') a.gravityMul = 0;
+      let hit = false;
+      for (let i = 0; i < 480 && a.active && a.state === 0; i++) {
+        freeze(w);
+        advance(w, 1 / 120);
+        for (const ev of takeEvents(w)) if (ev.t === 'hit' && ev.id === e.id) hit = true;
+      }
+      return { hit, a, hurt: hp0 - w.player.hp, ledge: w.ledges.indexOf(L) };
+    };
+    const arrow = throwPast('bow');
+    // the corner really is in the way: the arrow stops in that ledge
+    expect(arrow.hit).toBe(false);
+    expect(arrow.a.state).toBe(1);
+    expect(arrow.a.host).toBe(arrow.ledge);
+    const boom = throwPast('boomerang');
+    expect(boom.hit).toBe(true);
+    expect(boom.hurt).toBe(0);
+    expect(boom.a.state).toBe(0);
   });
 
   it('boomerang cleared on wave change', () => {
@@ -647,7 +704,7 @@ describe('firework rocket', () => {
     const c = targetPoint(w.enemies.find((q) => q.id === id)!, 'chest');
     const aim = aimAt(w, c.x, c.y);
     // the fuse ends 60 px short of the archer: well inside the burst radius, but no contact
-    const power = fuse ? powerFor((aim.d - 60) / 0.45) : 1;
+    const power = fuse ? powerFor((aim.d - 60) / ROCKET.fuse) : 1;
     if (power > 1) return null;
     w.run.chain = chain;
     expect(shoot(w, aim.angle, power)).toBe(true);
@@ -666,12 +723,12 @@ describe('firework rocket', () => {
   };
 
   it('rocket bursts after its fuse', () => {
-    // a shot that reaches the end of its 0.45 s fuse with nothing in the way
+    // a shot that reaches the end of its fuse with nothing in the way
     const { w, r, out, hp0 } = firstShot(true, (s) => s.out.blasts.length === 1 && s.out.t > 0.4 && !s.out.all.includes('hit'));
     expect(r.active).toBe(false);
     expect(r.state).toBe(0);
     const b = out.blasts[0]!;
-    expect(out.t).toBeLessThan(0.52);
+    expect(out.t).toBeLessThan(ROCKET.fuse + 0.07);
     // every archer within the radius took damage; those clearly outside took none
     let inside = 0;
     for (const q of w.enemies) {

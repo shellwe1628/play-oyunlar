@@ -120,7 +120,10 @@ function solve(w: World, x: number, y: number, loft: number, windK: number, who?
   if (f.kind === 'boomerang') return solveBoomerang(w, x, y, windK, f);
   if (f.kind === 'rocket') {
     const direct = solveRocket(w, x, y, windK, f);
-    return direct.clear || !who ? direct : (searchShot(w, who, windK, f, direct) ?? direct);
+    // a lantern knight's ward swallows a rocket that strikes it (no burst): burst beside it instead
+    const warded = who !== undefined && who.type === 'ward' && who.wardUp;
+    if (!who || (direct.clear && !warded)) return direct;
+    return searchShot(w, who, windK, f, direct, !warded) ?? { ...direct, clear: false };
   }
   let fallback: { angle: number; power: number } | null = null;
   const wind = w.wind * windK * f.windMul;
@@ -274,10 +277,10 @@ function segDist(px: number, py: number, x0: number, y0: number, x1: number, y1:
 
 /**
  * How far a rocket fired at (angle, power) bursts outside an archer, in px (negative = it
- * reaches): a contact with its head or chest, else its burst (on a ledge or wall, or at the
+ * reaches): a contact with its head or chest (unless `contactOk` is false: a ward swallows it), else its burst (on a ledge or wall, or at the
  * fuse) by the distance to its chest less what the burst reaches (world.ts updateArrows/burst).
  */
-function rocketMiss(w: World, goals: readonly Goal[], scale: number, angle: number, power: number, windK: number, f: Flight): number {
+function rocketMiss(w: World, goals: readonly Goal[], scale: number, angle: number, power: number, windK: number, f: Flight, contactOk: boolean): number {
   const o = playerOrigin(w, angle);
   const speed = arrowSpeed(power) * f.speedMul;
   let px = o.x;
@@ -294,7 +297,7 @@ function rocketMiss(w: World, goals: readonly Goal[], scale: number, angle: numb
     const ny = py + vy * dt + 0.5 * f.g * dt * dt;
     vx += wind * dt;
     vy += f.g * dt;
-    if (gap(goals, px, py, nx, ny) < 0) return -1;
+    if (gap(goals, px, py, nx, ny) < 0) return contactOk ? -1 : Infinity;
     const c = contact(w, px, py, nx, ny);
     if (c) return Math.hypot(c.x - chest.x, c.y - chest.y) - burstR;
     if (ny < ROCKET.topEdge) return Infinity;
@@ -309,10 +312,10 @@ function rocketMiss(w: World, goals: readonly Goal[], scale: number, angle: numb
  * that bursts on the archer, by a ledge beside it or in the air next to it (a shorter draw
  * bursts sooner). Null if nothing reaches it, or only a throw a hair's breadth from failing.
  */
-function searchShot(w: World, who: Archer, windK: number, f: Flight, direct: Solved): Solved | null {
+function searchShot(w: World, who: Archer, windK: number, f: Flight, direct: Solved, contactOk: boolean): Solved | null {
   const goals = goalsOf(who);
   const miss = (angle: number, power: number) =>
-    angle < -Math.PI * 0.62 || angle > Math.PI * 0.3 || power < 0 || power > 1 ? Infinity : rocketMiss(w, goals, who.scale, angle, power, windK, f);
+    angle < -Math.PI * 0.62 || angle > Math.PI * 0.3 || power < 0 || power > 1 ? Infinity : rocketMiss(w, goals, who.scale, angle, power, windK, f, contactOk);
   // a throw that only works to the hair (a ledge corner a few px off) is not one a hand repeats:
   // a throw scores its worst miss over a careful hand's angle error either side
   const steady = (angle: number, power: number) => Math.max(miss(angle - AIM_SLACK, power), miss(angle, power), miss(angle + AIM_SLACK, power));
@@ -321,7 +324,8 @@ function searchShot(w: World, who: Archer, windK: number, f: Flight, direct: Sol
     const score = steady(angle, power);
     if (score < best.score) best = { angle, power, score };
   };
-  for (let da = -0.6; da <= 0.6 + 1e-9; da += 0.03) {
+  // fine in angle: far off, a window over a ledge corner is only a few hundredths of a radian
+  for (let da = -0.6; da <= 0.6 + 1e-9; da += 0.015) {
     for (let pw = 0.2; pw <= 1 + 1e-9; pw += 0.2) if (miss(direct.angle + da, pw) < SEARCH_OK) consider(direct.angle + da, pw);
   }
   if (best.score === Infinity) return null;

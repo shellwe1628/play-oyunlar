@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest';
-import { adultFromBirthYear, createOnline, type PlayGamesBridge } from '../src/online/online';
+import { afterEach, describe, expect, it } from 'vitest';
+import { adultFromBirthYear, createOnline, onlineService, playGamesBridge, type PlayGamesBridge } from '../src/online/online';
 import { memoryStorage } from '../src/storage';
 
 const TODAY = new Date(2026, 10, 20);
@@ -129,5 +129,26 @@ describe('createOnline', () => {
     await o.start();
     expect(await o.signIn()).toBe(false);
     expect(o.state()).toBe('signed-out');
+  });
+});
+
+describe('native bridge selection', () => {
+  const g = globalThis as { Capacitor?: unknown };
+  afterEach(() => {
+    delete g.Capacitor;
+  });
+  it('is null in a browser', () => {
+    expect(onlineService()).toBeNull();
+    expect(playGamesBridge()).toBeNull();
+  });
+  it('uses PlayGames on Android and GameCenter on iOS', () => {
+    const play = { tag: 'play' };
+    const gc = { tag: 'gc' };
+    g.Capacitor = { isNativePlatform: () => true, getPlatform: () => 'android', Plugins: { PlayGames: play, GameCenter: gc } };
+    expect(onlineService()).toBe('play');
+    expect(playGamesBridge()).toBe(play);
+    g.Capacitor = { isNativePlatform: () => true, getPlatform: () => 'ios', Plugins: { PlayGames: play, GameCenter: gc } };
+    expect(onlineService()).toBe('gamecenter');
+    expect(playGamesBridge()).toBe(gc);
   });
 });

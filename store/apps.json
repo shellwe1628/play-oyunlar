@@ -1,5 +1,5 @@
 {
-  "_doc": "Per-app Google Play release settings, read by tools/aab.mjs, tools/play-metadata.mjs and .github/workflows/play-yukle.yml. Package names (applicationId) are permanent once an app exists in Play Console: never change them. Optional source: the Vite app the Play build ships when it is not games/<slug> (okcu ships the 3D renderer apps/okcu-3d). Guide: docs/production/play-yayin.md.",
+  "_doc": "Per-app Google Play release settings, read by tools/aab.mjs, tools/play-metadata.mjs and .github/workflows/play-yukle.yml. Package names (applicationId) are permanent once an app exists in Play Console: never change them. Optional source: the Vite app the Play build ships when it is not games/<slug> (okcu ships the 3D renderer apps/okcu-3d). Guide: docs/production/play-yayin.md. ios: the App Store build (tools/ipa.mjs): bundle id = applicationId, version = CFBundleShortVersionString, gameCenter.boards = logical board id → App Store Connect leaderboard id (create them with exactly these ids).",
   "defaultLanguage": "en-US",
   "languages": [
     "en-US",
@@ -30,6 +30,14 @@
         "boards": {
           "score": "CgkI9Iems4kYEAIQAQ"
         }
+      },
+      "ios": {
+        "version": "1.0.0",
+        "gameCenter": {
+          "boards": {
+            "score": "com.playoyunlar.fossilodds.score"
+          }
+        }
       }
     },
     {
@@ -56,6 +64,15 @@
           "rank": "CgkIr-O2q7MGEAIQAQ",
           "endless": "CgkIr-O2q7MGEAIQAg"
         }
+      },
+      "ios": {
+        "version": "1.0.0",
+        "gameCenter": {
+          "boards": {
+            "rank": "com.playoyunlar.sparkrise.rank",
+            "endless": "com.playoyunlar.sparkrise.endless"
+          }
+        }
       }
     },
     {
@@ -81,6 +98,14 @@
         "appId": "894259071727",
         "boards": {
           "wave": "CgkI75X6r4MaEAIQAQ"
+        }
+      },
+      "ios": {
+        "version": "1.0.0",
+        "gameCenter": {
+          "boards": {
+            "wave": "com.playoyunlar.noodlearchers.wave"
+          }
         }
       }
     }

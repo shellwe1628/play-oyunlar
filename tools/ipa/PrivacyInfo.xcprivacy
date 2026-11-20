@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  The app's privacy manifest (copied by tools/ipa.mjs). The game itself tracks nobody, collects no
+  data and calls no required-reason API of its own (saves live in the web view's localStorage).
+  Capacitor ships its own manifest for the APIs it uses. Game Center scores go to Apple through
+  GameKit, Apple's own service, for the players aged 13+ who sign in (see docs/gizlilik).
+-->
+<plist version="1.0">
+<dict>
+	<key>NSPrivacyTracking</key>
+	<false/>
+	<key>NSPrivacyTrackingDomains</key>
+	<array/>
+	<key>NSPrivacyCollectedDataTypes</key>
+	<array/>
+	<key>NSPrivacyAccessedAPITypes</key>
+	<array/>
+</dict>
+</plist>

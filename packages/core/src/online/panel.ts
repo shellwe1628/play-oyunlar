@@ -1,30 +1,31 @@
 /**
  * The online leaderboard panel, one look for every game: a DOM overlay above the canvas (Phaser
  * or three.js alike), so all three games share it. Content follows Online.state():
- *   unavailable  explains that online ranking lives in the Google Play version
+ *   unavailable  explains that online ranking lives in the mobile app
  *   ask-age      the neutral age question (birth year from a full list, nothing hints at a
  *                threshold, no "are you over 13?")
  *   blocked      online ranking is off on this device (no reason given, no way to retry)
- *   signed-out   one button: sign in with Google Play Games
+ *   signed-out   one button: sign in (Google Play Games on Android, Game Center on iOS)
  *   signed-in    the player's name and one row per board: local best, public score and rank,
  *                and a button that opens Google's own leaderboard screen
  * Closes on the close button, a tap outside the card, or Escape.
  */
 import { defineStrings, type Lang } from '../i18n';
 import { cssColor, DEFAULT_THEME, type Theme } from '../ui/theme';
-import type { BoardEntry, Online } from './online';
+import { onlineService, type BoardEntry, type Online } from './online';
 
 export const ONLINE_STRINGS = defineStrings({
   en: {
     title: 'Online ranking',
     close: 'Close',
-    unavailable: 'Online ranking is part of the Google Play version of the game.',
+    unavailable: 'Online ranking is part of the mobile app version of the game.',
     ageQuestion: 'What year were you born?',
     agePick: 'Choose a year',
     ageWhy: 'We ask once, before anything goes online. Only the answer’s category is kept on this device.',
     next: 'Continue',
     blocked: 'Online ranking is not available on this device. Your progress and records keep working as before.',
     signInText: 'Sign in with Google Play Games to put your best scores on the worldwide boards.',
+    signInTextGc: 'Sign in to Game Center to put your best scores on the worldwide boards.',
     signIn: 'Sign in',
     signingIn: 'Signing in…',
     signInFailed: 'Could not sign in. Check the connection and try again.',
@@ -38,13 +39,14 @@ export const ONLINE_STRINGS = defineStrings({
   tr: {
     title: 'Online sıralama',
     close: 'Kapat',
-    unavailable: 'Online sıralama oyunun Google Play sürümünde var.',
+    unavailable: 'Online sıralama oyunun mobil uygulama sürümünde var.',
     ageQuestion: 'Hangi yıl doğdun?',
     agePick: 'Yıl seç',
     ageWhy: 'Bir şey internete gitmeden önce bir kez soruyoruz. Bu cihazda yalnızca cevabın kategorisi saklanır.',
     next: 'Devam',
     blocked: 'Online sıralama bu cihazda kullanılamıyor. İlerlemen ve rekorların eskisi gibi çalışır.',
     signInText: 'En iyi skorlarını dünya sıralamasına koymak için Google Play Games ile giriş yap.',
+    signInTextGc: 'En iyi skorlarını dünya sıralamasına koymak için Game Center’a giriş yap.',
     signIn: 'Giriş yap',
     signingIn: 'Giriş yapılıyor…',
     signInFailed: 'Giriş yapılamadı. Bağlantını kontrol edip tekrar dene.',
@@ -211,7 +213,7 @@ export function openOnlinePanel(online: Online, opts: PanelOptions): OnlinePanel
 
   function signedOut(): void {
     body.replaceChildren();
-    const p = el('p', 'lead', s('signInText'));
+    const p = el('p', 'lead', s(onlineService() === 'gamecenter' ? 'signInTextGc' : 'signInText'));
     const b = el('button', 'btn', busy ? s('signingIn') : s('signIn'));
     b.dataset.testid = 'online-signin';
     b.disabled = busy;

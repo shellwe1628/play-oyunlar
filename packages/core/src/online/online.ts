@@ -9,8 +9,9 @@
  * the game (clearing the app's data asks again).
  *
  * The native side is tools/aab/PlayGamesPlugin.java (Capacitor plugin "PlayGames"), present only
- * in Play builds whose store/apps.json entry has a `playGames` block. Anywhere else (browser,
- * test APK, unconfigured app) the bridge is missing and the state is 'unavailable'.
+ * in Play builds whose store/apps.json entry has a `playGames` block, and on iOS
+ * tools/ipa/GameCenterPlugin.swift (plugin "GameCenter", same calls) for a `gameCenter` block.
+ * Anywhere else (browser, test APK, unconfigured app) the bridge is missing: 'unavailable'.
  *
  * Pure: no DOM, no Phaser. The panel (./panel.ts) draws it.
  */
@@ -96,10 +97,32 @@ export function adultFromBirthYear(birthYear: number, today: Date): boolean {
   return Number.isFinite(birthYear) && birthYear <= today.getFullYear() - 14;
 }
 
-export function playGamesBridge(): PlayGamesBridge | null {
-  const cap = (globalThis as { Capacitor?: { isNativePlatform?: () => boolean; Plugins?: { PlayGames?: PlayGamesBridge } } }).Capacitor;
+/** Which leaderboard service this build talks to: Google Play Games (Android) or Game Center (iOS). */
+export type OnlineService = 'play' | 'gamecenter';
+
+type CapacitorGlobal = {
+  isNativePlatform?: () => boolean;
+  getPlatform?: () => string;
+  Plugins?: { PlayGames?: PlayGamesBridge; GameCenter?: PlayGamesBridge };
+};
+const capacitor = (): CapacitorGlobal | undefined => (globalThis as { Capacitor?: CapacitorGlobal }).Capacitor;
+
+/** The service of the native app this page runs in; null in a browser. */
+export function onlineService(): OnlineService | null {
+  const cap = capacitor();
   if (!cap?.isNativePlatform?.()) return null;
-  return cap.Plugins?.PlayGames ?? null;
+  return cap.getPlatform?.() === 'ios' ? 'gamecenter' : 'play';
+}
+
+/**
+ * The native leaderboard bridge: Android's "PlayGames" plugin (tools/aab/PlayGamesPlugin.java) or
+ * iOS's "GameCenter" plugin (tools/ipa/GameCenterPlugin.swift). Both answer the same calls.
+ */
+export function playGamesBridge(): PlayGamesBridge | null {
+  const cap = capacitor();
+  const service = onlineService();
+  if (!cap || !service) return null;
+  return (service === 'gamecenter' ? cap.Plugins?.GameCenter : cap.Plugins?.PlayGames) ?? null;
 }
 
 export function createOnline(opts: OnlineOptions): Online {

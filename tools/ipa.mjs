@@ -273,7 +273,9 @@ function verify(app, appPath, info) {
   if (!existsSync(appPath)) fail(`built app not found at ${relative(ROOT, appPath)}`);
   const p = plistJson(join(appPath, 'Info.plist'));
   const problems = [];
-  const want = (k, v) => JSON.stringify(p[k]) !== JSON.stringify(v) && problems.push(`Info.plist ${k} = ${JSON.stringify(p[k])}, want ${JSON.stringify(v)}`);
+  // key order does not matter (plutil writes dictionaries sorted)
+  const canon = (v) => JSON.stringify(v, (_, x) => (x && typeof x === 'object' && !Array.isArray(x) ? Object.fromEntries(Object.entries(x).sort()) : x));
+  const want = (k, v) => canon(p[k]) !== canon(v) && problems.push(`Info.plist ${k} = ${JSON.stringify(p[k])}, want ${JSON.stringify(v)}`);
   want('CFBundleIdentifier', app.bundleId);
   want('CFBundleShortVersionString', app.version);
   want('CFBundleVersion', String(info.build));

@@ -67,7 +67,7 @@ const TEST_KEY = {
  * XML namespaces Phaser uses to create DOM/SVG nodes, and Phaser's console banner link
  * (the banner is disabled by core: `banner: false`). Anything else fails the build.
  */
-const ALLOWED_URLS = new Set(['http://www.w3.org/2000/svg', 'http://www.w3.org/1999/xhtml', 'https://phaser.io', 'https://phaser.io/']);
+const ALLOWED_URLS = new Set(['http://www.w3.org/2000/svg', 'http://www.w3.org/1999/xhtml', 'https://phaser.io', 'https://phaser.io/', ...['fosil', 'kivilcim', 'okcu'].map((s) => `https://oyunlar.carsihani.me/gizlilik/${s}/`)]);
 
 const t0 = Date.now();
 const step = (msg) => console.log(`\n=== ${msg}`);

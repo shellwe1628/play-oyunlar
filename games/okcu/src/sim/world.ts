@@ -706,13 +706,13 @@ export function createWorld(opts: WorldOptions): World {
   } as unknown as World;
   w.layoutRot = w.waveRng.int(0, 2);
   if (w.stats.starterCard) {
-    const [card] = drawOffer(w.cardRng, [], 1);
+    const [card] = drawOffer(w.cardRng, [], 1, Infinity, w.stats.weapon);
     if (card) w.cards.push(card);
   }
   if (w.mod === 'fire') w.cards.push('fire');
   // chapter select: a fair hand for the chapters skipped, drafted from real offers
   for (let i = 0; i < w.startChapter * DRAFT_PER_CHAPTER; i++) {
-    const offer = drawOffer(w.cardRng, w.cards, 3, Math.floor(i / DRAFT_PER_CHAPTER));
+    const offer = drawOffer(w.cardRng, w.cards, 3, Math.floor(i / DRAFT_PER_CHAPTER), w.stats.weapon);
     if (offer.length === 0) break;
     w.cards.push(offer[draftPick(offer)]!);
   }
@@ -984,7 +984,8 @@ function fireVolley(w: World, angle: number, power: number, first: boolean): voi
     ar.pierce = w.stats.pierce + (focus ? 1 : 0);
     if (ar.kind === 'spear') ar.life = SPEAR_LIFE;
     if (ar.kind === 'boomerang') ar.turnT = BOOM.turnBase + BOOM.turnPower * clamp(power, 0, 1);
-    ar.bounces = w.stats.bounces;
+    // a rocket always bursts on contact: it never bounces, whatever cards are held
+    ar.bounces = ar.kind === 'rocket' ? 0 : w.stats.bounces;
     ar.seek = w.stats.seek > 0 && (k === 0 || w.stats.swarm);
     ar.over = over;
     ar.focus = focus;
@@ -1093,14 +1094,14 @@ export function pickCard(w: World, index: number): boolean {
 export function reroll(w: World): boolean {
   if (w.phase !== 'cards' || w.rerollsLeft <= 0) return false;
   w.rerollsLeft -= 1;
-  w.offer = drawOffer(w.cardRng, w.cards, w.offer.length, pickChapter(w));
+  w.offer = drawOffer(w.cardRng, w.cards, w.offer.length, pickChapter(w), w.stats.weapon);
   return true;
 }
 
 /** Rewarded: one more card to choose from (once per pick). */
 export function addExtraCard(w: World): boolean {
   if (w.phase !== 'cards' || w.offerExtra) return false;
-  const more = drawOffer(w.cardRng, [...w.cards, ...w.offer.flatMap((c) => Array<CardId>(9).fill(c))], 1, pickChapter(w));
+  const more = drawOffer(w.cardRng, [...w.cards, ...w.offer.flatMap((c) => Array<CardId>(9).fill(c))], 1, pickChapter(w), w.stats.weapon);
   if (more.length === 0) return false;
   w.offer.push(more[0]!);
   w.offerExtra = true;
@@ -1270,7 +1271,7 @@ function openCards(w: World): void {
   w.bonus = null;
   for (const t of w.targets) t.active = false;
   w.offerExtra = false;
-  w.offer = drawOffer(w.cardRng, w.cards, n, pickChapter(w));
+  w.offer = drawOffer(w.cardRng, w.cards, n, pickChapter(w), w.stats.weapon);
   if (w.offer.length === 0) {
     // every card is maxed out: straight on to the next wave
     w.phase = 'play';

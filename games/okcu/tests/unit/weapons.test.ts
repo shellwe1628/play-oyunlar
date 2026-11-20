@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { bowDamage } from '../../src/sim/bow';
 import { ENEMY_DAMAGE, HARD_HEAD_MUL } from '../../src/sim/combat';
-import { HARD_BOW_POW, statsFor } from '../../src/sim/cards';
+import { createRng } from '@oyun/core/pure';
+import { CARD_IDS, CARD_WEAPONS, HARD_BOW_POW, cardFits, drawOffer, statsFor, type CardId } from '../../src/sim/cards';
 import { NO_META } from '../../src/sim/meta';
 import { velX } from '../../src/sim/body';
 import { TUNING } from '../../src/sim/tuning';
@@ -779,5 +780,83 @@ describe('firework rocket', () => {
       for (const ev of takeEvents(w)) if (ev.t === 'blast') blasts++;
     }
     expect(blasts).toBe(0);
+  });
+});
+
+describe('cards per weapon', () => {
+  const hardMeta = (weapon: (typeof WEAPON_IDS)[number]) => ({ ...NO_META, weapon, wlevel: 1 });
+
+  it('offers respect weapon', () => {
+    for (const weapon of WEAPON_IDS) {
+      const seen = new Set<CardId>();
+      for (let seed = 1; seed <= 500; seed++) {
+        const rng = createRng(seed);
+        // a hand of a few random cards, then a treasure-sized offer
+        const held = drawOffer(rng, [], seed % 5, Infinity, weapon);
+        const offer = drawOffer(rng, held, 4, Infinity, weapon);
+        expect(offer.length).toBe(4);
+        for (const c of [...held, ...offer]) {
+          expect(cardFits(c, weapon), `${c} offered for ${weapon}`).toBe(true);
+          seen.add(c);
+        }
+      }
+      // nothing that fits is left out of the pool
+      for (const c of CARD_IDS) expect(seen.has(c), `${c} for ${weapon}`).toBe(cardFits(c, weapon));
+    }
+  });
+
+  it('the bow fits every card and draws exactly as before', () => {
+    for (const c of CARD_IDS) expect(cardFits(c, 'bow')).toBe(true);
+    for (let seed = 1; seed <= 200; seed++) {
+      const a = createRng(seed);
+      const b = createRng(seed);
+      expect(drawOffer(a, ['heavy'], 3, seed % 7, 'bow')).toEqual(drawOffer(b, ['heavy'], 3, seed % 7));
+    }
+  });
+
+  it('the table: rockets get no split, double, seeker, bounce, blast; boomerangs no overdraw, bounce, pierce, seeker', () => {
+    for (const c of ['split', 'double', 'seeker', 'bounce', 'blast', 'pierce', 'longsight'] as const) expect(cardFits(c, 'firework')).toBe(false);
+    for (const c of ['overdraw', 'bounce', 'pierce', 'seeker'] as const) expect(cardFits(c, 'boomerang')).toBe(false);
+    expect(cardFits('bounce', 'sling')).toBe(true);
+    expect(cardFits('blast', 'boomerang')).toBe(true);
+    // CARD_WEAPONS never lists the bow out
+    for (const ws of Object.values(CARD_WEAPONS)) expect(ws).toContain('bow');
+  });
+
+  it('a held card that does not fit leaves the hard stats unchanged', () => {
+    for (const weapon of WEAPON_IDS) {
+      const meta = hardMeta(weapon);
+      const base = statsFor(['heavy', 'keen'], meta, 'hard');
+      for (const c of CARD_IDS) {
+        if (cardFits(c, weapon)) continue;
+        expect(statsFor(['heavy', 'keen', c, c], meta, 'hard'), `${c} on ${weapon}`).toEqual(base);
+      }
+    }
+    // the card still works where it fits
+    expect(statsFor(['bounce'], hardMeta('sling'), 'hard').bounces).toBe(statsFor([], hardMeta('sling'), 'hard').bounces + 1);
+    // classic is always the bow: every card counts
+    expect(statsFor(['bounce'], hardMeta('firework')).bounces).toBe(1);
+  });
+
+  it('a rocket never bounces even with bounce cards held', () => {
+    const w = createWorld({ seed: 4, meta: hardMeta('firework'), difficulty: 'hard' });
+    w.cards.push('bounce', 'bounce', 'blast');
+    w.stats = statsFor(w.cards, w.meta, 'hard');
+    expect(w.stats.bounces).toBe(0);
+    expect(w.stats.blastShare).toBe(0);
+    expect(shoot(w, -0.2, 0.8)).toBe(true);
+    const r = w.arrows.find((x) => x.active && x.owner === 'player')!;
+    expect(r.kind).toBe('rocket');
+    expect(r.bounces).toBe(0);
+  });
+
+  it('chapter-select drafts and the starter card only hold fitting cards', () => {
+    for (const weapon of WEAPON_IDS) {
+      for (let seed = 1; seed <= 40; seed++) {
+        const w = createWorld({ seed, meta: { ...hardMeta(weapon), starter: 1 }, difficulty: 'hard', startChapter: 1 + (seed % 5) });
+        expect(w.cards.length).toBeGreaterThan(1);
+        for (const c of w.cards) expect(cardFits(c, weapon), `${c} drafted for ${weapon}`).toBe(true);
+      }
+    }
   });
 });

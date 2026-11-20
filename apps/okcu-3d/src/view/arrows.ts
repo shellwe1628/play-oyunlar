@@ -269,8 +269,8 @@ export function createArrows(stage: Stage): Module {
         }
         const flying = a.state === 0;
         const mine = a.owner === 'player';
-        const ax = a.kind === 'orb' ? 0 : w.wind;
-        const ay = a.kind === 'orb' ? 0 : TUNING.gravity;
+        const ax = a.kind === 'orb' ? 0 : w.wind * a.windMul;
+        const ay = a.kind === 'orb' ? 0 : TUNING.gravity * a.gravityMul;
         if (flying) {
           // a bounce, a pierce kick or a hard steer breaks the ballistic arc: restart the trail there
           const ex = a.vx - pvx[i]! - ax * dt;

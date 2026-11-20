@@ -34,6 +34,7 @@ import {
 } from '@oyun/core/pure';
 import { CAREFUL, planShot } from '@sim/aimbot';
 import { BOW_MAX } from '@sim/bow';
+import { levelForBow } from '@sim/weapons';
 import { metaOf, newBank, NO_META, UPGRADES } from '@sim/meta';
 import { dailyChallenge } from '@sim/progress';
 import type { Difficulty } from '@sim/waves';
@@ -127,7 +128,10 @@ function newWorld(seed: number): World {
   const daily = mode.daily;
   const key = todayKey();
   const meta = daily ? { ...NO_META } : metaOf(d);
-  if (params.has('bow')) meta.bow = Math.max(0, Math.min(BOW_MAX, Math.round(num('bow', 0))));
+  if (params.has('bow')) {
+    meta.bow = Math.max(0, Math.min(BOW_MAX, Math.round(num('bow', 0))));
+    meta.wlevel = levelForBow(meta.bow); // hard reads the weapon level, not the old bow
+  }
   if (params.has('armor')) meta.hp = Math.max(0, Math.min(UPGRADES.hp.max, Math.round(num('armor', 0))));
   chapterPick = Math.max(0, Math.min(d.chapter, chapterPick));
   const startChapter = params.has('chapter') ? Math.round(num('chapter', 0)) : daily ? 0 : chapterPick;

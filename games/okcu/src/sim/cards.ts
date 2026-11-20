@@ -1,6 +1,7 @@
 /** In-run upgrade cards, their synergies and the stats they produce (pure). */
 import type { Rng } from '@oyun/core/pure';
 import { bowDamage } from './bow';
+import { WEAPONS, weaponDamage, weaponPerks, type Projectile, type WeaponId } from './weapons';
 import { UPGRADE_EFFECT, type MetaLevels } from './meta';
 import { TUNING } from './tuning';
 import type { Difficulty } from './waves';
@@ -80,6 +81,12 @@ export function synergyFor(held: readonly CardId[], card: CardId): SynergyId | n
 }
 
 export interface PlayerStats {
+  /** hard: the selected weapon (classic is always the bow) and what it shoots */
+  weapon: WeaponId;
+  projectile: Projectile;
+  gravityMul: number;
+  speedMul: number;
+  headMul: number;
   dmgMul: number;
   impulseMul: number;
   /** arrows per shot, fired 0.12 s apart */
@@ -151,16 +158,23 @@ export function statsFor(cards: readonly CardId[], meta: MetaLevels, d: Difficul
   const fire = n('fire');
   const syn = activeSynergies(cards);
   const hawk = syn.includes('hawk');
+  const wd = hard ? WEAPONS[meta.weapon] : WEAPONS.bow;
+  const perks = hard ? weaponPerks(meta.weapon, meta.wlevel) : weaponPerks('bow', 1);
   return {
-    dmgMul: hard ? (1 + 0.2 * n('heavy')) * bowDamage(meta.bow) ** HARD_BOW_POW : 1.3 ** n('heavy') * bowDamage(meta.bow),
+    weapon: wd.id,
+    projectile: wd.projectile,
+    gravityMul: wd.gravityMul,
+    speedMul: wd.speedMul,
+    headMul: wd.headMul,
+    dmgMul: hard ? (1 + 0.2 * n('heavy')) * weaponDamage(meta.wlevel) ** HARD_BOW_POW * wd.dmgMul : 1.3 ** n('heavy') * bowDamage(meta.bow),
     impulseMul: hard ? 1 + 0.22 * n('heavy') : 1.35 ** n('heavy'),
     volleys: 1 + n('double'),
     splitPairs: n('split'),
     fireDps: fire > 0 ? 8 + 6 * fire : 0,
     fireTime: fire > 0 ? 2.5 + 0.5 * fire : 0,
-    bounces: n('bounce'),
-    pierce: n('pierce'),
-    reload: TUNING.reload * 0.72 ** n('quick'),
+    bounces: n('bounce') + (hard ? perks.bounces : 0),
+    pierce: n('pierce') + (hard ? perks.pierce : 0),
+    reload: TUNING.reload * 0.72 ** n('quick') * (hard ? wd.reloadMul * perks.reloadMul : 1),
     maxHp: TUNING.playerMaxHp + 25 * n('vitality') + UPGRADE_EFFECT.hp * meta.hp,
     appleHealMul: 1 + 0.6 * n('magnet'),
     appleRadiusMul: 1 + 1.1 * n('magnet'),

@@ -1,14 +1,18 @@
 /** Between-run progress: permanent upgrades, the bow, coins, cosmetics (pure). Stored by src/save.ts. */
 import { freshBow, type BowState } from './bow';
 import { CHAPTERS } from './chapters';
+import type { WeaponId } from './weapons';
 
 /** Shop upgrades. Damage is not one of them any more: the forged bow is the one damage track. */
 export const UPGRADE_IDS = ['hp', 'coins', 'reroll', 'starter'] as const;
 export type UpgradeId = (typeof UPGRADE_IDS)[number];
-/** What a run is created with: shop levels plus the bow's enhancement level. */
-export type MetaLevels = Record<UpgradeId, number> & { bow: number };
+/**
+ * What a run is created with: shop levels, the old bow's enhancement level (classic only) and the
+ * selected weapon with its level (hard, the 3D build).
+ */
+export type MetaLevels = Record<UpgradeId, number> & { bow: number; weapon: WeaponId; wlevel: number };
 
-export const NO_META: MetaLevels = { hp: 0, coins: 0, reroll: 0, starter: 0, bow: 0 };
+export const NO_META: MetaLevels = { hp: 0, coins: 0, reroll: 0, starter: 0, bow: 0, weapon: 'bow', wlevel: 1 };
 
 /** cost(level) = round(base × growth^level) until max. */
 export const UPGRADES: Record<UpgradeId, { max: number; base: number; growth: number }> = {
@@ -151,7 +155,7 @@ export function freshSave(): SaveData {
 
 /** The levels a normal run is created with (the daily ignores all of them). */
 export function metaOf(save: SaveData): MetaLevels {
-  return { ...save.upgrades, bow: save.bow.level };
+  return { ...save.upgrades, bow: save.bow.level, weapon: 'bow', wlevel: 1 };
 }
 
 export function buyUpgrade(save: SaveData, id: UpgradeId): boolean {

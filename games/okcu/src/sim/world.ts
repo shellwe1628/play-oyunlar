@@ -19,7 +19,7 @@ import type { DailyMod, RunSummary } from './progress';
 import { BOSS_PARTS, bowOrigin, createRagdoll, LEG_HEIGHT, PARTS, PT, setPose, type Part } from './ragdoll';
 import { PLAYER_LEDGE, PLAYER_SCALE, PLAYER_X, TUNING } from './tuning';
 import { bossHp, enemyAccuracy, enemyDamageMul, enemyHp, enemyScale, enemyTiming, enemyWeight, graceStep, HARD_COIN_MUL, helmetChance, waveGrace, type Difficulty } from './waves';
-import { bowDamage } from './bow';
+import { WEAPONS, weaponDamage } from './weapons';
 
 export type Phase = 'title' | 'play' | 'clear' | 'bonus' | 'cards' | 'dying' | 'over';
 export type ArcherType = EnemyType | 'player';
@@ -101,7 +101,10 @@ export interface Archer {
 export interface Arrow {
   active: boolean;
   owner: 'player' | 'enemy';
-  kind: 'arrow' | 'bomb' | 'orb';
+  kind: 'arrow' | 'bomb' | 'orb' | 'bolt' | 'spear' | 'boomerang' | 'pebble' | 'rocket';
+  /** gravity and wind scale (1 for everything but some weapons' projectiles) */
+  gravityMul: number;
+  windMul: number;
   /** 0 flying, 1 stuck in a ledge, 2 stuck in a body, 3 stuck in a shield */
   state: 0 | 1 | 2 | 3;
   x: number;
@@ -463,6 +466,8 @@ function newArrow(): Arrow {
     active: false,
     owner: 'player',
     kind: 'arrow',
+    gravityMul: 1,
+    windMul: 1,
     state: 0,
     x: 0,
     y: 0,
@@ -943,21 +948,23 @@ export function shoot(w: World, angle: number, power: number): boolean {
 }
 
 function fireVolley(w: World, angle: number, power: number, first: boolean): void {
-  const speed = arrowSpeed(power);
+  const speed = arrowSpeed(power) * w.stats.speedMul;
   const pairs = w.stats.splitPairs;
   const over = power >= OVERDRAW_POWER && w.stats.overdraw > 1;
   const focus = w.focusT > 0;
   for (let k = -pairs; k <= pairs; k++) {
     const ang = angle + k * 0.065;
     const o = playerOrigin(w, angle);
-    const ar = spawnArrow(w, 'player', 'arrow', o.x, o.y, Math.cos(ang) * speed, Math.sin(ang) * speed);
+    const ar = spawnArrow(w, 'player', w.stats.projectile, o.x, o.y, Math.cos(ang) * speed, Math.sin(ang) * speed);
     if (!ar) continue;
     // hard: extra arrows (split's side arrows, double's later volleys) hit for a share, so the
     // run's cards widen the shot without multiplying its damage four to six times
     const extra = w.difficulty === 'hard' ? (k !== 0 ? HARD_SIDE_ARROW : 1) * (first ? 1 : HARD_EXTRA_VOLLEY) : 1;
+    ar.gravityMul = w.stats.gravityMul;
+    ar.windMul = WEAPONS[w.stats.weapon].windMul;
     ar.dmgMul = w.stats.dmgMul * (over ? w.stats.overdraw : 1) * (focus ? FX.focusDmg : 1) * extra;
     // hard: the forged bow pushes as well as it hurts (a stronger bow sends archers flying)
-    ar.impulseMul = w.stats.impulseMul * (over && w.stats.siege ? 1.5 : 1) * (w.difficulty === 'hard' ? bowDamage(w.meta.bow) : 1);
+    ar.impulseMul = w.stats.impulseMul * (over && w.stats.siege ? 1.5 : 1) * (w.difficulty === 'hard' ? weaponDamage(w.meta.wlevel) * WEAPONS[w.stats.weapon].impulseMul : 1);
     ar.fire = w.stats.fireDps > 0;
     ar.frost = w.stats.frostTime > 0;
     ar.blast = w.stats.blastShare > 0;
@@ -1000,7 +1007,9 @@ function spawnArrow(w: World, owner: 'player' | 'enemy', kind: Arrow['kind'], x:
   a.vy = vy;
   a.angle = Math.atan2(vy, vx);
   a.age = 0;
-  a.life = kind === 'arrow' ? 5 : 6;
+  a.gravityMul = 1;
+  a.windMul = 1;
+  a.life = kind === 'arrow' || owner === 'player' ? 5 : 6;
   a.dmgMul = 1;
   a.impulseMul = 1;
   a.fire = false;
@@ -2317,10 +2326,11 @@ function updateArrows(w: World): void {
       a.y += a.vy * DT;
     } else {
       if (a.seek) steer(w, a);
-      flyArrow(a, DT, TUNING.gravity);
+      flyArrow(a, DT, TUNING.gravity * a.gravityMul);
       if (w.wind !== 0) {
-        a.x += 0.5 * w.wind * DT * DT;
-        a.vx += w.wind * DT;
+        const wind = w.wind * a.windMul;
+        a.x += 0.5 * wind * DT * DT;
+        a.vx += wind * DT;
       }
     }
     a.angle = Math.atan2(a.vy, a.vx);
@@ -2588,7 +2598,7 @@ function hitEnemy(w: World, a: Arrow, e: Archer, part: Part, hx: number, hy: num
   const crit = w.critRng.chance(w.stats.crit + (a.focus ? FX.focusCrit : 0));
   // the first chapter's boss relies on its shields, not its armour: body hits count four times
   const armourK = e.bossKind === 'shields' && part.kind !== 'weak' ? 4 : 1;
-  const out = resolveHit(e.type, part.kind, a.dmgMul * (crit ? w.stats.critMul : 1) * armourK, e.helmet, w.difficulty === 'hard');
+  const out = resolveHit(e.type, part.kind, a.dmgMul * (part.kind === 'head' && a.owner === 'player' ? w.stats.headMul : 1) * (crit ? w.stats.critMul : 1) * armourK, e.helmet, w.difficulty === 'hard');
   if (crit) w.run.crits += 1;
   e.hurt = 0;
   e.body.muscle = Math.min(e.body.muscle, e.type === 'boss' ? 0.35 : TUNING.hitMuscle);

@@ -73,6 +73,7 @@ export function bowEquivalent(level: number): number {
   return n;
 }
 
+/** `pierce` / `bounces` are absolute totals (base included); the multipliers are perk-only (times WEAPONS[id].reloadMul etc.). */
 export interface WeaponPerks {
   pierce: number;
   bounces: number;

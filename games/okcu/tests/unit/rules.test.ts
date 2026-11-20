@@ -144,7 +144,7 @@ describe('permanent upgrades', () => {
     expect(buyUpgrade(s, 'reroll')).toBe(false);
   });
   it('effects: start health, the bow\'s damage, coin gain, rerolls, starting card', () => {
-    const lv = { hp: 2, coins: 1, reroll: 1, starter: 1, bow: 3 };
+    const lv = { hp: 2, coins: 1, reroll: 1, starter: 1, bow: 3, weapon: 'bow' as const, wlevel: 1 };
     const s = statsFor([], lv);
     expect(s.maxHp).toBe(130);
     expect(s.dmgMul).toBeCloseTo(1.24);

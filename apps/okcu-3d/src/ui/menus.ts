@@ -146,6 +146,7 @@ function drawGlow(g: Gfx, x: number, y: number, size: number, level: number, tim
 const bowDamage = (level: number): number => baseBowDamage(level) ** HARD_BOW_POW;
 
 export type From = 'title' | 'result' | 'shop';
+export type ShopTab = 'upgrades' | 'looks';
 
 interface Screen {
   root: HTMLElement;
@@ -158,7 +159,8 @@ export interface Menus {
   readonly open: boolean;
   readonly pauseOpen: boolean;
   readonly ceremonyOpen: boolean;
-  openShop(from: From): void;
+  /** the shop, on its upgrades tab or straight on the looks (cosmetics) tab */
+  openShop(from: From, tab?: ShopTab): void;
   openForge(from: From): void;
   openRanks(from: From): void;
   openPause(): void;
@@ -234,7 +236,7 @@ export function createMenus(ui: Ui, parent: HTMLElement, hooks: MenuHooks): Menu
 
   // ---------------------------------------------------------------- shop (ShopScene)
 
-  function shop(from: From): Screen {
+  function shop(from: From, startTab: ShopTab = 'upgrades'): Screen {
     const root = screenRoot(parent, rgba(PALETTE.ink, 0.45));
     const labels: Label[] = [];
     const L = (l: Label): Label => {
@@ -406,7 +408,7 @@ export function createMenus(ui: Ui, parent: HTMLElement, hooks: MenuHooks): Menu
       refresh();
     }
 
-    setTab('upgrades');
+    setTab(startTab);
     return {
       root,
       update(real) {
@@ -953,8 +955,8 @@ export function createMenus(ui: Ui, parent: HTMLElement, hooks: MenuHooks): Menu
     get ceremonyOpen() {
       return ceremony !== null;
     },
-    openShop(from) {
-      swap(shop(from));
+    openShop(from, tab) {
+      swap(shop(from, tab));
     },
     openForge(from) {
       swap(forge(from));

@@ -1,24 +1,23 @@
 /**
- * The overlays: title (GameScene.buildTitle), card pick (GameScene.openCards / buildCardFaces /
+ * The overlays (the main menu is ./title.ts): card pick (GameScene.openCards / buildCardFaces /
  * onPickCard / onExtra) and the result card (core ResultScene shell + games/okcu ResultScene
  * lines, revive and double coins). Same positions, sizes, colours and timings as the 2D game, in
  * its logical px. The rewarded buttons (▶ AD) go through `Ui.rewarded` (the platform adapter).
  */
 import type { Audio } from '@oyun/core/pure';
-import { drawBadge, drawBowItem } from '@okcu/scenes/gear';
-import { drawCardIcon, drawCoin } from '@okcu/scenes/icons';
+import { drawBadge } from '@okcu/scenes/gear';
+import { drawCardIcon } from '@okcu/scenes/icons';
 import { SFX } from '@okcu/sfx';
 import { PALETTE } from '@okcu/textures';
 import { bowTier } from '@sim/bow';
 import { countCards, synergyFor, type CardId, type SynergyId } from '@sim/cards';
 import { CHAPTERS } from '@sim/chapters';
-import { dailyChallenge, liveStreak, progressScore, RANKS, rankOf } from '@sim/progress';
+import { progressScore, RANKS, rankOf } from '@sim/progress';
 import type { World } from '@sim/world';
 import type { Game, Stage } from '../contract';
-import { button, EASE, el, Label, menuTile, pressable, roundButton, Sketch, type ButtonHandle } from './dom';
-import { Gfx, rgba } from './gfx';
+import { button, EASE, el, Label, pressable, roundButton, Sketch, type ButtonHandle } from './dom';
+import { Gfx } from './gfx';
 import type { RunResult } from './progress';
-import { todayKey } from './save';
 
 export type T = (key: string, params?: Readonly<Record<string, string | number>>) => string;
 
@@ -35,213 +34,14 @@ export interface Ui {
    * the neutral core.noAd notice shows. The caller checks that its screen is still up before granting.
    */
   rewarded: (placement: string) => Promise<boolean>;
+  /**
+   * The part of the logical 720 × 1280 frame really on screen, inside the safe areas: tall phones
+   * show more than 1280 (top < 0, bottom > 1280), a notch or a home bar shows less.
+   */
+  view?: () => { top: number; bottom: number };
 }
 
 const CX = 360;
-
-// ---------------------------------------------------------------------------- title
-
-export interface TitleScreen {
-  readonly shown: boolean;
-  show(w: World): void;
-  hide(): void;
-  /** a tap instead of a drag: the hint jumps */
-  nudge(): void;
-  clear(): void;
-}
-
-/** The title's buttons (GameScene.buildTitle): upgrades, forge, ranks; daily; the chapter select. */
-export interface TitleHooks {
-  shop: () => void;
-  forge: () => void;
-  ranks: () => void;
-  daily: () => void;
-  chapter: () => void;
-}
-
-export function createTitle(ui: Ui, parent: HTMLElement, hooks: TitleHooks): TitleScreen {
-  let root: HTMLElement | null = null;
-  let hint: Label | null = null;
-  let labels: Label[] = [];
-  let buttons: ButtonHandle[] = [];
-  let boing = 0;
-  let pulse: Animation | null = null;
-
-  function drop(): void {
-    window.clearInterval(boing);
-    for (const l of labels) l.destroy();
-    labels = [];
-    buttons = [];
-    hint = null;
-    pulse = null;
-    root?.remove();
-    root = null;
-  }
-
-  const startPulse = (): void => {
-    if (!hint) return;
-    pulse = hint.el.animate([{ transform: 'scale(1)' }, { transform: 'scale(1.07)' }], { duration: 520, direction: 'alternate', iterations: Infinity, easing: EASE.sine });
-  };
-
-  return {
-    get shown() {
-      return root !== null;
-    },
-    show(w) {
-      drop();
-      const t = ui.t;
-      const quick = ui.game.quick;
-      const save = ui.game.save.data;
-      const daily = ui.game.daily;
-      root = el('div', 'ok-group', parent);
-      const logoY = quick ? 230 : 262;
-      if (!quick) {
-        const box = el('div', 'ok-anchor', root);
-        box.style.left = `${CX}px`;
-        box.style.top = `${logoY}px`;
-        const logo = new Label(box, 0, 0, t('title.name'), { size: 68, color: PALETTE.cream, wrap: 690, stroke: 18, shadowY: 10 });
-        labels.push(logo);
-        // living detail: an arrow stuck in the last letter that boings every few seconds
-        const arrow = el('canvas', '', box);
-        const px = 3;
-        arrow.width = 150 * px;
-        arrow.height = 130 * px;
-        const ax = logo.width / 2 - 70;
-        const ay = -logo.height / 2 + 22;
-        arrow.style.cssText = `width:150px;height:130px;left:${ax - 30}px;top:${ay - 100}px;transform-origin:30px 100px`;
-        const g = new Gfx(arrow.getContext('2d')!);
-        g.ctx.setTransform(px * 1.3, 0, 0, px * 1.3, 30 * px, 100 * px);
-        g.lineStyle(9, PALETTE.ink, 1).lineBetween(0, 0, 54, -40);
-        g.lineStyle(5, PALETTE.shaftLight, 1).lineBetween(0, 0, 54, -40);
-        g.fillStyle(PALETTE.ink, 1).fillTriangle(42, -40, 60, -27, 64, -56);
-        g.fillStyle(PALETTE.fletch, 1).fillTriangle(45, -39, 58, -30, 61, -51);
-        box.animate([{ transform: 'rotate(-2.5deg)' }, { transform: 'rotate(2.5deg)' }], { duration: 1100, direction: 'alternate', iterations: Infinity, easing: EASE.sine });
-        boing = window.setInterval(() => {
-          arrow.animate([{ transform: 'rotate(-14deg)' }, { transform: 'rotate(7deg)', offset: 0.3 }, { transform: 'rotate(-3deg)', offset: 0.55 }, { transform: 'rotate(1deg)', offset: 0.78 }, { transform: 'rotate(0deg)' }], { duration: 700, easing: 'ease-out' });
-        }, 3200);
-        logo.el.animate([{ transform: 'scale(1.25)' }, { transform: 'scale(1)' }], { duration: 500, easing: EASE.backOut });
-      }
-      const subY = logoY + (quick ? 0 : 96);
-      if (daily) {
-        // the daily state is spelled out: whose seed, that upgrades are off, today's goal
-        const key = todayKey();
-        const ch = dailyChallenge(key);
-        const panel = el('div', '', root);
-        panel.style.cssText = `position:absolute;left:${CX - 330}px;top:${subY - 34}px;width:660px;height:178px;border-radius:26px;background:${rgba(PALETTE.ink, 0.72)}`;
-        labels.push(new Label(root, CX, subY, t('title.dailyOn', { d: key }), { size: 36, color: PALETTE.gold }));
-        labels.push(new Label(root, CX, subY + 50, t('title.dailyGoal', { n: ch.goal, m: t(`mod.${ch.mod}`) }), { size: 30, color: PALETTE.cream, wrap: 620 }));
-        // one line, shrunk to fit (wrapped, the Turkish line ran into the hint below the panel)
-        const info = new Label(root, CX, subY + 100, `${t('title.dailyInfo')} · ${t('title.dailyStreak', { n: liveStreak(save, key) })}`, { size: 26, color: PALETTE.cream });
-        if (info.width > 630) info.setScale(630 / info.width);
-        labels.push(info);
-      } else {
-        // rank badge + rank and bow, the player's standing at a glance
-        const r = rankOf(progressScore(save).total);
-        const level = ui.game.bowLevel;
-        const tl = new Label(root, CX + 28, subY, `${t(`rank.${RANKS[r]!.id}`)} · ${t('bow.name', { name: t(`bow.${bowTier(level)}`), n: level })}`, { size: 34, color: PALETTE.gold, stroke: 10 });
-        labels.push(tl);
-        const bx = CX + 28 - tl.width / 2 - 14;
-        const badge = new Sketch(root, bx - 40, subY - 40, 80, 80);
-        drawBadge(badge.begin().phaser, bx, subY, 22, r, 0);
-        // the best wave and, beside it, the coins in the bank (the 2D title shows them only in the shop)
-        const best = save.best > 0 ? t('title.best', { n: save.best }) : '';
-        const coins = String(save.coins);
-        const bestL = new Label(root, CX, subY + 46, best, { size: 30, color: PALETTE.cream, stroke: 8 });
-        labels.push(bestL);
-        if (save.coins > 0 || save.runs > 0) {
-          const coinL = new Label(root, 0, subY + 46, coins, { size: 30, color: PALETTE.coin, stroke: 8, originX: 0 });
-          labels.push(coinL);
-          const gap = best ? 34 : 0;
-          const total = bestL.width + gap + 34 + coinL.width;
-          const x0 = CX - total / 2;
-          bestL.setPos(x0 + bestL.width / 2, subY + 46);
-          const cx = x0 + bestL.width + gap + 14;
-          const coin = new Sketch(root, cx - 20, subY + 26, 40, 40);
-          drawCoin(coin.begin().phaser, cx, subY + 46, 14);
-          coinL.setPos(cx + 20, subY + 46);
-        }
-        if (w.startChapter > 0) labels.push(new Label(root, CX, subY + 84, t('title.hand', { n: w.cards.length }), { size: 28, color: PALETTE.cream, stroke: 8 }));
-      }
-      // the hint, kept above the highest spot the first archer can stand (its head is never above y ≈ 520)
-      const hintY = Math.min(subY + (daily ? 200 : w.startChapter > 0 ? 136 : 100), 500);
-      hint = new Label(root, CX, hintY, t('title.drag'), { size: 50, color: PALETTE.white, wrap: 640, stroke: 14 });
-      labels.push(hint);
-      startPulse();
-      // one menu bar of equal icon tiles: upgrades, forge, ranks, daily (sound is the HUD's corner
-      // button to the right); under it, when there is a choice, the chapter select as one wide pill
-      const row = 74;
-      const tw = 136;
-      const th = 128;
-      const tx = (i: number): number => 22 + tw / 2 + i * (tw + 10);
-      const tap = (fn: () => void) => () => {
-        ui.audio.play('tap');
-        fn();
-      };
-      const rank = rankOf(progressScore(save).total);
-      buttons.push(menuTile(root, tx(0), row, tw, th, t('title.shop'), (g, x, y) => drawUpgradeGlyph(g, x, y), ui.unlock, tap(hooks.shop), { testid: 'title-shop' }));
-      buttons.push(menuTile(root, tx(1), row, tw, th, t('title.forge'), (g, x, y) => drawBowItem(g.phaser, x, y, 30, ui.game.bowLevel, 0), ui.unlock, tap(hooks.forge), { primary: true, testid: 'title-forge' }));
-      buttons.push(menuTile(root, tx(2), row, tw, th, t('title.ranks'), (g, x, y) => drawBadge(g.phaser, x, y, 30, rank, 0), ui.unlock, tap(hooks.ranks), { testid: 'title-ranks' }));
-      buttons.push(menuTile(root, tx(3), row, tw, th, daily ? t('title.dailyExit') : t('title.daily'), (g, x, y) => drawCalendarGlyph(g, x, y, daily), ui.unlock, tap(hooks.daily), { testid: 'title-daily' }));
-      if (!daily && save.chapter > 0) {
-        const cw = 470;
-        const pill = button(root, CX, 180, `${t('title.chapterPick', { c: t(`chapter.${Math.min(CHAPTERS, ui.game.chapter)}`) })}  ▾`, ui.unlock, tap(hooks.chapter), { width: cw, height: 88, fontSize: 32, variant: 'secondary' });
-        pill.el.style.background = rgba(PALETTE.ink, 0.62);
-        pill.el.dataset.testid = 'title-chapter';
-        buttons.push(pill);
-      }
-      // the menu drops in one button after another (eased with an overshoot, 55 ms apart)
-      buttons.forEach((b, i) => b.el.animate([{ transform: 'translateY(-36px) scale(0.7)', opacity: 0 }, { transform: 'none', opacity: 1 }], { delay: 120 + i * 55, duration: 320, easing: EASE.backOut, fill: 'backwards' }));
-    },
-    hide() {
-      const r = root;
-      if (!r) return;
-      window.clearInterval(boing);
-      for (const b of buttons) b.setEnabled(false);
-      buttons = [];
-      const gone = labels;
-      labels = [];
-      hint = null;
-      root = null;
-      const a = r.animate([{ opacity: 1, transform: 'none' }, { opacity: 0, transform: 'translateY(-60px)' }], { duration: 260, easing: EASE.cubicIn, fill: 'forwards' });
-      a.onfinish = () => {
-        for (const l of gone) l.destroy();
-        r.remove();
-      };
-    },
-    nudge() {
-      if (!hint) return;
-      pulse?.cancel();
-      const a = hint.el.animate([{ transform: 'scale(1.35)' }, { transform: 'scale(1)' }], { duration: 420, easing: EASE.backOut });
-      a.onfinish = startPulse;
-    },
-    clear: drop,
-  };
-}
-
-/** The upgrades tile: a chunky green arrow pointing up over an ink disc. */
-function drawUpgradeGlyph(g: Gfx, x: number, y: number): void {
-  g.fillStyle(PALETTE.ink, 0.35).fillCircle(x, y, 34);
-  const arrow = (dx: number, dy: number, color: number): void => {
-    g.fillStyle(color, 1).fillTriangle(x - 26 + dx, y - 2 + dy, x + 26 + dx, y - 2 + dy, x + dx, y - 30 + dy);
-    g.fillRect(x - 11 + dx, y - 4 + dy, 22, 30);
-  };
-  arrow(0, 4, PALETTE.ink);
-  arrow(0, 0, 0x7cf29c);
-}
-
-/** The daily tile: a calendar page with its rings and today's mark (a cross-out back to normal). */
-function drawCalendarGlyph(g: Gfx, x: number, y: number, exit: boolean): void {
-  g.fillStyle(PALETTE.ink, 1).fillRoundedRect(x - 30, y - 26, 60, 58, 10);
-  g.fillStyle(0xffffff, 1).fillRoundedRect(x - 25, y - 21, 50, 48, 7);
-  g.fillStyle(PALETTE.danger, 1).fillRect(x - 25, y - 21, 50, 14);
-  g.fillStyle(PALETTE.ink, 1).fillRoundedRect(x - 17, y - 34, 8, 18, 4).fillRoundedRect(x + 9, y - 34, 8, 18, 4);
-  if (exit) {
-    g.lineStyle(7, PALETTE.ink, 1).lineBetween(x - 11, y - 1, x + 11, y + 19).lineBetween(x + 11, y - 1, x - 11, y + 19);
-  } else {
-    g.fillStyle(PALETTE.gold, 1).fillCircle(x, y + 9, 10);
-    g.lineStyle(3, PALETTE.ink, 1).strokeCircle(x, y + 9, 10);
-  }
-}
 
 // ---------------------------------------------------------------------------- cards
 

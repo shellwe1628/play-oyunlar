@@ -12,7 +12,6 @@
 import { CORE_STRINGS, createAudio, createI18n, pickLanguage, webStorage } from '@oyun/core/pure';
 import { DRAG_DEAD } from '@okcu/scenes/keys';
 import { SFX } from '@okcu/sfx';
-import { STRINGS } from '@okcu/strings';
 import { PALETTE } from '@okcu/textures';
 import { bowTier } from '@sim/bow';
 import { CHAPTERS, stageOf, STAGES } from '@sim/chapters';
@@ -24,14 +23,16 @@ import { css, rgba } from './gfx';
 import { createMenus } from './menus';
 import { createPainter, HUD, type PullState } from './paint';
 import { createTracker } from './progress';
-import { createCards, createResult, createTitle, type T, type Ui } from './screens';
+import { createCards, createResult, type T, type Ui } from './screens';
+import { APP_STRINGS } from './strings';
+import { createTitle } from './title';
 
 const CX = 360;
 
 export function createHud(stage: Stage, game: Game): Module {
   injectStyle();
   const params = new URLSearchParams(location.search);
-  const i18n = createI18n(STRINGS, pickLanguage(navigator.languages, params.get('lang')), { base: CORE_STRINGS, onMissing: (key) => console.warn(`[okcu-3d] missing string ${key}`) });
+  const i18n = createI18n(APP_STRINGS, pickLanguage(navigator.languages, params.get('lang')), { base: CORE_STRINGS, onMissing: (key) => console.warn(`[okcu-3d] missing string ${key}`) });
   const t: T = (key, p) => i18n.t(key as Parameters<typeof i18n.t>[0], p);
   const storage = webStorage();
   const audio = createAudio({ storage, key: 'oyun:okcu-3d:audio' });
@@ -60,7 +61,21 @@ export function createHud(stage: Stage, game: Game): Module {
     game.platform.track('reward_claimed', { placement });
     return true;
   }
-  const ui: Ui = { stage, game, layer, t, audio, unlock, rewarded };
+  // the safe areas (notch, home bar), read through CSS; ?safe=top,bottom fakes them in a browser
+  const safeProbe = el('div', '', document.body);
+  safeProbe.style.cssText = 'position:fixed;left:0;top:0;width:0;height:0;visibility:hidden;pointer-events:none;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)';
+  const fakeSafe = (params.get('safe') ?? '').split(',').map(Number);
+  /** the logical frame's rows really on screen, inside the safe areas (title layout) */
+  function view(): { top: number; bottom: number } {
+    const cs = getComputedStyle(safeProbe);
+    const st = Math.max(parseFloat(cs.paddingTop) || 0, fakeSafe[0] || 0);
+    const sb = Math.max(parseFloat(cs.paddingBottom) || 0, fakeSafe[1] || 0);
+    const r = stage.root.getBoundingClientRect();
+    const top = Math.max(0, st - r.top);
+    const bottom = r.height - Math.max(0, sb - (window.innerHeight - r.bottom));
+    return { top: (top - painter.oy) / painter.k, bottom: (bottom - painter.oy) / painter.k };
+  }
+  const ui: Ui = { stage, game, layer, t, audio, unlock, rewarded, view };
   const timers = new Timers();
 
   // ---- HUD texts (GameScene.buildHud, L.top = 0)
@@ -83,12 +98,7 @@ export function createHud(stage: Stage, game: Game): Module {
     e.stopPropagation();
     game.unleash();
   });
-  // top-right corner: sound on the title, pause in play (the 2D game's muteButton / pauseBtn)
-  const mute = roundButton(cornerGroup, HUD.cornerX, top, 96, audio.muted ? 'sound-off' : 'sound-on', unlock, () => {
-    const muted = audio.toggleMute();
-    mute.setIcon(muted ? 'sound-off' : 'sound-on');
-    if (!muted) audio.play('pop');
-  });
+  // top-right corner: pause in play (the 2D game's pauseBtn); the title has its own sound button
   const pauseBtn = roundButton(cornerGroup, HUD.cornerX, top, 96, 'pause', unlock, () => {
     audio.play('tap');
     openPause();
@@ -253,11 +263,16 @@ export function createHud(stage: Stage, game: Game): Module {
   // ---- screens
   const title = createTitle(ui, titleGroup, {
     shop: () => menus.openShop('title'),
+    looks: () => menus.openShop('title', 'looks'),
     forge: () => menus.openForge('title'),
     ranks: () => menus.openRanks('title'),
     daily: () => game.startRun({ daily: !game.daily }),
-    // chapter select: cycle through the chapters reached (and endless once unlocked)
-    chapter: () => game.startRun({ chapter: game.chapter >= game.save.data.chapter ? 0 : game.chapter + 1 }),
+    // chapter select: step through the chapters reached (and endless once unlocked), wrapping round
+    chapter: (dir) => {
+      const last = game.save.data.chapter;
+      const c = game.chapter + dir;
+      game.startRun({ chapter: c > last ? 0 : c < 0 ? last : c });
+    },
   });
   const cards = createCards(ui, cardGroup, clearTransients, (syn) => callout(t('cards.synergy', { s: t(`syn.${syn}`) }), PALETTE.focus, 56));
   const result = createResult(ui, resultGroup, {
@@ -748,7 +763,7 @@ export function createHud(stage: Stage, game: Game): Module {
   // labels measured before the web font arrived are redrawn (and the title re-laid out) once it is in
   const onFont = (): void => {
     rerenderLabels();
-    if (title.shown && world && world.phase === 'title') title.show(world);
+    if (title.shown && world && world.phase === 'title') title.relayout();
   };
   void document.fonts?.load(`800 40px "Nunito"`, 'AĞİŞÇÖÜ ağışçöü').then(onFont, () => undefined);
 
@@ -785,6 +800,8 @@ export function createHud(stage: Stage, game: Game): Module {
       if (painter.resize()) {
         layer.style.transform = `translate(${painter.ox}px, ${painter.oy}px) scale(${painter.k})`;
         setLabelRes(Math.min(3, window.devicePixelRatio || 1) * painter.k);
+        // the menu follows the screen's real edges
+        if (title.shown && w === world) title.relayout();
       }
       if (w !== world) resetRun(w);
       menus.update(real);
@@ -815,9 +832,8 @@ export function createHud(stage: Stage, game: Game): Module {
       // a menu screen replaces the title (the 2D game switches scenes)
       const vis = menus.open ? 'hidden' : '';
       if (titleGroup.style.visibility !== vis) titleGroup.style.visibility = vis;
-      // the corner: sound on the title, pause in play, nothing over the result or a menu
+      // the corner: pause in play, nothing on the title, over the result or a menu
       const phase = w.phase;
-      mute.el.style.display = phase === 'title' && !menus.open ? '' : 'none';
       pauseBtn.el.style.display = phase !== 'title' && phase !== 'over' && !menus.pauseOpen && !menus.open ? '' : 'none';
       // the HUD fades in with the first shot and out under the result card
       hudAlpha = w.phase === 'title' ? 0 : result.shown ? Math.max(0, hudAlpha - real / 0.2) : Math.min(1, hudAlpha + real / 0.3);
@@ -828,7 +844,7 @@ export function createHud(stage: Stage, game: Game): Module {
       // the coin sits left of the counter, clear of it even while the number pops
       const coinX = HUD.coinTextRight - coinText.width * (1 + painter.coinPopValue * 0.35) - 30;
       if (hudAlpha > 0) painter.hud(w, coinX, hudAlpha);
-      if (w.phase === 'title' && !pull && !menus.open) painter.thumbHint();
+      if (w.phase === 'title' && !pull && !menus.open && title.ready) painter.thumbHint();
       painter.coins(real, coinX);
       syncHud(w, real);
 

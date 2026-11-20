@@ -11,7 +11,7 @@ import * as THREE from 'three';
 import { PALETTE } from '@okcu/textures';
 import type { Archer } from '@sim/world';
 
-export type Hat = 'none' | 'band' | 'goggles' | 'horns' | 'leafcrown' | 'turban' | 'cap' | 'lantern' | 'plume' | 'imp' | 'ember' | 'halo';
+export type Hat = 'none' | 'band' | 'goggles' | 'horns' | 'leafcrown' | 'turban' | 'cap' | 'lantern' | 'plume' | 'imp' | 'ember' | 'halo' | 'wizard';
 
 export interface Look {
   /** cloth dye */
@@ -76,6 +76,10 @@ export function lookFor(a: Archer): Look {
       return { ...enemy, body: PALETTE.elite, accent: PALETTE.gold, hat: 'plume', bow: BOWS.gold, sash: true };
     case 'imp':
       return { ...enemy, body: PALETTE.imp, accent: PALETTE.pink, hat: 'imp', bow: BOWS.dark };
+    case 'volley':
+      return { ...enemy, body: PALETTE.volley, accent: PALETTE.volleyBand, hat: 'band', bow: BOWS.wood, sash: true };
+    case 'mage':
+      return { ...enemy, body: PALETTE.mage, accent: PALETTE.mageStar, hat: 'wizard', bow: BOWS.dark };
   }
 }
 

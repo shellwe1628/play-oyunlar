@@ -51,8 +51,8 @@ describe('damage and effect table', () => {
 describe('cards', () => {
   const base = statsFor([], NO_META);
   const one = (id: CardId, n = 1) => statsFor(Array<CardId>(n).fill(id), NO_META);
-  it('there are eighteen cards (six change how you play)', () => {
-    expect(CARD_IDS.length).toBe(18);
+  it('there are twenty cards (six change how you play, two new arrow heads)', () => {
+    expect(CARD_IDS.length).toBe(20);
   });
   it('every card changes something and stacks', () => {
     for (const id of CARD_IDS) {
@@ -305,7 +305,7 @@ describe('exact values (so a changed number fails a test)', () => {
     const one = (id: CardId, n = 1) => statsFor(Array<CardId>(n).fill(id), NO_META);
     expect(Object.fromEntries(CARD_IDS.map((id) => [id, CARDS[id].max]))).toEqual({
       heavy: 5, double: 2, split: 2, fire: 4, bounce: 3, pierce: 3, quick: 4, vitality: 6, magnet: 2, shield: 2, longsight: 2, vampire: 3,
-      seeker: 2, overdraw: 2, chain: 3, keen: 3, zen: 2, boom: 2,
+      seeker: 2, overdraw: 2, chain: 3, keen: 3, zen: 2, boom: 2, frost: 2, blast: 2,
     });
     expect(one('seeker').seek).toBeCloseTo(2.8);
     expect(one('overdraw').overdraw).toBeCloseTo(1.55);

@@ -7,7 +7,7 @@
 import * as THREE from 'three';
 import type { Theme } from '@okcu/anim/themes';
 import { TUNING } from '@sim/tuning';
-import { PIVOT_Y, type World } from '@sim/world';
+import type { World } from '@sim/world';
 import { m, sx, sy } from '../../coords';
 import { EYE_LIFT, REST_DIST } from '../stage';
 import { ROPE_Z, solidMat } from './ledges';
@@ -452,8 +452,8 @@ export function createProps(scene: THREE.Scene): PropsView {
             // the loose end flies up toward the pivot and swings wide
             const e = k * k;
             const ex = ax + (mv.pivotX - ax) * e + (left ? -1 : 1) * Math.sin(k * Math.PI) * 46;
-            const ey = s.y + (PIVOT_Y - s.y) * e;
-            placeRope(rope, mv.pivotX, PIVOT_Y, 0, ex, ey + 4, z * (1 - e));
+            const ey = s.y + (mv.pivotY - s.y) * e;
+            placeRope(rope, mv.pivotX, mv.pivotY, 0, ex, ey + 4, z * (1 - e));
           }
         }
       }
@@ -525,7 +525,7 @@ export function createProps(scene: THREE.Scene): PropsView {
             v.cutY = p.y;
             v.group.rotation.z = Math.sin(time * 1.3 + p.x) * 0.05;
             v.rope.visible = true;
-            placeRope(v.rope, p.x, PIVOT_Y, ROCK_Z, p.x, p.y - p.w + 4, ROCK_Z, true);
+            placeRope(v.rope, p.x, p.pivotY, ROCK_Z, p.x, p.y - p.w + 4, ROCK_Z, true);
           } else {
             v.cutT = v.cutT < 0 ? 0 : v.cutT + real;
             v.group.rotation.z += real * 2.2;
@@ -533,7 +533,7 @@ export function createProps(scene: THREE.Scene): PropsView {
             v.rope.visible = c < 1;
             if (c < 1) {
               const e = c * c;
-              placeRope(v.rope, p.x, PIVOT_Y, ROCK_Z, p.x + Math.sin(c * Math.PI) * 30, v.cutY - p.w + (PIVOT_Y - v.cutY + p.w) * e, ROCK_Z, true);
+              placeRope(v.rope, p.x, p.pivotY, ROCK_Z, p.x + Math.sin(c * Math.PI) * 30, v.cutY - p.w + (p.pivotY - v.cutY + p.w) * e, ROCK_Z, true);
             }
           }
         }

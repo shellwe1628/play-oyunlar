@@ -1,7 +1,12 @@
 /** The damage and effect table: what a hit on each body part does (pure). */
 import type { PartKind } from './ragdoll';
 
-export type EnemyType = 'archer' | 'shield' | 'jumper' | 'bomber' | 'boss' | 'healer' | 'cover' | 'catcher' | 'ward' | 'elite' | 'imp';
+export type EnemyType = 'archer' | 'shield' | 'jumper' | 'bomber' | 'boss' | 'healer' | 'cover' | 'catcher' | 'ward' | 'elite' | 'imp' | 'volley' | 'mage';
+
+/** Enemies that carry a staff and cast orbs instead of loosing arrows (no bow drawn). */
+export function castsSpells(type: TargetKind): boolean {
+  return type === 'healer' || type === 'mage';
+}
 export type TargetKind = EnemyType | 'player';
 export type HitPart = PartKind;
 

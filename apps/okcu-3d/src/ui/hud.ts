@@ -350,7 +350,8 @@ export function createHud(stage: Stage, game: Game): Module {
     float(CX, 420, text, { size: 34, color: PALETTE.cream, rise: 30, duration: 2600 });
   }
 
-  const hasIntro = (type: string): boolean => type === 'shield' || type === 'jumper' || type === 'bomber' || type === 'healer' || type === 'cover' || type === 'catcher' || type === 'ward' || type === 'elite';
+  const hasIntro = (type: string): boolean =>
+    type === 'shield' || type === 'jumper' || type === 'bomber' || type === 'healer' || type === 'cover' || type === 'catcher' || type === 'ward' || type === 'elite' || type === 'volley' || type === 'mage';
 
   function onWaveStart(w: World, e: Extract<GameEvent, { t: 'waveStart' }>): void {
     const wave = e.wave;
@@ -377,6 +378,11 @@ export function createHud(stage: Stage, game: Game): Module {
     tip('bob', w.movers.some((m) => m.kind === 'bob'), 'hud.bobTip');
     tip('gust', w.gustEvery > 0, 'hud.gustTip');
     const obj = e.objective ? objectiveText(e.objective, e.limit) : null;
+    // a grown field (chapter 4, and again chapter 6): said once a run, after the banner
+    if (w.span > 1) {
+      const key = `grow-${w.span}`;
+      later(1.7, () => teach(key, t('hud.fieldGrows')));
+    }
     if (e.boss) {
       showBanner(t(`boss.${e.boss}`), t(`boss.tip.${e.boss}`));
     } else if (e.stage === 1 && wave > 1 && !stageOf(wave).endless) {
@@ -488,6 +494,12 @@ export function createHud(stage: Stage, game: Game): Module {
           break;
         case 'summon':
           audio.playPreset(SFX.summon);
+          break;
+        case 'blink':
+          audio.playPreset(SFX.summon, { pitch: 9, volume: 0.7 });
+          break;
+        case 'chill':
+          audio.playPreset(SFX.plink, { pitch: 8, volume: 0.6 });
           break;
         case 'rope':
           audio.playPreset(SFX.snapRope);

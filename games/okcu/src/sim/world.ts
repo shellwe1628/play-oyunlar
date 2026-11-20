@@ -2,6 +2,8 @@
  * The whole game as a deterministic fixed-step simulation: the player and enemy archers
  * (ragdolls with muscles), arrows, bombs, orbs, apples, ledges (some slide or swing on ropes),
  * props (barrels, hanging rocks), chapters, bosses, bonus rounds, cards, focus and coins.
+ * From chapter 4 on the field grows (chapters.ts `fieldSpan`): `w.span` tells the renderers how
+ * far to pull their cameras back.
  * Scenes call `advance`, `aimAt`, `shoot`, `pickCard`, `unleash`, … and draw the state; they
  * hold no rules.
  */
@@ -9,8 +11,8 @@ import { createRng, type Rng } from '@oyun/core/pure';
 import { flyArrow, hitParts, sweepCapsule } from './arrow';
 import { addVelocity, createBody, stepBody, translateBody, type Body, type Ledge } from './body';
 import { draftPick, drawOffer, statsFor, type CardId, type PlayerStats } from './cards';
-import { bonusAfter, CHAPTERS, chapterStart, ENDLESS_WAVE, levelOf, objectiveFor, STAGES, stageDef, stageOf, type BonusKind, type BossKind, type LedgeDef, type ObjectiveKind } from './chapters';
-import { resolveHit, type EnemyType, type HitPart } from './combat';
+import { bonusAfter, CHAPTERS, chapterStart, ENDLESS_WAVE, fieldSpan, fieldTop, growLayout, levelOf, objectiveFor, STAGES, stageDef, stageOf, type BonusKind, type BossKind, type LedgeDef, type ObjectiveKind } from './chapters';
+import { ENEMY_DAMAGE, resolveHit, type EnemyType, type HitPart } from './combat';
 import { clamp, solveLaunchAngle, sweepAabb } from './geom';
 import { NO_META, type MetaLevels, type RunBank } from './meta';
 import type { DailyMod, RunSummary } from './progress';
@@ -90,6 +92,10 @@ export interface Archer {
   /** lantern knight: ward up, or seconds until it reforms */
   wardUp: boolean;
   wardT: number;
+  /** frost arrows: seconds left chilled (draws, cools and hops slowly) */
+  chill: number;
+  /** wizard: seconds until it can blink to another ledge again */
+  blinkCd: number;
 }
 
 export interface Arrow {
@@ -135,6 +141,15 @@ export interface Arrow {
   focus: boolean;
   /** this arrow already hit an enemy */
   scored: boolean;
+  /** enemy orbs: the caster's ledge (they leave it without popping on its edge), -1 none */
+  fromLedge: number;
+  /** enemy orbs: turn rate toward the player, rad/s (the wizard's hex; 0 = straight) */
+  homing: number;
+  /** enemy orbs: a staff-carrier's spell (healer or wizard), drawn as a hex, not a warden orb */
+  hex: boolean;
+  /** player: frost and blast arrow heads (drawn icy / with a charge) */
+  frost: boolean;
+  blast: boolean;
 }
 
 export interface Apple {
@@ -155,15 +170,22 @@ export interface Mover {
   amp: number;
   speed: number;
   theta: number;
-  /** swing: pivot x (above the ledge centre) and rope length to the ledge top */
+  /** swing: pivot (above the ledge centre, at the top of the view) and rope length to the ledge top */
   pivotX: number;
+  pivotY: number;
   len: number;
   /** swing rope cut: the ledge falls */
   cut: boolean;
   vy: number;
 }
 
+/** where ropes hang from at the normal field size (a grown field hangs them higher, `ropeTop`) */
 export const PIVOT_Y = -60;
+
+/** The rope pivot height on a field of `span` (just above the top of the view). */
+export function ropeTop(span: number): number {
+  return Math.min(PIVOT_Y, fieldTop(span) - 60);
+}
 
 export interface Prop {
   active: boolean;
@@ -176,6 +198,8 @@ export interface Prop {
   h: number;
   /** rock: still hanging on its rope */
   hanging: boolean;
+  /** rock: where its rope hangs from */
+  pivotY: number;
 }
 
 export interface Plate {
@@ -223,6 +247,10 @@ export type GameEvent =
   | { t: 'shot'; x: number; y: number; angle: number; power: number; arrows: number; over: boolean }
   | { t: 'enemyDraw'; id: number }
   | { t: 'enemyShot'; id: number; kind: 'arrow' | 'bomb' | 'orb'; x: number; y: number }
+  /** a wizard that was hit vanishes from one ledge and appears on another */
+  | { t: 'blink'; id: number; x0: number; y0: number; x1: number; y1: number }
+  /** a frost arrow (or a shatter burst) chilled an archer */
+  | { t: 'chill'; id: number; x: number; y: number }
   | { t: 'hit'; id: number; part: HitPart; x: number; y: number; dmg: number; ko: boolean; slowmo: boolean; vx: number; vy: number; fire: boolean; enemy: EnemyType; crit: boolean }
   | { t: 'bodyThunk'; id: number; x: number; y: number }
   | { t: 'playerHit'; part: HitPart; x: number; y: number; dmg: number; vx: number; vy: number; by: number }
@@ -328,6 +356,8 @@ export interface World {
   ledges: Ledge[];
   /** the enemy ledges of the current stage (indices into `ledges` start at 1) */
   layout: readonly Ledge[];
+  /** field size against the 720 x 1280 frame (1, then bigger from chapter 4: chapters.ts fieldSpan) */
+  span: number;
   /** cover walls: block arrows only (bodies pass); `on` is the ledge they stand on */
   walls: (Ledge & { on: number })[];
   movers: Mover[];
@@ -406,6 +436,21 @@ export const FX = {
   orbSpeed: 300,
   orbDamage: 9,
   orbRadius: 20,
+  /**
+   * the healer's hex, cast when nobody needs mending (it used to stand there with nothing to
+   * do: a staff that glowed and never struck), and the wizard's homing hex: speed, damage as a
+   * share of an orb's, turn rate (rad/s)
+   */
+  hexSpeed: 280,
+  healerHex: 1.1,
+  mageSpeed: 250,
+  mageHex: 1.7,
+  mageHoming: 1.5,
+  /** wizard: seconds between blinks */
+  blinkCooldown: 3.2,
+  /** volley archer: a fan of arrows on a high arc (launch speed shares), each hitting for `volleyShare` */
+  volleySpeeds: [0.95, 1, 1.05] as readonly number[],
+  volleyShare: 0.5,
   catchCooldown: 1.8,
   wardWindow: 1.4,
   healEvery: 3.4,
@@ -447,6 +492,11 @@ function newArrow(): Arrow {
     primary: false,
     focus: false,
     scored: false,
+    fromLedge: -1,
+    homing: 0,
+    hex: false,
+    frost: false,
+    blast: false,
   };
 }
 
@@ -514,6 +564,8 @@ function makeArcher(w: World, type: ArcherType, x: number, ledgeTop: number, fac
     catchCd: 0,
     wardUp: type === 'ward',
     wardT: 0,
+    chill: 0,
+    blinkCd: 0,
   };
   if (type === 'shield') {
     const sx = x + facing * 30;
@@ -605,9 +657,10 @@ export function createWorld(opts: WorldOptions): World {
     appleTimer: 6,
     ledges: [{ ...PLAYER_LEDGE }],
     layout: [],
+    span: 1,
     walls: [],
     movers: [],
-    props: Array.from({ length: 6 }, () => ({ active: false, kind: 'barrel', x: 0, y: 0, vy: 0, w: 0, h: 0, hanging: false })),
+    props: Array.from({ length: 6 }, () => ({ active: false, kind: 'barrel', x: 0, y: 0, vy: 0, w: 0, h: 0, hanging: false, pivotY: PIVOT_Y })),
     plates: Array.from({ length: 3 }, () => ({ active: false, x: 0, y: 0, r: FX.plateRadius })),
     targets: Array.from({ length: 24 }, () => ({ active: false, kind: 'target', x: 0, y: 0, vx: 0, vy: 0, r: 0, t: 0, baseY: 0 })),
     bonus: null,
@@ -648,7 +701,7 @@ export function createWorld(opts: WorldOptions): World {
   if (w.mod === 'fire') w.cards.push('fire');
   // chapter select: a fair hand for the chapters skipped, drafted from real offers
   for (let i = 0; i < w.startChapter * DRAFT_PER_CHAPTER; i++) {
-    const offer = drawOffer(w.cardRng, w.cards, 3);
+    const offer = drawOffer(w.cardRng, w.cards, 3, Math.floor(i / DRAFT_PER_CHAPTER));
     if (offer.length === 0) break;
     w.cards.push(offer[draftPick(offer)]!);
   }
@@ -688,6 +741,7 @@ function addProp(w: World, kind: Prop['kind'], x: number, y: number): Prop | nul
   p.w = kind === 'barrel' ? 36 : FX.rockRadius;
   p.h = kind === 'barrel' ? 46 : FX.rockRadius;
   p.hanging = kind === 'rock';
+  p.pivotY = ropeTop(w.span);
   return p;
 }
 
@@ -699,8 +753,10 @@ function spawnWave(w: World, wave: number, instant: boolean): void {
   w.theme = pos.theme;
   w.level = levelOf(wave);
   const def = stageDef(wave, w.waveRng);
-  const defs: LedgeDef[] = def.ledges.map((l) => ({ ...l }));
+  w.span = fieldSpan(wave);
+  const defs: LedgeDef[] = growLayout(def.ledges, w.span);
   if (wave === 1) nudgeFirst(w, defs);
+  const pivotY = ropeTop(w.span);
   // leftover bodies of the last wave poof now
   for (const e of w.enemies) if (!e.gone) poof(w, e);
   w.enemies.length = 0;
@@ -713,9 +769,9 @@ function spawnWave(w: World, wave: number, instant: boolean): void {
   w.layout = defs.map((l) => ({ x: l.x, y: l.y, w: l.w, h: l.h ?? 58 }));
   w.ledges = [{ ...PLAYER_LEDGE }, ...w.layout.map((l) => ({ ...l }))];
   defs.forEach((l, i) => {
-    if (l.slide) w.movers.push({ index: i + 1, kind: 'slide', x0: l.x, y0: l.y, amp: l.slide.amp, speed: l.slide.speed, theta: w.waveRng.range(0, Math.PI * 2), pivotX: 0, len: 0, cut: false, vy: 0 });
-    if (l.swing) w.movers.push({ index: i + 1, kind: 'swing', x0: l.x, y0: l.y, amp: l.swing.amp, speed: l.swing.speed, theta: w.waveRng.range(0, Math.PI * 2), pivotX: l.x + l.w / 2, len: l.y - PIVOT_Y, cut: false, vy: 0 });
-    if (l.bob) w.movers.push({ index: i + 1, kind: 'bob', x0: l.x, y0: l.y, amp: l.bob.amp, speed: l.bob.speed, theta: w.waveRng.range(0, Math.PI * 2), pivotX: 0, len: 0, cut: false, vy: 0 });
+    if (l.slide) w.movers.push({ index: i + 1, kind: 'slide', x0: l.x, y0: l.y, amp: l.slide.amp, speed: l.slide.speed, theta: w.waveRng.range(0, Math.PI * 2), pivotX: 0, pivotY, len: 0, cut: false, vy: 0 });
+    if (l.swing) w.movers.push({ index: i + 1, kind: 'swing', x0: l.x, y0: l.y, amp: l.swing.amp, speed: l.swing.speed, theta: w.waveRng.range(0, Math.PI * 2), pivotX: l.x + l.w / 2, pivotY, len: l.y - pivotY, cut: false, vy: 0 });
+    if (l.bob) w.movers.push({ index: i + 1, kind: 'bob', x0: l.x, y0: l.y, amp: l.bob.amp, speed: l.bob.speed, theta: w.waveRng.range(0, Math.PI * 2), pivotX: 0, pivotY, len: 0, cut: false, vy: 0 });
   });
   // wind: the stage's strength, a seeded direction (the daily's wind modifier blows everywhere)
   const windBase = def.wind ?? (w.mod === 'wind' ? 140 : 0);
@@ -755,7 +811,7 @@ function spawnWave(w: World, wave: number, instant: boolean): void {
       if (L) addProp(w, 'barrel', L.x + L.w / 2 - 58, L.y - 46);
     } else {
       const L = w.ledges[p.above + 1];
-      if (L) addProp(w, 'rock', L.x + L.w / 2, Math.max(150, L.y - 250));
+      if (L) addProp(w, 'rock', L.x + L.w / 2, Math.max(fieldTop(w.span) + 150, L.y - 250));
     }
   }
   w.shieldLeft = w.stats.shieldCharges;
@@ -903,6 +959,8 @@ function fireVolley(w: World, angle: number, power: number, first: boolean): voi
     // hard: the forged bow pushes as well as it hurts (a stronger bow sends archers flying)
     ar.impulseMul = w.stats.impulseMul * (over && w.stats.siege ? 1.5 : 1) * (w.difficulty === 'hard' ? bowDamage(w.meta.bow) : 1);
     ar.fire = w.stats.fireDps > 0;
+    ar.frost = w.stats.frostTime > 0;
+    ar.blast = w.stats.blastShare > 0;
     ar.pierce = w.stats.pierce + (focus ? 1 : 0);
     ar.bounces = w.stats.bounces;
     ar.seek = w.stats.seek > 0 && (k === 0 || w.stats.swarm);
@@ -959,6 +1017,11 @@ function spawnArrow(w: World, owner: 'player' | 'enemy', kind: Arrow['kind'], x:
   a.primary = false;
   a.focus = false;
   a.scored = false;
+  a.fromLedge = -1;
+  a.homing = 0;
+  a.hex = false;
+  a.frost = false;
+  a.blast = false;
   return a;
 }
 
@@ -1004,14 +1067,14 @@ export function pickCard(w: World, index: number): boolean {
 export function reroll(w: World): boolean {
   if (w.phase !== 'cards' || w.rerollsLeft <= 0) return false;
   w.rerollsLeft -= 1;
-  w.offer = drawOffer(w.cardRng, w.cards, w.offer.length);
+  w.offer = drawOffer(w.cardRng, w.cards, w.offer.length, pickChapter(w));
   return true;
 }
 
 /** Rewarded: one more card to choose from (once per pick). */
 export function addExtraCard(w: World): boolean {
   if (w.phase !== 'cards' || w.offerExtra) return false;
-  const more = drawOffer(w.cardRng, [...w.cards, ...w.offer.flatMap((c) => Array<CardId>(9).fill(c))], 1);
+  const more = drawOffer(w.cardRng, [...w.cards, ...w.offer.flatMap((c) => Array<CardId>(9).fill(c))], 1, pickChapter(w));
   if (more.length === 0) return false;
   w.offer.push(more[0]!);
   w.offerExtra = true;
@@ -1169,6 +1232,11 @@ export function clearHeal(w: World): number {
   return TUNING.waveClearHeal + 4 * Math.min(CHAPTERS, w.chapter);
 }
 
+/** The chapter a card pick leads into (cards of later chapters are not offered yet). */
+function pickChapter(w: World): number {
+  return stageOf(w.wave + 1).chapter;
+}
+
 function openCards(w: World): void {
   const n = w.treasure ? 4 : 3;
   const treasure = w.treasure;
@@ -1176,7 +1244,7 @@ function openCards(w: World): void {
   w.bonus = null;
   for (const t of w.targets) t.active = false;
   w.offerExtra = false;
-  w.offer = drawOffer(w.cardRng, w.cards, n);
+  w.offer = drawOffer(w.cardRng, w.cards, n, pickChapter(w));
   if (w.offer.length === 0) {
     // every card is maxed out: straight on to the next wave
     w.phase = 'play';
@@ -1218,7 +1286,7 @@ function updateMovers(w: World): void {
       else {
         const ang = (m.amp / m.len) * Math.sin(m.theta);
         L.x = m.pivotX + m.len * Math.sin(ang) - L.w / 2;
-        L.y = PIVOT_Y + m.len * Math.cos(ang);
+        L.y = m.pivotY + m.len * Math.cos(ang);
       }
     }
     const dx = L.x - ox;
@@ -1259,7 +1327,7 @@ function cutRopes(w: World, x0: number, y0: number, x1: number, y1: number): voi
     if (m.kind !== 'swing' || m.cut) continue;
     const L = w.ledges[m.index]!;
     const r = FX.ropeRadius;
-    const hit = sweepCapsule(x0, y0, x1, y1, m.pivotX, PIVOT_Y, L.x + 10, L.y, r) >= 0 || sweepCapsule(x0, y0, x1, y1, m.pivotX, PIVOT_Y, L.x + L.w - 10, L.y, r) >= 0;
+    const hit = sweepCapsule(x0, y0, x1, y1, m.pivotX, m.pivotY, L.x + 10, L.y, r) >= 0 || sweepCapsule(x0, y0, x1, y1, m.pivotX, m.pivotY, L.x + L.w - 10, L.y, r) >= 0;
     if (!hit) continue;
     m.cut = true;
     m.vy = 0;
@@ -1276,7 +1344,7 @@ function cutRopes(w: World, x0: number, y0: number, x1: number, y1: number): voi
   }
   for (const p of w.props) {
     if (!p.active || p.kind !== 'rock' || !p.hanging) continue;
-    if (sweepCapsule(x0, y0, x1, y1, p.x, PIVOT_Y, p.x, p.y - p.w, FX.ropeRadius) < 0) continue;
+    if (sweepCapsule(x0, y0, x1, y1, p.x, p.pivotY, p.x, p.y - p.w, FX.ropeRadius) < 0) continue;
     p.hanging = false;
     p.vy = 0;
     w.events.push({ t: 'rope', x: x1, y: y1, kind: 'rock', riders: 0 });
@@ -1597,6 +1665,8 @@ function checkBossPhase(w: World, e: Archer): void {
 
 function brain(w: World, a: Archer): void {
   const active = w.phase === 'play' || w.phase === 'clear';
+  if (a.chill > 0) a.chill = Math.max(0, a.chill - DT);
+  if (a.blinkCd > 0) a.blinkCd -= DT;
   if (a.brain === 'spawn') {
     a.spawnT += DT;
     const t = Math.min(1, a.spawnT / 0.55);
@@ -1646,15 +1716,17 @@ function brain(w: World, a: Archer): void {
     a.timer = 0.5;
     a.draw = 0;
   }
-  a.timer -= DT;
+  // frost arrows: a chilled archer's clock runs slow (draw, cool-down, hops)
+  const slow = a.chill > 0 ? w.stats.frostSlow : 1;
+  a.timer -= DT * slow;
   const timing = enemyTiming(w.level, w.difficulty);
-  const drawTime = a.type === 'boss' ? timing.draw * 1.15 : a.type === 'imp' ? timing.draw * 0.8 : a.type === 'healer' ? 0.8 : timing.draw;
+  const drawTime = drawTimeOf(a, timing.draw);
   switch (a.brain) {
     case 'wait':
     case 'cool':
       a.draw = Math.max(0, a.draw - DT * 4);
       if (a.type === 'jumper') {
-        a.jumpCooldown -= DT;
+        a.jumpCooldown -= DT * slow;
         if (a.jumpCooldown <= 0 && a.timer > 0.2 && tryJump(w, a)) return;
       }
       if (a.timer <= 0) {
@@ -1665,10 +1737,11 @@ function brain(w: World, a: Archer): void {
       }
       break;
     case 'draw': {
-      a.draw = Math.min(1, a.draw + DT / drawTime);
+      a.draw = Math.min(1, a.draw + (DT * slow) / drawTime);
       if (a.type === 'healer') {
         if (a.timer <= 0) {
-          healAllies(w, a);
+          // nobody to mend (or it is the last one standing): the gathered spell strikes the player
+          if (healAllies(w, a) === 0) castOrb(w, a, FX.hexSpeed, FX.healerHex, 0);
           a.brain = 'cool';
           a.timer = FX.healEvery + w.brainRng.range(0, 0.6);
         }
@@ -1687,12 +1760,120 @@ function brain(w: World, a: Archer): void {
   }
 }
 
-function healAllies(w: World, h: Archer): void {
+function drawTimeOf(a: Archer, draw: number): number {
+  switch (a.type) {
+    case 'boss':
+      return draw * 1.15;
+    case 'imp':
+      return draw * 0.8;
+    case 'healer':
+      return 0.8;
+    // the wizard gathers its hex a beat longer; the volley archer hauls a heavy war bow
+    case 'mage':
+      return draw * 1.2;
+    case 'volley':
+      return draw * 1.35;
+    default:
+      return draw;
+  }
+}
+
+/** Mends every wounded ally (not bosses); returns how many it mended. */
+function healAllies(w: World, h: Archer): number {
+  let n = 0;
   for (const e of w.enemies) {
     if (!e.alive || e === h || e.type === 'boss' || e.hp >= e.maxHp) continue;
     const amount = Math.min(e.maxHp - e.hp, Math.round(e.maxHp * FX.healShare));
     e.hp += amount;
+    n += 1;
     w.events.push({ t: 'healBeam', from: h.id, to: e.id, x0: h.body.x[PT.handF]!, y0: h.body.y[PT.handF]!, x1: e.body.x[PT.neck]!, y1: e.body.y[PT.neck]!, amount });
+  }
+  return n;
+}
+
+/** Where a staff-carrier's orb leaves: the staff's tip (as both renderers draw it). */
+export function staffTip(a: Archer): { x: number; y: number } {
+  return { x: a.body.x[PT.handF]! + 4 * a.scale, y: a.body.y[PT.handF]! - 52 * a.scale };
+}
+
+/**
+ * A staff-carrier's spell: one orb from the staff's tip straight at the player's chest (orbs
+ * fly without gravity or wind), `share` of an orb's damage, turning toward the player at
+ * `homing` rad/s. It leaves the caster's own ledge without popping on its edge.
+ */
+function castOrb(w: World, a: Archer, speed: number, share: number, homing: number): void {
+  const acc = enemyAccuracy(w.level, w.difficulty);
+  const o = staffTip(a);
+  const ang = Math.atan2(playerPelvisY() - 30 - o.y, PLAYER_X - o.x) + gauss(w.brainRng) * (acc.angle + a.aimPenalty) * 0.3;
+  const ar = spawnArrow(w, 'enemy', 'orb', o.x, o.y, Math.cos(ang) * speed, Math.sin(ang) * speed);
+  if (ar) {
+    ar.by = a.id;
+    ar.dmgMul = share;
+    ar.homing = homing;
+    ar.fromLedge = a.ledge;
+    ar.hex = true;
+    ar.life = 7;
+  }
+  w.run.enemyShots += 1;
+  a.shotsFired += 1;
+  a.draw = 0;
+  w.events.push({ t: 'enemyShot', id: a.id, kind: 'orb', x: o.x, y: o.y });
+}
+
+/**
+ * The wizard, hit and still standing, vanishes and reappears on a free ledge that does not move
+ * (once every FX.blinkCooldown s): a second arrow has to find it again.
+ */
+function blink(w: World, e: Archer): void {
+  if (!e.alive || e.blinkCd > 0 || e.falling > 0 || e.brain === 'jump' || e.brain === 'spawn') return;
+  const free: number[] = [];
+  for (let i = 1; i < w.ledges.length; i++) {
+    if (i === e.ledge || w.movers.some((m) => m.index === i)) continue;
+    if (w.enemies.some((o) => o.alive && o.ledge === i)) continue;
+    free.push(i);
+  }
+  if (free.length === 0) return;
+  const to = free[w.brainRng.int(0, free.length - 1)]!;
+  const L = w.ledges[to]!;
+  const x0 = e.body.x[PT.neck]!;
+  const y0 = e.body.y[PT.neck]!;
+  const dx = L.x + L.w / 2 - e.stanceX;
+  const dy = L.y - LEG_HEIGHT * e.scale - e.anchorY;
+  translateBody(e.body, dx, dy);
+  e.anchorX += dx;
+  e.stanceX += dx;
+  e.anchorY += dy;
+  e.ledge = to;
+  e.blinkCd = FX.blinkCooldown;
+  e.brain = 'cool';
+  e.timer = Math.max(e.timer, 0.7);
+  e.draw = 0;
+  e.crouch = 1;
+  w.events.push({ t: 'blink', id: e.id, x0, y0, x1: e.body.x[PT.neck]!, y1: e.body.y[PT.neck]! });
+}
+
+/** A frost hit (or a shatter burst): the archer's clock runs slow for `t` seconds. */
+function chillEnemy(w: World, e: Archer, t: number): void {
+  if (!e.alive || t <= 0) return;
+  if (e.chill <= 0) w.events.push({ t: 'chill', id: e.id, x: e.body.x[PT.neck]!, y: e.body.y[PT.neck]! });
+  e.chill = Math.max(e.chill, t);
+}
+
+/**
+ * Blast arrows: the arrow bursts where it lands (an archer, a shield, a ledge or a wall) and
+ * every other archer within the radius takes a share of a body hit: shields and cover walls
+ * stop the arrow, not the burst.
+ */
+function burst(w: World, a: Arrow, x: number, y: number, struck: Archer | null): void {
+  const r = w.stats.blastRadius;
+  const dmg = ENEMY_DAMAGE.body * a.dmgMul * w.stats.blastShare;
+  w.events.push({ t: 'blast', x, y, r, fire: false });
+  for (const e of w.enemies) {
+    if (!e.alive || e === struck || e.brain === 'spawn') continue;
+    const t = targetPoint(e, 'chest');
+    if (Math.hypot(t.x - x, t.y - y) > r + 20 * e.scale) continue;
+    damageEnemy(w, e, dmg * (e.type === 'boss' ? 0.5 : 1), 'blast');
+    if (w.stats.shatter) chillEnemy(w, e, w.stats.frostTime);
   }
 }
 
@@ -1849,6 +2030,10 @@ export function arcClear(w: World, ox: number, oy: number, angle: number, speed:
 }
 
 const SPEED_STEPS = [1, 1.12, 1.25, 1.4] as const;
+const LOW_FIRST = [false, true] as const;
+/** the volley archer's lobs: the slowest arc that is clear rises least (more of them are clear) */
+const LOB_STEPS = [0.88, 0.94, 1, 1.12, 1.25] as const;
+const HIGH_FIRST = [true, false] as const;
 
 /**
  * Launch angle to hit (tx, ty) from (ox, oy) at `speed` with gravity and wind: the wind shift
@@ -1873,8 +2058,9 @@ export function enemyAimSolution(w: World, a: Archer): { angle: number; speed: n
   const tx = PLAYER_X;
   const ty = playerPelvisY() - 24;
   let first: { angle: number; speed: number } | null = null;
-  for (const high of [false, true]) {
-    for (const k of SPEED_STEPS) {
+  // the volley archer lobs: its arrows come down from above, over walls and ledges
+  for (const high of a.type === 'volley' ? HIGH_FIRST : LOW_FIRST) {
+    for (const k of a.type === 'volley' && high ? LOB_STEPS : SPEED_STEPS) {
       const speed = base * k;
       let angle = Math.PI + 0.6;
       let ok = true;
@@ -1900,6 +2086,11 @@ function beginDraw(w: World, a: Archer, drawTime: number): void {
     const o = bowOrigin(a.stanceX, a.anchorY, a.aim, a.scale);
     a.aimGoal = Math.atan2(playerPelvisY() - 30 - o.y, PLAYER_X - o.x) + gauss(w.brainRng) * acc.angle * 0.3;
     a.speedGoal = FX.orbSpeed;
+  } else if (a.type === 'mage') {
+    // the wizard's staff points at the player while the hex gathers (aimed for real on release)
+    const o = staffTip(a);
+    a.aimGoal = Math.atan2(playerPelvisY() - 30 - o.y, PLAYER_X - o.x);
+    a.speedGoal = FX.mageSpeed;
   } else {
     const sol = enemyAimSolution(w, a);
     a.aimGoal = sol.angle + gauss(w.brainRng) * (acc.angle + a.aimPenalty);
@@ -1911,7 +2102,26 @@ function beginDraw(w: World, a: Archer, drawTime: number): void {
 }
 
 function release(w: World, a: Archer): void {
+  if (a.type === 'mage') return castOrb(w, a, FX.mageSpeed, FX.mageHex, FX.mageHoming);
   const o = bowOrigin(a.stanceX, a.anchorY, a.aim, a.scale);
+  if (a.type === 'volley') {
+    // three arrows on the same high arc, a little short, true and a little long: one of them
+    // usually comes down on the player, each for half an arrow's damage
+    for (const k of FX.volleySpeeds) {
+      const sp = a.speedGoal * k;
+      const ar = spawnArrow(w, 'enemy', 'arrow', o.x, o.y, Math.cos(a.aimGoal) * sp, Math.sin(a.aimGoal) * sp);
+      if (ar) {
+        ar.soft = a.shotsFired === 0;
+        ar.by = a.id;
+        ar.dmgMul = FX.volleyShare;
+      }
+      w.run.enemyShots += 1;
+    }
+    a.shotsFired += 1;
+    a.draw = 0;
+    w.events.push({ t: 'enemyShot', id: a.id, kind: 'arrow', x: o.x, y: o.y });
+    return;
+  }
   let kind: Arrow['kind'] = a.type === 'bomber' ? 'bomb' : 'arrow';
   // the elite looses two arrows only in endless; in the chapters it is a health check
   let spread: readonly number[] = a.type === 'elite' && w.chapter >= CHAPTERS ? ELITE_SPREAD : ONE_ARROW;
@@ -1953,6 +2163,8 @@ function release(w: World, a: Archer): void {
     if (ar) {
       ar.soft = a.shotsFired === 0;
       ar.by = a.id;
+      // the warden's orbs leave its wide ledge instead of bursting on its edge
+      if (kind === 'orb') ar.fromLedge = a.ledge;
     }
     w.run.enemyShots += 1;
   }
@@ -2061,6 +2273,22 @@ function steer(w: World, a: Arrow): void {
   a.vy = Math.sin(cur + turn) * sp;
 }
 
+/** The wizard's hex turns toward the player's chest while it is still in front of the player. */
+function homeOrb(w: World, a: Arrow): void {
+  const p = w.player;
+  if (!p.alive || a.x < PLAYER_X + 30) return;
+  const tx = (p.body.x[PT.neck]! + p.body.x[PT.pelvis]!) / 2 - a.x;
+  const ty = (p.body.y[PT.neck]! + p.body.y[PT.pelvis]!) / 2 - a.y;
+  const cur = Math.atan2(a.vy, a.vx);
+  let diff = Math.atan2(ty, tx) - cur;
+  while (diff > Math.PI) diff -= Math.PI * 2;
+  while (diff < -Math.PI) diff += Math.PI * 2;
+  const turn = clamp(diff, -a.homing * DT, a.homing * DT);
+  const sp = Math.hypot(a.vx, a.vy);
+  a.vx = Math.cos(cur + turn) * sp;
+  a.vy = Math.sin(cur + turn) * sp;
+}
+
 function updateArrows(w: World): void {
   for (const a of w.arrows) {
     if (!a.active) continue;
@@ -2084,6 +2312,7 @@ function updateArrows(w: World): void {
     const x0 = a.x;
     const y0 = a.y;
     if (a.kind === 'orb') {
+      if (a.homing > 0) homeOrb(w, a);
       a.x += a.vx * DT;
       a.y += a.vy * DT;
     } else {
@@ -2111,6 +2340,7 @@ function ledgeHit(w: World, a: Arrow, x0: number, y0: number): boolean {
   let best: { t: number; nx: number; ny: number } | null = null;
   let bestIdx = -1;
   for (let i = 0; i < w.ledges.length; i++) {
+    if (i === a.fromLedge) continue;
     const L = w.ledges[i]!;
     const h = sweepAabb(x0, y0, a.x, a.y, L.x, L.y, L.w, L.h);
     if (h && (!best || h.t < best.t)) {
@@ -2149,6 +2379,7 @@ function ledgeHit(w: World, a: Arrow, x0: number, y0: number): boolean {
     return true;
   }
   missed(w, a);
+  if (a.owner === 'player' && w.stats.blastShare > 0) burst(w, a, hx, hy, null);
   const dir = Math.atan2(a.vy, a.vx);
   a.x = hx + Math.cos(dir) * 12;
   a.y = hy + Math.sin(dir) * 12;
@@ -2314,6 +2545,7 @@ function hitShield(w: World, a: Arrow, e: Archer, hx: number, hy: number): void 
     pushBody(s, hx, hy, a.vx, a.vy, 0.4, 120);
   }
   w.events.push({ t: 'shieldHit', id: e.id, x: hx, y: hy, broke });
+  if (w.stats.blastShare > 0) burst(w, a, hx, hy, null);
 }
 
 function hitEnemy(w: World, a: Arrow, e: Archer, part: Part, hx: number, hy: number): void {
@@ -2385,6 +2617,7 @@ function hitEnemy(w: World, a: Arrow, e: Archer, part: Part, hx: number, hy: num
     e.burnDps = w.stats.fireDps;
     e.burnTick = 0.5;
   }
+  if (w.stats.frostTime > 0) chillEnemy(w, e, w.stats.frostTime);
   e.hp -= out.damage;
   checkBossPhase(w, e);
   const ko = out.ko || e.hp <= 0;
@@ -2417,6 +2650,9 @@ function hitEnemy(w: World, a: Arrow, e: Archer, part: Part, hx: number, hy: num
     addVelocity(e.body, PT.head, vx * kick * 0.8, vy * kick * 0.4, DT);
   }
   stickOrPierce(w, a, e, part, hx, hy);
+  if (w.stats.blastShare > 0) burst(w, a, hx, hy, e);
+  // after the arrow is stuck: it travels with the wizard
+  if (!ko && e.type === 'mage') blink(w, e);
 }
 
 function zap(w: World, from: Archer, dmg: number, jumps: number): void {
@@ -2477,7 +2713,12 @@ function damagePlayer(w: World, part: HitPart, dmg: number, x: number, y: number
 function enemyArrowHits(w: World, a: Arrow, x0: number, y0: number): void {
   const p = w.player;
   let ledgeT = 2;
-  for (const L of w.ledges) {
+  // a staff-carrier's hex flies straight (or curves) at the player and passes through rock: a
+  // ledge between caster and player would otherwise eat every spell (the old healer could not
+  // have struck from most ledges). It can still be shot out of the air.
+  for (let i = 0; i < w.ledges.length && !a.hex; i++) {
+    if (i === a.fromLedge) continue;
+    const L = w.ledges[i]!;
     const h = sweepAabb(x0, y0, a.x, a.y, L.x, L.y, L.w, L.h);
     if (h && h.t < ledgeT) ledgeT = h.t;
   }
@@ -2503,17 +2744,17 @@ function enemyArrowHits(w: World, a: Arrow, x0: number, y0: number): void {
     const vy = a.vy;
     if (a.kind === 'orb') {
       a.active = false;
-      if (p.alive) damagePlayer(w, 'body', FX.orbDamage * enemyDamageMul(w.level, w.difficulty) * (a.by === -2 ? 0.7 : 1), hx, hy, vx, vy, a.by);
+      if (p.alive) damagePlayer(w, 'body', FX.orbDamage * enemyDamageMul(w.level, w.difficulty) * a.dmgMul, hx, hy, vx, vy, a.by);
       w.events.push({ t: 'orbPop', x: hx, y: hy });
       return;
     }
-    if (p.alive) damagePlayer(w, part.kind, resolveHit('player', part.kind, enemyDamageMul(w.level, w.difficulty)).damage, hx, hy, vx, vy, a.by);
+    if (p.alive) damagePlayer(w, part.kind, resolveHit('player', part.kind, enemyDamageMul(w.level, w.difficulty) * a.dmgMul).damage, hx, hy, vx, vy, a.by);
     else pushBody(p.body, hx, hy, vx, vy, 0.3, 70);
     stickTo(a, p, p.body, part, hx, hy, 2);
     trimStuck(w, p.id);
     return;
   }
-  ledgeHit(w, a, x0, y0);
+  if (!a.hex) ledgeHit(w, a, x0, y0);
 }
 
 // ---------------------------------------------------------------- bonus rounds

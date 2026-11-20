@@ -25,11 +25,14 @@ export const CARD_IDS = [
   'keen',
   'zen',
   'boom',
+  // new arrow heads, offered once the run reaches their chapter (see CARDS[id].from)
+  'frost',
+  'blast',
 ] as const;
 export type CardId = (typeof CARD_IDS)[number];
 
-/** max stacks and draw weight */
-export const CARDS: Record<CardId, { max: number; weight: number }> = {
+/** max stacks, draw weight and the first chapter (index) whose card picks offer it (0 if absent) */
+export const CARDS: Record<CardId, { max: number; weight: number; from?: number }> = {
   heavy: { max: 5, weight: 10 },
   double: { max: 2, weight: 7 },
   split: { max: 2, weight: 7 },
@@ -48,6 +51,9 @@ export const CARDS: Record<CardId, { max: number; weight: number }> = {
   keen: { max: 3, weight: 6 },
   zen: { max: 2, weight: 5 },
   boom: { max: 2, weight: 5 },
+  // frost arrows arrive with the snow (chapter 2), blast arrows with the desert walls (chapter 3)
+  frost: { max: 2, weight: 6, from: 1 },
+  blast: { max: 2, weight: 6, from: 2 },
 };
 
 /** Two cards that do something extra together (shown on the card when it completes a pair). */
@@ -57,6 +63,7 @@ export const SYNERGIES = [
   { id: 'swarm', a: 'split', b: 'seeker' },
   { id: 'siege', a: 'heavy', b: 'overdraw' },
   { id: 'hawk', a: 'keen', b: 'longsight' },
+  { id: 'shatter', a: 'frost', b: 'blast' },
 ] as const satisfies readonly { id: string; a: CardId; b: CardId }[];
 export type SynergyId = (typeof SYNERGIES)[number]['id'];
 
@@ -111,6 +118,15 @@ export interface PlayerStats {
   /** boom: knocked-out enemies burst for this much damage (0 = none); inferno: the burst burns */
   boomDmg: number;
   inferno: boolean;
+  /** frost: a hit chills the archer for this many seconds (0 = none) … */
+  frostTime: number;
+  /** … and its draw, cool-down and hops run at this share of their speed while chilled */
+  frostSlow: number;
+  /** blast: arrows burst where they land; others within the radius take this share of a body hit */
+  blastShare: number;
+  blastRadius: number;
+  /** shatter: the burst chills what it hits */
+  shatter: boolean;
 }
 
 export function countCards(cards: readonly CardId[], id: CardId): number {
@@ -166,12 +182,26 @@ export function statsFor(cards: readonly CardId[], meta: MetaLevels, d: Difficul
     focusTime: FOCUS_TIME + 2 * n('zen'),
     boomDmg: 24 * n('boom'),
     inferno: syn.includes('inferno'),
+    frostTime: n('frost') > 0 ? 1.5 + 1 * n('frost') : 0,
+    frostSlow: n('frost') > 0 ? 0.6 - 0.15 * (n('frost') - 1) : 1,
+    blastShare: n('blast') > 0 ? 0.25 + 0.15 * n('blast') : 0,
+    blastRadius: n('blast') > 0 ? 70 + 15 * n('blast') : 0,
+    shatter: syn.includes('shatter'),
   };
 }
 
-/** n distinct cards, weighted, never one already at its cap. */
-export function drawOffer(rng: Rng, held: readonly CardId[], n: number): CardId[] {
-  const pool = CARD_IDS.filter((id) => countCards(held, id) < CARDS[id].max);
+/** Is `id` offered in chapter `chapter` (index; endless = CHAPTERS)? */
+export function cardOpen(id: CardId, chapter: number): boolean {
+  return (CARDS[id].from ?? 0) <= chapter;
+}
+
+/**
+ * n distinct cards, weighted, never one already at its cap nor one whose chapter is still ahead
+ * (`chapter` = the chapter the pick leads into; omitted = every card). New cards sit at the end
+ * of CARD_IDS, so the first chapter's offers are the same draws as before they existed.
+ */
+export function drawOffer(rng: Rng, held: readonly CardId[], n: number, chapter = Infinity): CardId[] {
+  const pool = CARD_IDS.filter((id) => countCards(held, id) < CARDS[id].max && cardOpen(id, chapter));
   const out: CardId[] = [];
   while (out.length < n && pool.length > 0) {
     let total = 0;
@@ -192,7 +222,7 @@ export function drawOffer(rng: Rng, held: readonly CardId[], n: number): CardId[
 }
 
 /** Card priority for a starting hand drafted automatically (chapter select). */
-export const DRAFT_ORDER: readonly CardId[] = ['vitality', 'heavy', 'quick', 'double', 'shield', 'split', 'keen', 'vampire', 'pierce', 'fire', 'chain', 'zen', 'seeker', 'overdraw', 'boom', 'bounce', 'magnet', 'longsight'];
+export const DRAFT_ORDER: readonly CardId[] = ['vitality', 'heavy', 'quick', 'double', 'shield', 'split', 'keen', 'vampire', 'pierce', 'fire', 'frost', 'chain', 'blast', 'zen', 'seeker', 'overdraw', 'boom', 'bounce', 'magnet', 'longsight'];
 
 export function draftPick(offer: readonly CardId[]): number {
   for (const c of DRAFT_ORDER) {

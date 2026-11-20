@@ -65,6 +65,9 @@ export const BASE_HP: Record<EnemyType, number> = {
   ward: 40,
   elite: 70,
   imp: 22,
+  // a volley archer is a plain archer that hangs back; the wizard is frail and blinks away instead
+  volley: 42,
+  mage: 34,
 };
 
 /** Each chapter boss's health at its own chapter (endless cycles add 35 % per lap). */

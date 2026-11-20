@@ -9,6 +9,7 @@ import { bowTier } from '../sim/bow';
 import { drawBowTierBits, TIER_LOOK, type BowGeom } from './gear';
 import type { AnimOut } from '../anim/anim';
 import { PT } from '../sim/ragdoll';
+import { castsSpells } from '../sim/combat';
 import type { Archer, Arrow } from '../sim/world';
 import { PALETTE } from '../textures';
 
@@ -48,6 +49,10 @@ export function lookFor(a: Archer, cosmetic: Cosmetic): Look {
       return { body: PALETTE.elite, shade: PALETTE.eliteShade, hat: 'plume', scarf: PALETTE.gold, bow: 'gold' };
     case 'imp':
       return { body: PALETTE.imp, shade: PALETTE.impShade, hat: 'imp', scarf: PALETTE.pink, bow: 'dark' };
+    case 'volley':
+      return { body: PALETTE.volley, shade: PALETTE.volleyShade, hat: 'bandana', scarf: PALETTE.volleyBand, bow: 'wood' };
+    case 'mage':
+      return { body: PALETTE.mage, shade: PALETTE.mageShade, hat: 'wizard', scarf: PALETTE.mageStar, bow: 'dark' };
   }
 }
 
@@ -235,7 +240,7 @@ export function drawArcher(g: G, a: Archer, look: Look, o: DrawOpts): void {
   const py = Y[PT.pelvis]!;
   const ax = (px - nx) / (Math.hypot(px - nx, py - ny) || 1);
   const ay = (py - ny) / (Math.hypot(px - nx, py - ny) || 1);
-  if (a.type !== 'boss' && a.type !== 'bomber' && a.type !== 'healer') {
+  if (a.type !== 'boss' && a.type !== 'bomber' && !castsSpells(a.type)) {
     const qx = nx - a.facing * 12 * s * ay * -1 - a.facing * 10 * s;
     const qy = ny + 10 * s;
     g.lineStyle(14 * s + OUT * 2, PALETTE.ink, 1).lineBetween(qx, qy - 6 * s, qx - ax * 34 * s, qy + ay * 30 * s);
@@ -299,6 +304,20 @@ export function drawArcher(g: G, a: Archer, look: Look, o: DrawOpts): void {
     if (a.catchCd <= 0 && a.alive && a.brain !== 'draw') {
       const k = (Math.sin(o.time * 6) + 1) / 2;
       g.lineStyle(3, PALETTE.white, 0.5 + 0.4 * k).strokeEllipse(mx, my, 38 * s, 42 * s);
+    }
+  }
+  if (a.chill > 0 && a.alive) {
+    // frost arrows: rime on the body and ice crystals on the crown while it is chilled
+    const k = Math.min(1, a.chill / 1.2);
+    g.lineStyle(20 * s, PALETTE.frost, 0.35 * k).lineBetween(nx, ny, px, py);
+    const hx = X[PT.head]!;
+    const hy = Y[PT.head]!;
+    for (let i = 0; i < 5; i++) {
+      const ang = -Math.PI / 2 + (i - 2) * 0.5;
+      const r0 = 22 * s;
+      const r1 = (32 + (i % 2) * 8) * s;
+      g.lineStyle(5, PALETTE.ink, 0.6 * k).lineBetween(hx + Math.cos(ang) * r0, hy + Math.sin(ang) * r0, hx + Math.cos(ang) * r1, hy + Math.sin(ang) * r1);
+      g.lineStyle(3, PALETTE.frost, k).lineBetween(hx + Math.cos(ang) * r0, hy + Math.sin(ang) * r0, hx + Math.cos(ang) * r1, hy + Math.sin(ang) * r1);
     }
   }
   if (a.type === 'ward' && a.alive) {
@@ -844,20 +863,31 @@ function drawStaff(g: G, a: Archer, o: DrawOpts): void {
   const s = a.scale;
   const hx = b.x[PT.handF]!;
   const hy = b.y[PT.handF]!;
-  // a healer's staff, upright, its orb glowing brighter as the spell gathers
+  // a staff, upright, its orb glowing brighter as the spell gathers (the sim casts from this tip,
+  // world.ts staffTip): the healer's is green, the wizard's a dark rod with a magenta hex
   const tx = hx + 4 * s;
   const ty = hy - 52 * s;
+  const mage = a.type === 'mage';
+  const orb = mage ? PALETTE.hex : PALETTE.heal;
   g.lineStyle(9 * s + 6, PALETTE.ink, 1).lineBetween(hx, hy + 40 * s, tx, ty);
-  g.lineStyle(9 * s, PALETTE.shaft, 1).lineBetween(hx, hy + 40 * s, tx, ty);
+  g.lineStyle(9 * s, mage ? PALETTE.mageShade : PALETTE.shaft, 1).lineBetween(hx, hy + 40 * s, tx, ty);
   const k = a.alive ? a.draw : 0;
-  g.fillStyle(PALETTE.heal, 0.25 + k * 0.4).fillCircle(tx, ty, (16 + k * 14) * s);
+  g.fillStyle(orb, 0.25 + k * 0.4).fillCircle(tx, ty, (16 + k * 14) * s);
+  if (mage && a.alive && k > 0.05) {
+    // sparks spiral in as the hex gathers
+    for (let i = 0; i < 4; i++) {
+      const ang = o.time * 7 + (i * Math.PI) / 2;
+      const r = (30 - 18 * k) * s;
+      g.fillStyle(PALETTE.mageStar, 0.9).fillCircle(tx + Math.cos(ang) * r, ty + Math.sin(ang) * r, 3 * s);
+    }
+  }
   g.fillStyle(PALETTE.ink, 1).fillCircle(tx, ty, 11 * s + 3);
-  g.fillStyle(PALETTE.heal, 1).fillCircle(tx, ty, 11 * s);
+  g.fillStyle(orb, 1).fillCircle(tx, ty, 11 * s);
   g.fillStyle(PALETTE.white, 0.8).fillCircle(tx - 3 * s, ty - 3 * s, 3 * s);
 }
 
 function drawBow(g: G, a: Archer, o: DrawOpts, skin: BowSkin): void {
-  if (a.type === 'healer') {
+  if (castsSpells(a.type)) {
     drawStaff(g, a, o);
     return;
   }
@@ -932,6 +962,10 @@ export function drawArrow(g: G, a: Arrow, time: number, multi = false, halo = fa
     // dark arenas: a soft light halo keeps every arrow readable
     g.lineStyle(14, PALETTE.white, 0.22).lineBetween(tx, ty, a.x, a.y);
   }
+  if (a.frost && a.state === 0) {
+    // frost: a trail of icy glints
+    g.fillStyle(PALETTE.frost, 0.5).fillCircle(a.x - dx * 14, a.y - dy * 14, 8).fillCircle(a.x - dx * 30 + px * 4, a.y - dy * 30 + py * 4, 5);
+  }
   if (a.fire && a.state === 0) {
     const fl = 9 + Math.sin(time * 50 + a.seq) * 3;
     g.fillStyle(PALETTE.fire, 0.8).fillCircle(a.x - dx * 6, a.y - dy * 6, fl);
@@ -953,9 +987,16 @@ export function drawArrow(g: G, a: Arrow, time: number, multi = false, halo = fa
     g.fillStyle(PALETTE.bubble, alpha).fillTriangle(hx + dx * 21, hy + dy * 21, hx - dx * 3 + px * 4.5, hy - dy * 3 + py * 4.5, hx - dx * 3 - px * 4.5, hy - dy * 3 - py * 4.5);
   } else {
     const k = heavy ? 1.35 : 1;
+    const head = a.frost ? PALETTE.frost : heavy ? PALETTE.metalLight : PALETTE.arrowHead;
     g.fillStyle(PALETTE.ink, alpha).fillTriangle(hx + dx * 15 * k, hy + dy * 15 * k, hx - dx * 6 + px * 10 * k, hy - dy * 6 + py * 10 * k, hx - dx * 6 - px * 10 * k, hy - dy * 6 - py * 10 * k);
-    g.fillStyle(heavy ? PALETTE.metalLight : PALETTE.arrowHead, alpha).fillTriangle(hx + dx * 10 * k, hy + dy * 10 * k, hx - dx * 3 + px * 6 * k, hy - dy * 3 + py * 6 * k, hx - dx * 3 - px * 6 * k, hy - dy * 3 - py * 6 * k);
+    g.fillStyle(head, alpha).fillTriangle(hx + dx * 10 * k, hy + dy * 10 * k, hx - dx * 3 + px * 6 * k, hy - dy * 3 + py * 6 * k, hx - dx * 3 - px * 6 * k, hy - dy * 3 - py * 6 * k);
     if (heavy) g.fillStyle(PALETTE.ink, alpha).fillCircle(hx - dx * 8, hy - dy * 8, 5);
+  }
+  if (a.blast && a.state === 0) {
+    // blast: a little red charge with a lit fuse behind the head
+    g.fillStyle(PALETTE.ink, alpha).fillCircle(hx - dx * 9, hy - dy * 9, 8);
+    g.fillStyle(PALETTE.danger, alpha).fillCircle(hx - dx * 9, hy - dy * 9, 5.5);
+    g.fillStyle(PALETTE.fireCore, 0.6 + 0.4 * Math.sin(time * 30 + a.seq)).fillCircle(hx - dx * 9 - px * 7, hy - dy * 9 - py * 7, 3);
   }
   // fletching: blue on multi-shot arrows
   const fc = a.owner === 'player' ? (multi ? PALETTE.sky2 : PALETTE.fletch) : PALETTE.enemyFletch;

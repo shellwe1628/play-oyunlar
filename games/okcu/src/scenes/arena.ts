@@ -2,16 +2,23 @@
  * The arena behind the action: baked theme layers with a cross-fade between themes, drifting
  * clouds, the ambient layer and the baked ledges. Owns its textures (at most two themes and
  * two ledge sets live at once) and frees them on shutdown.
+ *
+ * On a grown field (sim chapters.ts `fieldSpan`) the camera shows `span` times the frame from
+ * the bottom left corner: the painted layers are stretched by the same factor from that corner
+ * so they still fill the view, and the ledges are baked wide enough for the farthest island.
  */
 import Phaser from 'phaser';
 import { THEMES, type Theme } from '../anim/themes';
 import type { Ledge } from '../sim/body';
+import { MAX_SPAN } from '../sim/chapters';
 import { PALETTE } from '../textures';
 import { Ambient, drawThemeBack, drawThemeLedge, drawThemeNear, LANTERN_Y } from './worlds';
 
 const W = 720;
 const H = 1280;
 
+/** the ledge bake covers the widest field */
+const LEDGE_W = Math.ceil(W * MAX_SPAN);
 const MPAD = 40;
 const MPAD_TOP = 90;
 
@@ -36,6 +43,8 @@ export class Arena {
   ambientOn = true;
   /** the stage's wind: drifts clouds, snow and sand */
   wind = 0;
+  /** the field's size as the camera shows it (1 = the 720 x 1280 frame) */
+  private span = 1;
 
   constructor(private readonly scene: Phaser.Scene, layer: Phaser.GameObjects.Container) {
     for (let i = 0; i < 2; i++) this.back.push(scene.add.image(0, 0, '__DEFAULT').setOrigin(0).setVisible(false));
@@ -60,12 +69,17 @@ export class Arena {
     });
   }
 
-  private bake(key: string, draw: (g: Phaser.GameObjects.Graphics) => void): void {
+  private bake(key: string, draw: (g: Phaser.GameObjects.Graphics) => void, width = W): void {
     if (this.scene.textures.exists(key)) return;
     const g = this.scene.make.graphics({}, false);
     draw(g);
-    g.generateTexture(key, W, H);
+    g.generateTexture(key, width, H);
     g.destroy();
+  }
+
+  /** The camera shows `span` times the frame (anchored bottom left): stretch the painted layers to fill it. */
+  setSpan(span: number): void {
+    this.span = span;
   }
 
   /** Switch to theme `index`; cross-fades unless `instant`. */
@@ -124,7 +138,7 @@ export class Arena {
     const th = this.theme;
     this.bake(tex, (g) => ledges.forEach((l, i) => {
       if (!skip.includes(i)) drawThemeLedge(g, l, i + seed, th);
-    }));
+    }), LEDGE_W);
     this.ledges.setTexture(tex).setVisible(true);
     // the moving ones: one small bake each
     this.moverIdx = [...skip];
@@ -159,14 +173,20 @@ export class Arena {
 
   update(real: number, pushX: number, pushY: number): void {
     this.time += real;
+    const k = this.span;
+    const top = H * (1 - k);
     for (let i = 0; i < 2; i++) {
-      this.back[i]!.setPosition(-pushX * 0.5 * 0.4, -pushY * 0.3 * 0.4);
-      this.near[i]!.setPosition(-pushX * 0.25, -pushY * 0.15);
+      this.back[i]!.setScale(k).setPosition(-pushX * 0.5 * 0.4, top - pushY * 0.3 * 0.4);
+      this.near[i]!.setScale(k).setPosition(-pushX * 0.25, top - pushY * 0.15);
     }
+    // the weather and the night's lantern glow belong to the painted layers: stretched alike
+    this.ambientG.setScale(k).setPosition(0, top);
+    this.lantern.setScale(k).setPosition(0, top);
+    const right = W * k;
     for (const c of this.clouds) {
       c.x += ((c.getData('v') as number) + this.wind * 0.12) * real;
-      if (c.x > W + 160) c.x = -160;
-      if (c.x < -160) c.x = W + 160;
+      if (c.x > right + 160) c.x = -160;
+      if (c.x < -160) c.x = right + 160;
     }
     if (!this.ambientOn) {
       this.ambientG.clear();

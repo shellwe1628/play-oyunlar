@@ -4,7 +4,7 @@
  */
 import type Phaser from 'phaser';
 import type { Theme } from '../anim/themes';
-import { PIVOT_Y, type Mover, type Plate, type Prop, type Target } from '../sim/world';
+import { type Mover, type Plate, type Prop, type Target } from '../sim/world';
 import type { Ledge } from '../sim/body';
 import { PALETTE } from '../textures';
 
@@ -44,7 +44,7 @@ export function drawRope(g: G, x0: number, y0: number, x1: number, y1: number): 
 }
 
 export function drawRock(g: G, p: Prop, th: Theme): void {
-  if (p.hanging) drawRope(g, p.x, PIVOT_Y, p.x, p.y - p.w + 4);
+  if (p.hanging) drawRope(g, p.x, p.pivotY, p.x, p.y - p.w + 4);
   const r = p.w;
   g.fillStyle(INK, 1).fillCircle(p.x, p.y, r + 6);
   g.fillStyle(th.ambient === 'snow' ? 0xcfe8ff : th.body, 1).fillCircle(p.x, p.y, r);
@@ -60,8 +60,8 @@ export function drawRock(g: G, p: Prop, th: Theme): void {
 /** Two ropes from the pivot down to the ends of a swinging ledge. */
 export function drawSwingRopes(g: G, m: Mover, L: Ledge): void {
   if (m.cut) return;
-  drawRope(g, m.pivotX, PIVOT_Y, L.x + 10, L.y);
-  drawRope(g, m.pivotX, PIVOT_Y, L.x + L.w - 10, L.y);
+  drawRope(g, m.pivotX, m.pivotY, L.x + 10, L.y);
+  drawRope(g, m.pivotX, m.pivotY, L.x + L.w - 10, L.y);
   g.fillStyle(INK, 1).fillCircle(L.x + 10, L.y, 6).fillCircle(L.x + L.w - 10, L.y, 6);
 }
 

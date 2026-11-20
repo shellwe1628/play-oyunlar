@@ -8,6 +8,8 @@
  */
 import * as THREE from 'three';
 import { animate, newAnimOut, posePoints, type AnimInput, type AnimOut, type Kind } from '@okcu/anim/anim';
+import { PALETTE } from '@okcu/textures';
+import { castsSpells } from '@sim/combat';
 import type { Archer, World } from '@sim/world';
 import type { Assets } from '../assets';
 import type { ArchersView, BowHandle, Frame, Game, Stage } from '../contract';
@@ -42,10 +44,12 @@ function animKind(t: Archer['type']): Kind {
   switch (t) {
     case 'healer':
     case 'ward':
+    case 'mage':
       return 'shield';
     case 'cover':
     case 'catcher':
     case 'imp':
+    case 'volley':
       return 'archer';
     case 'elite':
       return 'boss';
@@ -58,6 +62,7 @@ const WHITE = new THREE.Color(1, 1, 1);
 const FIRE = new THREE.Color(1, 0.42, 0.06);
 const GOLD = new THREE.Color(1, 0.86, 0.35);
 const HURT = new THREE.Color(1, 0.35, 0.35);
+const FROST = new THREE.Color(PALETTE.frost);
 
 export function createArchers(stage: Stage, assets: Assets, _game: Game): ArchersView {
   const kit = createRigKit(assets);
@@ -149,7 +154,7 @@ export function createArchers(stage: Stage, assets: Assets, _game: Game): Archer
     rig.pose({ x: p.vx, y: p.vy, facing: a.facing, scale: a.scale * bulge, flat: p.flat, aim: a.aim, aimed: nocked ? Math.min(1, draw * 4) : 0 });
 
     const ready = a.type === 'player' ? w.reload <= 0 : a.brain === 'draw' && a.type !== 'bomber';
-    p.gear.update({ facing: a.facing, scale: a.scale, gx: rig.hand.x, gy: rig.hand.y, gz: rig.hand.z, angle: rig.hand.angle, draw: nocked ? draw : 0, nocked, nx: rig.pinch.x, ny: rig.pinch.y, arrow: a.alive && ready && (nocked || a.type === 'player'), visible: a.type !== 'healer' });
+    p.gear.update({ facing: a.facing, scale: a.scale, gx: rig.hand.x, gy: rig.hand.y, gz: rig.hand.z, angle: rig.hand.angle, draw: nocked ? draw : 0, nocked, nx: rig.pinch.x, ny: rig.pinch.y, arrow: a.alive && ready && (nocked || a.type === 'player'), visible: !castsSpells(a.type) });
     const f = a.facing >= 0 ? 1 : -1;
     p.handle.grip.position.set(f * rig.hand.x, rig.hand.y, rig.hand.z);
     p.handle.grip.rotation.z = f < 0 ? Math.PI - rig.hand.angle : rig.hand.angle;
@@ -162,6 +167,10 @@ export function createArchers(stage: Stage, assets: Assets, _game: Game): Archer
     } else if (a.burn > 0 && a.alive) {
       u.uFlashCol.value.copy(FIRE);
       u.uFlash.value = 0.3 + 0.16 * Math.sin(animT * 23 + a.id);
+    } else if (a.chill > 0 && a.alive) {
+      // frost arrows: an icy sheen while the archer's clock runs slow
+      u.uFlashCol.value.copy(FROST);
+      u.uFlash.value = 0.34 * Math.min(1, a.chill / 1.2) + 0.05 * Math.sin(animT * 5 + a.id);
     } else u.uFlash.value = 0;
     p.outfit.update(w, a, p.vx, p.vy, animT);
   }

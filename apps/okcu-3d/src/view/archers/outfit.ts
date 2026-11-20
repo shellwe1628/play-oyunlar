@@ -1,7 +1,8 @@
 /**
  * What an archer wears and carries besides the bow: the player's armour (one piece per level of
  * the health upgrade), veterans' steel caps, per-type headgear, boss plating and weak-spot ring,
- * the shield-bearer's planted pavise, the healer's staff and the lantern knight's ward.
+ * the shield-bearer's planted pavise, the healer's and the wizard's staffs and the lantern
+ * knight's ward.
  *
  * Worn pieces are authored around the T-pose in the model's own space (cm; x = the character's
  * left, y = up, z = forward) and hung on a bone with `rig.attach`, so they move, stretch and
@@ -403,6 +404,28 @@ function hat(k: Kit, kind: Hat, accent: number): THREE.Object3D | null {
       }
       break;
     }
+    case 'wizard': {
+      // the wizard: a tall, slightly crooked cone over a wide brim, with a gold star band
+      o.add(mesh(geo('wizBrim', () => new THREE.CylinderGeometry(R * 1.75, R * 1.85, 1.6, 22).translate(HEAD.x, HEAD.y + 6, HEAD.z)), tint(PALETTE.mageShade)));
+      const cone = geo('wizCone', () => {
+        const g = new THREE.ConeGeometry(R * 1.02, 34, 16, 6).translate(0, 17, 0);
+        const pos = g.getAttribute('position');
+        for (let i = 0; i < pos.count; i++) {
+          const t = pos.getY(i) / 34;
+          pos.setZ(i, pos.getZ(i) - t * t * 9); // the tip droops back
+        }
+        g.computeVertexNormals();
+        return g.translate(HEAD.x, HEAD.y + 6.5, HEAD.z);
+      });
+      o.add(mesh(cone, tint(PALETTE.mage)));
+      o.add(mesh(geo('wizBand', () => new THREE.CylinderGeometry(R * 0.98, R * 1.02, 3.2, 16, 1, true).translate(HEAD.x, HEAD.y + 9, HEAD.z)), k.gold));
+      for (let i = 0; i < 3; i++) {
+        const star = mesh(geo('wizStar', () => new THREE.OctahedronGeometry(1.8, 0)), tint(accent));
+        star.position.set(HEAD.x + (i - 1) * 4.2, HEAD.y + 15 + i * 5, HEAD.z + R * 0.75 - i * 2.4);
+        o.add(star);
+      }
+      break;
+    }
     case 'halo': {
       // the storm caller: a gold ring floating over the head, ringed with cloud puffs
       o.add(mesh(geo('haloRing', () => new THREE.TorusGeometry(R * 1.1, 2.2, 6, 28).rotateX(Math.PI / 2).translate(HEAD.x, HEAD.y + R + 8, HEAD.z)), k.gold));
@@ -525,10 +548,17 @@ export class Outfit {
       this.shield = g;
       this.group.add(g);
     }
-    if (a.type === 'healer') {
+    if (a.type === 'healer' || a.type === 'mage') {
+      // the sim casts from the staff's tip (world.ts staffTip)
+      const mage = a.type === 'mage';
       const g = new THREE.Group();
-      g.add(mesh(geo('staff', () => new THREE.CylinderGeometry(3.2, 3.8, 96, 7).translate(0, 4, 0)), k.wood));
-      g.add(mesh(geo('staffOrb', () => new THREE.SphereGeometry(10, 12, 9).translate(0, 56, 0)), healMat ?? (healMat = new THREE.MeshBasicMaterial({ color: PALETTE.heal }))));
+      g.add(mesh(geo('staff', () => new THREE.CylinderGeometry(3.2, 3.8, 96, 7).translate(0, 4, 0)), mage ? k.dark : k.wood));
+      const orb = mage ? (hexMat ??= new THREE.MeshBasicMaterial({ color: PALETTE.hex })) : (healMat ??= new THREE.MeshBasicMaterial({ color: PALETTE.heal }));
+      g.add(mesh(geo('staffOrb', () => new THREE.SphereGeometry(10, 12, 9).translate(0, 56, 0)), orb));
+      if (mage) {
+        // a gold crescent cradling the hex
+        g.add(mesh(geo('staffMoon', () => new THREE.TorusGeometry(13, 1.8, 6, 16, Math.PI * 1.2).rotateZ(Math.PI * 0.9).translate(0, 56, 0)), k.gold));
+      }
       this.staff = g;
       this.group.add(g);
     }
@@ -574,4 +604,5 @@ export class Outfit {
   }
 }
 let healMat: THREE.Material | null = null;
+let hexMat: THREE.Material | null = null;
 let wardMat: THREE.Material | null = null;

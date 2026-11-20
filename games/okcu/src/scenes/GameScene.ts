@@ -118,6 +118,8 @@ const ENEMY_TINT: Record<EnemyType, number> = {
   ward: PALETTE.ward,
   elite: PALETTE.elite,
   imp: PALETTE.imp,
+  volley: PALETTE.volley,
+  mage: PALETTE.mage,
 };
 
 const W = 720;
@@ -164,6 +166,8 @@ export class GameScene extends OyunScene {
   private zoom = 0;
   private zoomFx = 360;
   private zoomFy = 640;
+  /** the field's size as shown (eases to the sim's w.span: the camera pulls back on a grown field) */
+  private span = 1;
   private pushX = 0;
   private pushY = 0;
   private hurtFlash = 0;
@@ -270,6 +274,7 @@ export class GameScene extends OyunScene {
     this.buffered = null;
     this.slowT = 0;
     this.zoom = 0;
+    this.span = this.w.span;
     this.frameMs = [];
     this.stepMs = [];
     this.shotFx = 0;
@@ -832,13 +837,21 @@ export class GameScene extends OyunScene {
     this.pushY += (0 - this.pushY) * Math.min(1, real * 7);
     const z = 1 + this.zoom + this.punch;
     this.punch = Math.max(0, this.punch - real * 0.25);
-    const fx = this.zoomFx;
-    const fy = this.zoomFy;
+    // a grown field: the base view shows `span` times the frame, anchored at the bottom left
+    // (the player's corner), so the whole field fits a portrait screen; the effects below work
+    // on top of it in screen space
+    this.span += (this.w.span - this.span) * Math.min(1, real * 1.8);
+    if (Math.abs(this.w.span - this.span) < 1e-3) this.span = this.w.span;
+    const base = 1 / this.span;
+    const baseY = H * (1 - base);
+    const fx = this.zoomFx * base;
+    const fy = baseY + this.zoomFy * base;
     // keep the focus point where it is, drifting it a little toward the centre
     const k = this.zoom * 1.2;
-    this.layer.setScale(z);
-    this.layer.setPosition(fx * (1 - z) + (360 - fx) * k + this.pushX, fy * (1 - z) + (640 - fy) * k + this.pushY);
+    this.layer.setScale(z * base);
+    this.layer.setPosition(fx * (1 - z) + (360 - fx) * k + this.pushX, fy * (1 - z) + (640 - fy) * k + this.pushY + z * baseY);
     // parallax: hills shift opposite to the push
+    this.arena.setSpan(this.span);
     this.arena.update(real, this.pushX, this.pushY);
     // red vignette on damage; a golden one while focus is up; white flash on a headshot
     if (this.hurtFlash > 0.02) this.vignette.setTint(PALETTE.danger).setAlpha(this.hurtFlash * 0.85);
@@ -938,7 +951,9 @@ export class GameScene extends OyunScene {
     for (const a of w.arrows) {
       if (!a.active || a.state === 1) continue;
       if (a.kind === 'orb') {
-        drawOrb(g, a.x, a.y, 20, time);
+        // a staff-carrier's hex is smaller and magenta; the warden's orbs stay violet
+        if (a.hex) drawOrb(g, a.x, a.y, 16, time, PALETTE.hex);
+        else drawOrb(g, a.x, a.y, 20, time);
         continue;
       }
       if (a.state === 2) {
@@ -1442,6 +1457,21 @@ export class GameScene extends OyunScene {
           this.fx.sparks(e.x, e.y, 12, PALETTE.imp, 300);
           break;
         }
+        case 'blink': {
+          // the wizard pops out in a puff of stars and back in on its new ledge
+          audio.playPreset(SFX.summon, { pitch: 9, volume: 0.7 });
+          this.fx.ring(e.x0, e.y0, PALETTE.mage, 1.4, 0.3);
+          this.fx.sparks(e.x0, e.y0, 10, PALETTE.mageStar, 280);
+          this.fx.ring(e.x1, e.y1, PALETTE.hex, 1.6, 0.35);
+          this.fx.sparks(e.x1, e.y1, 8, PALETTE.hex, 220);
+          this.track(e.id).land = this.animT;
+          break;
+        }
+        case 'chill':
+          audio.playPreset(SFX.plink, { pitch: 8, volume: 0.6 });
+          this.fx.ring(e.x, e.y, PALETTE.frost, 1.1, 0.25);
+          this.fx.sparks(e.x, e.y, 8, PALETTE.frost, 200);
+          break;
         case 'rope': {
           audio.playPreset(SFX.snapRope);
           this.fx.shards(e.x, e.y, -Math.PI / 2, 0xd9b27a, 6, 260);
@@ -1654,6 +1684,13 @@ export class GameScene extends OyunScene {
       this.seen.add('tip-rock');
     }
     const obj = e.objective ? this.objectiveText(e.objective, e.limit) : null;
+    // a grown field (chapter 4, and again chapter 6): said once a run, after the banner
+    if (this.w.span > 1) {
+      const key = `grow-${this.w.span}`;
+      this.time.delayedCall(1700, () => {
+        if (!this.finished) this.teach(key, this.t('hud.fieldGrows'));
+      });
+    }
     if (e.boss) {
       this.showBanner(this.t(`boss.${e.boss}`), this.t(`boss.tip.${e.boss}`));
     } else if (e.stage === 1 && wave > 1 && !stageOf(wave).endless) {
@@ -1677,7 +1714,7 @@ export class GameScene extends OyunScene {
   }
 
   private hasIntro(t: string): boolean {
-    return t === 'shield' || t === 'jumper' || t === 'bomber' || t === 'healer' || t === 'cover' || t === 'catcher' || t === 'ward' || t === 'elite';
+    return t === 'shield' || t === 'jumper' || t === 'bomber' || t === 'healer' || t === 'cover' || t === 'catcher' || t === 'ward' || t === 'elite' || t === 'volley' || t === 'mage';
   }
 
   /** Rising text that is tracked, so clearTransients can remove it before an overlay opens. */
@@ -2149,10 +2186,12 @@ function animKind(t: Archer['type']): Kind {
   switch (t) {
     case 'healer':
     case 'ward':
+    case 'mage':
       return 'shield';
     case 'cover':
     case 'catcher':
     case 'imp':
+    case 'volley':
       return 'archer';
     case 'elite':
       return 'boss';

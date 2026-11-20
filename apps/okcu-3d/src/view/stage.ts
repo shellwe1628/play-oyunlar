@@ -18,6 +18,11 @@
  * that falls), a nudge with each gust and a small punch at a stage clear. Reduced motion (the
  * system's prefers-reduced-motion, or ?calm=1) keeps a third of the shake and half the zooms.
  * All of it reads the frame's events and the world; none of it feeds back into the simulation.
+ *
+ * A grown field (from chapter 4, the sim's `w.span`, chapters.ts `fieldSpan`) widens the resting
+ * window to `span` times the frame, anchored at the bottom left where the player stands, so the
+ * farthest island still fits a portrait phone; the camera glides out to it as the wave drops in.
+ * Every effect above works on top of that base view, in its screen space.
  */
 import * as THREE from 'three';
 import { PLAYER_LEDGE, PLAYER_X } from '@sim/tuning';
@@ -100,6 +105,9 @@ export function createStage(root: HTMLElement): Stage {
   let clock = 0;
   let cssW = 1;
   let cssH = 1;
+  /** the field's size as shown (eases to the world's span) */
+  let span = 1;
+  let spanWorld: unknown = null;
 
   /** Aim the frustum: the plane-z=0 window centred on logical (cx, cy), 1 / z of the frame in size. */
   function frameCamera(cx: number, cy: number, z: number, roll: number, swayX: number, swayY: number): void {
@@ -253,6 +261,17 @@ export function createStage(root: HTMLElement): Stage {
       pushY += (0 - pushY) * Math.min(1, real * 7);
       const z = 1 + zoom + punch;
       punch = Math.max(0, punch - real * 0.25);
+      // the base view: a new run starts at its own size, a grown field eases out
+      const goal = frame.w.span;
+      if (frame.w !== spanWorld) {
+        spanWorld = frame.w;
+        span = goal;
+      } else span += (goal - span) * Math.min(1, real * 1.8);
+      if (Math.abs(goal - span) < 1e-3) span = goal;
+      const base = 1 / span;
+      const baseY = LOGICAL_H * (1 - base);
+      const fx = focusX * base;
+      const fy = baseY + focusY * base;
 
       let offX = 0;
       let offY = 0;
@@ -268,14 +287,15 @@ export function createStage(root: HTMLElement): Stage {
 
       // same layer transform as the 2D game: screen = layer + p · z (− shake scroll)
       const k = zoom * 1.2;
-      const layerX = focusX * (1 - z) + (LOGICAL_W / 2 - focusX) * k + pushX;
-      const layerY = focusY * (1 - z) + (LOGICAL_H / 2 - focusY) * k + pushY;
-      const cx = (LOGICAL_W / 2 - layerX + offX) / z;
-      const cy = (LOGICAL_H / 2 - layerY + offY) / z;
+      const layerX = fx * (1 - z) + (LOGICAL_W / 2 - fx) * k + pushX;
+      const layerY = fy * (1 - z) + (LOGICAL_H / 2 - fy) * k + pushY;
+      // the window centre in the base view's screen space, then back to logical px
+      const cx = ((LOGICAL_W / 2 - layerX + offX) / z) / base;
+      const cy = ((LOGICAL_H / 2 - layerY + offY) / z - baseY) / base;
       // a slow idle sway of the eye: the gameplay plane stays put, depth gets parallax
       const swayX = Math.sin(clock * 0.23) * 0.5 + Math.sin(clock * 0.11 + 1.7) * 0.22;
       const swayY = Math.sin(clock * 0.17 + 0.6) * 0.16;
-      frameCamera(cx, cy, z, roll, swayX, swayY);
+      frameCamera(cx, cy, z * base, roll, swayX, swayY);
 
       renderer.render(scene, camera);
     },

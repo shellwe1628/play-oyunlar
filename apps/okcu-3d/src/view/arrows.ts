@@ -161,6 +161,8 @@ export function createArrows(stage: Stage): Module {
   const bombMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.32, metalness: 0.25 });
   const orbGeo = mergeGeometries([paint(new THREE.SphereGeometry(m(20), 20, 14), 0xffffff), hull(new THREE.SphereGeometry(m(24), 20, 14))]);
   const orbMat = new THREE.MeshStandardMaterial({ vertexColors: true, color: ORB, emissive: ORB, emissiveIntensity: 0.55, roughness: 0.3 });
+  // a staff-carrier's hex (healer, wizard): smaller and magenta, so it never reads as a warden orb
+  const hexMat = new THREE.MeshStandardMaterial({ vertexColors: true, color: PALETTE.hex, emissive: PALETTE.hex, emissiveIntensity: 0.6, roughness: 0.3 });
   const bombs: THREE.Mesh[] = [];
   const orbs: THREE.Mesh[] = [];
   const pooled = (list: THREE.Mesh[], i: number, geo: THREE.BufferGeometry, material: THREE.Material): THREE.Mesh => {
@@ -200,6 +202,8 @@ export function createArrows(stage: Stage): Module {
     fletchFoe: new THREE.Color(PALETTE.enemyFletch),
     fletchFocus: new THREE.Color(PALETTE.focus),
     headHeavy: new THREE.Color(0xf4f6ff),
+    headFrost: new THREE.Color(PALETTE.frost),
+    headBlast: new THREE.Color(PALETTE.danger),
   };
   const mtx = new THREE.Matrix4();
   const mtx2 = new THREE.Matrix4();
@@ -306,20 +310,23 @@ export function createArrows(stage: Stage): Module {
 
         // ---------------------------------------------------------------- orbs
         if (a.kind === 'orb') {
-          const o = pooled(orbs, nOrbs++, orbGeo, orbMat);
+          const o = pooled(orbs, nOrbs++, orbGeo, a.hex ? hexMat : orbMat);
+          o.material = a.hex ? hexMat : orbMat;
+          const col = a.hex ? PALETTE.hex : ORB;
+          const r = a.hex ? 0.8 : 1;
           const k = 1 + Math.sin(clock * 18 + a.x * 0.05) * 0.12;
           o.position.set(sx(a.x), sy(a.y), 0);
-          o.scale.setScalar(0.94 + (k - 1) * 0.5);
-          spr(a.x, a.y, 20 * 5.2 * k, 20 * 5.2 * k, 0, ORB, 0.55, TILE.blob, 1);
-          spr(a.x - 6, a.y - 6, 22, 22, 0, PALETTE.white, 0.85, TILE.blob, 1);
-          spr(a.x, a.y, 74, 74, clock * 2.4, 0xd8c8ff, 0.5, TILE.glint, 1);
+          o.scale.setScalar((0.94 + (k - 1) * 0.5) * r);
+          spr(a.x, a.y, 20 * 5.2 * k * r, 20 * 5.2 * k * r, 0, col, 0.55, TILE.blob, 1);
+          spr(a.x - 6, a.y - 6, 22 * r, 22 * r, 0, PALETTE.white, 0.85, TILE.blob, 1);
+          spr(a.x, a.y, 74 * r, 74 * r, clock * 2.4, a.hex ? PALETTE.mageStar : 0xd8c8ff, 0.5, TILE.glint, 1);
           if (flying && flown[i]! > 0.01) {
             const reach = Math.min(0.16, flown[i]!);
             trails.strip();
             for (let s = 0; s < TRAIL_N; s++) {
               const f = s / (TRAIL_N - 1);
               const t = f * reach;
-              trails.point(sx(a.x - a.vx * t), sy(a.y - a.vy * t), TRAIL_Z, m(15 * (1 - f) + 2), ORB, 0.5 * (1 - f), 0.85, 1);
+              trails.point(sx(a.x - a.vx * t), sy(a.y - a.vy * t), TRAIL_Z, m(15 * (1 - f) + 2), col, 0.5 * (1 - f), 0.85, 1);
             }
           }
           continue;
@@ -366,7 +373,7 @@ export function createArrows(stage: Stage): Module {
           // nothing to draw
         } else if (mine && a.bounces > 0) put(balls, C.white, alpha);
         else if (mine && a.pierce > 0) put(needles, C.white, alpha);
-        else put(heads, heavy ? C.headHeavy : C.white, alpha);
+        else put(heads, mine && a.blast ? C.headBlast : mine && a.frost ? C.headFrost : heavy ? C.headHeavy : C.white, alpha);
 
         if (!flying) continue;
 
@@ -388,6 +395,14 @@ export function createArrows(stage: Stage): Module {
           add = 0.5;
         } else if (mine && a.bounces > 0) {
           color = PALETTE.leaf;
+        } else if (mine && a.frost) {
+          color = PALETTE.frost;
+          width = 8;
+          add = 0.5;
+        } else if (mine && a.blast) {
+          color = PALETTE.powerHigh;
+          width = 7;
+          add = 0.4;
         } else if (heavy) {
           color = PALETTE.smoke;
           width = 9;
@@ -405,6 +420,10 @@ export function createArrows(stage: Stage): Module {
               if (s % 2 === 0 && s > 0) spr(x, y, 8 + f * 8, 8 + f * 8, 0, color, ta * f * 1.6, TILE.disc, 0.2);
             } else {
               trails.point(sx(x), sy(y), TRAIL_Z, m((width * f + 1) * 0.5), color, ta * f, add, 0.25);
+            }
+            if (mine && a.blast && s === 1) {
+              // the blast arrow's fuse spark rides just behind the head
+              spr(x, y, 12 + Math.sin(clock * 40 + a.seq) * 4, 12, 0, PALETTE.fireCore, 0.9, TILE.blob, 1);
             }
             if (mine && a.fire && s % 2 === 1) {
               spr(x + Math.sin(clock * 30 + s) * 4, y + Math.cos(clock * 27 + s) * 4, 7 + f * 9, 7 + f * 9, 0, PALETTE.fireCore, f, TILE.blob, 1);

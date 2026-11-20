@@ -4,6 +4,11 @@
  * chapter. Every stage lists its enemies, ledges (some slide, swing on a rope or bob on lava)
  * and props. Chapter 5 (Ember Caldera) adds ledges that rise and sink on the lava; chapter 6
  * (Sky Citadel) adds gusts that turn the wind around mid-stage.
+ *
+ * New enemy classes join as the run goes: the volley archer (high arcs of three arrows) from
+ * chapter 3, the wizard (a homing hex orb, and it blinks to another ledge when hit) from
+ * chapter 4. From chapter 4 on the field grows (see `fieldSpan`): the islands spread wider and
+ * higher, a fifth island appears, and both renderers pull the camera back to show it all.
  */
 import type { Rng } from '@oyun/core/pure';
 import type { EnemyType } from './combat';
@@ -140,7 +145,7 @@ export const CHAPTER_DEFS: readonly ChapterDef[] = [
       { enemies: ['catcher', 'archer'], ledges: C, props: [{ kind: 'barrel', on: 1 }] },
       { enemies: ['elite', 'cover', 'archer'], ledges: with_(A, 2, (l) => swing(l, 45)), elite: true },
       { enemies: ['catcher', 'cover', 'bomber'], ledges: B, props: [{ kind: 'barrel', on: 2 }] },
-      { enemies: ['archer', 'catcher', 'cover', 'archer'], ledges: with_(with_(C, 2, (l) => swing(l, 50, 0.9)), 3, (l) => swing(l, 40, 1.3)) },
+      { enemies: ['volley', 'catcher', 'cover', 'archer'], ledges: with_(with_(C, 2, (l) => swing(l, 50, 0.9)), 3, (l) => swing(l, 40, 1.3)) },
       { enemies: ['boss'], ledges: BOSS, boss: 'summoner' },
     ],
   },
@@ -151,10 +156,10 @@ export const CHAPTER_DEFS: readonly ChapterDef[] = [
     bonus: 'gallery',
     stages: [
       { enemies: ['ward', 'archer'], ledges: A },
-      { enemies: ['ward', 'healer', 'archer'], ledges: with_(B, 1, (l) => slide(l)) },
+      { enemies: ['ward', 'healer', 'mage'], ledges: with_(B, 1, (l) => slide(l)) },
       { enemies: ['catcher', 'ward', 'bomber'], ledges: with_(C, 2, (l) => swing(l)), props: [{ kind: 'rock', above: 1 }] },
       { enemies: ['elite', 'healer', 'ward'], ledges: A, elite: true, props: [{ kind: 'barrel', on: 1 }] },
-      { enemies: ['cover', 'ward', 'jumper', 'archer'], ledges: with_(with_(B, 0, (l) => slide(l, 50)), 1, (l) => swing(l, 50)) },
+      { enemies: ['cover', 'mage', 'jumper', 'volley'], ledges: with_(with_(B, 0, (l) => slide(l, 50)), 1, (l) => swing(l, 50)) },
       { enemies: ['ward', 'catcher', 'healer', 'bomber'], ledges: C, props: [{ kind: 'rock', above: 0 }, { kind: 'barrel', on: 2 }] },
       { enemies: ['boss'], ledges: BOSS, boss: 'warden' },
     ],
@@ -167,9 +172,9 @@ export const CHAPTER_DEFS: readonly ChapterDef[] = [
     stages: [
       { enemies: ['bomber', 'archer'], ledges: with_(D, 1, (l) => bob(l)) },
       { enemies: ['shield', 'bomber', 'archer'], ledges: with_(D, 0, (l) => bob(l, 36, 1.2)), props: [{ kind: 'rock', above: 2 }] },
-      { enemies: ['ward', 'jumper', 'bomber'], ledges: with_(D, 2, (l) => bob(l, 48, 0.9)), props: [{ kind: 'barrel', on: 1 }] },
+      { enemies: ['volley', 'jumper', 'bomber'], ledges: with_(D, 2, (l) => bob(l, 48, 0.9)), props: [{ kind: 'barrel', on: 1 }] },
       { enemies: ['elite', 'bomber', 'healer'], ledges: with_(D, 2, (l) => bob(l, 40, 1.1)), elite: true, props: [{ kind: 'barrel', on: 0 }] },
-      { enemies: ['catcher', 'bomber', 'cover', 'archer'], ledges: with_(with_(D, 0, (l) => bob(l, 34, 1.3)), 3, (l) => bob(l, 46, 0.8)) },
+      { enemies: ['catcher', 'bomber', 'cover', 'mage'], ledges: with_(with_(D, 0, (l) => bob(l, 34, 1.3)), 3, (l) => bob(l, 46, 0.8)) },
       { enemies: ['ward', 'bomber', 'healer', 'jumper'], ledges: with_(with_(D, 1, (l) => bob(l, 44, 1.2)), 2, (l) => slide(l, 50, 1)), props: [{ kind: 'rock', above: 0 }, { kind: 'barrel', on: 1 }] },
       { enemies: ['boss'], ledges: with_(with_(BOSS, 1, (l) => bob(l, 40, 0.9)), 2, (l) => bob(l, 36, 1.2)), boss: 'magma' },
     ],
@@ -181,8 +186,8 @@ export const CHAPTER_DEFS: readonly ChapterDef[] = [
     bonus: 'apples',
     stages: [
       { enemies: ['archer', 'archer', 'catcher'], ledges: E, wind: 170, gust: 6 },
-      { enemies: ['shield', 'ward', 'archer'], ledges: with_(E, 0, (l) => slide(l, 45, 1)), wind: 180, gust: 5.5 },
-      { enemies: ['jumper', 'bomber', 'healer', 'archer'], ledges: with_(E, 2, (l) => swing(l, 50)), wind: 190, gust: 5, props: [{ kind: 'rock', above: 0 }] },
+      { enemies: ['shield', 'mage', 'archer'], ledges: with_(E, 0, (l) => slide(l, 45, 1)), wind: 180, gust: 5.5 },
+      { enemies: ['jumper', 'bomber', 'healer', 'volley'], ledges: with_(E, 2, (l) => swing(l, 50)), wind: 190, gust: 5, props: [{ kind: 'rock', above: 0 }] },
       { enemies: ['elite', 'ward', 'catcher'], ledges: with_(E, 2, (l) => swing(l, 45, 1.2)), elite: true, wind: 200, gust: 5 },
       { enemies: ['cover', 'catcher', 'bomber', 'ward'], ledges: with_(with_(E, 0, (l) => slide(l, 45)), 3, (l) => swing(l, 45, 1.3)), wind: 210, gust: 4.5, props: [{ kind: 'barrel', on: 2 }] },
       { enemies: ['healer', 'shield', 'jumper', 'bomber'], ledges: with_(with_(E, 1, (l) => bob(l, 40)), 2, (l) => swing(l, 50, 1)), wind: 220, gust: 4, props: [{ kind: 'rock', above: 3 }] },
@@ -246,6 +251,8 @@ const ENDLESS_POOL: readonly { type: EnemyType; weight: number }[] = [
   { type: 'cover', weight: 2 },
   { type: 'catcher', weight: 2 },
   { type: 'ward', weight: 2 },
+  { type: 'volley', weight: 2 },
+  { type: 'mage', weight: 2 },
 ];
 
 function pick(rng: Rng): EnemyType {
@@ -303,4 +310,100 @@ export function bonusAfter(wave: number): BonusKind | null {
   const p = stageOf(wave);
   if (p.stage !== STAGES || p.endless) return null;
   return CHAPTER_DEFS[p.chapter]!.bonus;
+}
+
+// ---------------------------------------------------------------- the growing field
+
+/** The field grows from this wave on (chapter 4, the second half of the run). */
+export const GROW_WAVE = 3 * STAGES + 1;
+/**
+ * How much bigger the field is than the 720 × 1280 frame at a wave: 1 for chapters 1 … 3,
+ * 1.15 for chapters 4 and 5, 1.22 for chapter 6 and endless. Renderers show a window
+ * `span` times the frame (anchored at the bottom left, where the player stands), so on a
+ * portrait phone the view reaches x 0 … 720·span and y 1280·(1 − span) … 1280.
+ */
+export function fieldSpan(wave: number): number {
+  if (wave < GROW_WAVE) return 1;
+  return stageOf(wave).chapter >= 5 ? 1.22 : 1.15;
+}
+/** the biggest span any wave uses (renderers size their bakes for it) */
+export const MAX_SPAN = 1.22;
+
+/** Logical x of the right edge of the view at `span`. */
+export const fieldRight = (span: number): number => 720 * span;
+/** Logical y of the top edge of the view at `span`. */
+export const fieldTop = (span: number): number => 1280 * (1 - span);
+
+/**
+ * The point every layout spreads from: the player's bow. Scaling the islands about it keeps
+ * every straight line of sight (and, near enough, every arc) that was clear before clear after.
+ */
+const BOW_X = 150;
+const BOW_Y = 880;
+/** islands below the bow's height stay above this (clear of the bottom of the view) */
+const LOW_Y = 1000;
+/** the islands stay this far inside the view's right edge (and above its top, room for archers) */
+const EDGE_PAD = 26;
+const TOP_PAD = 230;
+/** no island top above this: a full-power arrow (1750 px/s) still reaches a head on it */
+const HIGHEST = 140;
+/**
+ * spots tried, in order, for the fifth island of a grown field (fractions of the view): all on
+ * the far side, middle heights first (an island between the player and the archers, or too
+ * high, would only get in the way)
+ */
+const EXTRA_SPOTS: readonly (readonly [number, number])[] = [0.45, 0.5, 0.4, 0.55, 0.35, 0.6, 0.3, 0.65, 0.25, 0.7].flatMap((fy) => [[0.86, fy] as const, [0.76, fy] as const]);
+
+/**
+ * A stage's islands on a grown field: spread away from the player (scaled about the bow, so the
+ * layout keeps its shape and its lines of fire), kept inside the view with room for their
+ * movement, plus a fifth island on the far side where there is room for one. Span 1 returns
+ * the layout as it is.
+ */
+export function growLayout(base: readonly LedgeDef[], span: number): LedgeDef[] {
+  const out = base.map((l) => ({ ...l }));
+  if (span <= 1) return out;
+  const right = fieldRight(span) - EDGE_PAD;
+  // room above for an archer, and never so high that a full-power shot cannot reach its head
+  const top = Math.max(fieldTop(span) + TOP_PAD, HIGHEST);
+  const reach = (l: LedgeDef) => l.w + (l.slide?.amp ?? 0) + (l.swing?.amp ?? 0);
+  // the strongest spread that keeps every island (and its slide, swing or bob) inside the view
+  let k = 1 + (span - 1) * 2.6;
+  for (const l of out) {
+    const cx = l.x + l.w / 2;
+    const amp = (l.slide?.amp ?? 0) + (l.swing?.amp ?? 0);
+    const bob = l.bob?.amp ?? 0;
+    if (cx > BOW_X) k = Math.min(k, (right - l.w / 2 - amp - BOW_X) / (cx - BOW_X));
+    if (l.y < BOW_Y) k = Math.min(k, (BOW_Y - top - bob) / (BOW_Y - l.y));
+    if (l.y > BOW_Y) k = Math.min(k, (LOW_Y - bob - BOW_Y) / (l.y - BOW_Y));
+  }
+  k = Math.max(1, k);
+  for (const l of out) {
+    l.x = Math.round(BOW_X + (l.x + l.w / 2 - BOW_X) * k - l.w / 2);
+    l.y = Math.round(BOW_Y + (l.y - BOW_Y) * k);
+  }
+  const W = 140;
+  const clear = (m: LedgeDef) => out.every((o) => m.x + m.w + 44 < o.x - (o.slide?.amp ?? 0) - (o.swing?.amp ?? 0) || o.x + reach(o) + 44 < m.x || m.y + 160 < o.y - (o.bob?.amp ?? 0) || o.y + (o.bob?.amp ?? 0) + 160 < m.y);
+  // nor in the way of a shot: off the straight line from the player's bow to every archer, and
+  // not right above an island (it would roof it over: no lob over a shield or a wall)
+  const inWay = (m: LedgeDef) =>
+    out.some((o) => {
+      if (m.x < o.x + o.w && m.x + m.w > o.x && o.y > m.y && o.y - m.y < (o.w > 200 ? 420 : 300)) return true;
+      const tx = o.x + o.w / 2;
+      const ty = o.y - 130;
+      for (let k = 0; k <= 24; k++) {
+        const x = 150 + ((tx - 150) * k) / 24;
+        const y = 880 + ((ty - 880) * k) / 24;
+        if (x > m.x - 30 && x < m.x + m.w + 30 && y > m.y - 60 && y < m.y + 90) return true;
+      }
+      return false;
+    });
+  for (const [fx, fy] of EXTRA_SPOTS) {
+    const m: LedgeDef = { x: Math.round(Math.min(right - W, fieldRight(span) * fx - W / 2)), y: Math.round(Math.max(top, fieldTop(span) + 1280 * span * fy)), w: W };
+    if (clear(m) && !inWay(m)) {
+      out.push(m);
+      break;
+    }
+  }
+  return out;
 }

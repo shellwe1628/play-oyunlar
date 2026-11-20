@@ -96,6 +96,16 @@ export const PALETTE = {
   eliteShade: 0x1d807b,
   imp: 0xc27ae8,
   impShade: 0x8e4cb8,
+  // the volley archer (rust and brass), the wizard (midnight violet, its hex a hot magenta)
+  volley: 0xb8643a,
+  volleyShade: 0x844224,
+  volleyBand: 0xffd23f,
+  mage: 0x5b3fa8,
+  mageShade: 0x3a2775,
+  mageStar: 0xffe066,
+  hex: 0xff4fd8,
+  /** frost arrows: the chill on an archer and the icy arrow head */
+  frost: 0x9fe6ff,
   crit: 0xffe14d,
   focus: 0xffd84a,
   heat: 0xff6a2a,

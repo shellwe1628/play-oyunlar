@@ -44,6 +44,8 @@ const ENEMY_TINT: Record<EnemyType, number> = {
   ward: PALETTE.ward,
   elite: PALETTE.elite,
   imp: PALETTE.imp,
+  volley: PALETTE.volley,
+  mage: PALETTE.mage,
 };
 
 const BEAMS = 8;
@@ -402,6 +404,19 @@ export function createFx(stage: Stage): FxView {
         fx.ring(e.x, e.y, PALETTE.imp, 1.8, 0.4);
         fx.sparks(e.x, e.y, 12, PALETTE.imp, 300);
         fx.flash(e.x, e.y, PALETTE.imp, 200, 0.3, 0.55);
+        break;
+      case 'blink':
+        // the wizard pops out in a puff of stars and back in on its new ledge
+        fx.ring(e.x0, e.y0, PALETTE.mage, 1.4, 0.3);
+        fx.sparks(e.x0, e.y0, 10, PALETTE.mageStar, 280);
+        fx.puffs(e.x0, e.y0, 3, PALETTE.mage, 70);
+        fx.ring(e.x1, e.y1, PALETTE.hex, 1.6, 0.35);
+        fx.sparks(e.x1, e.y1, 8, PALETTE.hex, 220);
+        fx.flash(e.x1, e.y1, PALETTE.hex, 170, 0.22, 0.6);
+        break;
+      case 'chill':
+        fx.ring(e.x, e.y, PALETTE.frost, 1.1, 0.25);
+        fx.sparks(e.x, e.y, 8, PALETTE.frost, 200);
         break;
       case 'rope':
         fx.shards(e.x, e.y, -Math.PI / 2, 0xd9b27a, 6, 260);

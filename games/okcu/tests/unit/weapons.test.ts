@@ -572,3 +572,212 @@ describe('boomerang', () => {
     expect(hits).toBe(0);
   });
 });
+
+describe('firework rocket', () => {
+  type W = ReturnType<typeof createWorld>;
+  const rocketWorld = (wlevel = 1, seed = 3) => {
+    const w = createWorld({ seed, difficulty: 'hard', meta: { ...NO_META, weapon: 'firework', wlevel } });
+    jumpToWave(w, 6);
+    w.wind = 0;
+    w.walls.length = 0;
+    return w;
+  };
+  const freeze = (w: W) => {
+    for (const e of w.enemies) {
+      e.timer = 999;
+      e.hp = e.maxHp = 1e6;
+      e.shield = null;
+    }
+  };
+  const settle = (w: W) => {
+    for (let i = 0; i < 90; i++) {
+      freeze(w);
+      advance(w, 1 / 60);
+    }
+    freeze(w);
+    w.reload = 0;
+    takeEvents(w);
+  };
+  /** Aim at a point (ignoring the rocket's slight drop). */
+  const aimAt = (w: W, tx: number, ty: number) => {
+    let angle = -0.3;
+    for (let k = 0; k < 5; k++) {
+      const o = playerOrigin(w, angle);
+      angle = Math.atan2(ty - o.y, tx - o.x);
+    }
+    const o = playerOrigin(w, angle);
+    return { angle, o, d: Math.hypot(tx - o.x, ty - o.y) };
+  };
+  const powerFor = (speed: number) => (speed - TUNING.speedMin) / (TUNING.speedMax - TUNING.speedMin);
+  /** Run until the rocket ends; report the burst events, who lost hp and the rocket's age at the end. */
+  const run = (w: W, rocket: W['arrows'][number], seconds = 2) => {
+    const hp0 = new Map(w.enemies.map((e) => [e.id, e.hp]));
+    const blasts: Extract<ReturnType<typeof takeEvents>[number], { t: 'blast' }>[] = [];
+    const all: string[] = [];
+    let t = 0;
+    while (rocket.active && t < seconds) {
+      freeze(w);
+      for (const e of w.enemies) hp0.set(e.id, hp0.get(e.id) ?? e.hp);
+      advance(w, 1 / 120);
+      t += 1 / 120;
+      for (const ev of takeEvents(w)) {
+        all.push(ev.t);
+        if (ev.t === 'blast') blasts.push(ev);
+      }
+    }
+    return { blasts, t, all, hp0 };
+  };
+  /** Enemy ids in the middle distance, nearest first (the caller tries each in a fresh world until a shot has a clear line). */
+  const candidates = (): number[] => {
+    const w = rocketWorld();
+    settle(w);
+    const o0 = playerOrigin(w, -0.2);
+    return w.enemies
+      .filter((e) => e.alive)
+      .map((e) => ({ id: e.id, d: Math.hypot(targetPoint(e, 'chest').x - o0.x, targetPoint(e, 'chest').y - o0.y) }))
+      .filter((q) => q.d > 300 && q.d < 780)
+      .sort((p, q) => p.d - q.d)
+      .map((q) => q.id);
+  };
+  /** Fire at a candidate (power chosen so the fuse ends on it, or full power) in a fresh world; null when something is in the way. */
+  const shotAt = (id: number, fuse: boolean, chain = 0) => {
+    const w = rocketWorld();
+    settle(w);
+    const c = targetPoint(w.enemies.find((q) => q.id === id)!, 'chest');
+    const aim = aimAt(w, c.x, c.y);
+    // the fuse ends 60 px short of the archer: well inside the burst radius, but no contact
+    const power = fuse ? powerFor((aim.d - 60) / 0.45) : 1;
+    if (power > 1) return null;
+    w.run.chain = chain;
+    expect(shoot(w, aim.angle, power)).toBe(true);
+    const r = w.arrows.find((x) => x.active && x.owner === 'player')!;
+    expect(r.kind).toBe('rocket');
+    const hp0 = w.player.hp;
+    const out = run(w, r);
+    return { w, r, out, c, hp0 };
+  };
+  const firstShot = (fuse: boolean, ok: (s: NonNullable<ReturnType<typeof shotAt>>) => boolean, chain = 0) => {
+    for (const id of candidates()) {
+      const s = shotAt(id, fuse, chain);
+      if (s && ok(s)) return s;
+    }
+    throw new Error('no clear shot at any archer');
+  };
+
+  it('rocket bursts after its fuse', () => {
+    // a shot that reaches the end of its 0.45 s fuse with nothing in the way
+    const { w, r, out, hp0 } = firstShot(true, (s) => s.out.blasts.length === 1 && s.out.t > 0.4 && !s.out.all.includes('hit'));
+    expect(r.active).toBe(false);
+    expect(r.state).toBe(0);
+    const b = out.blasts[0]!;
+    expect(out.t).toBeLessThan(0.52);
+    // every archer within the radius took damage; those clearly outside took none
+    let inside = 0;
+    for (const q of w.enemies) {
+      const t = targetPoint(q, 'chest');
+      const d = Math.hypot(t.x - b.x, t.y - b.y);
+      const lost = (out.hp0.get(q.id) ?? q.hp) - q.hp;
+      if (d <= b.r) {
+        expect(lost, `archer ${q.id} at ${d.toFixed(0)} px`).toBeGreaterThan(0);
+        inside += 1;
+      } else if (d > b.r + 20 * q.scale + 1) expect(lost).toBe(0);
+    }
+    expect(inside).toBeGreaterThan(0);
+    expect(w.player.hp).toBe(hp0);
+    expect(out.all).not.toContain('playerHit');
+  });
+
+  it('rocket bursts on contact early', () => {
+    // full power: it reaches an archer long before the fuse is out
+    const { w, r, out, c } = firstShot(false, (s) => s.out.all.includes('hit'));
+    expect(r.active).toBe(false);
+    expect(out.blasts.length).toBe(1);
+    expect(out.t).toBeLessThan(0.4);
+    // it never sticks: no stuck arrow left behind
+    expect(w.arrows.some((x) => x.active && x.owner === 'player' && x.state !== 0)).toBe(false);
+    expect(Math.hypot(out.blasts[0]!.x - c.x, out.blasts[0]!.y - c.y)).toBeLessThan(250);
+  });
+
+  it('rocket expires off-field', () => {
+    const w = rocketWorld();
+    settle(w);
+    const hp0 = w.player.hp;
+    expect(shoot(w, -Math.PI / 2, 1)).toBe(true);
+    const r = w.arrows.find((x) => x.active && x.owner === 'player')!;
+    expect(r.kind).toBe('rocket');
+    // fired straight up and far, it is near the top of the field when it is nudged over the edge: gone, no burst
+    advance(w, 0.3);
+    expect(r.active).toBe(true);
+    r.y = 20;
+    takeEvents(w);
+    const out = run(w, r);
+    expect(r.active).toBe(false);
+    expect(out.blasts.length).toBe(0);
+    expect(out.t).toBeLessThan(0.1);
+    expect(w.player.hp).toBe(hp0);
+    expect(out.all).not.toContain('playerHit');
+  });
+
+  it('a rocket fired straight up bursts in the air and never hurts the player', () => {
+    const w = rocketWorld();
+    settle(w);
+    const hp0 = w.player.hp;
+    expect(shoot(w, -Math.PI / 2, 1)).toBe(true);
+    const r = w.arrows.find((x) => x.active && x.owner === 'player')!;
+    const out = run(w, r);
+    expect(out.blasts.length).toBe(1);
+    expect(w.player.hp).toBe(hp0);
+    expect(out.all).not.toContain('playerHit');
+  });
+
+  it('the burst radius grows with the perk and never hurts the player', () => {
+    const radius = (wlevel: number) => {
+      const w = rocketWorld(wlevel);
+      settle(w);
+      const hp0 = w.player.hp;
+      expect(shoot(w, -0.2, 0.6)).toBe(true);
+      const r = w.arrows.find((x) => x.active && x.owner === 'player')!;
+      const out = run(w, r);
+      expect(out.blasts.length).toBe(1);
+      expect(w.player.hp).toBe(hp0);
+      return out.blasts[0]!.r;
+    };
+    const r1 = radius(1);
+    const r20 = radius(20);
+    expect(r20 / r1).toBeCloseTo(weaponPerks('firework', 20).blastRadiusMul, 5);
+    expect(r20).toBeGreaterThan(r1);
+  });
+
+  it('a rocket that burst on nobody breaks the headshot chain; one that damaged keeps it', () => {
+    const w = rocketWorld();
+    settle(w);
+    w.run.chain = 3;
+    expect(shoot(w, -1.25, 0.5)).toBe(true);
+    const r = w.arrows.find((x) => x.active && x.owner === 'player')!;
+    const out = run(w, r);
+    expect(out.blasts.length).toBe(1);
+    // aimed high into the air: nobody in the radius, so the chain breaks
+    expect(w.run.chain).toBe(0);
+
+    const s2 = firstShot(true, (s) => s.out.blasts.length === 1 && s.out.t > 0.4 && !s.out.all.includes('hit'), 3);
+    expect(s2.w.run.chain).toBe(3);
+  });
+
+  it('rocket cleared on wave change', () => {
+    const w = rocketWorld();
+    expect(shoot(w, -0.2, 0.8)).toBe(true);
+    const r = w.arrows.find((x) => x.active && x.owner === 'player')!;
+    expect(r.kind).toBe('rocket');
+    advance(w, 0.1);
+    expect(r.active).toBe(true);
+    jumpToWave(w, 7);
+    expect(w.arrows.some((x) => x.active && x.owner === 'player' && x.kind === 'rocket')).toBe(false);
+    takeEvents(w);
+    let blasts = 0;
+    for (let i = 0; i < 120; i++) {
+      advance(w, 1 / 120);
+      for (const ev of takeEvents(w)) if (ev.t === 'blast') blasts++;
+    }
+    expect(blasts).toBe(0);
+  });
+});

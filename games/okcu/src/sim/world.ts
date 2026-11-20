@@ -779,6 +779,8 @@ function spawnWave(w: World, wave: number, instant: boolean): void {
     if (a.state === 0 && a.owner === 'enemy') a.active = false;
     // a boomerang still out would come back into the next wave: it is gone with the old one
     if (a.state === 0 && a.kind === 'boomerang') a.active = false;
+    // a rocket still in its fuse would burst on the next wave's archers
+    if (a.state === 0 && a.kind === 'rocket') a.active = false;
     if (a.state === 1 || a.state === 3) a.active = false;
   }
   clearProps(w);
@@ -1889,14 +1891,17 @@ function chillEnemy(w: World, e: Archer, t: number): void {
  * stop the arrow, not the burst.
  */
 function burst(w: World, a: Arrow, x: number, y: number, struck: Archer | null): void {
-  const r = w.stats.blastRadius;
-  const dmg = ENEMY_DAMAGE.body * a.dmgMul * w.stats.blastShare;
+  // a firework rocket bursts with its own radius (perk-scaled) and full body damage; the blast card's numbers are for arrows
+  const rocket = a.kind === 'rocket';
+  const r = rocket ? ROCKET.radius * (w.difficulty === 'hard' ? weaponPerks('firework', w.meta.wlevel).blastRadiusMul : 1) : w.stats.blastRadius;
+  const dmg = ENEMY_DAMAGE.body * a.dmgMul * (rocket ? ROCKET.share : w.stats.blastShare);
   w.events.push({ t: 'blast', x, y, r, fire: false });
   for (const e of w.enemies) {
     if (!e.alive || e === struck || e.brain === 'spawn') continue;
     const t = targetPoint(e, 'chest');
     if (Math.hypot(t.x - x, t.y - y) > r + 20 * e.scale) continue;
     damageEnemy(w, e, dmg * (e.type === 'boss' ? 0.5 : 1), 'blast');
+    if (rocket) a.scored = true;
     if (w.stats.shatter) chillEnemy(w, e, w.stats.frostTime);
   }
 }
@@ -2355,7 +2360,13 @@ function updateArrows(w: World): void {
     }
     a.angle = Math.atan2(a.vy, a.vx);
     a.life -= DT;
-    if (a.life <= 0 || a.x < -300 || a.x > 1020 || a.y > 1600) {
+    if (a.kind === 'rocket' && a.age >= ROCKET.fuse - 1e-9) {
+      burst(w, a, a.x, a.y, null);
+      missed(w, a);
+      a.active = false;
+      continue;
+    }
+    if (a.life <= 0 || a.x < -300 || a.x > 1020 || a.y > 1600 || (a.kind === 'rocket' && a.y < ROCKET.topEdge)) {
       missed(w, a);
       a.active = false;
       continue;
@@ -2421,6 +2432,9 @@ function endBoomerang(w: World, a: Arrow): boolean {
 /** Boomerang: turn time 0.55 + 0.35 × power s; return acceleration (px/s²) and top speed (px/s), both × the return perk. */
 const BOOM = { turnBase: 0.55, turnPower: 0.35, windMul: 0.3, returnAcc: 1500, returnMax: 1400, curl: 0.7, driftT: 0.5, catchR: 60 } as const;
 
+/** Firework rocket: fuse (s), burst radius (px) and share of a body hit every archer in it takes; it leaves the field this far above it. */
+const ROCKET = { fuse: 0.45, radius: 95, share: 1, topEdge: 0 } as const;
+
 const boomReturning = (a: Arrow): boolean => a.kind === 'boomerang' && a.age >= a.turnT;
 
 /** Ledge (or wall) test for a flying arrow from (x0,y0) to its current tip; returns true if it stopped. */
@@ -2481,6 +2495,13 @@ function ledgeHit(w: World, a: Arrow, x0: number, y0: number): boolean {
     if (!pebble) a.vx *= 0.92;
     a.ignore = -1;
     w.events.push({ t: 'bounce', x: hx, y: hy });
+    return true;
+  }
+  if (a.kind === 'rocket') {
+    // a rocket never sticks: it bursts on the ledge or wall (missed only if the burst hurt nobody)
+    burst(w, a, hx, hy, null);
+    missed(w, a);
+    a.active = false;
     return true;
   }
   missed(w, a);
@@ -2642,8 +2663,11 @@ function hitShield(w: World, a: Arrow, e: Archer, hx: number, hy: number): void 
   const s = e.shield!;
   // a pebble still in flight after glancing off is not a miss; it is one only when finally spent
   // (a boomerang only when it ends)
-  if (a.kind !== 'boomerang' && (a.kind !== 'pebble' || a.bounces <= 0)) missed(w, a);
-  if (a.kind === 'boomerang') {
+  if (a.kind !== 'boomerang' && a.kind !== 'rocket' && (a.kind !== 'pebble' || a.bounces <= 0)) missed(w, a);
+  if (a.kind === 'rocket') {
+    // it bursts on the shield (below) and never sticks
+    a.active = false;
+  } else if (a.kind === 'boomerang') {
     // it never sticks: the shield's bearer is safe from it this pass (going out, it starts back; below)
     a.hitIds.push(e.id);
   } else if (a.kind === 'pebble') {
@@ -2687,7 +2711,10 @@ function hitShield(w: World, a: Arrow, e: Archer, hx: number, hy: number): void 
     pushBody(s, hx, hy, a.vx, a.vy, 0.4, 120);
   }
   w.events.push({ t: 'shieldHit', id: e.id, x: hx, y: hy, broke });
-  if (w.stats.blastShare > 0) burst(w, a, hx, hy, null);
+  if (a.kind === 'rocket') {
+    burst(w, a, hx, hy, null);
+    missed(w, a);
+  } else if (w.stats.blastShare > 0) burst(w, a, hx, hy, null);
   if (a.kind === 'boomerang' && !boomReturning(a)) {
     a.x = hx - Math.sign(a.vx || 1) * 2;
     a.y = hy;
@@ -2799,7 +2826,7 @@ function hitEnemy(w: World, a: Arrow, e: Archer, part: Part, hx: number, hy: num
     addVelocity(e.body, PT.head, vx * kick * 0.8, vy * kick * 0.4, DT);
   }
   stickOrPierce(w, a, e, part, hx, hy);
-  if (w.stats.blastShare > 0) burst(w, a, hx, hy, e);
+  if (a.kind === 'rocket' || w.stats.blastShare > 0) burst(w, a, hx, hy, e);
   // after the arrow is stuck: it travels with the wizard
   if (!ko && e.type === 'mage') blink(w, e);
 }
@@ -2833,6 +2860,10 @@ function stickOrPierce(w: World, a: Arrow, e: Archer, part: Part, hx: number, hy
   if (a.kind === 'boomerang') {
     // it cuts through and flies on (pierce is moot: it is not slowed or used up); once per archer per pass
     a.hitIds.push(e.id);
+    return;
+  }
+  if (a.kind === 'rocket') {
+    a.active = false;
     return;
   }
   if (a.pierce > 0) {

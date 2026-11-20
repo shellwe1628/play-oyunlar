@@ -20,7 +20,19 @@ export class StratumBlock extends Phaser.GameObjects.Container {
   private readonly base: Phaser.GameObjects.Graphics;
   private readonly cracks: Phaser.GameObjects.Graphics;
   private readonly deco: Phaser.GameObjects.Graphics;
+  /** Pressure gauge (needle follows your combo), meteor core, white hit flash. */
+  private readonly gauge: Phaser.GameObjects.Graphics;
+  private readonly core: Phaser.GameObjects.Container;
+  private readonly flash: Phaser.GameObjects.Graphics;
   private kind: BlockKind = 'normal';
+  private echo = -1;
+  private needle = -1;
+  /** Hit kick (degrees) and its spring velocity; damage shown, for the near-break shudder. */
+  private kick = 0;
+  private kickV = 0;
+  private dmg = 0;
+  /** Set from the scene: no kick, no shudder. */
+  reducedMotion = false;
   private clock = 0;
   /** Crack branches per strike origin (up to three origins per block, where it was hit). */
   private origins: Seg[][] = [];
@@ -38,7 +50,16 @@ export class StratumBlock extends Phaser.GameObjects.Container {
     this.base = scene.add.graphics();
     this.cracks = scene.add.graphics();
     this.deco = scene.add.graphics();
-    this.add([this.base, this.deco, this.cracks]);
+    this.gauge = scene.add.graphics();
+    this.flash = scene.add.graphics();
+    this.flash.fillStyle(0xffffff, 1).fillRoundedRect(-bw / 2, -bh / 2, bw, bh, 26);
+    this.flash.setAlpha(0);
+    // the star core: a hot glow, a spinning star and a ring that breathes
+    const glow = scene.add.image(0, 0, 'glow').setTint(0xffb040).setScale(1.1).setAlpha(0.85);
+    const ring = scene.add.circle(0, 0, 40).setStrokeStyle(5, 0xfff0c0, 0.9);
+    const star = scene.add.image(0, 0, 'spark').setTint(0xffffff).setScale(2.2);
+    this.core = scene.add.container(0, 0, [glow, ring, star]).setVisible(false);
+    this.add([this.base, this.deco, this.cracks, this.gauge, this.core, this.flash]);
     scene.add.existing(this);
   }
 
@@ -47,17 +68,48 @@ export class StratumBlock extends Phaser.GameObjects.Container {
     return this.regenerate();
   }
 
-  /** The block's special kind (vein, unstable, twin, golden, cave-in, boss): its own look. */
-  setKind(kind: BlockKind): this {
-    if (kind === this.kind) return this;
+  /** The block's special kind (vein, unstable, twin, golden, cave-in, boss, ...): its own look. */
+  setKind(kind: BlockKind, echo = -1): this {
+    if (kind === this.kind && echo === this.echo) return this;
     this.kind = kind;
+    this.echo = echo;
     return this.regenerate();
   }
 
   /** A fresh block of `kind` (one redraw). */
-  renew(kind: BlockKind): this {
+  renew(kind: BlockKind, echo = -1): this {
     this.kind = kind;
+    this.echo = echo;
     return this.regenerate();
+  }
+
+  /** Meteor: where the star core glows (0..1 of the face), or null to hide it. */
+  setCore(at: { x: number; y: number } | null): void {
+    if (!at) {
+      this.core.setVisible(false);
+      return;
+    }
+    const x = (at.x - 0.5) * this.bw;
+    const y = (at.y - 0.5) * this.bh;
+    if (!this.core.visible) this.core.setVisible(true).setPosition(x, y).setScale(0.2);
+    else if (Math.abs(this.core.x - x) > 1 || Math.abs(this.core.y - y) > 1) {
+      // the core is knocked away: it zips to its new spot
+      this.scene.tweens.killTweensOf(this.core);
+      this.scene.tweens.add({ targets: this.core, x, y, duration: 140, ease: 'Cubic.easeOut' });
+      this.core.setScale(0.5);
+    }
+  }
+
+  /** Core position in world px (for the strike effects). */
+  get corePos(): { x: number; y: number } | null {
+    return this.core.visible ? { x: this.x + this.core.x, y: this.y + this.core.y } : null;
+  }
+
+  /** A hit lands at block-local x: white flash and a springy kick away from the strike side. */
+  impact(lx: number, strength = 1): void {
+    this.flash.setAlpha(Math.min(0.4, 0.16 + 0.12 * strength));
+    if (this.reducedMotion) return;
+    this.kickV += (lx >= 0 ? 1 : -1) * 90 * Math.min(2, strength);
   }
 
   get blockKind(): BlockKind {
@@ -68,19 +120,59 @@ export class StratumBlock extends Phaser.GameObjects.Container {
    * Per-frame life for special blocks: unstable trembles faster as its window runs out
    * (`urgency` 0..1), golden glitters, the boss breathes. Returns the angle wobble applied.
    */
-  animate(dt: number, urgency = 0): void {
+  animate(dt: number, urgency = 0, combo = 0): void {
     this.clock += dt;
     const k = this.kind;
+    // spring back from the last hit kick; when nearly broken the block shudders
+    this.kickV += (-this.kick * 420 - this.kickV * 16) * dt;
+    this.kick += this.kickV * dt;
+    const shudder = !this.reducedMotion && this.dmg > 0.72 ? Math.sin(this.clock * 60) * (this.dmg - 0.72) * 2.4 : 0;
+    let angle = this.kick + shudder;
+    if (this.flash.alpha > 0) this.flash.setAlpha(Math.max(0, this.flash.alpha - dt * 3.2));
     if (k === 'unstable') {
       const f = 10 + urgency * 26;
-      this.setAngle(Math.sin(this.clock * f) * (0.6 + urgency * 1.8));
+      angle += Math.sin(this.clock * f) * (0.6 + urgency * 1.8);
       this.deco.setAlpha(0.55 + 0.45 * Math.abs(Math.sin(this.clock * (3 + urgency * 8))));
     } else if (k === 'golden') {
       this.deco.setAlpha(0.8 + 0.2 * Math.sin(this.clock * 4));
     } else if (k === 'boss') {
       this.deco.setAlpha(0.75 + 0.25 * Math.sin(this.clock * 2.2));
-      this.setAngle(0);
-    } else if (this.angle !== 0) this.setAngle(0);
+    } else if (k === 'echo') {
+      this.deco.setAlpha(0.6 + 0.4 * Math.sin(this.clock * 1.6));
+      this.deco.setX(Math.sin(this.clock * 7) * 2);
+    } else if (k === 'pressure') {
+      this.drawGauge(combo);
+      // the plates creak under the weight
+      this.deco.setY(Math.sin(this.clock * 1.3) * 1.5);
+    }
+    if (this.core.visible) {
+      const ring = this.core.list[1] as Phaser.GameObjects.Arc;
+      const star = this.core.list[2] as Phaser.GameObjects.Image;
+      ring.setScale(1 + 0.25 * Math.sin(this.clock * 6));
+      star.setAngle(this.clock * 140);
+      if (this.core.scale < 1) this.core.setScale(Math.min(1, this.core.scale + dt * 4));
+    }
+    if (Math.abs(angle - this.angle) > 0.01) this.setAngle(angle);
+  }
+
+  /** The pressure gauge on top of the block: the needle shows your tap multiplier. */
+  private drawGauge(combo: number): void {
+    const v = Math.round(combo * 40) / 40;
+    if (v === this.needle) return;
+    this.needle = v;
+    const g = this.gauge.clear();
+    const cx = 0;
+    const cy = -this.bh / 2 + 62;
+    g.fillStyle(0x0a1020, 0.9).fillCircle(cx, cy, 44);
+    g.lineStyle(5, 0x9ab0d0, 1).strokeCircle(cx, cy, 44);
+    // red (weak) → green (strong) arc
+    for (let i = 0; i < 10; i++) {
+      const a0 = Math.PI * (0.8 + i * 0.14);
+      g.lineStyle(7, i < 3 ? 0xf0445f : i < 6 ? 0xffd23f : 0x4fe08a, 0.9).beginPath().arc(cx, cy, 34, a0, a0 + 0.12).strokePath();
+    }
+    const a = Math.PI * (0.8 + v * 1.4);
+    g.lineStyle(5, 0xffffff, 1).lineBetween(cx, cy, cx + Math.cos(a) * 30, cy + Math.sin(a) * 30);
+    g.fillStyle(0xffffff, 1).fillCircle(cx, cy, 6);
   }
 
   /** A fresh block: new pebbles, new crack plan, no damage. */
@@ -115,6 +207,10 @@ export class StratumBlock extends Phaser.GameObjects.Container {
     }
     this.drawMaterial(g, x0, y0, w, h);
     this.drawKind(x0, y0, w, h);
+    this.gauge.clear();
+    this.needle = -1;
+    if (this.kind !== 'meteor') this.core.setVisible(false);
+    this.deco.setPosition(0, 0);
     // bevel: light top edge, dark right edge
     g.fillStyle(0xffffff, 0.16).fillRoundedRect(x0 + 8, y0 + 6, w - 16, 18, 9);
     g.fillStyle(0x000000, 0.16).fillRoundedRect(x0 + w - 22, y0 + 20, 14, h - 40, 7);
@@ -239,6 +335,57 @@ export class StratumBlock extends Phaser.GameObjects.Container {
           y = ny;
         }
       }
+    } else if (this.layer === 10) {
+      // trench rock: dark basalt pillows, pale fish bones, faint lights
+      g.fillStyle(0x000000, 0.3).fillRoundedRect(x0, y0, w, h, 26);
+      for (let i = 0; i < 9; i++) {
+        const x = r(x0 + 40, x0 + w - 40);
+        const y = r(y0 + 40, y0 + h - 40);
+        const rr = r(18, 36);
+        g.fillStyle(0x0e1830, 0.85).fillEllipse(x, y, rr * 2.2, rr * 1.4);
+        g.lineStyle(2, 0x2a4068, 0.8).strokeEllipse(x, y, rr * 2.2, rr * 1.4);
+      }
+      for (let i = 0; i < 3; i++) {
+        const x = r(x0 + 70, x0 + w - 90);
+        const y = r(y0 + 50, y0 + h - 50);
+        g.lineStyle(3, 0xc8d4e8, 0.6).lineBetween(x, y, x + 60, y);
+        for (let k = 1; k < 6; k++) g.lineBetween(x + k * 10, y, x + k * 10 - 5, y - 12).lineBetween(x + k * 10, y, x + k * 10 - 5, y + 12);
+      }
+      for (let i = 0; i < 10; i++) g.fillStyle(0x60e0ff, 0.6).fillCircle(r(x0 + 20, x0 + w - 20), r(y0 + 20, y0 + h - 20), r(1.5, 3.5));
+    } else if (this.layer === 11) {
+      // crater glass: scorched rock fused with star iron, splashes of glassy melt
+      for (let i = 0; i < 6; i++) {
+        const x = r(x0 + 40, x0 + w - 40);
+        const y = r(y0 + 40, y0 + h - 40);
+        g.fillStyle(0x1a1620, 0.8).fillCircle(x, y, r(14, 26));
+        g.lineStyle(2, 0x6a5a7a, 0.7).strokeCircle(x, y, r(26, 34));
+      }
+      for (let i = 0; i < 8; i++) {
+        const x = r(x0 + 30, x0 + w - 30);
+        const y = r(y0 + 30, y0 + h - 30);
+        const sz = r(6, 12);
+        g.fillStyle(i % 2 ? 0x9ad0ff : 0xffb060, 0.9).fillTriangle(x - sz, y + sz * 0.6, x + sz, y + sz * 0.4, x, y - sz * 1.5);
+      }
+    } else if (this.layer === 12) {
+      // rift stone: slabs of older strata fused at odd angles, seams of violet light
+      for (let i = 0; i < 5; i++) {
+        const L = at(LAYERS, Math.floor(r(0, 10)));
+        const x = r(x0 + 50, x0 + w - 110);
+        const y = r(y0 + 40, y0 + h - 70);
+        for (let b = 0; b < 3; b++) g.fillStyle(at(L.bands, b), 0.85).fillRect(x, y + b * 10, r(60, 100), 10);
+      }
+      for (let k = 0; k < 3; k++) {
+        let x = r(x0 + 30, x0 + w - 30);
+        let y = y0 + 10;
+        for (let i = 0; i < 6; i++) {
+          const nx = Phaser.Math.Clamp(x + r(-40, 40), x0 + 10, x0 + w - 10);
+          const ny = Math.min(y0 + h - 10, y + r(40, 70));
+          g.lineStyle(8, 0xb060ff, 0.25).lineBetween(x, y, nx, ny);
+          g.lineStyle(2, 0xf0d0ff, 0.9).lineBetween(x, y, nx, ny);
+          x = nx;
+          y = ny;
+        }
+      }
     } else if (this.layer === 9) {
       // first seas mud: quilted fronds and disc prints
       for (let i = 0; i < 3; i++) {
@@ -329,6 +476,38 @@ export class StratumBlock extends Phaser.GameObjects.Container {
           g.fillStyle(0xffffff, 0.15).fillEllipse(x - rx * 0.15, y - rx * 0.15, rx * 0.4, rx * 0.22);
         }
         break;
+      case 'pressure': {
+        // iron plates bolted over the rock, holding back the deep (the gauge is drawn live)
+        g.fillStyle(0x1a2438, 0.55).fillRoundedRect(x0, y0, w, h, 26);
+        for (let k = 0; k < 3; k++) {
+          const y = y0 + 120 + k * ((h - 150) / 2);
+          g.fillStyle(0x3a4a66, 0.95).fillRect(x0 + 6, y - 9, w - 12, 18);
+          for (let i = 0; i < 8; i++) g.fillStyle(0xb0c4e0, 1).fillCircle(x0 + 24 + i * ((w - 48) / 7), y, 4);
+        }
+        g.lineStyle(8, 0x6a80a8, 1).strokeRoundedRect(x0 + 3, y0 + 3, w - 6, h - 6, 24);
+        break;
+      }
+      case 'meteor':
+        // star iron: a dark glassy mass with a glowing crust; the core itself is a live object
+        g.fillStyle(0x140c18, 0.6).fillRoundedRect(x0, y0, w, h, 26);
+        for (let i = 0; i < 20; i++) {
+          const a = r(0, Math.PI * 2);
+          const d = r(40, 200);
+          g.lineStyle(2, 0xffa040, 0.45).lineBetween(Math.cos(a) * d * 0.5, Math.sin(a) * d * 0.4, Math.cos(a) * d, Math.sin(a) * d * 0.8);
+        }
+        for (let i = 0; i < 14; i++) g.fillStyle(0xffd080, 0.8).fillCircle(x0 + r(20, w - 20), y0 + r(20, h - 20), r(1.5, 3.5));
+        g.lineStyle(7, 0xffa040, 1).strokeRoundedRect(x0 + 3, y0 + 3, w - 6, h - 6, 24);
+        break;
+      case 'echo': {
+        // a window into an older layer: its sediment bands shimmer through the rift stone
+        const older = this.echo >= 0 ? at(LAYERS, this.echo) : at(LAYERS, 0);
+        const n = older.bands.length;
+        for (let i = 0; i < n; i++) g.fillStyle(at(older.bands, i), 0.55).fillRect(x0 + 30, y0 + 30 + ((h - 60) * i) / n, w - 60, (h - 60) / n + 1);
+        g.lineStyle(10, 0xd090ff, 0.85).strokeRoundedRect(x0 + 24, y0 + 24, w - 48, h - 48, 18);
+        g.lineStyle(4, 0xfff0c0, 0.9).strokeRoundedRect(x0 + 3, y0 + 3, w - 6, h - 6, 24);
+        for (let i = 0; i < 4; i++) g.lineStyle(2, 0xffffff, 0.35).lineBetween(x0 + 30, y0 + 30 + i * 70, x0 + w - 30, y0 + 50 + i * 70);
+        break;
+      }
       case 'boss':
         // an ancient guardian slab: dark, ringed, with a glowing core and three phase marks
         g.fillStyle(0x140820, 0.6).fillRoundedRect(x0, y0, w, h, 26);
@@ -349,13 +528,15 @@ export class StratumBlock extends Phaser.GameObjects.Container {
 
   /** Show damage as a fraction 0..1 of the block's HP. */
   setDamage(f: number): void {
+    this.dmg = f;
     if (f > 0 && this.origins.length === 0) this.hit((Math.random() - 0.5) * this.bw * 0.4, (Math.random() - 0.5) * this.bh * 0.4);
     const key = Math.ceil(Math.min(1, Math.max(0, f)) * 15) * 4 + this.origins.length;
     if (key === this.shown) return;
     this.shown = key;
     const g = this.cracks.clear();
     if (f <= 0) return;
-    const crack = this.kind === 'unstable' ? 0xffe080 : this.layer === 1 ? 0x2a5a78 : this.layer === 3 || this.layer === 9 ? 0x06141c : this.layer === 8 ? 0xffa030 : PALETTE.crack;
+    const crack =
+      this.kind === 'unstable' ? 0xffe080 : this.kind === 'meteor' || this.layer === 8 ? 0xffa030 : this.layer === 12 ? 0xe0b0ff : this.layer === 10 ? 0x7ad0ff : this.layer === 1 ? 0x2a5a78 : this.layer === 3 || this.layer === 9 ? 0x06141c : PALETTE.crack;
     const lip = 0xffffff;
     g.fillStyle(0x000000, Math.min(0.32, f * 0.36)).fillRoundedRect(-this.bw / 2, -this.bh / 2, this.bw, this.bh, 26);
     // each origin spreads its own branches as damage grows

@@ -33,6 +33,10 @@ export function questText(scene: OyunScene, a: Achievement): string {
       return scene.t('quest.relics', { c: counted(scene, 'n.relics', a.target) });
     case 'expeditions':
       return scene.t('quest.expeditions', { c: counted(scene, 'n.expeditions', a.target) });
+    case 'cores':
+      return scene.t('quest.cores', { c: counted(scene, 'n.cores', a.target) });
+    case 'echoes':
+      return scene.t('quest.echoes', { c: counted(scene, 'n.echoes', a.target) });
   }
 }
 

@@ -6,8 +6,8 @@ import { shade } from './fossils';
 export const BADGE_SIZE = 160;
 
 /**
- * Twelve rank badges, code-drawn: the frame grows from a round medallion (ranks 1-4) to a shield
- * (5-8) to a rayed crest (9-12), each with its own emblem and the rank's colour.
+ * Fifteen rank badges, code-drawn: the frame grows from a round medallion (ranks 1-4) to a shield
+ * (5-8) to a rayed crest (9-15), each with its own emblem and the rank's colour.
  */
 export function badgeKey(scene: Phaser.Scene, rank: number): string {
   const key = `badge-${rank}`;
@@ -98,6 +98,42 @@ export function badgeKey(scene: Phaser.Scene, rank: number): string {
     case 10: // crown (grand curator)
       g.fillStyle(w, 1).fillCircle(c, c, 36);
       g.fillStyle(ink, 1).fillPoints([new Phaser.Math.Vector2(c - 24, c + 16), new Phaser.Math.Vector2(c - 24, c - 14), new Phaser.Math.Vector2(c - 12, c), new Phaser.Math.Vector2(c, c - 20), new Phaser.Math.Vector2(c + 12, c), new Phaser.Math.Vector2(c + 24, c - 14), new Phaser.Math.Vector2(c + 24, c + 16)], true);
+      break;
+    case 12: // abyss diver: a lantern fish's lure over waves
+      g.fillStyle(w, 1).fillCircle(c, c, 36);
+      g.lineStyle(5, ink, 1);
+      for (let k = 0; k < 2; k++) {
+        g.beginPath();
+        for (let i = 0; i <= 20; i++) {
+          const x = c - 26 + i * 2.6;
+          const y = c + 8 + k * 12 + Math.sin(i * 0.6) * 4;
+          if (i === 0) g.moveTo(x, y);
+          else g.lineTo(x, y);
+        }
+        g.strokePath();
+      }
+      g.lineStyle(4, ink, 1).beginPath().arc(c - 4, c - 4, 16, Math.PI * 1.1, Math.PI * 1.9).strokePath();
+      g.fillStyle(color, 1).fillCircle(c + 10, c - 14, 7);
+      break;
+    case 13: {
+      // star seeker: a five-point star with a comet tail
+      g.fillStyle(w, 1).fillCircle(c, c, 36);
+      const pts: Phaser.Math.Vector2[] = [];
+      for (let i = 0; i < 10; i++) {
+        const a = -Math.PI / 2 + (i * Math.PI) / 5;
+        const r = i % 2 ? 9 : 22;
+        pts.push(new Phaser.Math.Vector2(c + 6 + Math.cos(a) * r, c - 4 + Math.sin(a) * r));
+      }
+      g.fillStyle(ink, 1).fillPoints(pts, true);
+      g.lineStyle(4, ink, 0.7).lineBetween(c - 8, c + 10, c - 26, c + 26).lineBetween(c - 2, c + 16, c - 16, c + 30);
+      break;
+    }
+    case 14:
+      // keeper of ages: an hourglass inside a clock ring
+      g.fillStyle(w, 1).fillCircle(c, c, 36);
+      g.lineStyle(4, ink, 1).strokeCircle(c, c, 28);
+      g.fillStyle(ink, 1).fillTriangle(c - 14, c - 20, c + 14, c - 20, c, c).fillTriangle(c - 14, c + 20, c + 14, c + 20, c, c);
+      g.fillStyle(color, 1).fillTriangle(c - 7, c + 16, c + 7, c + 16, c, c + 6);
       break;
     default: {
       // legend: a fossil spiral on a star

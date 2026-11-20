@@ -1,16 +1,20 @@
 import type { OyunContext } from '@oyun/core';
 import { createSaveStore, type SaveOptions, type SaveStore, type StorageAdapter } from '@oyun/core/pure';
-import { defaultSave, migrateV1, type DigSave } from './sim/dig';
+import { defaultSave, migrateV1, migrateV2, type DigSave } from './sim/dig';
 
 /**
  * Save schema version. Bump it (and add a migration) when a field is renamed, removed or
  * changes type. Adding a field only needs a default in defaultSave(). The DigSim constructor
  * repairs bad values (sanitizeSave), so validation here only rejects the wrong overall shape.
  */
-export const SAVE_VERSION = 2;
+export const SAVE_VERSION = 3;
 
-/** v1 → v2: ten layers, museum, expeditions, records (see migrateV1). Keep every step forever. */
-export const MIGRATIONS: Readonly<Record<number, (data: unknown) => unknown>> = { 1: migrateV1 };
+/**
+ * v1 → v2: ten layers, museum, expeditions, records (see migrateV1).
+ * v2 → v3: thirteen layers, star-core and echo counters, the depth-round news (see migrateV2).
+ * Keep every step forever.
+ */
+export const MIGRATIONS: Readonly<Record<number, (data: unknown) => unknown>> = { 1: migrateV1, 2: migrateV2 };
 
 function isSave(d: unknown): d is DigSave {
   if (typeof d !== 'object' || d === null) return false;

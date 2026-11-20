@@ -140,6 +140,16 @@ export class RanksScene extends OyunScene {
     if (this.tab === 'ladder') this.drawLadder();
     else if (this.tab === 'records') this.drawRecords();
     else this.drawGoals();
+    if (force) {
+      // the page slides in, its parts one after another
+      this.body.list.forEach((o, i) => {
+        const t = o as Phaser.GameObjects.GameObject & Phaser.GameObjects.Components.Transform & Phaser.GameObjects.Components.Alpha;
+        if (typeof t.setAlpha !== 'function') return;
+        const y = t.y;
+        t.setAlpha(0).setY(y + 24);
+        this.tweens.add({ targets: t, alpha: 1, y, delay: Math.min(400, i * 12), duration: 220, ease: 'Cubic.easeOut' });
+      });
+    }
   }
 
   // ------------------------------------------------------------------ ladder

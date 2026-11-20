@@ -4,8 +4,8 @@ import Phaser from 'phaser';
 import { gameOnline } from '../online';
 import { backgroundAware, session, type Session } from '../session';
 import { SFX } from '../sfx';
-import { ACHIEVEMENTS, at, BOSS, FEVER, FOSSIL_BY_ID, GRADE_COLORS, LAYERS, LUCK_BOOST, PITY, RANKS, RELIC, TIERS, UPGRADE_ORDER, VEIN, type UpgradeId } from '../sim/data';
-import type { DigSim, Find, OfflineHaul, SimEvent, TapResult } from '../sim/dig';
+import { ACHIEVEMENTS, at, BOSS, FOSSIL_BY_ID, GRADE_COLORS, LAYERS, LUCK_BOOST, METEOR, PITY, RANKS, RELIC, TIERS, UPGRADE_ORDER, VEIN, type UpgradeId } from '../sim/data';
+import { NEWS_TIP, type DigSim, type Find, type OfflineHaul, type SimEvent, type TapResult } from '../sim/dig';
 import { badgeKey } from '../art/badges';
 import { questText, today } from './progress';
 import { fossilKey, PALETTE } from '../textures';
@@ -28,6 +28,8 @@ const HEADER = 266;
 /** Seconds without a touch before a rank-up ceremony may cover the screen. */
 const QUIET_BEFORE_CEREMONY = 1;
 const FOOTER = 362;
+/** Dust coins in flight at most. */
+const COINS = 10;
 
 interface Chip {
   value: Phaser.GameObjects.Text;
@@ -107,6 +109,12 @@ export class DigScene extends OyunScene {
   /** fxClock of the last pointer press or dig tap. */
   private lastInput = -99;
   private dailyBox: Phaser.GameObjects.Container | null = null;
+  /** Taps the block needed when this hit landed (heavier blocks break with more weight). */
+  private heft = 1;
+  /** Dust flying to the dust chip: pooled, at most COINS in the air. */
+  private coins: { img: Phaser.GameObjects.Image; t: number; dur: number; x0: number; y0: number; cx: number; cy: number }[] = [];
+  /** Combo milestone celebrated (0 none, 1 = ×1.5, 2 = ×2). */
+  private comboStep = 0;
 
   constructor() {
     super(SCENES.dig);
@@ -142,6 +150,8 @@ export class DigScene extends OyunScene {
     this.rankNotBefore = 0;
     this.lastInput = -99;
     this.dailyBox = null;
+    this.heft = 1;
+    this.comboStep = 0;
     this.sim.setClock(Date.now());
     const L = this.layout;
     // header (title, chips, combo) | dig site (block, HP bar, glints) | footer (last find, buttons)
@@ -156,7 +166,8 @@ export class DigScene extends OyunScene {
     this.rubble = new Particles(this, 36, 45);
     this.fx = new Particles(this, 120, 250);
 
-    this.block = new StratumBlock(this, L.cx, this.blockY, BLOCK_W, blockH).setLayer(this.sim.layer).setKind(this.sim.block.kind);
+    this.block = new StratumBlock(this, L.cx, this.blockY, BLOCK_W, blockH).setLayer(this.sim.layer).setKind(this.sim.block.kind, this.sim.echoLayer);
+    this.block.reducedMotion = this.oyun.reducedMotion;
     this.statusText = outlined(this, L.cx, this.site.top + 22, '', 28, 0xffffff, 6).setDepth(62);
     this.hpY = this.blockY + blockH / 2 + 42;
     this.hpBar = progressBar(this, L.cx, this.hpY, 400, 30, { color: PALETTE.ochre }).setDepth(60); // above rubble
@@ -169,6 +180,7 @@ export class DigScene extends OyunScene {
     this.buildHeader();
     this.buildGlint();
     this.buildFooter();
+    this.coins = Array.from({ length: COINS }, () => ({ img: this.add.image(0, 0, 'ico-dust').setDepth(990).setVisible(false), t: 1, dur: 1, x0: 0, y0: 0, cx: 0, cy: 0 }));
     this.drawer = new Drawer(this, this.sim, this.hpY + 32, (id) => this.onBuy(id));
     this.reveal = new Reveal({
       scene: this,
@@ -206,6 +218,8 @@ export class DigScene extends OyunScene {
       this.ses.flush();
     });
 
+    // Saves from before the depth round: three new layers wait below the First Seas.
+    if (this.sim.deepest >= LAYERS.findIndex((l) => l.id === 'firstseas')) this.time.delayedCall(1200, () => this.showTip(NEWS_TIP, this.t('tip.news')));
     // Away time since the last save (first scene after boot); then anything found off-screen.
     this.ses.boot();
     this.time.delayedCall(250, () => this.replayPending());
@@ -333,8 +347,13 @@ export class DigScene extends OyunScene {
       this.tweens.add({ targets: h, alpha: 0, duration: 200, onComplete: () => h.destroy() });
     }
     const charged = hold !== undefined ? this.sim.chargeMult(hold) : 1;
-    const r = hold !== undefined ? this.sim.charge(hold) : this.sim.tap();
+    // where the finger landed on the block face (0..1): a meteor's star core cares
+    const face = { x: (x - (this.block.x - BLOCK_W / 2)) / BLOCK_W, y: (y - (this.block.y - this.blockH / 2)) / this.blockH };
+    const corePos = this.block.corePos;
+    this.heft = this.sim.blockHp / Math.max(1e-9, this.sim.digPower * this.sim.tapMult);
+    const r = hold !== undefined ? this.sim.charge(hold) : this.sim.tap(face);
     const layer = at(LAYERS, this.sim.layer);
+    if (r.core && corePos) this.coreHit(corePos.x, corePos.y);
     this.oyun.audio.playPreset(SFX.dig, { pitch: Math.round(this.sim.combo * 7), volume: 0.8 });
     if (charged >= VEIN.maxCharge - 0.01) {
       this.oyun.audio.playPreset(SFX.clang);
@@ -345,6 +364,7 @@ export class DigScene extends OyunScene {
     const bx = Phaser.Math.Clamp(x, this.block.x - BLOCK_W / 2 + 20, this.block.x + BLOCK_W / 2 - 20);
     const by = Phaser.Math.Clamp(y, this.block.y - this.blockH / 2 + 20, this.block.y + this.blockH / 2 - 20);
     this.block.hit(bx - this.block.x, by - this.block.y);
+    if (FX_ON) this.block.impact(bx - this.block.x, r.core ? 2 : charged > 1 ? 1.6 : 1);
     if (FX_ON) this.pick.strike(bx, by);
     if (FX_ON) this.fx.emit(bx, by, 4, { texture: 'chip', tint: at(layer.bands, 2), speed: [160, 340], angle: -Math.PI / 2, spread: 2.6, gravity: 1500, life: [0.35, 0.6], scale: [0.6, 1.1], endScale: 0.6, spin: 14 });
     if (FX_ON) this.fx.emit(bx, by, 2, { tint: PALETTE.sand, speed: [20, 70], life: [0.5, 0.8], scale: [1, 1.8], endScale: 2.2, alpha: 0.3 });
@@ -358,10 +378,14 @@ export class DigScene extends OyunScene {
     for (const f of r.extra) if (!r.broke) this.onFind(f); // boss phase rolls before the break
     if (r.broke) {
       const layer = at(LAYERS, this.sim.layer);
-      this.oyun.audio.playPreset(SFX.crack);
-      this.juice.shake(0.15);
-      this.oyun.platform.haptic('light');
-      this.breakBlock(at(layer.bands, 1), at(layer.bands, 3));
+      this.oyun.audio.playPreset(SFX.crack, { pitch: this.heft > 20 ? -3 : 0 });
+      // heavier blocks break with more weight: bigger shake, a short freeze, more rubble
+      const w = Math.min(1, Math.log10(Math.max(1, this.heft)) / 1.6);
+      this.juice.shake(0.12 + 0.28 * w);
+      if (FX_ON && !this.oyun.reducedMotion && w > 0.5) this.juice.hitStop(Math.round(30 + 50 * w));
+      this.oyun.platform.haptic(w > 0.7 ? 'medium' : 'light');
+      this.breakBlock(at(layer.bands, 1), at(layer.bands, 3), 7 + Math.round(5 * w));
+      if (FX_ON && r.dust > 0) this.flyDust(this.block.x, this.block.y, 2 + Math.round(4 * w));
       if (r.find) this.onFind(r.find);
       else this.juice.floatText(this.block.x, this.block.y - 40, `+${big(this, r.dust)}`, { color: PALETTE.dust, size: 40 });
       for (const f of r.extra) this.onFind(f);
@@ -406,7 +430,23 @@ export class DigScene extends OyunScene {
           this.note(this.t('dig.cavein'), { color: 0xd0c8c0 });
           this.showTip('cavein', this.t('tip.cavein'));
           break;
+        case 'meteor':
+          this.note(this.t('dig.meteor'), { color: 0xffc060 });
+          if (FX_ON) this.juice.burst(this.block.x, this.block.y, { count: 12, color: 0xffa040, texture: 'spark', distance: 220 });
+          this.showTip('meteor', this.t('tip.meteor'));
+          break;
+        case 'echo': {
+          const name = this.t(`layer.${at(LAYERS, e.layer).id}`);
+          this.note(this.t('dig.echo', { name }), { color: 0xd8a0ff });
+          if (FX_ON) {
+            const ring = this.add.circle(this.block.x, this.block.y, 60).setStrokeStyle(6, 0xd8a0ff, 1).setDepth(330);
+            this.tweens.add({ targets: ring, scale: 4, alpha: 0, duration: 700, ease: 'Sine.easeOut', onComplete: () => ring.destroy() });
+          }
+          this.showTip('echo', this.t('tip.echo'));
+          break;
+        }
         case 'boss':
+          this.bossIntro();
           this.oyun.audio.playPreset(SFX.gong);
           this.juice.shake(0.6);
           tierPattern(this, ['heavy', 'heavy']);
@@ -450,6 +490,131 @@ export class DigScene extends OyunScene {
     if (events.length) this.syncBlockKind();
   }
 
+  /** A strike on a meteor's star core: hot sparks, a ring, a short freeze and the ×3 floating up. */
+  private coreHit(x: number, y: number): void {
+    this.oyun.audio.playPreset(SFX.clang, { pitch: 6, volume: 0.8 });
+    this.oyun.platform.haptic('medium');
+    if (FX_ON) {
+      this.fx.emit(x, y, 14, { texture: 'spark', tint: 0xffc060, speed: [180, 420], life: [0.25, 0.5], scale: [0.5, 1], drag: 2 });
+      const ring = this.add.circle(x, y, 30).setStrokeStyle(8, 0xfff0c0, 1).setDepth(330);
+      this.tweens.add({ targets: ring, scale: 3.2, alpha: 0, duration: 320, ease: 'Cubic.easeOut', onComplete: () => ring.destroy() });
+      if (!this.oyun.reducedMotion) this.juice.hitStop(45);
+    }
+    this.juice.shake(0.18);
+    this.juice.floatText(x, y - 50, this.t('dig.core', { n: mult(this, METEOR.core) }), { color: 0xffc060, size: 36, rise: 70, duration: 520 });
+    this.showTip('meteor', this.t('tip.meteor'));
+  }
+
+  /** Dust coins arc from the block into the dust chip, which pops as they land. */
+  private flyDust(x: number, y: number, n: number): void {
+    const L = this.layout;
+    const tx = L.cx - 72;
+    const ty = L.top + 162;
+    let k = 0;
+    for (const c of this.coins) {
+      if (k >= n) break;
+      if (c.t < 1) continue;
+      c.t = -k * 0.05; // a short stagger
+      c.dur = 0.5 + Math.random() * 0.18;
+      c.x0 = x + (Math.random() - 0.5) * 160;
+      c.y0 = y + (Math.random() - 0.5) * 80;
+      c.cx = (c.x0 + tx) / 2 + (Math.random() - 0.5) * 220;
+      c.cy = Math.min(c.y0, ty) - 120 - Math.random() * 80;
+      c.img.setPosition(c.x0, c.y0).setScale(0.55).setAlpha(0).setVisible(true);
+      k++;
+    }
+  }
+
+  private updateCoins(dt: number): void {
+    const L = this.layout;
+    const tx = L.cx - 72;
+    const ty = L.top + 162;
+    let landed = false;
+    for (const c of this.coins) {
+      if (c.t >= 1) continue;
+      c.t += dt / c.dur;
+      if (c.t < 0) continue;
+      if (c.t >= 1) {
+        c.t = 1;
+        c.img.setVisible(false);
+        landed = true;
+        continue;
+      }
+      // ease-in along a curve: the coin pops up, then is sucked into the counter
+      const u = c.t * c.t * (3 - 2 * c.t);
+      const e = u * u;
+      const ix = (1 - e) * (1 - e) * c.x0 + 2 * (1 - e) * e * c.cx + e * e * tx;
+      const iy = (1 - e) * (1 - e) * c.y0 + 2 * (1 - e) * e * c.cy + e * e * ty;
+      c.img.setPosition(ix, iy).setAlpha(Math.min(1, c.t * 6)).setScale(0.55 + 0.25 * Math.sin(c.t * Math.PI)).setRotation(c.t * 6);
+    }
+    if (landed) this.juice.pop(this.chips.dust.value, 1.18, 140);
+  }
+
+  /** Combo milestones (×1.5 and ×2) pop the combo label with a burst. */
+  private checkCombo(): void {
+    const m = this.sim.comboMult;
+    const step = m >= 1.999 ? 2 : m >= 1.5 ? 1 : 0;
+    if (m < 1.2) this.comboStep = 0;
+    if (step <= this.comboStep) return;
+    this.comboStep = step;
+    this.juice.pop(this.comboText, step === 2 ? 1.5 : 1.3, 260);
+    const L = this.layout;
+    if (FX_ON) this.fx.emit(L.right - 40, L.top + 236, step === 2 ? 14 : 8, { texture: 'spark', tint: step === 2 ? 0xffd23f : PALETTE.luck, speed: [120, 300], life: [0.3, 0.6], scale: [0.5, 1], drag: 2 });
+    this.juice.floatText(L.left + 140, L.top + 210, this.t('hud.combo', { n: mult(this, step === 2 ? 2 : 1.5) }) + '!', { color: step === 2 ? 0xffd23f : PALETTE.luck, size: step === 2 ? 40 : 32, rise: 50, duration: 600 });
+    this.oyun.audio.playPreset(SFX.tick, { pitch: step * 5, volume: 0.6 });
+  }
+
+  /** A boss surfaces: the slab drops in from above and slams down with a ring of dust. */
+  private bossIntro(): void {
+    if (!FX_ON) return;
+    const b = this.block;
+    const L = this.layout;
+    this.tweens.killTweensOf(b);
+    const reduced = this.oyun.reducedMotion;
+    b.setY(this.blockY - (reduced ? 40 : 260)).setScale(1.2).setAlpha(0.3);
+    this.tweens.add({
+      targets: b,
+      y: this.blockY,
+      scale: 1,
+      alpha: 1,
+      duration: reduced ? 200 : 360,
+      ease: 'Quad.easeIn',
+      onComplete: () => {
+        b.setY(this.blockY).setScale(1);
+        this.juice.shake(0.7);
+        this.oyun.audio.play('hit', { volume: 0.8 });
+        const floor = this.blockY + this.blockH / 2;
+        this.fx.emit(b.x, floor, 18, { tint: PALETTE.sand, speed: [120, 380], angle: -Math.PI / 2, spread: 3, life: [0.5, 0.9], scale: [1.2, 2.4], endScale: 2, alpha: 0.35, drag: 2 });
+        const ring = this.add.circle(b.x, b.y, 120).setStrokeStyle(10, 0x3fe3e0, 1).setDepth(330);
+        this.tweens.add({ targets: ring, scale: 2.6, alpha: 0, duration: 520, ease: 'Cubic.easeOut', onComplete: () => ring.destroy() });
+        const title = outlined(this, L.cx, b.y, this.t('dig.boss'), 54, 0x3fe3e0, 10).setDepth(340);
+        fitText(title, L.width - 60);
+        this.juice.pop(title, 0.3, 320);
+        this.tweens.add({ targets: title, alpha: 0, y: b.y - 60, delay: 900, duration: 400, onComplete: () => title.destroy() });
+      },
+    });
+  }
+
+  /** A new layer opened: a banner of its strata slides in with the name, then slides away. */
+  private unlockBanner(layer: number): void {
+    const L = this.layout;
+    const Ly = at(LAYERS, layer);
+    const y = this.site.top + 120;
+    const box = this.add.container(L.cx, y).setDepth(720);
+    const g = this.add.graphics();
+    g.fillStyle(0x000000, 0.55).fillRoundedRect(-330, -76, 660, 160, 28);
+    Ly.bands.forEach((c, i) => g.fillStyle(c, 1).fillRect(-310, -58 + i * 24, 620, 24));
+    g.lineStyle(6, PALETTE.glint, 1).strokeRoundedRect(-322, -68, 644, 144, 24);
+    const t1 = outlined(this, 0, -26, this.t('dig.newLayer'), 34, PALETTE.glint, 7);
+    const t2 = outlined(this, 0, 26, this.t(`layer.${Ly.id}`), 54, 0xffffff, 10);
+    fitText(t2, 600);
+    box.add([g, t1, t2]);
+    box.setScale(0.6, 0).setAlpha(0);
+    this.tweens.add({ targets: box, scaleX: 1, scaleY: 1, alpha: 1, duration: 320, ease: 'Back.easeOut' });
+    if (FX_ON) this.fx.emit(L.cx, y, 22, { texture: 'spark', tint: PALETTE.glint, speed: [160, 420], life: [0.5, 0.9], scale: [0.5, 1.1], drag: 1.5 });
+    this.tweens.add({ targets: box, y: y - 40, alpha: 0, delay: 2200, duration: 420, ease: 'Cubic.easeIn', onComplete: () => box.destroy(true) });
+  }
+
   private flash(color: number, ms: number): void {
     const L = this.layout;
     const r = this.add.rectangle(L.cx, L.height / 2, L.width + 40, L.height + 40, color, this.oyun.reducedMotion ? 0.2 : 0.45).setDepth(940);
@@ -458,9 +623,9 @@ export class DigScene extends OyunScene {
 
   private syncBlockKind(): void {
     const k = this.sim.block.kind;
-    if (this.block.blockKind === k) return;
-    this.block.setKind(k);
+    this.block.setKind(k, this.sim.echoLayer);
     if (k === 'vein') this.showTip('vein', this.t('tip.vein'));
+    if (k === 'pressure') this.showTip('pressure', this.t('tip.pressure'));
     if (k === 'unstable') this.showTip('unstable', this.t('tip.unstable'));
     if (k === 'twin') this.showTip('twin', this.t('tip.twin'));
   }
@@ -699,7 +864,7 @@ export class DigScene extends OyunScene {
     this.oyun.platform.haptic('light');
     this.travelFx(layer > from ? 1 : -1, () => {
       this.scenery.setLayer(layer);
-      this.block.setLayer(layer).setKind(this.sim.block.kind);
+      this.block.setLayer(layer).setKind(this.sim.block.kind, this.sim.echoLayer);
       this.rubble.clear();
       this.fx.clear();
     });
@@ -762,6 +927,7 @@ export class DigScene extends OyunScene {
         this.oyun.audio.playPreset(SFX.fanfare, { pitch: 3 });
         this.oyun.platform.haptic('success');
         this.juice.pop(this.arrows.right, 1.6, 500);
+        this.unlockBanner(find.unlocked!);
         this.showTip(`deeper-${find.unlocked}`, this.t('tip.deeper', { name }), true);
       });
       this.oyun.platform.track('layer_unlocked', { layer: find.unlocked });
@@ -782,7 +948,7 @@ export class DigScene extends OyunScene {
    */
   private breakBlock(c1: number, c2: number, chunks = 7): void {
     if (!FX_ON) {
-      this.block.renew(this.sim.block.kind);
+      this.block.renew(this.sim.block.kind, this.sim.echoLayer);
       return;
     }
     const bx = this.block.x;
@@ -806,7 +972,9 @@ export class DigScene extends OyunScene {
       });
     }
     this.fx.emit(bx, floor - 30, 8, { tint: PALETTE.sand, speed: [40, 160], angle: -Math.PI / 2, spread: 2.8, life: [0.6, 1], scale: [1.4, 2.6], endScale: 1.8, alpha: 0.28, drag: 1.5 });
-    this.block.renew(this.sim.block.kind);
+    // a quick white pop where the block was, sparks thrown outward
+    this.fx.emit(bx, by, 6, { texture: 'spark', tint: 0xffffff, speed: [200, 420], life: [0.2, 0.35], scale: [0.5, 0.9], drag: 3 });
+    this.block.renew(this.sim.block.kind, this.sim.echoLayer);
     this.tweens.killTweensOf(this.block);
     this.block.setAlpha(0.2).setY(by + 36).setScale(0.92);
     this.tweens.add({ targets: this.block, y: by, alpha: 1, scale: 1, duration: 170, ease: 'Back.easeOut', onComplete: () => this.block.setY(this.blockY).setScale(1) });
@@ -835,6 +1003,10 @@ export class DigScene extends OyunScene {
       ease: 'Cubic.easeIn',
       onComplete: () => {
         swap();
+        const name = outlined(this, L.cx, L.cy, this.t(`layer.${to.id}`), 64, 0xffffff, 12).setDepth(1401);
+        fitText(name, L.width - 60);
+        this.juice.pop(name, 0.5, 240);
+        this.tweens.add({ targets: name, alpha: 0, y: L.cy - dir * 80, delay: 260, duration: 300, onComplete: () => name.destroy() });
         this.tweens.add({
           targets: g,
           y: dir > 0 ? -3 * h : h,
@@ -844,6 +1016,9 @@ export class DigScene extends OyunScene {
             g.destroy();
             this.travelling = false;
             this.juice.pop(this.block, 0.7, 260);
+            // landing: a thump and a puff of the new layer's dust
+            this.juice.shake(0.2);
+            if (FX_ON) this.fx.emit(this.block.x, this.blockY + this.blockH / 2, 12, { tint: at(to.bands, 2), speed: [80, 260], angle: -Math.PI / 2, spread: 2.6, life: [0.4, 0.8], scale: [1, 2], endScale: 1.6, alpha: 0.4, drag: 2 });
           },
         });
       },
@@ -1100,7 +1275,10 @@ export class DigScene extends OyunScene {
     }
     if (this.tip && this.time.now > this.tip.until) this.closeTip();
     const b = this.sim.block;
-    this.block.animate(real, b.kind === 'unstable' && b.timer > 0 ? 1 - b.timer / 6 : 0);
+    this.block.animate(real, b.kind === 'unstable' && b.timer > 0 ? 1 - b.timer / 6 : 0, this.sim.combo);
+    this.block.setCore(this.sim.meteorCore);
+    if (FX_ON) this.updateCoins(real);
+    this.checkCombo();
     this.updateHold();
     this.maybeRankUp();
     this.sim.setClock(Date.now());
@@ -1213,7 +1391,7 @@ export class DigScene extends OyunScene {
     this.pick.setTier(s.level('pick'));
     const hp = s.blockHp;
     this.hpBar.setValue(1 - s.blockDamage / hp);
-    const left = Math.max(1, Math.ceil((hp - s.blockDamage) / (s.digPower * (s.block.kind === 'vein' ? VEIN.weak : 1) * (s.feverSeconds > 0 ? FEVER.damage : 1))));
+    const left = Math.max(1, Math.ceil((hp - s.blockDamage) / (s.digPower * s.tapMult)));
     this.hpText.setText(this.t('hud.taps', { taps: counted(this, 'n.taps', left) }));
     const affordable = UPGRADE_ORDER.filter((id) => s.canBuy(id)).length;
     this.upgradesButton.setLabel(affordable > 0 ? `${this.t('dig.upgrades')} (${affordable})` : this.t('dig.upgrades'));
@@ -1248,6 +1426,18 @@ export class DigScene extends OyunScene {
       case 'cavein':
         text = this.t('hud.cavein');
         color = 0xd0c8c0;
+        break;
+      case 'pressure':
+        text = this.t('hud.pressure', { n: mult(this, Math.round(s.pressureMult * 10) / 10) });
+        color = s.pressureMult >= 1.5 ? 0x7fe08a : s.pressureMult >= 1 ? 0xffd23f : 0xf07a7a;
+        break;
+      case 'meteor':
+        text = this.t('hud.meteor', { n: mult(this, METEOR.core) });
+        color = 0xffc060;
+        break;
+      case 'echo':
+        text = this.t('hud.echo', { name: this.t(`layer.${at(LAYERS, Math.max(0, s.echoLayer)).id}`), n: mult(this, s.echoLuck) });
+        color = 0xd8a0ff;
         break;
       case 'boss': {
         const phase = Math.min(BOSS.phases, 1 + Math.floor((s.blockDamage / s.blockHp) * BOSS.phases));
@@ -1333,6 +1523,8 @@ export class DigScene extends OyunScene {
       rank: s.rank,
       rankId: at(RANKS, s.rank).id,
       block: s.block.kind,
+      echoLayer: s.echoLayer,
+      tapMult: Math.round(s.tapMult * 100) / 100,
       blockTimer: Math.round(s.block.timer * 10) / 10,
       fever: Math.round(s.feverSeconds * 10) / 10,
       feverFill: Math.round(s.feverFill * 1000) / 1000,
@@ -1378,6 +1570,7 @@ export class DigScene extends OyunScene {
         daily: this.dailyButton.visible ? pos(this.dailyButton) : null,
         streak: pos(this.streak),
         pick: this.pick.state,
+        core: this.block.corePos ? pos(this.block.corePos) : null,
       },
     };
   }
@@ -1389,6 +1582,12 @@ export class DigScene extends OyunScene {
         for (let i = 0; i < n; i++) this.tapBlock();
       },
       glint: () => this.onGlintTap(),
+      /** A tap right on the meteor's star core (a plain tap when there is none). */
+      tapCore: () => {
+        const c = this.block.corePos;
+        if (this.reveal.blocking) this.reveal.dismiss();
+        else if (!this.popup && !this.ceremony) this.onDigTap(c?.x ?? this.block.x, c?.y ?? this.block.y);
+      },
       buy: (p: unknown) => this.drawer.buyButton(p as UpgradeId).fire(),
       advance: (p: unknown) => {
         let left = typeof p === 'number' ? p : 1;

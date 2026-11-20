@@ -268,7 +268,7 @@ describe('special blocks', () => {
       kinds.delete('normal');
       kinds.delete('golden');
       const twist = at(LAYERS, l).twist;
-      const expect1 = { none: [], vein: ['vein'], unstable: ['unstable'], twin: ['twin'], relic: [], cavein: ['cavein'], boss: ['boss'] }[twist];
+      const expect1 = { none: [], vein: ['vein'], unstable: ['unstable'], twin: ['twin'], relic: [], cavein: ['cavein'], boss: ['boss'], pressure: ['pressure'], meteor: ['meteor'], echo: ['echo'] }[twist];
       expect([...kinds].sort(), `layer ${l}`).toEqual(expect1);
     }
   });
@@ -279,8 +279,8 @@ describe('expedition', () => {
     new DigSim(
       4,
       saveWith((s) => {
-        s.unlocked = 9;
-        s.layer = 9;
+        s.unlocked = EXPEDITION.needLayer;
+        s.layer = EXPEDITION.needLayer;
         s.dust = 1e12;
         s.levels.pick = 50;
         for (const f of layerFossils(0)) s.counts[f.id] = [1, 0, 0, 0];
@@ -291,8 +291,8 @@ describe('expedition', () => {
     );
 
   it(`opens only once ${LAYERS[EXPEDITION.needLayer]!.id} is reached`, () => {
-    expect(on(8).canExpedition).toBe(false);
-    expect(on(8).expedition()).toBe(false);
+    expect(on(EXPEDITION.needLayer - 1).canExpedition).toBe(false);
+    expect(on(EXPEDITION.needLayer - 1).expedition()).toBe(false);
     expect(deep().canExpedition).toBe(true);
   });
 

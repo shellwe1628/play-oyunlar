@@ -4,12 +4,12 @@ import { at, FOSSILS, LAYERS, TIERS, TOTAL_WEIGHT, tierOf } from '../../src/sim/
 import { effectiveLuck, layerFossils, LUCKY_TIER, rollFossil, rollProbabilities } from '../../src/sim/loot';
 
 describe('loot tables', () => {
-  it('has 10 layers of 12 fossils with unique ids, each layer with its own twist from layer 5 on', () => {
-    expect(LAYERS).toHaveLength(10);
-    expect(FOSSILS).toHaveLength(120);
-    expect(new Set(FOSSILS.map((f) => f.id)).size).toBe(120);
+  it('has 13 layers of 12 fossils with unique ids, each layer with its own twist from layer 5 on', () => {
+    expect(LAYERS).toHaveLength(13);
+    expect(FOSSILS).toHaveLength(156);
+    expect(new Set(FOSSILS.map((f) => f.id)).size).toBe(156);
     for (let l = 0; l < LAYERS.length; l++) expect(layerFossils(l)).toHaveLength(12);
-    expect(LAYERS.map((l) => l.twist)).toEqual(['none', 'none', 'none', 'none', 'vein', 'unstable', 'twin', 'relic', 'cavein', 'boss']);
+    expect(LAYERS.map((l) => l.twist)).toEqual(['none', 'none', 'none', 'none', 'vein', 'unstable', 'twin', 'relic', 'cavein', 'boss', 'pressure', 'meteor', 'echo']);
     // no two layers share a table
     const tables = LAYERS.map((_, l) => layerFossils(l).map((f) => f.odds).join(','));
     expect(new Set(tables).size).toBe(LAYERS.length);

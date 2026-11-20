@@ -7,6 +7,7 @@
  * casual: taps 2.5/s in 7 s bursts with 3 s pauses (30 % idle), notices glints only while tapping
  *         (1.2 s reaction), looks at the upgrades every 5 s and buys the leftmost affordable one
  *         (not the best one), and travels to a new layer as soon as it opens.
+ * Star Crater: fast taps the star core every time, casual every other tap.
  * Both: on a hard vein they hold for a charged strike (fast 0.8 s, casual 0.6 s) instead of
  * tapping, and start an expedition as soon as it opens (unless `expedition: false`).
  */
@@ -91,6 +92,7 @@ export function runPolicy(seed: number, minutes = 40, profile: Profile = 'fast',
   let tapAcc = 0;
   let nextShop = 0;
   let hold = 0;
+  let aimed = 0;
   const holdFor = casual ? 0.6 : 0.8;
   const steps = Math.round((minutes * 60) / DT);
   for (let i = 1; i <= steps; i++) {
@@ -110,7 +112,9 @@ export function runPolicy(seed: number, minutes = 40, profile: Profile = 'fast',
       tapAcc += rate * DT;
       while (tapAcc >= 1) {
         tapAcc -= 1;
-        const r = sim.tap();
+        // a star core: fast always aims at it, casual lands on it every other tap
+        aimed += 1;
+        const r = sim.tap(!casual || aimed % 2 === 0 ? (sim.meteorCore ?? undefined) : undefined);
         if (r.find) finds.push(r.find);
         finds.push(...r.extra);
         if (sim.block.kind === 'vein') break;

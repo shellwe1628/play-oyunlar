@@ -1,5 +1,5 @@
 /**
- * Code-drawn fossil art: 8 archetypes × 3 shape variants, coloured per fossil, with a pattern.
+ * Code-drawn fossil art: 10 archetypes × 3 shape variants, coloured per fossil, with a pattern.
  * Drawn at FOSSIL_SIZE and baked into one texture per fossil (`fossil-<id>`) at boot.
  */
 import Phaser from 'phaser';
@@ -423,7 +423,102 @@ function claw(p: Pen, a: FossilArt): Drawn {
   return { spots };
 }
 
-const ARCH = { shell, trilobite, bone, tooth, leaf, footprint, skull, claw } as const;
+/** A fish skeleton: skull wedge, spine with ribs, tail fin. Variants: stout, eel-long, angler with a lure. */
+function fish(p: Pen, a: FossilArt): Drawn {
+  const g = p.g;
+  const v = a.variant;
+  const spots: Pt[] = [];
+  const len = v === 1 ? 130 : 104;
+  const x0 = C - len / 2 + (v === 2 ? 8 : 0);
+  const y = v === 1 ? C + 6 : C + 4;
+  const head = v === 2 ? 40 : 30;
+  // tail fin
+  p.fill(shade(a.body, -0.12));
+  poly(g, [[x0 + len - 6, y], [x0 + len + 24, y - (v === 1 ? 22 : 32)], [x0 + len + 14, y], [x0 + len + 24, y + (v === 1 ? 22 : 32)]]);
+  // spine and ribs
+  p.line(v === 1 ? 8 : 9, a.body).lineBetween(x0 + head * 0.8, y, x0 + len, y);
+  const ribs = v === 1 ? 9 : 6;
+  for (let i = 0; i < ribs; i++) {
+    const x = x0 + head + 6 + (i * (len - head - 16)) / ribs;
+    const h = (v === 1 ? 20 : 34) * (1 - (i / ribs) * 0.55);
+    p.line(5, a.pattern === 'stripes' ? a.accent : a.body).lineBetween(x, y, x - 8, y - h).lineBetween(x, y, x - 8, y + h);
+    spots.push([x - 4, y - h * 0.55], [x - 4, y + h * 0.55]);
+  }
+  // skull wedge with an eye socket and a jaw
+  p.fill(a.body);
+  poly(g, [[x0 - 6, y - 4], [x0 + head, y - head * 0.9], [x0 + head + 10, y], [x0 + head, y + head * 0.8], [x0, y + 12]]);
+  if (a.pattern === 'rim' || a.pattern === 'bands') {
+    p.line(4, a.accent);
+    outline(g, [[x0 - 6, y - 4], [x0 + head, y - head * 0.9], [x0 + head + 10, y], [x0 + head, y + head * 0.8], [x0, y + 12]]);
+  }
+  p.fill(shade(a.body, -0.45)).fillCircle(x0 + head * 0.55, y - head * 0.3, v === 2 ? 9 : 7);
+  p.line(3, shade(a.body, -0.4)).lineBetween(x0, y + 6, x0 + head * 0.7, y + 4);
+  if (v === 2) {
+    // angler: teeth and a lure on a curved stalk
+    p.fill(0xffffff, 0.9);
+    for (let i = 0; i < 4; i++) poly(g, [[x0 + 2 + i * 7, y + 6], [x0 + 7 + i * 7, y + 6], [x0 + 4 + i * 7, y + 15]]);
+    const stalk = arcPts(x0 + 12, y - 30, 26, deg(200), deg(330), 10);
+    p.line(4, a.body);
+    polyline(g, stalk);
+    const tip = at(stalk, 0);
+    p.fill(a.accent).fillCircle(tip[0], tip[1], 8);
+    if (!p.isShadow) g.fillStyle(0xffffff, 0.7).fillCircle(tip[0] - 2, tip[1] - 2, 3);
+  }
+  spots.push([x0 + head * 0.5, y + 8]);
+  return { spots };
+}
+
+/** A star: sea star, five-armed or six with a disc ring, or a feather star on a stalk. */
+function star(p: Pen, a: FossilArt): Drawn {
+  const g = p.g;
+  const v = a.variant;
+  const spots: Pt[] = [];
+  const arms = v === 1 ? 6 : 5;
+  const cy = v === 2 ? C - 14 : C;
+  const R = v === 2 ? 50 : 66;
+  const r = v === 2 ? 14 : 22;
+  if (v === 2) {
+    // a jointed stalk below the crown
+    p.line(10, shade(a.body, -0.15)).lineBetween(C, cy + 10, C + 6, C + 74);
+    for (let i = 0; i < 5; i++) p.fill(shade(a.body, -0.3)).fillCircle(C + 1 + i * 1.2, cy + 26 + i * 11, 5);
+  }
+  const pts: Pt[] = [];
+  for (let i = 0; i < arms * 2; i++) {
+    const ang = -Math.PI / 2 + (i * Math.PI) / arms;
+    const rr = i % 2 === 0 ? R : r;
+    pts.push([C + Math.cos(ang) * rr, cy + Math.sin(ang) * rr]);
+  }
+  p.fill(a.body);
+  poly(g, pts);
+  if (v === 2) {
+    // feather-star fronds along each arm
+    p.line(3, shade(a.body, 0.2));
+    for (let i = 0; i < arms; i++) {
+      const ang = -Math.PI / 2 + (i * 2 * Math.PI) / arms;
+      for (let k = 1; k < 4; k++) {
+        const x = C + Math.cos(ang) * R * (k / 4);
+        const y2 = cy + Math.sin(ang) * R * (k / 4);
+        g.lineBetween(x, y2, x + Math.cos(ang + 1.2) * 10, y2 + Math.sin(ang + 1.2) * 10).lineBetween(x, y2, x + Math.cos(ang - 1.2) * 10, y2 + Math.sin(ang - 1.2) * 10);
+      }
+    }
+  }
+  if (a.pattern === 'rim') {
+    p.line(4, a.accent);
+    outline(g, pts);
+  }
+  // centre disc and the groove down every arm
+  p.fill(shade(a.body, -0.2)).fillCircle(C, cy, r * 0.9);
+  if (v === 1) p.line(3, a.accent).strokeCircle(C, cy, r * 0.6);
+  p.line(3, a.pattern === 'stripes' || a.pattern === 'bands' ? a.accent : shade(a.body, -0.35));
+  for (let i = 0; i < arms; i++) {
+    const ang = -Math.PI / 2 + (i * 2 * Math.PI) / arms;
+    g.lineBetween(C + Math.cos(ang) * r * 0.9, cy + Math.sin(ang) * r * 0.9, C + Math.cos(ang) * R * 0.86, cy + Math.sin(ang) * R * 0.86);
+    for (let k = 1; k <= 3; k++) spots.push([C + Math.cos(ang) * R * (0.3 + k * 0.17), cy + Math.sin(ang) * R * (0.3 + k * 0.17)]);
+  }
+  return { spots };
+}
+
+const ARCH = { shell, trilobite, bone, tooth, leaf, footprint, skull, claw, fish, star } as const;
 
 /** Draw one fossil into `g` (0..FOSSIL_SIZE). */
 export function drawFossil(g: G, art: FossilArt): void {

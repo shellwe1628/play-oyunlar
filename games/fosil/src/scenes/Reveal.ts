@@ -30,6 +30,9 @@ interface Host {
 }
 
 const MAX_POPS = 6;
+/** The layer whose echo blocks roll older tables: a find from another layer there is an echo find. */
+const ECHO_HOME = LAYERS.findIndex((l) => l.twist === 'echo');
+const isEcho = (f: Find): boolean => f.block === 'echo' && f.fossil.layer !== ECHO_HOME;
 
 type Haptic = 'light' | 'medium' | 'heavy' | 'success';
 /** A distinct haptic pattern per tier: rarer finds buzz longer and harder. */
@@ -235,6 +238,11 @@ export class Reveal {
       s.tweens.add({ targets: rays, angle: 90, duration: 3000 });
       s.oyun.audio.playPreset(SFX.chime, { pitch: Math.min(6, find.fossil.tier * 2 - 4) });
       s.juice.feedback('medium', pos.x, pos.y, tierColor);
+      // prized (1 in 1,000+): a ring snaps out from the card
+      if (big) {
+        const ring = s.add.circle(pos.x, pos.y, CARD_W / 2).setStrokeStyle(10, tierColor, 1).setDepth(709);
+        s.tweens.add({ targets: ring, scale: 2.2, alpha: 0, duration: 520, ease: 'Cubic.easeOut', onComplete: () => ring.destroy() });
+      }
       tierHaptics(s, find.fossil.tier);
       s.juice.burst(pos.x, pos.y, { count: big ? 22 : 14, color: tierColor, texture: 'spark', distance: 260 });
       s.juice.burst(pos.x, pos.y, { count: 8, color: 0xffffff, texture: 'spark', distance: 200 });
@@ -244,6 +252,7 @@ export class Reveal {
       if (find.source === 'glint') this.badge(pos.x - CARD_W / 2 + 70, pos.y + CARD_H / 2 - 14, s.t('reveal.glint'));
       if (find.source === 'assistant') this.badge(pos.x - CARD_W / 2 + 80, pos.y + CARD_H / 2 - 14, s.t('reveal.assistantFind'));
       if (find.pity) this.badge(pos.x + CARD_W / 2 - 70, pos.y + CARD_H / 2 - 14, s.t('reveal.pity'));
+      else if (isEcho(find)) this.badge(pos.x + CARD_W / 2 - 70, pos.y + CARD_H / 2 - 14, s.t('reveal.echo'));
       else if (find.block === 'boss') this.badge(pos.x + CARD_W / 2 - 60, pos.y + CARD_H / 2 - 14, s.t('reveal.boss'));
     });
     const hold = big ? 1900 : 1450;
@@ -418,7 +427,7 @@ export class Reveal {
         objects.push(tag);
         s.juice.pop(tag, 0.3, 320);
       }
-      const why = find.pity ? s.t('reveal.pity') : find.block === 'boss' ? s.t('reveal.boss') : null;
+      const why = find.pity ? s.t('reveal.pity') : isEcho(find) ? s.t('reveal.echo') : find.block === 'boss' ? s.t('reveal.boss') : null;
       if (why) {
         const tag = outlined(s, pos.x - CARD_W / 2, pos.y - CARD_H / 2 + BADGE_Y, why, 34, PALETTE.ochreLight, 7).setDepth(905).setAngle(8);
         objects.push(tag);

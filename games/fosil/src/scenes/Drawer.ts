@@ -18,6 +18,8 @@ interface Row {
   fx: Phaser.GameObjects.Text;
   buy: Button;
   key: string;
+  /** Slid in one after another when the drawer opens. */
+  parts: Phaser.GameObjects.Components.Transform[];
 }
 
 /**
@@ -65,7 +67,7 @@ export class Drawer extends Phaser.GameObjects.Container {
       const ico = scene0.add.image(-74, -2, 'ico-dust').setScale(0.8);
       buy.add(ico);
       this.add([rowBg, iconGlow, icon, title, fx, buy]);
-      this.rows.push({ id, icon, iconGlow, afford: false, spin: 0, title, fx, buy, key: '' });
+      this.rows.push({ id, icon, iconGlow, afford: false, spin: 0, title, fx, buy, key: '', parts: [rowBg, icon, title, fx, buy] });
     });
     this.setDepth(500).setY(L.height + 20);
     this.setVisible(false);
@@ -85,6 +87,17 @@ export class Drawer extends Phaser.GameObjects.Container {
       this.setVisible(true);
       this.refresh();
       s.tweens.add({ targets: this, y: this.topY, duration: 260, ease: 'Back.easeOut' });
+      // rows follow the panel up, one after another
+      this.rows.forEach((r, i) => {
+        for (const o of r.parts) {
+          const go = o as unknown as Phaser.GameObjects.GameObject;
+          const baseX = (go.getData('baseX') as number | undefined) ?? o.x;
+          go.setData('baseX', baseX);
+          s.tweens.killTweensOf(go);
+          o.x = baseX + 80;
+          s.tweens.add({ targets: go, x: baseX, delay: 60 + i * 45, duration: 240, ease: 'Back.easeOut' });
+        }
+      });
     } else {
       s.tweens.add({ targets: this, y: s.layout.height + 20, duration: 200, ease: 'Cubic.easeIn', onComplete: () => this.setVisible(false) });
     }

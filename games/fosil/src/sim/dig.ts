@@ -10,11 +10,14 @@ import {
   CHAIN,
   COMBO,
   DAILY,
+  ECHO,
   EXPEDITION,
   FEVER,
   FOSSILS,
   GOLDEN,
+  METEOR,
   PITY,
+  PRESSURE,
   RELIC,
   SCORE,
   TWIN,
@@ -75,7 +78,8 @@ export interface DigSave {
   rng: number;
   /** Layer indices whose set bonus has been granted. */
   sets: number[];
-  stats: { taps: number; rolls: number; bestOdds: number; bestId: string; playSeconds: number };
+  /** cores: star-core hits (Star Crater); echoes: echo blocks broken (Time Rift). */
+  stats: { taps: number; rolls: number; bestOdds: number; bestId: string; playSeconds: number; cores: number; echoes: number };
   /** One-time tips already shown. */
   tips: string[];
   lastFind: { id: string; grade: number; luck: number; source: FindSource } | null;
@@ -112,11 +116,17 @@ export interface DigSave {
   clock: number;
 }
 
-export type BlockKind = 'normal' | 'vein' | 'unstable' | 'twin' | 'golden' | 'cavein' | 'boss';
+export type BlockKind = 'normal' | 'vein' | 'unstable' | 'twin' | 'golden' | 'cavein' | 'boss' | 'pressure' | 'meteor' | 'echo';
+export const BLOCK_KINDS: readonly BlockKind[] = ['normal', 'vein', 'unstable', 'twin', 'golden', 'cavein', 'boss', 'pressure', 'meteor', 'echo'];
 export interface BlockState {
   kind: BlockKind;
   /** Unstable: seconds left in the bonus window (-1 = not started). */
   timer: number;
+  /** Meteor: where the star core sits on the block face (0..1 of its width / height). */
+  x?: number;
+  y?: number;
+  /** Echo: the earlier layer whose table the extra roll uses. */
+  echo?: number;
 }
 export interface RareRecord {
   id: string;
@@ -142,8 +152,9 @@ export function defaultSave(): DigSave {
     assistantAcc: 0,
     rng: 0,
     sets: [],
-    stats: { taps: 0, rolls: 0, bestOdds: 0, bestId: '', playSeconds: 0 },
-    tips: [],
+    stats: { taps: 0, rolls: 0, bestOdds: 0, bestId: '', playSeconds: 0, cores: 0, echoes: 0 },
+    // a new dig meets the three deep layers in order; only saves from before them get the news
+    tips: [NEWS_TIP],
     lastFind: null,
     lastSeen: 0,
     discovered: [],
@@ -167,6 +178,9 @@ export function defaultSave(): DigSave {
 
 export type FindSource = 'tap' | 'assistant' | 'glint' | 'offline';
 
+/** One-time "three new layers below the First Seas" note for saves made before the depth round. */
+export const NEWS_TIP = 'news-depth';
+
 /** Things that happened, for the presentation (and tips) to react to. */
 export type SimEvent =
   | { kind: 'fever' }
@@ -178,6 +192,8 @@ export type SimEvent =
   | { kind: 'boss' }
   | { kind: 'phase'; phase: number }
   | { kind: 'golden' }
+  | { kind: 'meteor' }
+  | { kind: 'echo'; layer: number }
   | { kind: 'settled' }
   | { kind: 'pity' }
   | { kind: 'quest'; id: string; dust: number }
@@ -213,6 +229,8 @@ export interface TapResult {
   events: SimEvent[];
   /** The block broke on this hit (cave-in rubble breaks without a find). */
   broke: boolean;
+  /** This tap struck a meteor block's star core (×METEOR.core damage). */
+  core: boolean;
   /** Dust paid by the break (0 if it did not break). */
   dust: number;
 }
@@ -296,6 +314,8 @@ export function sanitizeSave(raw: Partial<DigSave> | undefined): DigSave {
     bestOdds: int(s?.bestOdds),
     bestId: typeof s?.bestId === 'string' && FOSSIL_BY_ID.has(s.bestId) ? s.bestId : '',
     playSeconds: num(s?.playSeconds),
+    cores: int(s?.cores),
+    echoes: int(s?.echoes),
   };
   d.tips = Array.isArray(raw.tips) ? raw.tips.filter((t): t is string => typeof t === 'string') : [];
   const lf = raw.lastFind;
@@ -313,9 +333,7 @@ export function sanitizeSave(raw: Partial<DigSave> | undefined): DigSave {
   }
   // Set bonuses follow from the museum, so a hand-edited or older save stays consistent.
   d.sets = LAYERS.map((_, l) => l).filter((l) => layerFossils(l).every((f) => d.discovered.includes(f.id)));
-  const kinds: readonly BlockKind[] = ['normal', 'vein', 'unstable', 'twin', 'golden', 'cavein', 'boss'];
-  const b = raw.block;
-  d.block = b && kinds.includes(b.kind) ? { kind: b.kind, timer: typeof b.timer === 'number' && Number.isFinite(b.timer) ? b.timer : -1 } : { kind: 'normal', timer: -1 };
+  d.block = sanitizeBlock(raw.block, d.layer);
   d.dry = int(raw.dry);
   d.fever = num(raw.fever);
   d.feverCharge = Math.min(FEVER.charge, num(raw.feverCharge));
@@ -361,6 +379,36 @@ export function migrateV1(old: unknown): unknown {
     deepest: typeof o.unlocked === 'number' ? o.unlocked : 0,
     records: { rare: o.stats?.bestId ? [{ id: o.stats.bestId, odds: o.stats.bestOdds ?? 0, at: 0 }] : [], sets: {}, layerStart: [0] },
   };
+}
+
+/** A loaded block: unknown kinds become normal; a meteor keeps a core on its face, an echo an earlier layer. */
+function sanitizeBlock(b: Partial<BlockState> | undefined, layer: number): BlockState {
+  if (!b || typeof b !== 'object' || !BLOCK_KINDS.includes(b.kind as BlockKind)) return { kind: 'normal', timer: -1 };
+  const out: BlockState = { kind: b.kind as BlockKind, timer: typeof b.timer === 'number' && Number.isFinite(b.timer) ? b.timer : -1 };
+  const unit = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) ? Math.min(0.85, Math.max(0.15, v)) : 0.5);
+  if (out.kind === 'meteor') {
+    out.x = unit(b.x);
+    out.y = unit(b.y);
+  }
+  if (out.kind === 'echo') {
+    if (layer < 1) return { kind: 'normal', timer: -1 };
+    out.echo = Math.min(layer - 1, int(b.echo));
+  }
+  return out;
+}
+
+/**
+ * Save v2 (ten layers) → v3 (thirteen: Abyssal Trench, Star Crater, Time Rift). Nothing is lost:
+ * per-layer arrays grow, new counters start at zero, and the save does not get the "news-depth"
+ * tip marked, so a player who has reached the First Seas is told that three layers wait below.
+ */
+export function migrateV2(old: unknown): unknown {
+  if (!old || typeof old !== 'object') return old;
+  const o = old as Partial<DigSave>;
+  const broken = Array.isArray(o.broken) ? [...o.broken] : [];
+  while (broken.length < LAYERS.length) broken.push(0);
+  const stats = { ...(o.stats ?? {}), cores: 0, echoes: 0 };
+  return { ...o, broken, stats, tips: Array.isArray(o.tips) ? o.tips.filter((t) => t !== NEWS_TIP) : [] };
 }
 
 /** Score breakdown (pure): what each part of your progress is worth on the ladder. */
@@ -478,6 +526,34 @@ export class DigSim {
   get expeditionMult(): number {
     return 1 + EXPEDITION.power * this.s.expedition.count;
   }
+  /** Pressure block: the damage multiplier your next tap gets at the combo shown now. */
+  get pressureMult(): number {
+    return PRESSURE.min + (PRESSURE.max - PRESSURE.min) * this.s.combo;
+  }
+  /**
+   * Multiplier of your next plain tap on this block (hard vein ×0.25, pressure by combo, fever ×2),
+   * before a meteor core hit. For the "N taps left" readout.
+   */
+  get tapMult(): number {
+    const k = this.s.block.kind;
+    const m = k === 'vein' ? VEIN.weak : k === 'pressure' ? this.pressureMult : 1;
+    return m * (this.s.fever > 0 ? FEVER.damage : 1);
+  }
+  /** Meteor block: its star core (0..1 of the block face), or null. */
+  get meteorCore(): { x: number; y: number } | null {
+    const b = this.s.block;
+    return b.kind === 'meteor' && b.x !== undefined && b.y !== undefined ? { x: b.x, y: b.y } : null;
+  }
+  /** Echo block: the earlier layer it echoes, or -1. */
+  get echoLayer(): number {
+    const b = this.s.block;
+    return b.kind === 'echo' && b.echo !== undefined ? b.echo : -1;
+  }
+  /** Luck of the echo roll from your next tap: your tap luck, capped by the echoed layer. */
+  get echoLuck(): number {
+    const e = this.echoLayer;
+    return e < 0 ? 1 : effectiveLuck(e, this.baseLuck * this.comboMult);
+  }
   /** Luck of a boss-phase roll from your next tap. */
   get bossLuck(): number {
     return effectiveLuck(this.s.layer, this.baseLuck * this.comboMult * BOSS.luck);
@@ -501,6 +577,10 @@ export class DigSim {
         return this.relics;
       case 'expeditions':
         return this.s.expedition.count;
+      case 'cores':
+        return this.s.stats.cores;
+      case 'echoes':
+        return this.s.stats.echoes;
     }
   }
   /** Inject the wall clock (ms) so records can carry dates; pure otherwise. */
@@ -693,9 +773,19 @@ export class DigSim {
 
   // ---------------------------------------------------------------- actions
 
-  /** A tap on the dig site. */
-  tap(): TapResult {
-    return this.strike(1);
+  /**
+   * A tap on the dig site. `at` is where it landed on the block face (0..1 of its width and
+   * height); only a meteor block cares (its star core). Without it a tap misses the core.
+   */
+  tap(at?: { x: number; y: number }): TapResult {
+    return this.strike(1, false, at);
+  }
+
+  /** Whether a tap at `at` (0..1 block face) would strike the meteor core. */
+  onCore(at?: { x: number; y: number }): boolean {
+    const c = this.meteorCore;
+    if (!c || !at || !Number.isFinite(at.x) || !Number.isFinite(at.y)) return false;
+    return (at.x - c.x) ** 2 + (at.y - c.y) ** 2 <= METEOR.radius ** 2;
   }
 
   /**
@@ -713,12 +803,22 @@ export class DigSim {
     return VEIN.weak + (VEIN.maxCharge - VEIN.weak) * t;
   }
 
-  private strike(mult: number, charged = false): TapResult {
+  private strike(mult: number, charged = false, at?: { x: number; y: number }): TapResult {
     this.s.stats.taps += 1;
     // Roll with the luck that was on screen, then let this tap raise the combo.
-    const veinWeak = this.s.block.kind === 'vein' && !charged ? VEIN.weak : 1;
+    const kind = this.s.block.kind;
+    const veinWeak = kind === 'vein' && !charged ? VEIN.weak : 1;
+    const pressure = kind === 'pressure' ? this.pressureMult : 1;
     const fever = this.s.fever > 0 ? FEVER.damage : 1;
-    const r = this.hit('tap', this.baseLuck * this.comboMult, mult * veinWeak * fever);
+    const core = this.onCore(at);
+    if (core) {
+      // the core is knocked to a new spot on the face (the block may also break on this hit)
+      this.s.stats.cores += 1;
+      this.s.block.x = this.rng.range(0.22, 0.78);
+      this.s.block.y = this.rng.range(0.25, 0.75);
+    }
+    const r = this.hit('tap', this.baseLuck * this.comboMult, mult * veinWeak * pressure * fever * (core ? METEOR.core : 1));
+    r.core = core;
     this.s.combo = Math.min(1, this.s.combo + COMBO.perTap);
     this.s.idle = 0;
     if (this.s.fever <= 0) {
@@ -792,8 +892,7 @@ export class DigSim {
       while (this.s.assistantAcc >= 1) {
         this.s.assistantAcc -= 1;
         out.assistantHits += 1;
-        const veinWeak = this.s.block.kind === 'vein' ? VEIN.weak : 1;
-        const r = this.hit('assistant', this.baseLuck, veinWeak);
+        const r = this.hit('assistant', this.baseLuck, this.passiveMult);
         if (r.broke) out.breaks += 1;
         if (r.find) out.finds.push(r.find);
         out.finds.push(...r.extra);
@@ -841,8 +940,7 @@ export class DigSim {
     haul.hits = Math.floor(haul.seconds * rate * OFFLINE.efficiency);
     const haulLuck = this.luckNoBoost; // fixed for the whole haul
     for (let i = 0; i < haul.hits; i++) {
-      const veinWeak = this.s.block.kind === 'vein' ? VEIN.weak : 1;
-      const r = this.hit('offline', haulLuck, veinWeak);
+      const r = this.hit('offline', haulLuck, this.passiveMult);
       if (r.broke) haul.blocks += 1;
       haul.dust += r.dust;
       for (const e of r.events)
@@ -928,8 +1026,14 @@ export class DigSim {
 
   // ---------------------------------------------------------------- internals
 
+  /** Damage multiplier of the assistant's and time-away hits: hard veins ×0.25, pressure ×min. */
+  private get passiveMult(): number {
+    const k = this.s.block.kind;
+    return k === 'vein' ? VEIN.weak : k === 'pressure' ? PRESSURE.min : 1;
+  }
+
   private hit(source: FindSource, luck: number, mult = 1): TapResult {
-    const out: TapResult = { damage: 0, find: null, extra: [], events: [], broke: false, dust: 0 };
+    const out: TapResult = { damage: 0, find: null, extra: [], events: [], broke: false, dust: 0, core: false };
     const b = this.s.block;
     const damage = this.digPower * mult;
     out.damage = damage;
@@ -983,6 +1087,11 @@ export class DigSim {
     out.find = this.roll(source, luck * bossLuck, dust, out.events);
     const rolls = b.kind === 'twin' ? TWIN.rolls : b.kind === 'golden' ? GOLDEN.rolls : b.kind === 'unstable' && b.timer > 0 ? 2 : 1;
     for (let i = 1; i < rolls; i++) out.extra.push(this.roll(source, luck, 0, out.events));
+    if (b.kind === 'echo' && b.echo !== undefined) {
+      // the echoed age: one more roll, from that layer's own table, at your luck capped there
+      this.s.stats.echoes += 1;
+      out.extra.push(this.roll(source, luck, 0, out.events, b.echo));
+    }
     if (LAYERS[layer]?.twist === 'relic' && this.relics < RELIC.max && this.rng.next() < RELIC.chance) {
       const had = this.relics;
       this.s.fragments += 1;
@@ -1018,11 +1127,21 @@ export class DigSim {
     else if (twist === 'unstable' && this.rng.next() < UNSTABLE.chance) kind = 'unstable';
     else if (twist === 'twin' && this.rng.next() < TWIN.chance) kind = 'twin';
     else if (twist === 'cavein' && this.rng.next() < CAVEIN.chance) kind = 'cavein';
+    else if (twist === 'pressure' && this.rng.next() < PRESSURE.chance) kind = 'pressure';
+    else if (twist === 'meteor' && this.rng.next() < METEOR.chance) kind = 'meteor';
+    else if (twist === 'echo' && layer > 0 && this.rng.next() < ECHO.chance) kind = 'echo';
     this.s.block = { kind, timer: -1 };
+    if (kind === 'meteor') {
+      this.s.block.x = this.rng.range(0.22, 0.78);
+      this.s.block.y = this.rng.range(0.25, 0.75);
+    }
+    if (kind === 'echo') this.s.block.echo = Math.min(layer - 1, Math.floor(this.rng.next() * layer));
     if (events) {
       if (kind === 'golden') events.push({ kind: 'golden' });
       if (kind === 'cavein') events.push({ kind: 'cavein' });
       if (kind === 'boss') events.push({ kind: 'boss' });
+      if (kind === 'meteor') events.push({ kind: 'meteor' });
+      if (kind === 'echo') events.push({ kind: 'echo', layer: this.s.block.echo ?? 0 });
     }
   }
 
@@ -1030,8 +1149,7 @@ export class DigSim {
    * One fossil roll. After PITY rolls in a row without a 1-in-100-or-rarer find, the next roll is
    * the lucky streak: guaranteed tier 2+, chosen in the printed proportions among those fossils.
    */
-  private roll(source: FindSource, luck: number, dust = 0, events: SimEvent[] = []): Find {
-    const layer = this.s.layer;
+  private roll(source: FindSource, luck: number, dust = 0, events: SimEvent[] = [], layer = this.s.layer): Find {
     const applied = effectiveLuck(layer, luck);
     const pity = this.s.dry >= PITY;
     const fossil = pity ? rollRare(layer, this.rng) : rollFossil(layer, applied, this.rng);
@@ -1093,7 +1211,7 @@ export class DigSim {
     this.s.expedition.runStart = this.s.stats.playSeconds;
     this.s.counts = {};
     this.s.dust = 0;
-    this.s.levels = { pick: 0, luck: 0, assistant: 0, offline: 0 };
+    this.s.levels = defaultSave().levels;
     this.s.layer = 0;
     this.s.unlocked = 0;
     this.s.broken = LAYERS.map(() => 0);

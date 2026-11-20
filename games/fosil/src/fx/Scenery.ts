@@ -6,7 +6,7 @@ import { PALETTE } from '../textures';
 interface Actor {
   img: Phaser.GameObjects.Image;
   layer: number;
-  kind: 'spore' | 'worm' | 'crystal' | 'shimmer' | 'snow' | 'ember' | 'fern' | 'amber' | 'bubble' | 'plankton' | 'shaft' | 'leviathan' | 'firefly' | 'drip' | 'mote' | 'heat' | 'jelly';
+  kind: 'spore' | 'worm' | 'crystal' | 'shimmer' | 'snow' | 'ember' | 'fern' | 'amber' | 'bubble' | 'plankton' | 'shaft' | 'leviathan' | 'firefly' | 'drip' | 'mote' | 'heat' | 'jelly' | 'lantern' | 'star' | 'meteor' | 'shard';
   x: number;
   y: number;
   vx: number;
@@ -25,6 +25,9 @@ const TINTS: Record<number, Partial<Record<Actor['kind'], number>>> = {
   6: { crystal: 0xffd0e0, drip: 0xe8f4ff, shimmer: 0xffe0f0 },
   7: { crystal: 0xb07aff, shimmer: 0xd8b8ff, mote: 0xe0c8ff },
   8: { heat: 0x5a3a30 },
+  10: { snow: 0x9ab0d0, plankton: 0x6ad0ff },
+  11: { mote: 0xffc080 },
+  12: { mote: 0xe0b0ff, shimmer: 0xd8a0ff },
 };
 
 /**
@@ -84,6 +87,18 @@ export class Scenery {
     add(9, 'shaft', 'ray', 3);
     add(9, 'jelly', 'bubble', 7);
     add(9, 'plankton', 'oyun-dot', 20);
+    // Abyssal Trench: marine snow sinking, lantern fish drifting in the dark
+    add(10, 'snow', 'oyun-dot', 22);
+    add(10, 'lantern', 'glow', 6);
+    add(10, 'plankton', 'oyun-dot', 10);
+    // Star Crater: twinkling stars over the rim, shooting stars, glowing dust
+    add(11, 'star', 'spark', 16);
+    add(11, 'meteor', 'ray', 2);
+    add(11, 'mote', 'oyun-dot', 14);
+    // Time Rift: shards of older strata drifting in the void, a slow shimmer
+    add(12, 'shard', 'chip', 14);
+    add(12, 'mote', 'oyun-dot', 16);
+    add(12, 'shimmer', 'sheen', 1);
   }
 
   setLayer(layer: number): void {
@@ -202,6 +217,35 @@ export class Scenery {
         a.vy = -rnd(20, 40);
         img.setScale(rnd(1, 1.8)).setAlpha(0.18);
         break;
+      case 'lantern':
+        a.x = this.sideX();
+        a.y = rnd(s.top + 60, s.bottom - 60);
+        a.vx = rnd(-18, 18) || 8;
+        a.vy = rnd(-4, 4);
+        img.setTint(Math.random() < 0.5 ? 0x60ffe0 : 0x7ab0ff).setScale(rnd(0.25, 0.45));
+        break;
+      case 'star':
+        a.x = rnd(s.left + 10, s.right - 10);
+        a.y = rnd(s.top + 4, s.top + h * 0.28);
+        img.setTint(Math.random() < 0.3 ? 0xffd0a0 : 0xe8f0ff).setScale(rnd(0.2, 0.45));
+        break;
+      case 'meteor':
+        a.x = rnd(s.left + 120, s.right + 60);
+        a.y = s.top - 40;
+        a.vx = -rnd(380, 520);
+        a.vy = rnd(220, 300);
+        a.phase = initial ? rnd(0, 4) : rnd(2, 7); // waits this long before streaking
+        img.setOrigin(0.5, 0).setTint(0xffe0b0).setScale(0.5, 0.5).setRotation(Math.atan2(-a.vx, a.vy) + Math.PI).setAlpha(0);
+        break;
+      case 'shard': {
+        a.x = rnd(s.left + 20, s.right - 20);
+        a.y = initial ? rnd(s.top, s.bottom) : s.bottom + 30;
+        a.vy = -rnd(8, 20);
+        a.vx = rnd(-6, 6);
+        const older = at(LAYERS, Math.floor(rnd(0, LAYERS.length - 1)));
+        img.setTint(at(older.bands, Math.floor(rnd(0, older.bands.length)))).setScale(rnd(1.2, 2.6)).setAlpha(rnd(0.35, 0.7));
+        break;
+      }
       case 'jelly':
         a.x = this.sideX();
         a.y = initial ? rnd(s.top, s.bottom) : s.bottom + 30;
@@ -285,6 +329,34 @@ export class Scenery {
           img.setPosition(a.x, a.y);
           break;
         }
+        case 'lantern': {
+          a.x += (a.vx + Math.sin(this.clock * 0.7 + a.phase) * 10) * d;
+          a.y += (a.vy + Math.cos(this.clock * 0.5 + a.phase) * 8) * d;
+          img.setAlpha(0.25 + 0.6 * Math.max(0, Math.sin(this.clock * 1.4 + a.phase)));
+          if (a.x < s.left || a.x > s.right || a.y < s.top || a.y > s.bottom) this.place(a, false);
+          img.setPosition(a.x, a.y);
+          break;
+        }
+        case 'star': {
+          const tw = Math.max(0, Math.sin(this.clock * 2.1 + a.phase * 3));
+          img.setAlpha(0.25 + tw * 0.75).setAngle(this.clock * 20 + a.phase * 40);
+          break;
+        }
+        case 'meteor':
+          a.phase -= d;
+          if (a.phase > 0) break;
+          a.x += a.vx * d;
+          a.y += a.vy * d;
+          img.setAlpha(Math.min(0.9, -a.phase * 4)).setPosition(a.x, a.y);
+          if (a.y > s.top + (s.bottom - s.top) * 0.32 || a.x < s.left - 60) this.place(a, false);
+          break;
+        case 'shard':
+          a.y += a.vy * d;
+          a.x += (a.vx + Math.sin(this.clock * 0.8 + a.phase) * 6) * d;
+          img.rotation += 0.3 * d * (a.k % 2 ? 1 : -1);
+          if (a.y < s.top - 30) this.place(a, false);
+          img.setPosition(a.x, a.y);
+          break;
         case 'plankton':
           a.x += (a.vx + Math.sin(this.clock + a.phase) * 6) * d;
           a.y += a.vy * d;
@@ -303,8 +375,8 @@ export class Scenery {
     const g = this.scene.add.graphics();
     g.fillStyle(L.sky, 1).fillRect(0, 0, width, height);
     // vertical light-to-dark gradient over the site
-    const top = layer === 3 || layer === 9 ? shade(L.sky, 0.18) : layer === 5 ? shade(L.sky, 0.22) : shade(L.sky, 0.08);
-    const bottom = layer === 2 ? shade(0x5a2a10, -0.2) : layer === 8 ? 0x6a1a08 : shade(L.sky, -0.25);
+    const top = layer === 3 || layer === 9 ? shade(L.sky, 0.18) : layer === 5 ? shade(L.sky, 0.22) : layer === 10 ? 0x0c1a32 : layer === 12 ? 0x1a0a30 : shade(L.sky, 0.08);
+    const bottom = layer === 2 ? shade(0x5a2a10, -0.2) : layer === 8 ? 0x6a1a08 : layer === 10 ? 0x000000 : layer === 11 ? 0x2a1a20 : layer === 12 ? 0x2a0a3a : shade(L.sky, -0.25);
     for (let i = 0; i < 24; i++) {
       const t = i / 23;
       const c = Phaser.Display.Color.Interpolate.ColorWithColor(Phaser.Display.Color.ValueToColor(top), Phaser.Display.Color.ValueToColor(bottom), 23, i);
@@ -463,6 +535,8 @@ export class Scenery {
       }
       for (let i = 0; i < 6; i++) g.fillStyle(0xff4a10, 0.06).fillEllipse(width / 2, s.bottom + 30, width * (0.5 + i * 0.2), 180 + i * 50);
       for (let x = 0; x < width; x += rnd(40, 80)) g.fillStyle(0x1a0c08, 0.85).fillTriangle(x, s.bottom + 20, x + 60, s.bottom + 20, x + 30, s.bottom - rnd(20, 60));
+    } else if (layer >= 10) {
+      bakeDepthLayer(this.site, g, layer, width, () => this.sideX());
     } else {
       // First Seas: a bright shallow sea, quilted fronds and discs printed in the mud
       band(this, g, s.bottom - 50, 0x9ac8b0, 0.3, width, layer);
@@ -478,6 +552,79 @@ export class Scenery {
         g.lineStyle(2, 0xbfe8e0, 0.4).strokeCircle(x, y, rnd(10, 22));
         g.lineStyle(1, 0xbfe8e0, 0.3).strokeCircle(x, y, rnd(4, 8));
       }
+    }
+  }
+}
+
+/** Backdrops of the three depth-round layers (trench, crater, rift). */
+function bakeDepthLayer(site: { top: number; bottom: number; left: number; right: number }, g: Phaser.GameObjects.Graphics, layer: number, width: number, sideX: () => number): void {
+  const s = site;
+  const h = s.bottom - s.top;
+  if (layer === 10) {
+    // Abyssal Trench: sheer cliffs falling into black, glowing spots on the rock, a pale vent haze
+    for (const side of [-1, 1]) {
+      const pts: Phaser.Math.Vector2[] = [];
+      const edge = side < 0 ? 0 : width;
+      pts.push(new Phaser.Math.Vector2(edge, s.top - 20));
+      for (let k = 0; k <= 12; k++) {
+        const y = s.top - 20 + ((h + 60) * k) / 12;
+        const inset = 70 + Math.sin(k * 1.7) * 26 + k * 4;
+        pts.push(new Phaser.Math.Vector2(side < 0 ? inset : width - inset, y));
+      }
+      pts.push(new Phaser.Math.Vector2(edge, s.bottom + 40));
+      g.fillStyle(0x050a16, 0.92).fillPoints(pts, true);
+      for (let k = 0; k < 9; k++) {
+        const y = s.top + rnd(0, h);
+        const x = side < 0 ? rnd(10, 70) : width - rnd(10, 70);
+        g.lineStyle(2, 0x1e3050, 0.8).lineBetween(x, y, x + side * -24, y + rnd(20, 50));
+      }
+    }
+    for (let i = 0; i < 26; i++) {
+      const x = sideX();
+      const y = rnd(s.top + 20, s.bottom - 20);
+      g.fillStyle(i % 3 ? 0x3ad0ff : 0x60ffd0, 0.1).fillCircle(x, y, rnd(8, 14));
+      g.fillStyle(i % 3 ? 0x7ae0ff : 0xa0ffe8, 0.7).fillCircle(x, y, rnd(1.5, 3));
+    }
+    for (let i = 0; i < 5; i++) g.fillStyle(0x6a90c0, 0.04).fillEllipse(width / 2, s.bottom + 10, width * (0.4 + i * 0.15), 120 + i * 40);
+  } else if (layer === 11) {
+    // Star Crater: a night sky above the rim, the crater bowl, star-iron shards glowing in its walls
+    g.fillStyle(0x05040c, 1).fillRect(0, s.top - 20, width, h * 0.32);
+    for (let i = 0; i < 70; i++) g.fillStyle(0xffffff, rnd(0.2, 0.8)).fillCircle(rnd(0, width), s.top - 10 + rnd(0, h * 0.3), rnd(0.8, 2));
+    g.fillStyle(0x6a5aa0, 0.12).fillEllipse(width * 0.3, s.top + h * 0.12, width * 0.8, 90);
+    const rimY = s.top + h * 0.3;
+    const rim: Phaser.Math.Vector2[] = [new Phaser.Math.Vector2(0, rimY - 10)];
+    for (let k = 0; k <= 16; k++) rim.push(new Phaser.Math.Vector2((width * k) / 16, rimY + Math.sin(k * 0.9) * 12 - Math.abs(k - 8) * 3));
+    rim.push(new Phaser.Math.Vector2(width, s.bottom + 40), new Phaser.Math.Vector2(0, s.bottom + 40));
+    g.fillStyle(0x2c2434, 1).fillPoints(rim, true);
+    for (let i = 0; i < 5; i++) g.lineStyle(3, 0x463e52, 0.6).strokeEllipse(width / 2, s.bottom + 60, width * (0.5 + i * 0.25), 160 + i * 70);
+    for (let i = 0; i < 14; i++) {
+      const x = sideX();
+      const y = rnd(rimY + 30, s.bottom - 30);
+      const r = rnd(6, 14);
+      g.fillStyle(0xffa040, 0.15).fillCircle(x, y, r * 2.2);
+      g.fillStyle(i % 2 ? 0xffc070 : 0x9ad0ff, 0.85).fillTriangle(x - r, y + r * 0.6, x + r, y + r * 0.4, x + rnd(-4, 4), y - r * 1.4);
+    }
+  } else {
+    // Time Rift: a violet void, rings of a slow clock, slabs of every older stratum floating
+    const cx = width / 2;
+    const cy = s.top + h * 0.45;
+    for (let i = 0; i < 7; i++) g.fillStyle(0x8a40ff, 0.05).fillCircle(cx, cy, 80 + i * 60);
+    for (let i = 0; i < 4; i++) {
+      const r = 120 + i * 70;
+      g.lineStyle(3, i % 2 ? 0xffd080 : 0xc090ff, 0.35).strokeCircle(cx, cy, r);
+      for (let k = 0; k < 12; k++) {
+        const a = (k / 12) * Math.PI * 2 + i * 0.3;
+        g.lineStyle(2, 0xffe0b0, 0.3).lineBetween(cx + Math.cos(a) * (r - 8), cy + Math.sin(a) * (r - 8), cx + Math.cos(a) * (r + 8), cy + Math.sin(a) * (r + 8));
+      }
+    }
+    for (let i = 0; i < 12; i++) {
+      const L = at(LAYERS, i % 10);
+      const x = sideX();
+      const y = rnd(s.top + 30, s.bottom - 30);
+      const w = rnd(40, 80);
+      const hh = rnd(16, 30);
+      for (let b = 0; b < 3; b++) g.fillStyle(at(L.bands, b), 0.75).fillRect(x - w / 2, y - hh / 2 + (b * hh) / 3, w, hh / 3 + 1);
+      g.lineStyle(2, 0xe0c0ff, 0.5).strokeRect(x - w / 2, y - hh / 2, w, hh);
     }
   }
 }

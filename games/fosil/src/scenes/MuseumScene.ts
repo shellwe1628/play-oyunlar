@@ -14,6 +14,12 @@ import { big, fitText, fossilName, hitZone, mult, oddsText, rarityCard } from '.
 
 const CARD_W = 322;
 const TABS_PER_ROW = 5;
+/** Thirteen layers: three rows of tabs (5 + 5 + 3). */
+const TAB_ROWS = Math.ceil(LAYERS.length / TABS_PER_ROW);
+const TAB_STEP = 64;
+const TAB_H = 58;
+/** Below the tabs: set bar, bonus line, then the shelves. */
+const SET_Y = 150 + (TAB_ROWS - 1) * TAB_STEP + 70;
 /** Presentation-only memory (not the game save): which set celebrations were already shown. */
 const FX_KEY = 'oyun:fosil:fx-sets';
 
@@ -55,24 +61,28 @@ export class MuseumScene extends OyunScene {
     for (let x = 0; x < L.width; x += 48) g.fillStyle(PALETTE.creamDark, 0.5).fillRect(x, L.top + 112, 24, 6);
 
     label(this, L.cx, L.top + 58, this.t('museum.title'), { size: 58, color: PALETTE.ink });
-    // ten layers: two rows of five tabs
+    // thirteen layers: rows of five tabs
     const tabW = (L.right - L.left - 40) / TABS_PER_ROW;
     LAYERS.forEach((layer, i) => {
       const x = L.left + 20 + tabW * ((i % TABS_PER_ROW) + 0.5);
-      const y = L.top + 156 + Math.floor(i / TABS_PER_ROW) * 76;
+      const y = L.top + 150 + Math.floor(i / TABS_PER_ROW) * TAB_STEP;
       const bg = this.add.graphics({ x, y });
       // two-word names go on two lines (never broken inside a word), then shrink to fit
       const name = this.t(`layer.${layer.id}`).replace(' ', '\n');
       const text = label(this, x, y, name, { size: 24, color: PALETTE.ink });
       text.setLineSpacing(-6);
-      text.setScale(Math.min(1, 58 / text.height, (tabW - 18) / text.width));
+      text.setScale(Math.min(1, (TAB_H - 6) / text.height, (tabW - 18) / text.width));
       this.tabs.push({ bg, text });
-      hitZone(this, x, y, tabW - 6, 72, () => this.selectTab(i));
+      // tabs drop in one after another
+      bg.setAlpha(0);
+      text.setAlpha(0);
+      this.tweens.add({ targets: [bg, text], alpha: 1, delay: 30 * i, duration: 180 });
+      hitZone(this, x, y, tabW - 6, TAB_STEP, () => this.selectTab(i));
     });
 
-    this.setBar = progressBar(this, L.cx - 90, L.top + 310, 440, 34, { color: PALETTE.ochre, background: PALETTE.inkSoft });
-    this.setText = label(this, L.right - 110, L.top + 310, '', { size: 34, color: PALETTE.ink });
-    this.bonusText = label(this, L.cx, L.top + 354, '', { size: 28, color: PALETTE.inkSoft, wrap: L.width - 80 });
+    this.setBar = progressBar(this, L.cx - 90, L.top + SET_Y, 440, 34, { color: PALETTE.ochre, background: PALETTE.inkSoft });
+    this.setText = label(this, L.right - 110, L.top + SET_Y, '', { size: 34, color: PALETTE.ink });
+    this.bonusText = label(this, L.cx, L.top + SET_Y + 42, '', { size: 28, color: PALETTE.inkSoft, wrap: L.width - 80 });
 
     this.grid = this.add.container(0, 0);
     this.backButton = button(this, L.cx, L.bottom - 70, this.t('museum.back'), () => this.goTo(SCENES.dig), { width: 380, height: 104, fontSize: 44 });
@@ -162,9 +172,10 @@ export class MuseumScene extends OyunScene {
       const locked = this.lockedTab(i);
       const done = this.sim.setComplete(i);
       t.bg.clear();
-      t.bg.fillStyle(PALETTE.shadow, 0.18).fillRoundedRect(-tabW / 2 + 3, -30, tabW - 6, 68, 18);
-      t.bg.fillStyle(on ? PALETTE.ochre : locked ? PALETTE.creamDark : 0xffffff, 1).fillRoundedRect(-tabW / 2 + 3, -34, tabW - 6, 68, 18);
-      if (done) t.bg.fillStyle(0xffd23f, 1).fillCircle(tabW / 2 - 12, -26, 9);
+      t.bg.fillStyle(PALETTE.shadow, 0.18).fillRoundedRect(-tabW / 2 + 3, -TAB_H / 2 + 4, tabW - 6, TAB_H, 16);
+      t.bg.fillStyle(on ? PALETTE.ochre : locked ? PALETTE.creamDark : 0xffffff, 1).fillRoundedRect(-tabW / 2 + 3, -TAB_H / 2, tabW - 6, TAB_H, 16);
+      if (done) t.bg.fillStyle(0xffd23f, 1).fillCircle(tabW / 2 - 12, -TAB_H / 2 + 8, 8);
+      if (on) this.juice.pop(t.text, 1.15, 200);
       t.text.setColor(cssColor(locked ? PALETTE.inkSoft : PALETTE.ink));
     });
   }
@@ -186,7 +197,7 @@ export class MuseumScene extends OyunScene {
     this.bonusText.setColor(cssColor(done ? 0x2f8a3c : PALETTE.inkSoft));
 
     const locked = this.lockedTab(this.tab);
-    const top = L.top + 392;
+    const top = L.top + SET_Y + 82;
     const avail = L.bottom - 128 - top;
     const step = Math.min(150, avail / 6);
     const cardH = step - 12;
@@ -216,7 +227,13 @@ export class MuseumScene extends OyunScene {
         this.tweens.add({ targets: beam, alpha: 0.18, duration: 1600, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' });
         beam.once('destroy', () => this.tweens.killTweensOf(beam));
       }
-      this.grid.add(this.card(f, x, y, cardH, locked));
+      const card = this.card(f, x, y, cardH, locked);
+      this.grid.add(card);
+      if (force) {
+        // cases slide up onto their shelves, left then right, row by row
+        card.setAlpha(0).setY(y + 26);
+        this.tweens.add({ targets: card, alpha: 1, y, delay: 25 * i, duration: 220, ease: 'Cubic.easeOut' });
+      }
       if (i === spotAt) {
         const tag = label(this, x + CARD_W / 2 - 12, y - cardH / 2 - 2, this.t('museum.rarest'), { size: 22, color: PALETTE.ink }).setOrigin(1, 0.5);
         tag.setBackgroundColor('#ffd23f').setPadding(8, 2, 8, 2);

@@ -140,12 +140,11 @@ function buildWeb(app, work) {
       const url = m[0].replace(/[),;'"]+$/, '');
       if (!ALLOWED_URLS.has(url)) problems.push(`${relative(www, f)}: external URL ${url}`);
     }
-    // App Store Review 2.3.10: no other platform's name in the app
-    const text = readFileSync(f, 'utf8');
-    for (const word of ['Google Play', 'Play Store', 'Android']) {
-      const hits = text.split(word).length - 1;
-      if (hits && !(word === 'Google Play' && /Google Play Games/.test(text))) problems.push(`${relative(www, f)}: mentions "${word}"`);
-    }
+    // App Store Review 2.3.10: no other store's name in text the player can see. ("Android"
+    // appears in engines' user-agent checks; "Google Play Games" only in the Android branch of
+    // the online panel, packages/core/src/online/panel.ts.)
+    const text = readFileSync(f, 'utf8').replaceAll('Google Play Games', '');
+    for (const word of ['Google Play', 'Play Store', 'App Store']) if (text.includes(word)) problems.push(`${relative(www, f)}: mentions "${word}"`);
   }
   if (problems.length) fail(`web bundle check:\n  ${problems.join('\n  ')}`);
   console.log('ok: relative paths, no external URLs');

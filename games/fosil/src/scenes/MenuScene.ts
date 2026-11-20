@@ -1,4 +1,4 @@
-import { Button, button, label, MenuScene as MenuShell, muteButton, progressBar } from '@oyun/core';
+import { type Button, button, label, MenuScene as MenuShell, muteButton, progressBar } from '@oyun/core';
 import type { PauseReason } from '@oyun/core/pure';
 import Phaser from 'phaser';
 import { badgeKey } from '../art/badges';
@@ -418,9 +418,9 @@ export class MenuScene extends MenuShell {
   /** Replace a core button's face with our own art (keeps its press squash, sound and hotkey). */
   private skin(btn: Button, art: Phaser.GameObjects.Graphics): Phaser.GameObjects.Text | undefined {
     const face = btn.list.find((o) => o instanceof Phaser.GameObjects.Graphics);
-    if (face) (face as Phaser.GameObjects.Graphics).setVisible(false);
+    if (face) face.setVisible(false);
     btn.addAt(art, 0);
-    return btn.list.find((o) => o instanceof Phaser.GameObjects.Text) as Phaser.GameObjects.Text | undefined;
+    return btn.list.find((o): o is Phaser.GameObjects.Text => o instanceof Phaser.GameObjects.Text);
   }
 
   private drawPlay(cx: number, cy: number, h: number, motion: boolean): void {

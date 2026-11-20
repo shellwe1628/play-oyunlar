@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { CARD_IDS, CARDS, drawOffer, statsFor, synergyFor, type CardId } from '../../src/sim/cards';
 import { HELMET_HEAD_MUL, resolveHit } from '../../src/sim/combat';
 import { applyRunResult, bankDaily, bankProgress, bankStart, buyUpgrade, COSMETICS, dailyKey, freshSave, newBank, NO_META, runOutcome, unlockedCosmetics, UPGRADE_IDS, upgradeCost } from '../../src/sim/meta';
-import { CHAPTER_DEFS, ENDLESS_WAVE, levelOf, stageDef, stageOf } from '../../src/sim/chapters';
+import { CHAPTER_DEFS, ENDLESS_WAVE, levelOf, stageDef, stageEnemies, stageOf } from '../../src/sim/chapters';
 import { bossHp, enemyAccuracy, enemyDamageMul, enemyHp, enemyTiming, graceStep, helmetChance, waveGrace } from '../../src/sim/waves';
 
 describe('damage and effect table', () => {
@@ -249,8 +249,23 @@ describe('chapters and stages', () => {
     }
   });
   it('difficulty level: a gentle first chapter, then steeper chapters and endless', () => {
-    expect([1, 7, 8, 14, 15, 21, 22, 28, 29, 35, 36, 42, 43, 44].map(levelOf)).toEqual([1, 2.2, 3.5, 9.5, 10.5, 16.5, 17, 23, 23.5, 26.5, 27, 31.8, 32.5, 33.5]);
+    expect([1, 7, 8, 14, 15, 21, 22, 28, 29, 35, 36, 42, 43, 44].map((w) => levelOf(w))).toEqual([1, 2.2, 3.5, 9.5, 10.5, 16.5, 17, 23, 23.5, 26.5, 27, 31.8, 32.5, 33.5]);
     for (let w = 2; w < 80; w++) expect(levelOf(w)).toBeGreaterThan(levelOf(w - 1));
+  });
+  it('hard opens tougher: the meadow starts a step up and climbs faster, later stages bring an extra archer', () => {
+    expect(levelOf(1, 'hard')).toBeCloseTo(1.6);
+    expect(levelOf(7, 'hard')).toBeCloseTo(3.46);
+    for (let w = 2; w < 80; w++) expect(levelOf(w, 'hard')).toBeGreaterThan(levelOf(w - 1, 'hard'));
+    for (let w = 8; w < 80; w++) expect(levelOf(w, 'hard')).toBe(levelOf(w));
+    const rng = createRng(1);
+    const count = (w: number, d: 'classic' | 'hard') => stageEnemies(w, stageDef(w, rng), 4, d).length;
+    // warm-up stages, elite, boss and full stages (wave 13: four enemies on four ledges) are unchanged
+    for (const w of [1, 2, 3, 4, 7, 11, 13, 14]) expect(count(w, 'hard')).toBe(count(w, 'classic'));
+    // after the meadow's elite, and the snow's regular stages: one more archer
+    for (const w of [5, 6, 8, 9, 10, 12]) expect(count(w, 'hard')).toBe(count(w, 'classic') + 1);
+    // from chapter 3 on, nothing extra; never more enemies than ledges
+    for (let w = 15; w < 60; w++) expect(count(w, 'hard')).toBe(count(w, 'classic'));
+    expect(stageEnemies(10, stageDef(10, rng), 3, 'hard').length).toBe(3);
   });
   it('enemy accuracy tightens and draws quicken as waves go on, with floors', () => {
     let prev = enemyAccuracy(1);

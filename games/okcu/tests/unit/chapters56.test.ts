@@ -97,7 +97,7 @@ describe('chapters 5 and 6', () => {
   });
 
   it('the cinder king erupts: lava rocks fall in a row over the player, one right on top', () => {
-    const w = createWorld({ seed: 2, difficulty: 'hard' });
+    const w = createWorld({ seed: 5, difficulty: 'hard' });
     jumpToWave(w, 35);
     hold(w);
     const boss = w.enemies.find((e) => e.type === 'boss')!;

@@ -12,6 +12,7 @@
  */
 import type { Rng } from '@oyun/core/pure';
 import type { EnemyType } from './combat';
+import type { Difficulty } from './waves';
 
 export const STAGES = 7;
 export const CHAPTERS = 6;
@@ -229,6 +230,16 @@ export function chapterStart(chapter: number): number {
  */
 export const LEVEL_BASE: readonly number[] = [1, 3.5, 10.5, 17, 23.5, 27];
 export const LEVEL_STEP: readonly number[] = [0.2, 1, 1, 1, 0.5, 0.8];
+/**
+ * hard (the 3D build): the meadow opens a step up and climbs three times as fast as classic's
+ * (1.6 … 3.46, just under the snow's 3.5), so the first stages already shoot back with intent.
+ */
+export const HARD_MEADOW_BASE = 1.6;
+export const HARD_MEADOW_STEP = 0.31;
+/** hard: the regular stages of the first two chapters bring one more archer (see `stageEnemies`) */
+export const HARD_EXTRA_UNTIL_CHAPTER = 2;
+/** hard: in the meadow the extra archer joins from this stage (after the elite; the opening stages stay a warm-up) */
+export const HARD_EXTRA_FROM_STAGE = 5;
 /** endless: the level after the last chapter, +1 per wave */
 export const ENDLESS_LEVEL = 32.5;
 
@@ -236,8 +247,9 @@ export const ENDLESS_LEVEL = 32.5;
  * Difficulty level of a wave: drives enemy health, damage, aim and timing (the same curves
  * the slice used per wave). The first chapter is a gentle ramp; later chapters climb fast.
  */
-export function levelOf(wave: number): number {
+export function levelOf(wave: number, d: Difficulty = 'classic'): number {
   const p = stageOf(wave);
+  if (d === 'hard' && !p.endless && p.chapter === 0) return HARD_MEADOW_BASE + HARD_MEADOW_STEP * (p.stage - 1);
   if (!p.endless) return LEVEL_BASE[p.chapter]! + LEVEL_STEP[p.chapter]! * (p.stage - 1);
   return ENDLESS_LEVEL + (wave - ENDLESS_WAVE);
 }
@@ -406,4 +418,15 @@ export function growLayout(base: readonly LedgeDef[], span: number): LedgeDef[] 
     }
   }
   return out;
+}
+
+/**
+ * The enemies a stage spawns. hard adds an archer to the regular stages (not elite or boss
+ * stages) of the first HARD_EXTRA_UNTIL_CHAPTER chapters while a ledge is free, so the opening
+ * is a fight from the first wave instead of a lone target.
+ */
+export function stageEnemies(wave: number, def: StageDef, ledges: number, d: Difficulty = 'classic'): EnemyType[] {
+  const p = stageOf(wave);
+  const extra = d === 'hard' && !p.endless && (p.chapter > 0 || p.stage >= HARD_EXTRA_FROM_STAGE) && p.chapter < HARD_EXTRA_UNTIL_CHAPTER && !def.elite && !def.boss && def.enemies.length < ledges;
+  return extra ? [...def.enemies, 'archer'] : [...def.enemies];
 }

@@ -11,7 +11,7 @@ import { createRng, type Rng } from '@oyun/core/pure';
 import { flyArrow, hitParts, sweepCapsule } from './arrow';
 import { addVelocity, createBody, stepBody, translateBody, type Body, type Ledge } from './body';
 import { draftPick, drawOffer, statsFor, type CardId, type PlayerStats } from './cards';
-import { bonusAfter, CHAPTERS, chapterStart, ENDLESS_WAVE, fieldSpan, fieldTop, growLayout, levelOf, objectiveFor, STAGES, stageDef, stageOf, type BonusKind, type BossKind, type LedgeDef, type ObjectiveKind } from './chapters';
+import { bonusAfter, CHAPTERS, chapterStart, ENDLESS_WAVE, fieldSpan, fieldTop, growLayout, levelOf, objectiveFor, STAGES, stageDef, stageEnemies, stageOf, type BonusKind, type BossKind, type LedgeDef, type ObjectiveKind } from './chapters';
 import { ENEMY_DAMAGE, resolveHit, type EnemyType, type HitPart } from './combat';
 import { clamp, solveLaunchAngle, sweepAabb } from './geom';
 import { NO_META, type MetaLevels, type RunBank } from './meta';
@@ -751,7 +751,7 @@ function spawnWave(w: World, wave: number, instant: boolean): void {
   w.chapter = pos.chapter;
   w.stage = pos.stage;
   w.theme = pos.theme;
-  w.level = levelOf(wave);
+  w.level = levelOf(wave, w.difficulty);
   const def = stageDef(wave, w.waveRng);
   w.span = fieldSpan(wave);
   const defs: LedgeDef[] = growLayout(def.ledges, w.span);
@@ -778,7 +778,7 @@ function spawnWave(w: World, wave: number, instant: boolean): void {
   w.wind = windBase > 0 ? windBase * (w.waveRng.chance(0.5) ? 1 : -1) : 0;
   w.gustEvery = w.wind !== 0 ? def.gust ?? 0 : 0;
   w.gustT = w.gustEvery;
-  def.enemies.forEach((type, i) => {
+  stageEnemies(wave, def, w.layout.length, w.difficulty).forEach((type, i) => {
     const L = w.ledges[i + 1]!;
     const e = makeArcher(w, type, L.x + L.w / 2, L.y, -1, i + 1);
     e.helmet = type === 'elite' || (type !== 'boss' && w.waveRng.chance(helmetChance(w.level)));
@@ -816,7 +816,7 @@ function spawnWave(w: World, wave: number, instant: boolean): void {
   }
   w.shieldLeft = w.stats.shieldCharges;
   const kind = objectiveFor(wave, w.waveRng);
-  w.objective = kind ? { kind, limit: 10 + 5 * def.enemies.length, hit: false, heads: 0, multi: false } : null;
+  w.objective = kind ? { kind, limit: 10 + 5 * w.enemies.length, hit: false, heads: 0, multi: false } : null;
   if (!pos.endless) w.run.chapterStage[pos.chapter] = Math.max(w.run.chapterStage[pos.chapter]!, pos.stage);
   w.waveT0 = w.time;
   // the title's wave is announced by startRun when the first arrow flies

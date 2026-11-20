@@ -3,7 +3,7 @@
  * GameScene), builds the view modules and feeds them one Frame per animation frame.
  *
  * URL switches (for development and the screenshot tool):
- *   ?seed=N      fixed run seed            ?bow=N    bow level 0 … 25 (meta.bow)
+ *   ?seed=N      fixed run seed            ?bow=N    old bow +0 … 25 (meta.bow, weapon level from it)
  *   ?wave=N      jump to wave N            ?chapter=N start chapter 0 … 6 (6 = endless)
  *   ?auto=1      the aim bot plays         ?off=a,b  skip modules (stage is never skipped):
  *                                                     arena, archers, arrows, fx, bowglow, ui
@@ -12,7 +12,7 @@
  *   ?difficulty=classic  the 2D game's difficulty (the 3D build plays 'hard')
  *
  * Without switches every run is set up from the save (ui/save.ts) the way the 2D game does it:
- * `metaOf(save)` (shop upgrades + forged bow), the chapter select, the daily run. ?bow, ?armor,
+ * `metaOf3d(save)` (shop upgrades + the selected weapon at its level), the chapter select, the daily run. ?bow, ?armor,
  * ?chapter and ?wave override the save for testing, and such a test run never writes to it.
  *
  * The platform (rewarded ads, haptics) is chosen like core's createGame does it for the Phaser
@@ -35,7 +35,7 @@ import {
 import { CAREFUL, planShot } from '@sim/aimbot';
 import { BOW_MAX } from '@sim/bow';
 import { levelForBow } from '@sim/weapons';
-import { metaOf, newBank, NO_META, UPGRADES } from '@sim/meta';
+import { metaOf3d, newBank, NO_META, UPGRADES } from '@sim/meta';
 import { dailyChallenge } from '@sim/progress';
 import type { Difficulty } from '@sim/waves';
 import {
@@ -127,7 +127,7 @@ function newWorld(seed: number): World {
   const d = save.data;
   const daily = mode.daily;
   const key = todayKey();
-  const meta = daily ? { ...NO_META } : metaOf(d);
+  const meta = daily ? { ...NO_META } : metaOf3d(d);
   if (params.has('bow')) {
     meta.bow = Math.max(0, Math.min(BOW_MAX, Math.round(num('bow', 0))));
     meta.wlevel = levelForBow(meta.bow); // hard reads the weapon level, not the old bow

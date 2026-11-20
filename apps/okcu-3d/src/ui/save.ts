@@ -5,6 +5,7 @@
  */
 import { createSaveStore, type SaveStore, type StorageAdapter } from '@oyun/core/pure';
 import { repairSave, saveOptions } from '@okcu/save';
+import { migrateArsenal } from '@sim/arsenal';
 import { dailyKey, type SaveData } from '@sim/meta';
 
 export const GAME_ID = 'okcu-3d';
@@ -15,6 +16,8 @@ export function openSave(storage: StorageAdapter): SaveStore<SaveData> {
   const store = createSaveStore(saveOptions(storage, GAME_ID));
   // additive fields (same version) are filled in memory and written with the next update
   Object.assign(store.data, repairSave(store.data));
+  // the one-off move from the forged bow to the arsenal (a no-op once done, and for new saves)
+  if (!store.data.arsenal.migrated) store.update((d) => migrateArsenal(d));
   const old = Number(storage.getItem(OLD_BEST_KEY));
   if (Number.isFinite(old) && old > store.data.best) {
     store.update((d) => {

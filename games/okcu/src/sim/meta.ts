@@ -1,4 +1,5 @@
 /** Between-run progress: permanent upgrades, the bow, coins, cosmetics (pure). Stored by src/save.ts. */
+import { freshArsenal, type Arsenal } from './arsenal';
 import { freshBow, type BowState } from './bow';
 import { CHAPTERS } from './chapters';
 import type { WeaponId } from './weapons';
@@ -131,6 +132,8 @@ export interface SaveData {
   feats: string[];
   /** rank index last celebrated (a higher rank than this plays the rank-up ceremony) */
   rank: number;
+  /** the 3D build's weapons, chests and daily offers (src/sim/arsenal.ts) */
+  arsenal: Arsenal;
 }
 
 export function freshSave(): SaveData {
@@ -150,12 +153,19 @@ export function freshSave(): SaveData {
     records: freshRecords(),
     feats: [],
     rank: 0,
+    arsenal: freshArsenal(),
   };
 }
 
 /** The levels a normal run is created with (the daily ignores all of them). */
 export function metaOf(save: SaveData): MetaLevels {
   return { ...save.upgrades, bow: save.bow.level, weapon: 'bow', wlevel: 1 };
+}
+
+/** The 3D build's run levels: `metaOf` plus the selected weapon at its level. */
+export function metaOf3d(save: SaveData): MetaLevels {
+  const id = save.arsenal.selected;
+  return { ...metaOf(save), weapon: id, wlevel: save.arsenal.weapons[id].level };
 }
 
 export function buyUpgrade(save: SaveData, id: UpgradeId): boolean {

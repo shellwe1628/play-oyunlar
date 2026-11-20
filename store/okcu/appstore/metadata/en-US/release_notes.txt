@@ -1,0 +1,1 @@
+First release. Optional Game Center leaderboards for players aged 13 and over. Rewarded buttons give their reward straight away: no ads are shown.

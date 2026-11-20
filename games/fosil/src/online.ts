@@ -22,5 +22,5 @@ export function gameOnline(ctx: OyunContext): Online {
 }
 
 export function openOnline(ctx: OyunContext): void {
-  openOnlinePanel(gameOnline(ctx), { lang: ctx.lang, theme: ctx.theme });
+  openOnlinePanel(gameOnline(ctx), { lang: ctx.lang, theme: ctx.theme, privacyUrl: 'https://oyunlar.carsihani.me/gizlilik/fosil/' });
 }

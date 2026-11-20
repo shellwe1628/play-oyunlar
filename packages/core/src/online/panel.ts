@@ -35,6 +35,7 @@ export const ONLINE_STRINGS = defineStrings({
     noRank: 'not ranked yet',
     open: 'Open board',
     loading: 'Loading…',
+    privacy: 'Privacy policy',
   },
   tr: {
     title: 'Online sıralama',
@@ -56,6 +57,7 @@ export const ONLINE_STRINGS = defineStrings({
     noRank: 'henüz sırada değil',
     open: 'Tabloyu aç',
     loading: 'Yükleniyor…',
+    privacy: 'Gizlilik politikası',
   },
 });
 type Key = keyof (typeof ONLINE_STRINGS)['en'];
@@ -66,6 +68,8 @@ export interface PanelOptions {
   /** where the overlay goes (default document.body) */
   parent?: HTMLElement;
   onClose?: () => void;
+  /** the game's privacy policy page, linked at the bottom of the panel (App Store 5.1.1) */
+  privacyUrl?: string;
 }
 
 export interface OnlinePanel {
@@ -108,6 +112,7 @@ function css(t: Theme): string {
 .oyun-online .row .nums{font-size:15px;color:${c(t.colors.textDim)};line-height:1.35}
 .oyun-online .row .nums b{color:${c(t.colors.text)}}
 .oyun-online .row .rank{color:${c(t.colors.primary)};font-weight:900}
+.oyun-online .priv{display:block;margin-top:14px;text-align:center;font-size:14px;font-weight:800;color:${c(t.colors.textDim)};text-decoration:underline}
 `;
 }
 
@@ -151,6 +156,18 @@ export function openOnlinePanel(online: Online, opts: PanelOptions): OnlinePanel
   head.append(h, x);
   const body = el('div');
   card.append(head, body);
+  if (opts.privacyUrl) {
+    // a plain link: in the native apps Capacitor hands an outside address to the system browser;
+    // in a browser tab it opens a new tab so the game keeps running
+    const a = el('a', 'priv', s('privacy'));
+    a.href = opts.privacyUrl;
+    a.dataset.testid = 'online-privacy';
+    if (!(globalThis as { Capacitor?: { isNativePlatform?: () => boolean } }).Capacitor?.isNativePlatform?.()) {
+      a.target = '_blank';
+      a.rel = 'noopener';
+    }
+    card.append(a);
+  }
   root.append(card);
 
   let closed = false;

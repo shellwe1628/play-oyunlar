@@ -92,4 +92,6 @@ test('online: without the native plugin the panel explains where it lives', asyn
   await openGame(page, { seed: 1, lang: 'en' });
   await openRanksPanel(page);
   await expect(page.getByTestId('online-panel')).toHaveAttribute('data-state', 'unavailable');
+  // App Store 5.1.1: the privacy policy is one tap away inside the game
+  await expect(page.getByTestId('online-privacy')).toHaveAttribute('href', 'https://oyunlar.carsihani.me/gizlilik/kivilcim/');
 });

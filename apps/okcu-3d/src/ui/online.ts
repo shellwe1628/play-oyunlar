@@ -29,5 +29,5 @@ export function syncOnline(): void {
 export function openOnline(): void {
   if (!online) return;
   const lang = document.documentElement.lang === 'en' ? 'en' : 'tr';
-  openOnlinePanel(online, { lang, theme: DEFAULT_THEME });
+  openOnlinePanel(online, { lang, theme: DEFAULT_THEME, privacyUrl: 'https://oyunlar.carsihani.me/gizlilik/okcu/' });
 }

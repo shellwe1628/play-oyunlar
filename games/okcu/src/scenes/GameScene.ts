@@ -274,7 +274,8 @@ export class GameScene extends OyunScene {
     this.buffered = null;
     this.slowT = 0;
     this.zoom = 0;
-    this.span = this.w.span;
+    // the world is made further down: start at the normal frame, update() eases to w.span
+    this.span = 1;
     this.frameMs = [];
     this.stepMs = [];
     this.shotFx = 0;

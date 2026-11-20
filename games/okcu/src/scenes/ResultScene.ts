@@ -4,6 +4,7 @@ import { gameSave } from '../save';
 import { PALETTE } from '../textures';
 import { themeIndex, THEMES, type Theme } from '../anim/themes';
 import { bowTier } from '../sim/bow';
+import { CHAPTERS } from '../sim/chapters';
 import { cosmeticById } from '../sim/meta';
 import { FEATS, progressScore, RANKS, rankOf } from '../sim/progress';
 import { SFX } from '../sfx';
@@ -62,7 +63,7 @@ export class ResultScene extends ResultShell {
     };
     this.doubled = data.doubled ?? false;
     const r = this.run;
-    const where = r.chapter >= 4 ? this.t('chapter.4') : this.t('result.chapter', { c: this.t(`chapter.${r.chapter}`), s: r.stage });
+    const where = r.chapter >= CHAPTERS ? this.t(`chapter.${CHAPTERS}`) : this.t('result.chapter', { c: this.t(`chapter.${r.chapter}`), s: r.stage });
     super.init({
       score: r.wave,
       best: r.best,

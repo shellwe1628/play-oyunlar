@@ -14,7 +14,7 @@ import type { World } from '@sim/world';
 import { m, sx, sy } from '../../coords';
 import { INK, LANTERN, easeOutBack, glowTexture, jitter, merge, mixHex, roundedBox, seeded, shadeHex, solid, tintHex } from './util';
 
-export type LedgeKind = 'player' | 'static' | 'slide' | 'swing';
+export type LedgeKind = 'player' | 'static' | 'slide' | 'swing' | 'bob';
 
 /** island depth, metres, centred on the gameplay plane */
 export const LEDGE_DEPTH = 1.5;
@@ -28,6 +28,9 @@ const lanternMat = new THREE.MeshBasicMaterial({ color: LANTERN, toneMapped: fal
 const lanternGlowMat = new THREE.SpriteMaterial({ map: null, color: LANTERN, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, opacity: 0.55 });
 const pennantMat = new THREE.MeshStandardMaterial({ color: 0x3f8cff, roughness: 0.7, side: THREE.DoubleSide });
 let lanternCore: THREE.BufferGeometry | null = null;
+/** the caldera's molten seams and the glow under a lava-borne island (self-lit, not shaded) */
+const lavaMat = new THREE.MeshBasicMaterial({ color: 0xff6a1e, toneMapped: false });
+const lavaGlowMat = new THREE.SpriteMaterial({ map: null, color: 0xff5a1a, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, opacity: 0.5 });
 let pennantGeo: THREE.BufferGeometry | null = null;
 
 const IRON = 0x57506a;
@@ -156,10 +159,10 @@ export function buildLedge(wPx: number, hPx: number, th: Theme, seed: number, ki
       out.copy(body).lerp(bodyLow, t * 0.8 + 0.12 * Math.sin(p.x * 7 + p.z * 4 + p.y * 9));
     }),
   );
-  if (th.id === 'desert') {
-    // sandstone strata
+  if (th.id === 'desert' || th.id === 'sky') {
+    // sandstone strata (the citadel's marble has gold seams instead)
     for (let y = -0.36, i = 0; y > -H + 0.14; y -= i === 0 ? 0.2 : 0.24, i++) {
-      parts.push(solid(roundedBox(W + 0.05, i % 2 ? 0.06 : 0.08, D + 0.05, 0.028, 1).translate(0, y, 0), th.bodyDark));
+      parts.push(solid(roundedBox(W + 0.05, i % 2 ? 0.06 : 0.08, D + 0.05, 0.028, 1).translate(0, y, 0), th.id === 'sky' ? (i % 2 ? 0xe0b84a : 0xf2d27a) : th.bodyDark));
     }
   } else {
     // pebbles set in the earth
@@ -208,6 +211,25 @@ export function buildLedge(wPx: number, hPx: number, th: Theme, seed: number, ki
       const z = (i % 2 ? -1 : 1) * (D / 2 - 0.13 - rand() * 0.1);
       parts.push(solid(new THREE.CylinderGeometry(0.008, 0.008, 0.09, 4).translate(x, 0.04, z), 0x3f9a3a));
       parts.push(solid(new THREE.SphereGeometry(0.04, 6, 4).scale(1, 0.6, 1).translate(x, 0.095, z), petals[i % 3]!));
+    }
+  }
+  if (th.id === 'sky') {
+    // cloud banks spilling over the rim, front and back
+    const nC = Math.max(3, Math.round(W / 0.3));
+    for (let i = 0; i < nC; i++) {
+      const x = -W / 2 + 0.1 + i * ((W - 0.2) / Math.max(1, nC - 1));
+      const r = 0.13 + rand() * 0.07;
+      parts.push(solid(new THREE.SphereGeometry(r, 8, 6).scale(1.3, 0.8, 1).translate(x, -capH * 0.6, D / 2 + 0.02), i % 2 ? 0xffffff : 0xeef3ff));
+      parts.push(solid(new THREE.SphereGeometry(r * 1.2, 8, 6).scale(1.3, 0.8, 1).translate(x + 0.08, -H * 0.85, -D / 2 + 0.25), 0xf4f7ff));
+    }
+  }
+  if (th.id === 'volcano') {
+    // obsidian shards on the cap's back edge
+    const nS = kind === 'player' ? 4 : 2;
+    for (let i = 0; i < nS; i++) {
+      const x = -W / 2 + 0.25 + rand() * (W - 0.5);
+      const h = 0.18 + rand() * 0.16;
+      parts.push(solid(jitter(new THREE.ConeGeometry(0.07, h, 5).translate(0, h / 2, 0), 0.12, seed + i * 7).rotateZ((rand() - 0.5) * 0.5).translate(x, -0.02, -D / 2 + 0.2), i % 2 ? 0x2a2026 : 0x3c3036, true));
     }
   }
   if (th.id === 'snow') {
@@ -284,6 +306,33 @@ export function buildLedge(wPx: number, hPx: number, th: Theme, seed: number, ki
     glow.position.set(lx, top - 0.505, lz + 0.2);
     glow.scale.setScalar(1.25);
     extras.add(core, glow);
+  }
+
+  if (th.id === 'volcano') {
+    // molten seams down the front face, glowing on their own
+    extras ??= new THREE.Group();
+    const nV = kind === 'player' ? 4 : 2 + (seed % 2);
+    for (let i = 0; i < nV; i++) {
+      const x = -W / 2 + 0.2 + ((i + 0.5) / nV) * (W - 0.4) + (rand() - 0.5) * 0.1;
+      const len = 0.2 + rand() * Math.max(0.1, H - 0.5);
+      const seam = new THREE.Mesh(new THREE.BoxGeometry(0.035, len, 0.02).rotateZ((rand() - 0.5) * 0.5).translate(x, -0.32 - len / 2, D / 2 + 0.006), lavaMat);
+      extras.add(seam);
+    }
+  }
+  if (kind === 'bob') {
+    // it floats on the lava (or a cloud bank): a hot glow under it and steam puffs at its foot
+    extras ??= new THREE.Group();
+    const lava = th.id === 'volcano';
+    for (let i = 0; i < 3; i++) {
+      parts.push(solid(new THREE.SphereGeometry(0.16 + i * 0.03, 8, 6).scale(1.4, 0.7, 1).translate((i - 1) * W * 0.32, -H - 0.12, 0.1 - i * 0.12), lava ? 0x6a5a5e : 0xffffff));
+    }
+    if (lava) {
+      lavaGlowMat.map ??= glowTexture();
+      glow = new THREE.Sprite(lavaGlowMat);
+      glow.position.set(0, -H - 0.35, 0.3);
+      glow.scale.setScalar(1.6);
+      extras.add(glow);
+    }
   }
 
   if (kind === 'player') {

@@ -138,8 +138,8 @@ describe('animation layer (pure)', () => {
 
 describe('themes', () => {
   it('each chapter is its own world; endless changes world every seven waves', () => {
-    expect([1, 7, 8, 14, 15, 22, 28, 29, 36, 43, 50, 57].map((w) => themeIndex(w))).toEqual([0, 0, 1, 1, 2, 3, 3, 0, 1, 2, 3, 0]);
-    expect(THEMES.map((t) => t.id)).toEqual(['meadow', 'snow', 'desert', 'night']);
+    expect([1, 7, 8, 14, 15, 22, 28, 29, 36, 42, 43, 50, 57, 64, 71, 78, 85].map((w) => themeIndex(w))).toEqual([0, 0, 1, 1, 2, 3, 3, 4, 5, 5, 0, 1, 2, 3, 4, 5, 0]);
+    expect(THEMES.map((t) => t.id)).toEqual(['meadow', 'snow', 'desert', 'night', 'volcano', 'sky']);
   });
 });
 

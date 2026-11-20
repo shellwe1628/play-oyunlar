@@ -3,11 +3,12 @@
  * GameScene), builds the view modules and feeds them one Frame per animation frame.
  *
  * URL switches (for development and the screenshot tool):
- *   ?seed=N      fixed run seed            ?bow=N    bow level 0 … 20 (meta.bow)
- *   ?wave=N      jump to wave N            ?chapter=N start chapter 0 … 4
+ *   ?seed=N      fixed run seed            ?bow=N    bow level 0 … 25 (meta.bow)
+ *   ?wave=N      jump to wave N            ?chapter=N start chapter 0 … 6 (6 = endless)
  *   ?auto=1      the aim bot plays         ?off=a,b  skip modules (stage is never skipped):
  *                                                     arena, archers, arrows, fx, bowglow, ui
- *   ?speed=K     game speed multiplier         ?armor=N  health upgrade level 0 … 8 (meta.hp; shown as armour)
+ *   ?speed=K     game speed multiplier         ?armor=N  health upgrade level 0 … 12 (meta.hp; shown as armour)
+ *   ?calm=1      reduced motion (also on with the system's prefers-reduced-motion): softer shake and zoom
  *   ?difficulty=classic  the 2D game's difficulty (the 3D build plays 'hard')
  *
  * Without switches every run is set up from the save (ui/save.ts) the way the 2D game does it:
@@ -16,7 +17,8 @@
  */
 import { createRng, hashSeed, pickLanguage, webStorage } from '@oyun/core/pure';
 import { CAREFUL, planShot } from '@sim/aimbot';
-import { metaOf, newBank, NO_META } from '@sim/meta';
+import { BOW_MAX } from '@sim/bow';
+import { metaOf, newBank, NO_META, UPGRADES } from '@sim/meta';
 import { dailyChallenge } from '@sim/progress';
 import type { Difficulty } from '@sim/waves';
 import {
@@ -79,8 +81,8 @@ function newWorld(seed: number): World {
   const daily = mode.daily;
   const key = todayKey();
   const meta = daily ? { ...NO_META } : metaOf(d);
-  if (params.has('bow')) meta.bow = Math.max(0, Math.min(20, Math.round(num('bow', 0))));
-  if (params.has('armor')) meta.hp = Math.max(0, Math.min(8, Math.round(num('armor', 0))));
+  if (params.has('bow')) meta.bow = Math.max(0, Math.min(BOW_MAX, Math.round(num('bow', 0))));
+  if (params.has('armor')) meta.hp = Math.max(0, Math.min(UPGRADES.hp.max, Math.round(num('armor', 0))));
   chapterPick = Math.max(0, Math.min(d.chapter, chapterPick));
   const startChapter = params.has('chapter') ? Math.round(num('chapter', 0)) : daily ? 0 : chapterPick;
   const w = createWorld({ seed: daily ? hashSeed(`okcu-daily-${key}`) : seed, meta, startChapter, mod: daily ? dailyChallenge(key).mod : null, difficulty });

@@ -11,7 +11,7 @@ import * as THREE from 'three';
 import { PALETTE } from '@okcu/textures';
 import type { Archer } from '@sim/world';
 
-export type Hat = 'none' | 'band' | 'goggles' | 'horns' | 'leafcrown' | 'turban' | 'cap' | 'lantern' | 'plume' | 'imp';
+export type Hat = 'none' | 'band' | 'goggles' | 'horns' | 'leafcrown' | 'turban' | 'cap' | 'lantern' | 'plume' | 'imp' | 'ember' | 'halo';
 
 export interface Look {
   /** cloth dye */
@@ -39,6 +39,10 @@ function bossLook(kind: string | null): Look {
       return { body: 0xe8a33c, accent: 0x8e4cb8, hat: 'turban', bow: BOWS.gold, fletch: 0x8e4cb8, plate: true, sash: false };
     case 'warden':
       return { body: 0x4b4fa8, accent: 0xb9c4ff, hat: 'lantern', bow: BOWS.dark, fletch: 0xb9c4ff, plate: true, sash: false };
+    case 'magma':
+      return { body: 0x4a3236, accent: 0xff6a1a, hat: 'ember', bow: BOWS.dark, fletch: 0xff8a3a, plate: true, sash: false };
+    case 'tempest':
+      return { body: 0x5fb4e8, accent: 0xfff6c8, hat: 'halo', bow: BOWS.ice, fletch: 0xffffff, plate: true, sash: false };
     default:
       return { body: PALETTE.boss, accent: PALETTE.bossPlate, hat: 'horns', bow: BOWS.dark, fletch: PALETTE.bossScarf, plate: true, sash: false };
   }

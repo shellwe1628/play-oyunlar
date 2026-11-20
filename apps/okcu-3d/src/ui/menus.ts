@@ -288,15 +288,20 @@ export function createMenus(ui: Ui, parent: HTMLElement, hooks: MenuHooks): Menu
     const preview = new Sketch(lookUi, CX - 130, footY - 250, 260, 260);
     const previewName = L(text(lookUi, CX, footY + 95, '', 44, PALETTE.cream, { stroke: 10 }));
     const previewNote = L(text(lookUi, CX, footY + 142, '', 34, PALETTE.white, { stroke: 8 }));
-    const tiles = new Sketch(lookUi, 60, BOTTOM - 600, 600, 440);
-    const tilePos = (i: number): { x: number; y: number } => ({ x: 135 + (i % 4) * 150, y: BOTTOM - 520 + Math.floor(i / 4) * 136 });
+    // four columns; a fourth row (16 looks since chapters 5 and 6) packs the grid a little tighter
+    const lookRows = Math.ceil(COSMETICS.length / 4);
+    const tight = lookRows > 3;
+    const step = tight ? 114 : 136;
+    const half = tight ? 52 : 59;
+    const tiles = new Sketch(lookUi, 60, BOTTOM - 640, 600, 520);
+    const tilePos = (i: number): { x: number; y: number } => ({ x: 135 + (i % 4) * 150, y: (tight ? BOTTOM - 560 : BOTTOM - 520) + Math.floor(i / 4) * step });
     let previewIdx = Math.max(0, COSMETICS.findIndex((c) => c.id === save.data.cosmetic));
     let bounce = 0;
     COSMETICS.forEach((_c, i) => {
       const p = tilePos(i);
       const z = el('div', '', lookUi);
       z.dataset.ui = '1';
-      z.style.cssText = `position:absolute;left:${p.x - 59}px;top:${p.y - 59}px;width:118px;height:118px;pointer-events:auto;cursor:pointer`;
+      z.style.cssText = `position:absolute;left:${p.x - half}px;top:${p.y - half}px;width:${half * 2}px;height:${half * 2}px;pointer-events:auto;cursor:pointer`;
       z.addEventListener('pointerdown', (e) => {
         e.stopPropagation();
         ui.unlock();
@@ -353,12 +358,12 @@ export function createMenus(ui: Ui, parent: HTMLElement, hooks: MenuHooks): Menu
       const tg = tiles.begin();
       COSMETICS.forEach((cos, i) => {
         const { x, y } = tilePos(i);
-        const unlocked = isUnlocked(cos, d.best, d.runs);
+        const unlocked = isUnlocked(cos, d.best, d.runs, d.bosses);
         const worn = d.cosmetic === cos.id;
         const sel = i === previewIdx;
-        tg.fillStyle(PALETTE.ink, 1).fillRoundedRect(x - 59, y - 59, 118, 118, 24);
-        tg.fillStyle(worn ? PALETTE.gold : sel ? PALETTE.cream : unlocked ? PALETTE.cardIcon : PALETTE.pipOff, 1).fillRoundedRect(x - 52, y - 52, 104, 104, 20);
-        drawHeadIcon(tg.phaser, x, y + 6, 26, cos, unlocked);
+        tg.fillStyle(PALETTE.ink, 1).fillRoundedRect(x - half, y - half, half * 2, half * 2, 24);
+        tg.fillStyle(worn ? PALETTE.gold : sel ? PALETTE.cream : unlocked ? PALETTE.cardIcon : PALETTE.pipOff, 1).fillRoundedRect(x - half + 7, y - half + 7, half * 2 - 14, half * 2 - 14, 20);
+        drawHeadIcon(tg.phaser, x, y + 6, tight ? 23 : 26, cos, unlocked);
         if (!unlocked) {
           tg.fillStyle(PALETTE.ink, 1).fillRoundedRect(x + 18, y + 18, 28, 24, 6);
           tg.lineStyle(5, PALETTE.ink, 1).beginPath().arc(x + 32, y + 18, 9, Math.PI, 0, false).strokePath();
@@ -366,9 +371,9 @@ export function createMenus(ui: Ui, parent: HTMLElement, hooks: MenuHooks): Menu
         }
       });
       const cos = COSMETICS[previewIdx]!;
-      const unlocked = isUnlocked(cos, d.best, d.runs);
+      const unlocked = isUnlocked(cos, d.best, d.runs, d.bosses);
       previewName.setText(t(`cos.${cos.id}`));
-      previewNote.setText(d.cosmetic === cos.id ? t('shop.worn') : unlocked ? '' : cos.runs > 0 ? t('shop.runs', { n: cos.runs }) : t('shop.unlock', { n: cos.wave }));
+      previewNote.setText(d.cosmetic === cos.id ? t('shop.worn') : unlocked ? '' : cos.boss !== undefined ? t('shop.boss', { b: t(`boss.${BOSS_KINDS[cos.boss]!}`) }) : cos.runs > 0 ? t('shop.runs', { n: cos.runs }) : t('shop.unlock', { n: cos.wave }));
     }
 
     function buy(id: UpgradeId): void {
@@ -388,7 +393,7 @@ export function createMenus(ui: Ui, parent: HTMLElement, hooks: MenuHooks): Menu
       const cos = COSMETICS[i];
       if (!cos) return;
       previewIdx = i;
-      if (!isUnlocked(cos, save.data.best, save.data.runs)) {
+      if (!isUnlocked(cos, save.data.best, save.data.runs, save.data.bosses)) {
         ui.audio.playPreset(SFX.cancel);
         refresh();
         return;
@@ -418,7 +423,7 @@ export function createMenus(ui: Ui, parent: HTMLElement, hooks: MenuHooks): Menu
         const cos = COSMETICS[previewIdx]!;
         const hop = Math.abs(Math.sin(bounce * Math.PI * 2)) * 18 * bounce;
         g.fillStyle(PALETTE.ink, 0.35).fillEllipse(CX, footY - 8, 170, 26);
-        drawHeadIcon(g.phaser, CX, footY - 110 - hop + Math.sin(clock * 2) * 4, 72, cos, isUnlocked(cos, save.data.best, save.data.runs));
+        drawHeadIcon(g.phaser, CX, footY - 110 - hop + Math.sin(clock * 2) * 4, 72, cos, isUnlocked(cos, save.data.best, save.data.runs, save.data.bosses));
       },
       destroy() {
         for (const l of labels) l.destroy();
@@ -777,7 +782,9 @@ export function createMenus(ui: Ui, parent: HTMLElement, hooks: MenuHooks): Menu
       return l;
     };
     const ladderTop = TOP + 650;
-    const ladderRow = Math.min(88, (BOTTOM - 140 - ladderTop) / 6);
+    /** two columns of ranks (seven a column since chapters 5 and 6 added two) */
+    const perCol = Math.ceil(RANKS.length / 2);
+    const ladderRow = Math.min(88, (BOTTOM - 140 - ladderTop) / perCol);
 
     function setTab(k: 'ladder' | 'records' | 'feats'): void {
       tab = k;
@@ -809,8 +816,8 @@ export function createMenus(ui: Ui, parent: HTMLElement, hooks: MenuHooks): Menu
           tx(640, y, String(pts), 30, PALETTE.gold, 1);
         });
         RANKS.forEach((rk, i) => {
-          const x = 70 + Math.floor(i / 6) * 330;
-          const y = ladderTop + (i % 6) * ladderRow;
+          const x = 70 + Math.floor(i / perCol) * 330;
+          const y = ladderTop + (i % perCol) * ladderRow;
           const here = i === r;
           g.fillStyle(here ? PALETTE.gold : PALETTE.ink, here ? 0.35 : 0.5).fillRoundedRect(x - 40, y - ladderRow / 2 + 4, 310, ladderRow - 8, 16);
           tx(x + 46, y - 12, t(`rank.${rk.id}`), 28, i <= r ? PALETTE.cream : PALETTE.locked, 0);
@@ -819,26 +826,21 @@ export function createMenus(ui: Ui, parent: HTMLElement, hooks: MenuHooks): Menu
       } else if (k === 'records') {
         const rec = d.records;
         const none = t('rec.none');
-        const row = (y: number, left: string, right: string, date: string): void => {
+        const row = (y: number, left: string, right: string, date: string, mid?: string): void => {
           g.fillStyle(PALETTE.ink, 0.5).fillRoundedRect(40, y - 26, 640, 52, 16);
-          tx(60, y, left, 28, PALETTE.cream, 0, 330);
-          tx(560, y, right, 28, right === none ? PALETTE.locked : PALETTE.gold, 1);
+          tx(60, y, left, 28, PALETTE.cream, 0, mid === undefined ? 330 : 250);
+          if (mid !== undefined) tx(440, y, mid, 26, mid === none ? PALETTE.locked : PALETTE.gold, 1, 120);
+          tx(mid === undefined ? 560 : 580, y, right, 28, right === none ? PALETTE.locked : PALETTE.gold, 1, mid === undefined ? undefined : 120);
           tx(668, y, date ? date.slice(5) : '', 22, PALETTE.locked, 1);
         };
+        // one row a chapter (six since chapters 5 and 6): furthest stage, then the fastest boss
         let y = TOP + 250;
-        tx(CX, y, t('rec.bestsTitle'), 34, PALETTE.heal);
+        tx(CX, y, `${t('rec.bestsTitle')} · ${t('rec.bossTitle')}`, 32, PALETTE.heal, 0.5, 640);
         y += 52;
         for (let c = 0; c < CHAPTERS; c++) {
           const r = rec.chapter[c]!;
-          row(y, t('rec.chapter', { c: t(`chapter.${c}`) }), r.n === 0 ? none : r.n > 7 ? t('rec.cleared') : t('rec.stage', { n: r.n }), r.date);
-          y += 60;
-        }
-        y += 16;
-        tx(CX, y, t('rec.bossTitle'), 34, PALETTE.heal);
-        y += 52;
-        for (let c = 0; c < CHAPTERS; c++) {
-          const r = rec.bossTime[c]!;
-          row(y, t('rec.boss', { b: t(`boss.${BOSS_KINDS[c]!}`) }), r.n === 0 ? none : t('rec.sec', { n: r.n }), r.date);
+          const b = rec.bossTime[c]!;
+          row(y, t('rec.chapter', { c: t(`chapter.${c}`) }), b.n === 0 ? none : t('rec.sec', { n: b.n }), b.date || r.date, r.n === 0 ? none : r.n > 7 ? t('rec.cleared') : t('rec.stage', { n: r.n }));
           y += 60;
         }
         y += 16;
@@ -887,7 +889,7 @@ export function createMenus(ui: Ui, parent: HTMLElement, hooks: MenuHooks): Menu
         if (tab !== 'ladder') return;
         const r = rankOf(progressScore(save.data).total);
         drawBadge(g.phaser, 150, TOP + 280, 52, r, clock);
-        RANKS.forEach((_rk, i) => drawBadge(g.phaser, 70 + Math.floor(i / 6) * 330, ladderTop + (i % 6) * ladderRow, 24, i, clock, i > r));
+        RANKS.forEach((_rk, i) => drawBadge(g.phaser, 70 + Math.floor(i / perCol) * 330, ladderTop + (i % perCol) * ladderRow, 24, i, clock, i > r));
       },
       destroy() {
         for (const l of [...labels, ...bodyLabels]) l.destroy();

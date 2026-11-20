@@ -384,11 +384,45 @@ function hat(k: Kit, kind: Hat, accent: number): THREE.Object3D | null {
       o.add(helmet(k, k.gold, true));
       break;
     }
+    case 'ember': {
+      // the cinder king: a basalt band crowned with five unlit-by-light (self-glowing) flames
+      o.add(mesh(geo('emberBand', () => new THREE.CylinderGeometry(R + 0.8, R + 1.4, 5, 16, 1, true).translate(HEAD.x, HEAD.y + 6, HEAD.z)), k.dark));
+      flameMat ??= new THREE.MeshBasicMaterial({ color: 0xff7a22 });
+      flameCore ??= new THREE.MeshBasicMaterial({ color: PALETTE.fireCore });
+      for (let i = 0; i < 5; i++) {
+        const a = -0.9 + i * 0.45;
+        const h = i === 2 ? 15 : i % 2 ? 11 : 8;
+        const f = mesh(geo(`emberFlame${h}`, () => new THREE.ConeGeometry(2.6, h, 6).translate(0, h / 2, 0)), flameMat);
+        f.position.set(HEAD.x + Math.sin(a) * (R + 0.4), HEAD.y + 8, HEAD.z + Math.cos(a) * (R + 0.4));
+        f.rotation.z = -Math.sin(a) * 0.25;
+        o.add(f);
+        const c = mesh(geo(`emberCore${h}`, () => new THREE.ConeGeometry(1.2, h * 0.6, 5).translate(0, h * 0.3, 0)), flameCore);
+        c.position.copy(f.position).setZ(f.position.z + 0.8);
+        c.rotation.z = f.rotation.z;
+        o.add(c);
+      }
+      break;
+    }
+    case 'halo': {
+      // the storm caller: a gold ring floating over the head, ringed with cloud puffs
+      o.add(mesh(geo('haloRing', () => new THREE.TorusGeometry(R * 1.1, 2.2, 6, 28).rotateX(Math.PI / 2).translate(HEAD.x, HEAD.y + R + 8, HEAD.z)), k.gold));
+      cloudMat ??= new THREE.MeshLambertMaterial({ color: 0xffffff, emissive: new THREE.Color(0xdde8ff).multiplyScalar(0.35) });
+      for (let i = 0; i < 6; i++) {
+        const a = (i / 6) * Math.PI * 2;
+        const p = mesh(geo(`haloPuff${i % 2}`, () => new THREE.SphereGeometry(i % 2 ? 4 : 5, 8, 6)), cloudMat);
+        p.position.set(HEAD.x + Math.cos(a) * R * 1.1, HEAD.y + R + 8 + (i % 2) * 2, HEAD.z + Math.sin(a) * R * 1.1);
+        o.add(p);
+      }
+      break;
+    }
   }
   return o;
 }
 const tints = new Map<string, THREE.Material>();
 let lanternMat: THREE.Material | null = null;
+let flameMat: THREE.Material | null = null;
+let flameCore: THREE.Material | null = null;
+let cloudMat: THREE.Material | null = null;
 
 // ---------------------------------------------------------------- the outfit of one archer
 
@@ -445,11 +479,13 @@ export class Outfit {
     // --- the player's armour, in the order it is earned
     if (armour >= 1) this.pair(0, () => bracer(k));
     if (armour >= 2) this.pair(1, () => greave(k));
-    if (armour >= 3) this.pair(2, () => pauldron(k, k.steel));
-    if (armour >= 4) this.wear('Spine1', cuirass(k, k.steel));
+    // Tough Noodle 10 … 12 (added with chapters 5 and 6) gilds the plate
+    const metal = armour >= 10 ? k.gold : k.steel;
+    if (armour >= 3) this.pair(2, () => pauldron(k, metal));
+    if (armour >= 4) this.wear('Spine1', cuirass(k, metal));
     if (armour >= 5) this.wear('Hips', tassets(k));
     if (armour >= 6) this.wear('Spine2', gorget(k));
-    if (armour >= 7) this.wear('Head', helmet(k, k.steel, true));
+    if (armour >= 7) this.wear('Head', helmet(k, metal, true));
     if (armour >= 8) this.wear('Spine2', cape(k));
 
     // --- enemies

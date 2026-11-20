@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { CARD_IDS, CARDS, drawOffer, statsFor, synergyFor, type CardId } from '../../src/sim/cards';
 import { HELMET_HEAD_MUL, resolveHit } from '../../src/sim/combat';
 import { applyRunResult, bankDaily, bankProgress, bankStart, buyUpgrade, COSMETICS, dailyKey, freshSave, newBank, NO_META, runOutcome, unlockedCosmetics, UPGRADE_IDS, upgradeCost } from '../../src/sim/meta';
-import { CHAPTER_DEFS, levelOf, stageDef, stageOf } from '../../src/sim/chapters';
+import { CHAPTER_DEFS, ENDLESS_WAVE, levelOf, stageDef, stageOf } from '../../src/sim/chapters';
 import { bossHp, enemyAccuracy, enemyDamageMul, enemyHp, enemyTiming, graceStep, helmetChance, waveGrace } from '../../src/sim/waves';
 
 describe('damage and effect table', () => {
@@ -165,22 +165,28 @@ describe('permanent upgrades', () => {
     const s = freshSave();
     expect(applyRunResult(s, 1, 0)).toEqual({ best: 1, newBest: false });
   });
-  it('cosmetics unlock by best wave milestones', () => {
-    expect(COSMETICS.length).toBe(12);
-    expect(new Set(COSMETICS.map((c) => c.id)).size).toBe(12);
+  it('cosmetics unlock by best wave milestones, runs played, or the new chapters\' bosses', () => {
+    expect(COSMETICS.length).toBe(16);
+    expect(new Set(COSMETICS.map((c) => c.id)).size).toBe(16);
     expect(unlockedCosmetics(0).length).toBe(1);
     expect(unlockedCosmetics(5).length).toBe(2);
     expect(unlockedCosmetics(25).length).toBe(6);
     expect(unlockedCosmetics(0, 3).map((c) => c.id)).toEqual(['classic', 'flower']);
     expect(unlockedCosmetics(30, 25).length).toBe(12);
+    // a high best wave alone never opens the boss looks (an old endless save does not get them free)
+    expect(unlockedCosmetics(200, 100).map((c) => c.id)).not.toContain('ember');
+    expect(unlockedCosmetics(200, 100, [1, 1, 1, 1, 1, 0]).map((c) => c.id)).toContain('ember');
+    expect(unlockedCosmetics(200, 100, [1, 1, 1, 1, 1, 0]).map((c) => c.id)).not.toContain('halo');
+    expect(unlockedCosmetics(200, 100, [1, 1, 1, 1, 1, 1]).length).toBe(16);
   });
 });
 
 describe('chapters and stages', () => {
-  it('four chapters of seven stages: an elite at stage 4, a boss with its own mechanic at 7, then endless', () => {
-    expect(CHAPTER_DEFS.map((c) => c.id)).toEqual(['meadow', 'snow', 'desert', 'night']);
-    expect(CHAPTER_DEFS.map((c) => c.boss)).toEqual(['shields', 'giant', 'summoner', 'warden']);
-    expect(CHAPTER_DEFS.map((c) => c.bonus)).toEqual(['gallery', 'apples', 'defend', 'gallery']);
+  it('six chapters of seven stages: an elite at stage 4, a boss with its own mechanic at 7, then endless', () => {
+    expect(CHAPTER_DEFS.map((c) => c.id)).toEqual(['meadow', 'snow', 'desert', 'night', 'volcano', 'sky']);
+    expect(CHAPTER_DEFS.map((c) => c.boss)).toEqual(['shields', 'giant', 'summoner', 'warden', 'magma', 'tempest']);
+    expect(CHAPTER_DEFS.map((c) => c.bonus)).toEqual(['gallery', 'apples', 'defend', 'gallery', 'defend', 'apples']);
+    expect(CHAPTER_DEFS.map((c) => c.theme)).toEqual([0, 1, 2, 3, 4, 5]);
     for (const c of CHAPTER_DEFS) {
       expect(c.stages.length).toBe(7);
       expect(c.stages[3]!.enemies[0]).toBe('elite');
@@ -189,8 +195,12 @@ describe('chapters and stages', () => {
     }
     expect(stageOf(1)).toEqual({ chapter: 0, stage: 1, endless: false, theme: 0 });
     expect(stageOf(14)).toEqual({ chapter: 1, stage: 7, endless: false, theme: 1 });
-    expect(stageOf(29)).toEqual({ chapter: 4, stage: 1, endless: true, theme: 0 });
-    expect(stageOf(36).theme).toBe(1);
+    expect(stageOf(29)).toEqual({ chapter: 4, stage: 1, endless: false, theme: 4 });
+    expect(stageOf(42)).toEqual({ chapter: 5, stage: 7, endless: false, theme: 5 });
+    expect(stageOf(43)).toEqual({ chapter: 6, stage: 1, endless: true, theme: 0 });
+    expect(stageOf(50).theme).toBe(1);
+    expect(stageOf(43 + 7 * 5).theme).toBe(5);
+    expect(ENDLESS_WAVE).toBe(43);
   });
   it('the opening teaches one thing at a time', () => {
     const rng = createRng(1);
@@ -210,10 +220,28 @@ describe('chapters and stages', () => {
     expect(CHAPTER_DEFS[0]!.stages.some((s) => s.enemies.includes('healer'))).toBe(true);
     expect(CHAPTER_DEFS.some((c) => c.stages.some((s) => s.props?.some((p) => p.kind === 'barrel')))).toBe(true);
     expect(CHAPTER_DEFS.some((c) => c.stages.some((s) => s.props?.some((p) => p.kind === 'rock')))).toBe(true);
+    // the caldera floats its ledges on the lava; the citadel's gusts turn the wind around
+    const caldera = CHAPTER_DEFS[4]!.stages;
+    expect(caldera.every((s) => s.ledges.some((l) => l.bob))).toBe(true);
+    const citadel = CHAPTER_DEFS[5]!.stages;
+    expect(citadel.every((s) => (s.wind ?? 0) > 0)).toBe(true);
+    expect(citadel.slice(0, 6).every((s) => (s.gust ?? 0) > 0)).toBe(true);
+  });
+  it('every ledge of the new chapters stays on screen and clear of its neighbours', () => {
+    for (const c of CHAPTER_DEFS.slice(4)) {
+      for (const st of c.stages) {
+        for (const l of st.ledges) {
+          const dx = l.slide?.amp ?? l.swing?.amp ?? 0;
+          expect(l.x - dx).toBeGreaterThanOrEqual(290);
+          expect(l.x + l.w + dx).toBeLessThanOrEqual(720);
+          expect(l.y - (l.bob?.amp ?? 0)).toBeGreaterThan(250);
+        }
+      }
+    }
   });
   it('endless stages stay bounded and keep a boss every seventh wave', () => {
     const rng = createRng(2);
-    for (let w = 29; w <= 120; w++) {
+    for (let w = ENDLESS_WAVE; w <= 140; w++) {
       const d = stageDef(w, rng);
       expect(d.enemies.length).toBeGreaterThanOrEqual(1);
       expect(d.enemies.length).toBeLessThanOrEqual(4);
@@ -221,7 +249,7 @@ describe('chapters and stages', () => {
     }
   });
   it('difficulty level: a gentle first chapter, then steeper chapters and endless', () => {
-    expect([1, 7, 8, 14, 15, 21, 22, 28, 29, 30].map(levelOf)).toEqual([1, 2.2, 3.5, 9.5, 10.5, 16.5, 17, 23, 23.5, 24.5]);
+    expect([1, 7, 8, 14, 15, 21, 22, 28, 29, 35, 36, 42, 43, 44].map(levelOf)).toEqual([1, 2.2, 3.5, 9.5, 10.5, 16.5, 17, 23, 23.5, 26.5, 27, 31.8, 32.5, 33.5]);
     for (let w = 2; w < 80; w++) expect(levelOf(w)).toBeGreaterThan(levelOf(w - 1));
   });
   it('enemy accuracy tightens and draws quicken as waves go on, with floors', () => {
@@ -302,14 +330,14 @@ describe('exact values (so a changed number fails a test)', () => {
     expect([0, 1, 2].map((l) => upgradeCost('coins', l))).toEqual([35, 56, 90]);
     expect(upgradeCost('reroll', 0)).toBe(60);
     expect(upgradeCost('starter', 0)).toBe(90);
-    const max = { hp: 8, coins: 6, reroll: 1, starter: 1 } as const;
+    const max = { hp: 12, coins: 8, reroll: 1, starter: 1 } as const;
     for (const id of UPGRADE_IDS) {
       expect(upgradeCost(id, max[id] - 1), id).not.toBeNull();
       expect(upgradeCost(id, max[id]), id).toBeNull();
     }
   });
   it('cosmetic thresholds and the daily key', () => {
-    expect(COSMETICS.map((c) => (c.runs > 0 ? `r${c.runs}` : `w${c.wave}`))).toEqual(['w0', 'w5', 'w10', 'w15', 'w20', 'w25', 'r3', 'r6', 'r10', 'r15', 'r25', 'w30']);
+    expect(COSMETICS.map((c) => (c.boss !== undefined ? `b${c.boss}` : c.runs > 0 ? `r${c.runs}` : `w${c.wave}`))).toEqual(['w0', 'w5', 'w10', 'w15', 'w20', 'w25', 'r3', 'r6', 'r10', 'r15', 'r25', 'w30', 'b4', 'b5', 'w40', 'r40']);
     expect(dailyKey(2026, 3, 7)).toBe('2026-03-07');
     expect(dailyKey(2026, 11, 17)).toBe('2026-11-17');
   });

@@ -6,7 +6,7 @@
  */
 import { createRng, hashSeed } from '@oyun/core/pure';
 import { BOW_MAX } from './bow';
-import { CHAPTERS } from './chapters';
+import { CHAPTERS, STAGES } from './chapters';
 import type { DatedRecord, RunBank, SaveData } from './meta';
 
 // ------------------------------------------------------------------ score
@@ -65,6 +65,9 @@ export const RANKS = [
   { id: 'champion', at: 6000 },
   { id: 'legend', at: 7400 },
   { id: 'mythic', at: 9000 },
+  // chapters 5 and 6 raised the most a save can score from 9 400 to 11 700
+  { id: 'paragon', at: 10200 },
+  { id: 'eternal', at: 11400 },
 ] as const;
 export type RankId = (typeof RANKS)[number]['id'];
 
@@ -96,7 +99,7 @@ export interface RunSummary {
   streak: number;
   multi: number;
   focusUses: number;
-  /** boss knockouts this run, in order: chapter kind (0 … 3) and seconds from wave start */
+  /** boss knockouts this run, in order: chapter kind (0 … CHAPTERS − 1) and seconds from wave start */
   bossKills: { kind: number; time: number }[];
   /** furthest stage reached in each chapter this run (8 = cleared) */
   chapterStage: number[];
@@ -131,9 +134,16 @@ export const FEATS: readonly Feat[] = [
   { id: 'boss2', coins: 150, test: (s) => (s.bosses[1] ?? 0) > 0 },
   { id: 'boss3', coins: 200, test: (s) => (s.bosses[2] ?? 0) > 0 },
   { id: 'boss4', coins: 300, test: (s) => (s.bosses[3] ?? 0) > 0 },
+  { id: 'boss5', coins: 400, test: (s) => (s.bosses[4] ?? 0) > 0 },
+  { id: 'boss6', coins: 500, test: (s) => (s.bosses[5] ?? 0) > 0 },
+  { id: 'allBosses', coins: 600, test: (s) => chaptersCleared(s) >= CHAPTERS },
   { id: 'forge5', coins: 50, test: (s) => s.bow.level >= 5 },
   { id: 'forge10', coins: 150, test: (s) => s.bow.level >= 10 },
   { id: 'forge15', coins: 400, test: (s) => s.bow.level >= 15 },
+  { id: 'forge20', coins: 600, test: (s) => s.bow.level >= 20 },
+  { id: 'forge25', coins: 1000, test: (s) => s.bow.level >= 25 },
+  { id: 'chain10', coins: 250, test: (_s, r) => (r?.headChain ?? 0) >= 10 },
+  { id: 'streak20', coins: 250, test: (_s, r) => (r?.streak ?? 0) >= 20 },
   { id: 'gold', coins: 80, test: (_s, r) => (r?.bonusGold ?? 0) > 0 },
   { id: 'focus5', coins: 60, test: (_s, r) => (r?.focusUses ?? 0) >= 5 },
   { id: 'barrel2', coins: 60, test: (_s, r) => (r?.barrelBest ?? 0) >= 2 },
@@ -172,7 +182,7 @@ function better(r: DatedRecord, n: number, date: string, lowerIsBetter = false):
  */
 export function bankRecords(save: SaveData, bank: RunBank, r: RunSummary, date: string): string[] {
   const beaten: string[] = [];
-  const reachedChapter = Math.min(CHAPTERS, Math.floor((r.reached - 1) / 7));
+  const reachedChapter = Math.min(CHAPTERS, Math.floor((r.reached - 1) / STAGES));
   if (!r.daily && reachedChapter > save.chapter) save.chapter = reachedChapter;
   for (let i = bank.bosses; i < r.bossKills.length; i++) {
     const k = r.bossKills[i]!;

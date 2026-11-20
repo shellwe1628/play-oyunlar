@@ -24,7 +24,8 @@ export type ArcherType = EnemyType | 'player';
 export type KoCause = 'shot' | 'head' | 'fall' | 'burn' | 'bomb' | 'blast' | 'crush';
 type BrainState = 'wait' | 'draw' | 'cool' | 'jump' | 'spawn';
 
-export const BOSS_KINDS: readonly BossKind[] = ['shields', 'giant', 'summoner', 'warden'];
+/** chapter bosses in chapter order (index = chapter, and the index of `save.bosses`) */
+export const BOSS_KINDS: readonly BossKind[] = ['shields', 'giant', 'summoner', 'warden', 'magma', 'tempest'];
 
 export interface Archer {
   id: number;
@@ -145,10 +146,10 @@ export interface Apple {
   t: number;
 }
 
-/** A ledge that moves: slides on a rail or swings on two ropes from the top of the sky. */
+/** A ledge that moves: slides on a rail, swings on two ropes from the top of the sky, or bobs up and down on the lava. */
 export interface Mover {
   index: number;
-  kind: 'slide' | 'swing';
+  kind: 'slide' | 'swing' | 'bob';
   x0: number;
   y0: number;
   amp: number;
@@ -245,6 +246,10 @@ export type GameEvent =
   | { t: 'plate'; x: number; y: number }
   | { t: 'bossPhase'; id: number; kind: BossKind; x: number; y: number }
   | { t: 'summon'; id: number; x: number; y: number }
+  /** the cinder king calls lava rocks down on the player (one event per rock, at its spawn point) */
+  | { t: 'eruption'; id: number; x: number; y: number }
+  /** the wind turns around (a gusty stage, or the storm caller); `by` is the boss's id or -1 */
+  | { t: 'gust'; wind: number; by: number; x: number; y: number }
   | { t: 'barrel'; x: number; y: number; kills: number }
   | { t: 'rope'; x: number; y: number; kind: 'swing' | 'rock'; riders: number }
   | { t: 'rockHit'; x: number; y: number; id: number }
@@ -333,6 +338,9 @@ export interface World {
   objective: Objective | null;
   /** horizontal wind on arrows, px/s² (+ blows toward the enemies) */
   wind: number;
+  /** gusty stage: seconds between wind flips (0 = steady) and the time to the next one */
+  gustEvery: number;
+  gustT: number;
   cards: CardId[];
   stats: PlayerStats;
   offer: CardId[];
@@ -560,7 +568,7 @@ function newRun(): RunStats {
     multiBest: 0,
     focusUses: 0,
     bossKills: [],
-    chapterStage: [0, 0, 0, 0],
+    chapterStage: Array<number>(CHAPTERS).fill(0),
     bonusGold: 0,
     barrelBest: 0,
     ropeDrops: 0,
@@ -605,6 +613,8 @@ export function createWorld(opts: WorldOptions): World {
     bonus: null,
     objective: null,
     wind: 0,
+    gustEvery: 0,
+    gustT: 0,
     cards: [],
     stats: statsFor([], meta, opts.difficulty ?? 'classic'),
     offer: [],
@@ -705,10 +715,13 @@ function spawnWave(w: World, wave: number, instant: boolean): void {
   defs.forEach((l, i) => {
     if (l.slide) w.movers.push({ index: i + 1, kind: 'slide', x0: l.x, y0: l.y, amp: l.slide.amp, speed: l.slide.speed, theta: w.waveRng.range(0, Math.PI * 2), pivotX: 0, len: 0, cut: false, vy: 0 });
     if (l.swing) w.movers.push({ index: i + 1, kind: 'swing', x0: l.x, y0: l.y, amp: l.swing.amp, speed: l.swing.speed, theta: w.waveRng.range(0, Math.PI * 2), pivotX: l.x + l.w / 2, len: l.y - PIVOT_Y, cut: false, vy: 0 });
+    if (l.bob) w.movers.push({ index: i + 1, kind: 'bob', x0: l.x, y0: l.y, amp: l.bob.amp, speed: l.bob.speed, theta: w.waveRng.range(0, Math.PI * 2), pivotX: 0, len: 0, cut: false, vy: 0 });
   });
   // wind: the stage's strength, a seeded direction (the daily's wind modifier blows everywhere)
   const windBase = def.wind ?? (w.mod === 'wind' ? 140 : 0);
   w.wind = windBase > 0 ? windBase * (w.waveRng.chance(0.5) ? 1 : -1) : 0;
+  w.gustEvery = w.wind !== 0 ? def.gust ?? 0 : 0;
+  w.gustT = w.gustEvery;
   def.enemies.forEach((type, i) => {
     const L = w.ledges[i + 1]!;
     const e = makeArcher(w, type, L.x + L.w / 2, L.y, -1, i + 1);
@@ -720,7 +733,7 @@ function spawnWave(w: World, wave: number, instant: boolean): void {
       const lap = pos.endless ? Math.floor((wave - ENDLESS_WAVE) / STAGES) + 1 : 0;
       e.bossKind = kind;
       e.hp = e.maxHp = Math.round(bossHp(kind, lap, w.difficulty) * (w.mod === 'giants' ? 1.3 : 1));
-      e.special = kind === 'summoner' ? 3.5 : 2.5;
+      e.special = kind === 'summoner' ? 3.5 : kind === 'magma' ? 4.5 : kind === 'tempest' ? 4 : 2.5;
     }
     if (type === 'cover') {
       // a rock wall in front (toward the player): it stops arrows aimed at the body
@@ -1082,6 +1095,7 @@ function tick(w: World): void {
     }
   }
   updateMovers(w);
+  if (w.gustEvery > 0 && w.phase === 'play') updateGust(w);
   updateArcher(w, w.player);
   for (let i = 0; i < w.enemies.length; i++) updateArcher(w, w.enemies[i]!);
   updatePlates(w);
@@ -1135,6 +1149,21 @@ function clearWave(w: World): void {
   }
 }
 
+/** A gusty stage: the wind turns around every `gustEvery` seconds. */
+function updateGust(w: World): void {
+  w.gustT -= DT;
+  if (w.gustT > 0) return;
+  w.gustT = w.gustEvery;
+  flipWind(w, 1, -1, 360, 330);
+}
+
+/** The wind turns around (×k, at most `cap`); a gust event for the views. */
+function flipWind(w: World, k: number, by: number, x: number, y: number, cap = 320): void {
+  const s = w.wind === 0 ? 1 : -Math.sign(w.wind);
+  w.wind = s * Math.min(cap, Math.max(150, Math.abs(w.wind) * k));
+  w.events.push({ t: 'gust', wind: w.wind, by, x, y });
+}
+
 /** Health back at a wave clear: TUNING.waveClearHeal, +4 per chapter. */
 export function clearHeal(w: World): number {
   return TUNING.waveClearHeal + 4 * Math.min(CHAPTERS, w.chapter);
@@ -1185,6 +1214,7 @@ function updateMovers(w: World): void {
     } else {
       m.theta += m.speed * DT;
       if (m.kind === 'slide') L.x = m.x0 + m.amp * Math.sin(m.theta);
+      else if (m.kind === 'bob') L.y = m.y0 + m.amp * Math.sin(m.theta);
       else {
         const ang = (m.amp / m.len) * Math.sin(m.theta);
         L.x = m.pivotX + m.len * Math.sin(ang) - L.w / 2;
@@ -1494,7 +1524,7 @@ function knockOut(w: World, a: Archer, cause: KoCause): void {
   // loot bursts out of bosses and elites
   if (a.type === 'boss' || a.type === 'elite') {
     const ch = a.bossKind ? BOSS_KINDS.indexOf(a.bossKind) : w.chapter;
-    const loot = Math.round((a.type === 'boss' ? 25 + 10 * ch : 10 + 3 * Math.min(4, w.chapter)) * coinMul(w));
+    const loot = Math.round((a.type === 'boss' ? 25 + 10 * ch : 10 + 3 * Math.min(CHAPTERS, w.chapter)) * coinMul(w));
     r.coins += loot;
     w.events.push({ t: 'loot', x: hx, y: hy, coins: loot, kind: a.type });
   }
@@ -1668,6 +1698,8 @@ function healAllies(w: World, h: Archer): void {
 
 /** Boss mechanics that are not just "more health". */
 function bossSpecial(w: World, a: Archer): void {
+  if (a.bossKind === 'magma') return eruption(w, a);
+  if (a.bossKind === 'tempest') return tempest(w, a);
   if (a.bossKind !== 'summoner') return;
   a.special -= DT;
   if (a.special > 0) return;
@@ -1690,6 +1722,46 @@ function bossSpecial(w: World, a: Archer): void {
     w.events.push({ t: 'summon', id: e.id, x: L.x + L.w / 2, y: L.y - 60 });
     return;
   }
+}
+
+/** Lava rocks that the cinder king's eruption drops around the player (offsets in px from PLAYER_X). */
+export const ERUPTION_PHASE1 = [-110, 0, 110] as const;
+export const ERUPTION_PHASE2 = [-95, -15, 65, 145] as const;
+
+/**
+ * The cinder king: every 7 s (5 s in phase 2) it calls lava rocks down from the top of the sky
+ * in a row around the player. They are bombs: one always falls on the player (in phase 2 the
+ * row is offset so two land close) and each can be shot out of the air.
+ */
+function eruption(w: World, a: Archer): void {
+  a.special -= DT;
+  if (a.special > 0) return;
+  a.special = a.bossPhase === 2 ? 5 : 7;
+  const row = a.bossPhase === 2 ? ERUPTION_PHASE2 : ERUPTION_PHASE1;
+  const jitter = w.brainRng.range(-24, 24);
+  for (let i = 0; i < row.length; i++) {
+    const x = PLAYER_X + row[i]! + jitter;
+    const y = -70 - i * 45;
+    const ar = spawnArrow(w, 'enemy', 'bomb', x, y, w.brainRng.range(-25, 25), 120);
+    if (ar) {
+      ar.by = a.id;
+      ar.life = 4;
+    }
+    w.run.enemyShots += 1;
+    w.events.push({ t: 'eruption', id: a.id, x, y: 40 });
+  }
+  a.stagger = Math.max(a.stagger, 0.35);
+}
+
+/**
+ * The storm caller: every 6 s (4 s in phase 2) it turns the wind around, and phase 2 blows
+ * harder (×1.25 each turn, up to 320 px/s²). Its arrows fly in a fan of three in phase 2.
+ */
+function tempest(w: World, a: Archer): void {
+  a.special -= DT;
+  if (a.special > 0) return;
+  a.special = a.bossPhase === 2 ? 4 : 6;
+  flipWind(w, a.bossPhase === 2 ? 1.25 : 1, a.id, a.body.x[PT.head]!, a.body.y[PT.head]!);
 }
 
 function updatePlates(w: World): void {
@@ -1857,6 +1929,11 @@ function release(w: World, a: Archer): void {
         break;
       case 'summoner':
         spread = ONE_ARROW;
+        break;
+      case 'magma':
+      case 'tempest':
+        // their threat is the eruption / the turning wind; phase 2 adds a fan
+        spread = a.bossPhase === 2 ? BOSS_SPREAD : ONE_ARROW;
         break;
       case 'warden': {
         kind = 'orb';
@@ -2085,14 +2162,14 @@ function ledgeHit(w: World, a: Arrow, x0: number, y0: number): boolean {
   return true;
 }
 
-function explode(w: World, a: Arrow, x: number, y: number): void {
+function explode(w: World, a: Arrow, x: number, y: number, direct = false): void {
   a.active = false;
   const p = w.player;
   let hurt = false;
   if (p.alive) {
     const dx = p.body.x[PT.neck]! - x;
     const dy = (p.body.y[PT.neck]! + p.body.y[PT.pelvis]!) / 2 - y;
-    if (dx * dx + dy * dy < TUNING.bombRadius ** 2) {
+    if (direct || dx * dx + dy * dy < TUNING.bombRadius ** 2) {
       hurt = true;
       if (w.shieldLeft > 0) {
         w.shieldLeft -= 1;
@@ -2412,7 +2489,8 @@ function enemyArrowHits(w: World, a: Arrow, x0: number, y0: number): void {
     const hx = h.x;
     const hy = h.y;
     if (a.kind === 'bomb') {
-      explode(w, a, hx, hy);
+      // it struck the player: it hurts even when it burst on the crown, beyond the blast radius
+      explode(w, a, hx, hy, true);
       return;
     }
     if (p.alive && w.shieldLeft > 0) {

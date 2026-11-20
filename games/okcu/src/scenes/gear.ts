@@ -17,6 +17,7 @@ export const TIER_LOOK: Record<BowTier, { limb: number; light: number; string: n
   gilded: { limb: 0xf2b630, light: 0xfff0a0, string: 0xfff6d6, tip: 0xb5541d },
   crystal: { limb: 0x7fe6ff, light: 0xffffff, string: 0xe8fdff, tip: 0x9a7bff },
   mythic: { limb: 0xff5fd2, light: 0xfff0ff, string: 0xffffff, tip: 0x7a3cff },
+  celestial: { limb: 0xffe7a0, light: 0xffffff, string: 0xfffbe6, tip: 0xff9a3c },
 };
 
 /** HSV hue → RGB colour (s = 0.65, v = 1), for the mythic bow's cycling aura. */
@@ -110,7 +111,8 @@ export function drawBowTierBits(g: G, tier: BowTier, t1x: number, t1y: number, m
         g.fillStyle(look.limb, 1).fillTriangle(x - by * 1.6 * s, y + bx * 1.6 * s, x + by * 1.6 * s, y - bx * 1.6 * s, x + bx * L, y + by * L);
       }
       break;
-    case 'mythic': {
+    case 'mythic':
+    case 'celestial': {
       const flap = Math.sin(time * 5) * 0.25;
       for (const [x, y, sgn] of [
         [t1x, t1y, 1],
@@ -123,6 +125,16 @@ export function drawBowTierBits(g: G, tier: BowTier, t1x: number, t1y: number, m
           const ey = y + Math.sin(ang) * len;
           g.lineStyle(7 * s, INK, 1).lineBetween(x, y, ex, ey);
           g.lineStyle(4 * s, f === 0 ? PALETTE.white : look.limb, 1).lineBetween(x, y, ex, ey);
+        }
+      }
+      if (tier === 'celestial') {
+        // a small sun set in the grip, its rays turning
+        g.fillStyle(INK, 1).fillCircle(mx, my, 9 * s);
+        g.fillStyle(look.tip, 1).fillCircle(mx, my, 6.5 * s);
+        g.fillStyle(PALETTE.white, 1).fillCircle(mx, my, 3 * s);
+        for (let i = 0; i < 6; i++) {
+          const a = time * 1.5 + (i * Math.PI) / 3;
+          g.lineStyle(2.5 * s, look.light, 0.9).lineBetween(mx + Math.cos(a) * 10 * s, my + Math.sin(a) * 10 * s, mx + Math.cos(a) * 15 * s, my + Math.sin(a) * 15 * s);
         }
       }
       break;

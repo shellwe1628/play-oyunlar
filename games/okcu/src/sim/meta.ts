@@ -1,5 +1,6 @@
 /** Between-run progress: permanent upgrades, the bow, coins, cosmetics (pure). Stored by src/save.ts. */
 import { freshBow, type BowState } from './bow';
+import { CHAPTERS } from './chapters';
 
 /** Shop upgrades. Damage is not one of them any more: the forged bow is the one damage track. */
 export const UPGRADE_IDS = ['hp', 'coins', 'reroll', 'starter'] as const;
@@ -11,8 +12,9 @@ export const NO_META: MetaLevels = { hp: 0, coins: 0, reroll: 0, starter: 0, bow
 
 /** cost(level) = round(base × growth^level) until max. */
 export const UPGRADES: Record<UpgradeId, { max: number; base: number; growth: number }> = {
-  hp: { max: 8, base: 25, growth: 1.55 }, // +15 max health per level
-  coins: { max: 6, base: 35, growth: 1.6 }, // +20 % coins per level
+  // levels 9 … 12 (and coins 7, 8) came with chapters 5 and 6: 7 339 + 1 526 more coins to spend
+  hp: { max: 12, base: 25, growth: 1.55 }, // +15 max health per level
+  coins: { max: 8, base: 35, growth: 1.6 }, // +20 % coins per level
   reroll: { max: 1, base: 60, growth: 1 }, // a second card reroll per run
   starter: { max: 1, base: 90, growth: 1 }, // start every run holding one random card
 };
@@ -25,7 +27,7 @@ export function upgradeCost(id: UpgradeId, level: number): number | null {
   return Math.round(u.base * u.growth ** level);
 }
 
-export type Hat = 'none' | 'beanie' | 'feather' | 'crown' | 'tophat' | 'horns' | 'flower' | 'party' | 'bandana' | 'wizard' | 'beret' | 'laurel';
+export type Hat = 'none' | 'beanie' | 'feather' | 'crown' | 'tophat' | 'horns' | 'flower' | 'party' | 'bandana' | 'wizard' | 'beret' | 'laurel' | 'ember' | 'halo';
 export type BowSkin = 'wood' | 'leaf' | 'candy' | 'dark' | 'ice' | 'gold';
 
 export interface Cosmetic {
@@ -34,6 +36,8 @@ export interface Cosmetic {
   wave: number;
   /** … or after this many runs played (0 = by wave only) */
   runs: number;
+  /** … or (when set) once this chapter's boss has been beaten (index into `save.bosses`) */
+  boss?: number;
   hat: Hat;
   scarf: number;
   bow: BowSkin;
@@ -53,14 +57,21 @@ export const COSMETICS: readonly Cosmetic[] = [
   { id: 'wizard', wave: 0, runs: 15, hat: 'wizard', scarf: 0x6b4ca8, bow: 'ice' },
   { id: 'beret', wave: 0, runs: 25, hat: 'beret', scarf: 0x2ec4f0, bow: 'wood' },
   { id: 'laurel', wave: 30, runs: 0, hat: 'laurel', scarf: 0xfff3d6, bow: 'gold' },
+  // chapters 5 and 6: two looks for their bosses, one deep in the citadel, one for old hands
+  { id: 'ember', wave: 0, runs: 0, boss: 4, hat: 'ember', scarf: 0xff6a1a, bow: 'dark' },
+  { id: 'halo', wave: 0, runs: 0, boss: 5, hat: 'halo', scarf: 0xfff6c8, bow: 'gold' },
+  { id: 'storm', wave: 40, runs: 0, hat: 'wizard', scarf: 0x58d0ff, bow: 'ice' },
+  { id: 'veteran', wave: 0, runs: 40, hat: 'beret', scarf: 0xffd23f, bow: 'gold' },
 ];
 
-export function isUnlocked(c: Cosmetic, best: number, runs: number): boolean {
+/** `bosses`: the save's boss knockouts per chapter (boss looks stay locked without it). */
+export function isUnlocked(c: Cosmetic, best: number, runs: number, bosses: readonly number[] = []): boolean {
+  if (c.boss !== undefined) return (bosses[c.boss] ?? 0) > 0;
   return c.runs > 0 ? runs >= c.runs : best >= c.wave;
 }
 
-export function unlockedCosmetics(best: number, runs = 0): Cosmetic[] {
-  return COSMETICS.filter((c) => isUnlocked(c, best, runs));
+export function unlockedCosmetics(best: number, runs = 0, bosses: readonly number[] = []): Cosmetic[] {
+  return COSMETICS.filter((c) => isUnlocked(c, best, runs, bosses));
 }
 
 export function cosmeticById(id: string): Cosmetic {
@@ -90,7 +101,7 @@ export interface Records {
 
 export function freshRecords(): Records {
   const d = (): DatedRecord => ({ n: 0, date: '' });
-  return { chapter: [d(), d(), d(), d()], bossTime: [d(), d(), d(), d()], headChain: d(), streak: d(), runKos: d(), endless: d() };
+  return { chapter: Array.from({ length: CHAPTERS }, d), bossTime: Array.from({ length: CHAPTERS }, d), headChain: d(), streak: d(), runKos: d(), endless: d() };
 }
 
 export interface SaveData {
@@ -107,7 +118,7 @@ export interface SaveData {
   /** daily challenge: consecutive days with the goal met, and the last such day */
   dailyStreak: number;
   dailyDone: string;
-  /** furthest chapter reached (0 … 3, 4 = endless unlocked): the chapter select offers 0 … this */
+  /** furthest chapter reached (0 … CHAPTERS − 1, CHAPTERS = endless unlocked): the chapter select offers 0 … this */
   chapter: number;
   /** chapter bosses beaten, per chapter (endless bosses count for their kind) */
   bosses: number[];
@@ -131,7 +142,7 @@ export function freshSave(): SaveData {
     dailyStreak: 0,
     dailyDone: '',
     chapter: 0,
-    bosses: [0, 0, 0, 0],
+    bosses: Array<number>(CHAPTERS).fill(0),
     records: freshRecords(),
     feats: [],
     rank: 0,

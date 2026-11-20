@@ -6,11 +6,11 @@
 import { createRng, type Rng } from '@oyun/core/pure';
 import { attemptForge, bowCost, type BowState } from './bow';
 import type { CardId } from './cards';
-import { ENDLESS_WAVE, stageOf } from './chapters';
+import { CHAPTERS, ENDLESS_WAVE, stageOf } from './chapters';
 import { clamp, minLaunchSpeed } from './geom';
 import { NO_META, type MetaLevels } from './meta';
 import { PT } from './ragdoll';
-import { TUNING } from './tuning';
+import { PLAYER_X, TUNING } from './tuning';
 import type { Difficulty } from './waves';
 import { advance, aliveEnemies, arcClear, arrowSpeed, canShoot, createWorld, pickCard, playerOrigin, reachedWave, shoot, solveWithWind, takeEvents, targetPoint, unleash, type Archer, type World } from './world';
 
@@ -119,7 +119,34 @@ function tacticalPoint(w: World): { x: number; y: number } | null {
   return null;
 }
 
+/** Where to meet a lava rock that will land on the player: its fall, led by the arrow's flight time. */
+function fallingRock(w: World): { x: number; y: number } | null {
+  for (const a of w.arrows) {
+    if (!a.active || a.owner !== 'enemy' || a.kind !== 'bomb' || a.state !== 0 || a.vy <= 0) continue;
+    if (Math.abs(a.x - PLAYER_X) > 70 || a.y < -60 || a.y > 520) continue;
+    const o = playerOrigin(w, -Math.PI / 2);
+    let t = 0.2;
+    let x = a.x;
+    let y = a.y;
+    for (let i = 0; i < 3; i++) {
+      x = a.x + a.vx * t;
+      y = a.y + a.vy * t + 0.5 * TUNING.gravity * t * t;
+      t = Math.hypot(x - o.x, y - o.y) / 1650;
+    }
+    if (y < o.y - 120) return { x, y };
+  }
+  return null;
+}
+
 export function planShot(w: World, rng: Rng, p: Profile): { angle: number; power: number } | null {
+  // a lava rock falling on the player is shot down first (careful players only); it may be a
+  // touch behind the bow, so the solved angle is taken the short way round (−π … π)
+  const rock = p.tactics && w.phase === 'play' ? fallingRock(w) : null;
+  if (rock) {
+    const s = solveShot(w, rock.x, rock.y, p.loft, p.wind);
+    const angle = s.angle > Math.PI ? s.angle - Math.PI * 2 : s.angle;
+    return { angle: angle + gauss(rng) * p.angleError, power: s.power };
+  }
   let pt: { x: number; y: number } | null = null;
   if (w.phase === 'bonus') pt = bonusPoint(w);
   else {
@@ -158,7 +185,7 @@ export interface RunReport {
   wave: number;
   /** wave reached (the next wave after a clear) */
   reached: number;
-  /** 0 … 3 chapter reached, 4 endless */
+  /** 0 … CHAPTERS − 1 chapter reached, CHAPTERS endless */
   chapter: number;
   firstKoShot: number;
   shots: number;
@@ -193,7 +220,8 @@ export function playRun(seed: number, rng: Rng, p: Profile, opts: RunOptions | M
   const limit = o.maxTime ?? maxTime;
   while (w.time < limit && w.phase !== 'over') {
     if (o.untilWave && reachedWave(w) >= o.untilWave) break;
-    if (o.god) w.player.hp = w.player.maxHp;
+    // god: no hit can knock the player out (late hits can be bigger than the whole health bar)
+    if (o.god) w.player.hp = 1e6;
     if (w.phase === 'cards') {
       let idx = 0;
       for (const c of p.prefer) {
@@ -224,7 +252,7 @@ export function playRun(seed: number, rng: Rng, p: Profile, opts: RunOptions | M
   return {
     wave: w.wave,
     reached,
-    chapter: reached >= ENDLESS_WAVE ? 4 : stageOf(reached).chapter,
+    chapter: reached >= ENDLESS_WAVE ? CHAPTERS : stageOf(reached).chapter,
     firstKoShot: w.run.firstKoShot,
     shots: w.run.shots,
     kos: w.run.kos,

@@ -7,6 +7,10 @@ import { freshRecords, freshSave, UPGRADE_IDS, type DatedRecord, type SaveData }
  * Save schema version. Bump it (and add a migration) when a field is renamed, removed or
  * changes type. Adding a field only needs a default in freshSave() (repair fills it in).
  * v3: the shop's damage upgrade became the forged bow (`upgrades.dmg` → `bow.level`).
+ * Chapters 5 and 6 needed no new version: `bosses` and the records' per-chapter lists grow from
+ * four to six entries (repairSave pads them with zeros, never drops what is there), and
+ * `chapter` keeps its meaning (furthest chapter reached), so a save that had endless unlocked
+ * (chapter 4) now opens chapter 5, the Ember Caldera, as its next step and keeps everything else.
  */
 export const SAVE_VERSION = 3;
 

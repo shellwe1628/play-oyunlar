@@ -374,6 +374,8 @@ export function createHud(stage: Stage, game: Game): Module {
     tip('rope', w.movers.some((m) => m.kind === 'swing'), 'hud.ropeTip');
     tip('barrel', w.props.some((p) => p.active && p.kind === 'barrel'), 'hud.barrelTip');
     tip('rock', w.props.some((p) => p.active && p.kind === 'rock'), 'hud.rockTip');
+    tip('bob', w.movers.some((m) => m.kind === 'bob'), 'hud.bobTip');
+    tip('gust', w.gustEvery > 0, 'hud.gustTip');
     const obj = e.objective ? objectiveText(e.objective, e.limit) : null;
     if (e.boss) {
       showBanner(t(`boss.${e.boss}`), t(`boss.tip.${e.boss}`));
@@ -396,6 +398,7 @@ export function createHud(stage: Stage, game: Game): Module {
    * objective line). World effects, damage numbers and words, combat call-outs, the flash and the
    * vignettes are the fx module's.
    */
+  let eruptAt = -9;
   function handleEvents(w: World, events: readonly GameEvent[]): void {
     for (const e of events) {
       switch (e.t) {
@@ -524,6 +527,17 @@ export function createHud(stage: Stage, game: Game): Module {
           break;
         case 'waveStart':
           onWaveStart(w, e);
+          break;
+        case 'eruption':
+          // one roar per volley (each rock is its own event)
+          if (painter.t - eruptAt > 0.4) {
+            eruptAt = painter.t;
+            audio.playPreset(SFX.roar, { volume: 0.35 });
+            audio.playPreset(SFX.fuse, { volume: 0.5 });
+          }
+          break;
+        case 'gust':
+          audio.playPreset(SFX.charge, { volume: 0.45, pitch: e.wind > 0 ? 2 : -2 });
           break;
         case 'waveClear':
           // bank at every wave clear: nothing earned is lost if the app dies at the card pick

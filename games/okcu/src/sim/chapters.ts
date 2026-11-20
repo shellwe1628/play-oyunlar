@@ -1,17 +1,19 @@
 /**
- * Run structure (pure): four chapters of seven stages, each in its own themed world, then
+ * Run structure (pure): six chapters of seven stages, each in its own themed world, then
  * endless. Stage 4 brings the chapter's elite, stage 7 its boss; a bonus round follows every
- * chapter. Every stage lists its enemies, ledges (some slide or swing on a rope) and props.
+ * chapter. Every stage lists its enemies, ledges (some slide, swing on a rope or bob on lava)
+ * and props. Chapter 5 (Ember Caldera) adds ledges that rise and sink on the lava; chapter 6
+ * (Sky Citadel) adds gusts that turn the wind around mid-stage.
  */
 import type { Rng } from '@oyun/core/pure';
 import type { EnemyType } from './combat';
 
 export const STAGES = 7;
-export const CHAPTERS = 4;
+export const CHAPTERS = 6;
 /** first wave of endless mode */
 export const ENDLESS_WAVE = CHAPTERS * STAGES + 1;
 
-export type BossKind = 'shields' | 'giant' | 'summoner' | 'warden';
+export type BossKind = 'shields' | 'giant' | 'summoner' | 'warden' | 'magma' | 'tempest';
 export type BonusKind = 'gallery' | 'apples' | 'defend';
 export type ObjectiveKind = 'noHit' | 'fast' | 'heads' | 'multi';
 
@@ -24,6 +26,8 @@ export interface LedgeDef {
   slide?: { amp: number; speed: number };
   /** hangs on a rope from the top of the sky and swings: amplitude px, angular speed rad/s */
   swing?: { amp: number; speed: number };
+  /** rises and sinks (floats on the lava): amplitude px, angular speed rad/s */
+  bob?: { amp: number; speed: number };
 }
 
 export type PropDef = { kind: 'barrel'; on: number } | { kind: 'rock'; above: number };
@@ -34,12 +38,14 @@ export interface StageDef {
   props?: readonly PropDef[];
   /** wind strength in px/s² (sign is seeded per run) */
   wind?: number;
+  /** gusts: the wind turns around every this many seconds of play (needs wind) */
+  gust?: number;
   boss?: BossKind;
   elite?: boolean;
 }
 
 export interface ChapterDef {
-  id: 'meadow' | 'snow' | 'desert' | 'night';
+  id: 'meadow' | 'snow' | 'desert' | 'night' | 'volcano' | 'sky';
   theme: number;
   boss: BossKind;
   bonus: BonusKind;
@@ -72,8 +78,24 @@ const BOSS = [
   { x: 330, y: 300, w: 130 },
 ] as const;
 
+/** the caldera: basalt pillars standing out of the lava, stepped up toward the back */
+const D = [
+  { x: 448, y: 880, w: 150 },
+  { x: 560, y: 690, w: 140 },
+  { x: 340, y: 560, w: 140 },
+  { x: 520, y: 400, w: 150 },
+] as const;
+/** the citadel: cloud islands in a zig-zag, two of them close to the top of the sky */
+const E = [
+  { x: 360, y: 840, w: 150 },
+  { x: 556, y: 760, w: 140 },
+  { x: 440, y: 560, w: 150 },
+  { x: 340, y: 380, w: 140 },
+] as const;
+
 const slide = (l: LedgeDef, amp = 60, speed = 0.9): LedgeDef => ({ ...l, w: Math.min(l.w, 150), slide: { amp, speed } });
 const swing = (l: LedgeDef, amp = 55, speed = 1.1): LedgeDef => ({ ...l, w: Math.min(l.w, 140), swing: { amp, speed } });
+const bob = (l: LedgeDef, amp = 42, speed = 1): LedgeDef => ({ ...l, bob: { amp, speed } });
 const with_ = (base: readonly LedgeDef[], i: number, f: (l: LedgeDef) => LedgeDef): LedgeDef[] => base.map((l, k) => (k === i ? f(l) : { ...l }));
 
 export const CHAPTER_DEFS: readonly ChapterDef[] = [
@@ -137,15 +159,45 @@ export const CHAPTER_DEFS: readonly ChapterDef[] = [
       { enemies: ['boss'], ledges: BOSS, boss: 'warden' },
     ],
   },
+  {
+    id: 'volcano',
+    theme: 4,
+    boss: 'magma',
+    bonus: 'defend',
+    stages: [
+      { enemies: ['bomber', 'archer'], ledges: with_(D, 1, (l) => bob(l)) },
+      { enemies: ['shield', 'bomber', 'archer'], ledges: with_(D, 0, (l) => bob(l, 36, 1.2)), props: [{ kind: 'rock', above: 2 }] },
+      { enemies: ['ward', 'jumper', 'bomber'], ledges: with_(D, 2, (l) => bob(l, 48, 0.9)), props: [{ kind: 'barrel', on: 1 }] },
+      { enemies: ['elite', 'bomber', 'healer'], ledges: with_(D, 2, (l) => bob(l, 40, 1.1)), elite: true, props: [{ kind: 'barrel', on: 0 }] },
+      { enemies: ['catcher', 'bomber', 'cover', 'archer'], ledges: with_(with_(D, 0, (l) => bob(l, 34, 1.3)), 3, (l) => bob(l, 46, 0.8)) },
+      { enemies: ['ward', 'bomber', 'healer', 'jumper'], ledges: with_(with_(D, 1, (l) => bob(l, 44, 1.2)), 2, (l) => slide(l, 50, 1)), props: [{ kind: 'rock', above: 0 }, { kind: 'barrel', on: 1 }] },
+      { enemies: ['boss'], ledges: with_(with_(BOSS, 1, (l) => bob(l, 40, 0.9)), 2, (l) => bob(l, 36, 1.2)), boss: 'magma' },
+    ],
+  },
+  {
+    id: 'sky',
+    theme: 5,
+    boss: 'tempest',
+    bonus: 'apples',
+    stages: [
+      { enemies: ['archer', 'archer', 'catcher'], ledges: E, wind: 170, gust: 6 },
+      { enemies: ['shield', 'ward', 'archer'], ledges: with_(E, 0, (l) => slide(l, 45, 1)), wind: 180, gust: 5.5 },
+      { enemies: ['jumper', 'bomber', 'healer', 'archer'], ledges: with_(E, 2, (l) => swing(l, 50)), wind: 190, gust: 5, props: [{ kind: 'rock', above: 0 }] },
+      { enemies: ['elite', 'ward', 'catcher'], ledges: with_(E, 2, (l) => swing(l, 45, 1.2)), elite: true, wind: 200, gust: 5 },
+      { enemies: ['cover', 'catcher', 'bomber', 'ward'], ledges: with_(with_(E, 0, (l) => slide(l, 45)), 3, (l) => swing(l, 45, 1.3)), wind: 210, gust: 4.5, props: [{ kind: 'barrel', on: 2 }] },
+      { enemies: ['healer', 'shield', 'jumper', 'bomber'], ledges: with_(with_(E, 1, (l) => bob(l, 40)), 2, (l) => swing(l, 50, 1)), wind: 220, gust: 4, props: [{ kind: 'rock', above: 3 }] },
+      { enemies: ['boss'], ledges: with_(BOSS, 1, (l) => slide(l, 30, 0.9)), boss: 'tempest', wind: 200 },
+    ],
+  },
 ];
 
 export interface StagePos {
-  /** 0 … 3 a chapter, 4 endless */
+  /** 0 … CHAPTERS − 1 a chapter, CHAPTERS endless */
   chapter: number;
   /** 1 … 7 */
   stage: number;
   endless: boolean;
-  /** world theme 0 … 3 */
+  /** world theme 0 … CHAPTERS − 1 */
   theme: number;
 }
 
@@ -159,16 +211,21 @@ export function stageOf(wave: number): StagePos {
   return { chapter: CHAPTERS, stage: (k % STAGES) + 1, endless: true, theme: Math.floor(k / STAGES) % CHAPTERS };
 }
 
-/** First wave of a chapter (4 = endless). */
+/** First wave of a chapter (CHAPTERS = endless). */
 export function chapterStart(chapter: number): number {
   return Math.max(0, Math.min(CHAPTERS, chapter)) * STAGES + 1;
 }
 
-/** Difficulty level at each chapter's first stage, and its rise per stage. */
-export const LEVEL_BASE: readonly number[] = [1, 3.5, 10.5, 17];
-export const LEVEL_STEP: readonly number[] = [0.2, 1, 1, 1];
+/**
+ * Difficulty level at each chapter's first stage, and its rise per stage. Chapters 5 and 6
+ * carry on from chapter 4's last stage (23): the caldera at +0.5 a stage (its bombs and
+ * floating ledges are the test), the citadel at +0.8, so neither opens with a cliff (the
+ * 'hard' curves also flatten above HARD_LATE_LEVEL, see waves.ts).
+ */
+export const LEVEL_BASE: readonly number[] = [1, 3.5, 10.5, 17, 23.5, 27];
+export const LEVEL_STEP: readonly number[] = [0.2, 1, 1, 1, 0.5, 0.8];
 /** endless: the level after the last chapter, +1 per wave */
-export const ENDLESS_LEVEL = 23.5;
+export const ENDLESS_LEVEL = 32.5;
 
 /**
  * Difficulty level of a wave: drives enemy health, damage, aim and timing (the same curves
@@ -200,14 +257,14 @@ function pick(rng: Rng): EnemyType {
   return 'archer';
 }
 
-const ENDLESS_BOSSES: readonly BossKind[] = ['shields', 'giant', 'summoner', 'warden'];
+const ENDLESS_BOSSES: readonly BossKind[] = ['shields', 'giant', 'summoner', 'warden', 'magma', 'tempest'];
 
 /** The stage to play at a wave (endless stages are drawn from the wave rng). */
 export function stageDef(wave: number, rng: Rng): StageDef {
   const p = stageOf(wave);
   if (!p.endless) return CHAPTER_DEFS[p.chapter]!.stages[p.stage - 1]!;
   const cycle = Math.floor((wave - ENDLESS_WAVE) / STAGES);
-  const bases = [A, B, C];
+  const bases = p.theme === 4 ? [D, B, C] : p.theme === 5 ? [E, A, C] : [A, B, C];
   if (p.stage === STAGES) {
     const boss = ENDLESS_BOSSES[cycle % ENDLESS_BOSSES.length]!;
     const def = CHAPTER_DEFS[ENDLESS_BOSSES.indexOf(boss)]!.stages[STAGES - 1]!;
@@ -220,13 +277,16 @@ export function stageDef(wave: number, rng: Rng): StageDef {
   let ledges: LedgeDef[] = bases[(wave + cycle) % 3]!.map((l) => ({ ...l }));
   const mover = rng.int(0, 3);
   const r = rng.next();
-  if (r < 0.35) ledges = with_(ledges, mover, (l) => slide(l, 55));
+  // the caldera's world floats its ledges on the lava; the others slide or swing them
+  if (p.theme === 4 && r < 0.65) ledges = with_(ledges, mover, (l) => bob(l, 40));
+  else if (r < 0.35) ledges = with_(ledges, mover, (l) => slide(l, 55));
   else if (r < 0.65) ledges = with_(ledges, mover, (l) => swing(l));
   const props: PropDef[] = [];
   if (rng.chance(0.5)) props.push({ kind: 'barrel', on: rng.int(0, n - 1) });
   if (rng.chance(0.4)) props.push({ kind: 'rock', above: rng.int(0, n - 1) });
   const def: StageDef = { enemies, ledges, props, elite: p.stage === 4 };
-  if (p.theme === 1 || rng.chance(0.2)) def.wind = 160 + 15 * Math.min(8, cycle) + rng.range(0, 60);
+  if (p.theme === 1 || p.theme === 5 || rng.chance(0.2)) def.wind = 160 + 15 * Math.min(8, cycle) + rng.range(0, 60);
+  if (p.theme === 5) def.gust = 5;
   return def;
 }
 

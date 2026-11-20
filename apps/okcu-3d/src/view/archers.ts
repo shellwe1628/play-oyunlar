@@ -33,6 +33,9 @@ interface Puppet {
   flat: number;
   seen: boolean;
   look: Look | null;
+  /** 1 → 0 after a hit: the body bulges and wobbles back (drawing only), and its flash colour */
+  hitK: number;
+  hitCol: THREE.Color;
 }
 
 function animKind(t: Archer['type']): Kind {
@@ -53,6 +56,8 @@ function animKind(t: Archer['type']): Kind {
 
 const WHITE = new THREE.Color(1, 1, 1);
 const FIRE = new THREE.Color(1, 0.42, 0.06);
+const GOLD = new THREE.Color(1, 0.86, 0.35);
+const HURT = new THREE.Color(1, 0.35, 0.35);
 
 export function createArchers(stage: Stage, assets: Assets, _game: Game): ArchersView {
   const kit = createRigKit(assets);
@@ -68,7 +73,7 @@ export function createArchers(stage: Stage, assets: Assets, _game: Game): Archer
     const outfit = new Outfit(rig, stage.renderer);
     const grip = new THREE.Object3D();
     stage.scene.add(rig.group, gear.group, outfit.group, grip);
-    return { rig, gear, outfit, handle: { meshes: [gear.bow], grip, tips: gear.tips }, out: newAnimOut(), vx: new Float64Array(11), vy: new Float64Array(11), release: -99, land: -99, cheer: -99, taunt: -99, brain: '', flat: 1, seen: false, look: null };
+    return { rig, gear, outfit, handle: { meshes: [gear.bow], grip, tips: gear.tips }, out: newAnimOut(), vx: new Float64Array(11), vy: new Float64Array(11), release: -99, land: -99, cheer: -99, taunt: -99, brain: '', flat: 1, seen: false, look: null, hitK: 0, hitCol: new THREE.Color(1, 1, 1) };
   }
 
   function puppetFor(w: World, a: Archer): Puppet {
@@ -76,6 +81,7 @@ export function createArchers(stage: Stage, assets: Assets, _game: Game): Archer
     if (!p) {
       p = spare.pop() ?? make();
       p.release = p.land = p.cheer = p.taunt = -99;
+      p.hitK = 0;
       p.brain = a.brain;
       p.flat = 1;
       p.rig.group.visible = true;
@@ -137,7 +143,10 @@ export function createArchers(stage: Stage, assets: Assets, _game: Game): Archer
     const rig = p.rig;
     // the string is held while drawing; the arrow shows whenever one is nocked
     const nocked = a.alive && draw > 0.02;
-    rig.pose({ x: p.vx, y: p.vy, facing: a.facing, scale: a.scale, flat: p.flat, aim: a.aim, aimed: nocked ? Math.min(1, draw * 4) : 0 });
+    // impact squash: the hit body bulges, then wobbles back (an elastic, ~0.3 s; looks only)
+    p.hitK = Math.max(0, p.hitK - frame.real * 3.4);
+    const bulge = p.hitK > 0 ? 1 + 0.17 * p.hitK * Math.cos((1 - p.hitK) * 15) : 1;
+    rig.pose({ x: p.vx, y: p.vy, facing: a.facing, scale: a.scale * bulge, flat: p.flat, aim: a.aim, aimed: nocked ? Math.min(1, draw * 4) : 0 });
 
     const ready = a.type === 'player' ? w.reload <= 0 : a.brain === 'draw' && a.type !== 'bomber';
     p.gear.update({ facing: a.facing, scale: a.scale, gx: rig.hand.x, gy: rig.hand.y, gz: rig.hand.z, angle: rig.hand.angle, draw: nocked ? draw : 0, nocked, nx: rig.pinch.x, ny: rig.pinch.y, arrow: a.alive && ready && (nocked || a.type === 'player'), visible: a.type !== 'healer' });
@@ -148,7 +157,7 @@ export function createArchers(stage: Stage, assets: Assets, _game: Game): Archer
     // hit flash, then the flicker of a burn
     const u = rig.uniforms;
     if (a.hurt < 0.14) {
-      u.uFlashCol.value.copy(WHITE);
+      u.uFlashCol.value.copy(p.hitK > 0 ? p.hitCol : WHITE);
       u.uFlash.value = 0.75 * (1 - a.hurt / 0.14);
     } else if (a.burn > 0 && a.alive) {
       u.uFlashCol.value.copy(FIRE);
@@ -171,6 +180,15 @@ export function createArchers(stage: Stage, assets: Assets, _game: Game): Archer
       else if (e.t === 'playerHit' && e.by >= 0) mark(e.by, 'taunt');
       else if (e.t === 'caught') mark(e.id, 'taunt');
       else if (e.t === 'waveClear') mark(w.player.id, 'cheer');
+      else if (e.t === 'hit' || e.t === 'playerHit') {
+        const p = puppets.get(e.t === 'hit' ? e.id : w.player.id);
+        if (p) {
+          // a headshot or crit lands harder and flashes gold; a knockout hardest
+          const hard = e.t === 'hit' && (e.slowmo || e.crit || e.ko);
+          p.hitK = hard ? 1 : 0.7;
+          p.hitCol.copy(e.t === 'playerHit' ? HURT : hard ? GOLD : WHITE);
+        }
+      }
     }
     for (const p of puppets.values()) p.seen = false;
     drawOne(w, w.player, frame);

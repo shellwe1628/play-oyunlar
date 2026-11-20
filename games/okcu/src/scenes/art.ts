@@ -60,6 +60,10 @@ export function bossLook(kind: string | null): Look {
       return { body: 0xe8a33c, shade: 0xb5761d, hat: 'turban', scarf: 0x8e4cb8, bow: 'gold' };
     case 'warden':
       return { body: 0x4b4fa8, shade: 0x2f3278, hat: 'lanternhelm', scarf: 0xb9c4ff, bow: 'dark' };
+    case 'magma':
+      return { body: 0x4a3236, shade: 0x2a1a1e, hat: 'ember', scarf: 0xff6a1a, bow: 'dark' };
+    case 'tempest':
+      return { body: 0x5fb4e8, shade: 0x3a7cb0, hat: 'halo', scarf: 0xfff6c8, bow: 'ice' };
     default:
       return { body: PALETTE.boss, shade: PALETTE.bossShade, hat: 'horns-boss', scarf: PALETTE.bossScarf, bow: 'dark' };
   }
@@ -767,6 +771,31 @@ function drawHat(g: G, hat: Look['hat'], hx: number, hy: number, r: number, ux: 
       }
       g.fillStyle(PALETTE.gold, 1).fillRect(c.x - r, c.y - 6, 2 * r, 9);
       g.fillStyle(PALETTE.danger, 1).fillCircle(c.x, c.y - 2, 4);
+      break;
+    }
+    case 'ember': {
+      // a crown of flames: five tongues over a dark band
+      const c = top(0.8);
+      g.fillStyle(PALETTE.ink, 1).fillRect(c.x - r - 4, c.y - 8, 2 * r + 8, 14);
+      for (let i = 0; i < 5; i++) {
+        const k = -1 + i * 0.5;
+        const x = c.x + rx * k * r * 0.85;
+        const y = c.y + ry * k * r * 0.85;
+        const h = i === 2 ? 26 : i % 2 ? 20 : 15;
+        g.fillStyle(PALETTE.ink, 1).fillTriangle(x - 8, y + 3, x + 8, y + 3, x + ux * (h + 5), y + uy * (h + 5));
+        g.fillStyle(accent, 1).fillTriangle(x - 5, y + 1, x + 5, y + 1, x + ux * h, y + uy * h);
+        g.fillStyle(PALETTE.fireCore, 1).fillTriangle(x - 2.5, y, x + 2.5, y, x + ux * h * 0.55, y + uy * h * 0.55);
+      }
+      g.fillStyle(0x3a2a2e, 1).fillRect(c.x - r, c.y - 5, 2 * r, 8);
+      break;
+    }
+    case 'halo': {
+      // a ring of cloud floating over the head with a gold glint
+      const c = top(1.45);
+      g.fillStyle(PALETTE.ink, 1).fillEllipse(c.x, c.y, r * 2.3, r * 0.78);
+      g.fillStyle(PALETTE.gold, 1).fillEllipse(c.x, c.y, r * 2.05, r * 0.56);
+      g.fillStyle(PALETTE.ink, 1).fillEllipse(c.x, c.y, r * 1.35, r * 0.24);
+      for (let i = 0; i < 4; i++) g.fillStyle(PALETTE.white, 1).fillCircle(c.x + rx * (i - 1.5) * r * 0.55, c.y + ry * (i - 1.5) * r * 0.55 - 3, 6 + (i % 2) * 2);
       break;
     }
     default:

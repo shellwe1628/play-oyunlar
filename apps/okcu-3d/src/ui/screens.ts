@@ -177,6 +177,8 @@ export function createTitle(ui: Ui, parent: HTMLElement, hooks: TitleHooks): Tit
         const cw = 430;
         buttons.push(button(root, 720 - cw / 2 - 18, row2, t('title.chapterPick', { c: t(`chapter.${Math.min(CHAPTERS, ui.game.chapter)}`) }), ui.unlock, tap(hooks.chapter), { width: cw, height: 84, fontSize: 32, variant: 'secondary' }));
       }
+      // the menu drops in one button after another (eased with an overshoot, 55 ms apart)
+      buttons.forEach((b, i) => b.el.animate([{ transform: 'translateY(-36px) scale(0.7)', opacity: 0 }, { transform: 'none', opacity: 1 }], { delay: 120 + i * 55, duration: 320, easing: EASE.backOut, fill: 'backwards' }));
     },
     hide() {
       const r = root;
@@ -470,7 +472,12 @@ export function createResult(ui: Ui, parent: HTMLElement, hooks: ResultHooks): R
       if (r.chainBest > 1) lines.push(`${t('rec.chain')} ${r.chainBest}`);
       if (r.records.length > 0) lines.push(t('result.records'));
       for (const id of r.feats.slice(0, 2)) lines.push(`★ ${t(`feat.${id}.name`)}`);
-      for (const line of lines) el('div', 'line', inner).textContent = line;
+      lines.forEach((line, i) => {
+        const l = el('div', 'line', inner);
+        l.textContent = line;
+        // the card's lines slide in one by one after the panel lands
+        l.animate([{ transform: 'translateX(-26px)', opacity: 0 }, { transform: 'none', opacity: 1 }], { delay: 220 + i * 70, duration: 240, easing: EASE.cubicOut, fill: 'backwards' });
+      });
       const fit = Math.min(1, (560 - 52) / Math.max(1, inner.offsetHeight));
       if (fit < 1) {
         inner.style.transform = `scale(${fit.toFixed(3)})`;

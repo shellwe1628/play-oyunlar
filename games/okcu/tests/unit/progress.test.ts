@@ -53,19 +53,20 @@ const run = (over: Partial<RunSummary> = {}): RunSummary => ({
 });
 
 describe('the bow: levels, damage, cost, looks', () => {
-  it('+0 … +20, damage +8 % a level to +10 then +10 %, cost rising every level', () => {
-    expect(BOW_MAX).toBe(20);
-    expect([0, 1, 5, 10, 11, 15, 20].map(bowDamage)).toEqual([1, 1.08, 1.4, 1.8, 1.9, 2.3, 2.8]);
+  it('+0 … +25, damage +8 % a level to +10 then +10 %, cost rising every level (gently past +20)', () => {
+    expect(BOW_MAX).toBe(25);
+    expect([0, 1, 5, 10, 11, 15, 20, 25].map(bowDamage)).toEqual([1, 1.08, 1.4, 1.8, 1.9, 2.3, 2.8, 3.3]);
     expect([0, 1, 2, 5, 10, 15, 19].map((l) => bowCost(l))).toEqual([40, 55, 76, 200, 1002, 5015, 18187]);
-    expect(bowCost(20)).toBeNull();
+    expect([20, 21, 22, 23, 24].map((l) => bowCost(l))).toEqual([20370, 22814, 25552, 28618, 32052]);
+    expect(bowCost(25)).toBeNull();
     for (let l = 1; l < BOW_MAX; l++) expect(bowCost(l)!).toBeGreaterThan(bowCost(l - 1)!);
   });
-  it('six tiers change the look: wood, horn, steel, gilded, crystal, mythic', () => {
-    expect([0, 2, 3, 6, 9, 12, 15, 20].map(bowTier)).toEqual(['wood', 'wood', 'horn', 'steel', 'gilded', 'crystal', 'mythic', 'mythic']);
+  it('seven tiers change the look: wood, horn, steel, gilded, crystal, mythic, celestial', () => {
+    expect([0, 2, 3, 6, 9, 12, 15, 20, 21, 25].map(bowTier)).toEqual(['wood', 'wood', 'horn', 'steel', 'gilded', 'crystal', 'mythic', 'mythic', 'celestial', 'celestial']);
   });
-  it('the glow ladder: seven bands, each a visible step with its own colour', () => {
-    expect(GLOW_BANDS.map((b) => b.id)).toEqual(['none', 'frost', 'verdant', 'golden', 'azure', 'magenta', 'prism']);
-    expect([0, 2, 3, 5, 6, 9, 12, 15, 16, 19, 20].map(glowBand)).toEqual([0, 0, 1, 1, 2, 3, 4, 4, 5, 5, 6]);
+  it('the glow ladder: eight bands, each a visible step with its own colour', () => {
+    expect(GLOW_BANDS.map((b) => b.id)).toEqual(['none', 'frost', 'verdant', 'golden', 'azure', 'magenta', 'prism', 'solar']);
+    expect([0, 2, 3, 5, 6, 9, 12, 15, 16, 19, 20, 24, 25].map(glowBand)).toEqual([0, 0, 1, 1, 2, 3, 4, 4, 5, 5, 6, 6, 7]);
     expect(bowGlow(0)).toMatchObject({ sheen: 0, aura: 0, flame: 0, motes: 0, core: 0, light: 0 });
     expect(bowGlow(3)).toMatchObject({ aura: 0.18, flame: 0, core: 0 });
     expect(bowGlow(6).flame).toBe(0);
@@ -81,7 +82,8 @@ describe('the bow: levels, damage, cost, looks', () => {
     }
     expect(new Set(GLOW_BANDS.map((b) => b.color)).size).toBe(GLOW_BANDS.length);
     expect(nextGlowBand(7)).toEqual({ band: 3, from: 9 });
-    expect(nextGlowBand(20)).toBeNull();
+    expect(nextGlowBand(20)).toEqual({ band: 7, from: 25 });
+    expect(nextGlowBand(25)).toBeNull();
   });
 });
 
@@ -181,7 +183,8 @@ describe('progress score and ranks', () => {
     expect(rankOf(0)).toBe(0);
     expect(rankOf(199)).toBe(0);
     expect(rankOf(200)).toBe(1);
-    expect(rankOf(9000)).toBe(RANKS.length - 1);
+    expect(rankOf(11400)).toBe(RANKS.length - 1);
+    expect(rankOf(9000)).toBe(RANKS.findIndex((r) => r.id === 'mythic'));
     expect(toNextRank(150)).toBe(50);
     expect(toNextRank(1e6)).toBeNull();
   });

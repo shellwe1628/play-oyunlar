@@ -6,6 +6,12 @@
  * the white flash, the hurt and focus vignettes, hit-stop and the headshot slow motion.
  * The 3D view adds light to them (additive flashes, hot streaks) but no new rules.
  *
+ * Added in 3D (looks only, never fed back into the simulation): the wave's finishing knockout
+ * (a deep slow motion that eases back, a gold burst and a "FINISHER!" call), the stage-clear
+ * celebration (confetti and a ring around the player; fireworks after a chapter's boss), the
+ * cinder king's eruption warning, gust streaks across the sky, and ember / cloud debris in the
+ * new worlds. Reduced motion (see stage.ts CALM) also softens the white flash.
+ *
  * Left to the HUD module, which owns those pieces: flying coins and the coin counter, banners
  * (wave, boss, "Phase 2!"), the objective result line and the one-time tips.
  */
@@ -19,6 +25,7 @@ import { type EnemyType } from '@sim/combat';
 import { type GameEvent, type World } from '@sim/world';
 import { type Frame, type FxView, type Stage } from '../contract';
 import { m, sx, sy } from '../coords';
+import { CALM } from './stage';
 import { hueColor, mixWhite, TILE } from './fx/atlas';
 import { SpriteBatch } from './fx/batch';
 import { Particles } from './fx/particles';
@@ -100,9 +107,15 @@ export function createFx(stage: Stage): FxView {
   };
 
   // things the 2D game does a moment after an event (real seconds)
-  const later: { at: number; kind: 'land' }[] = [];
+  const later: { at: number; kind: 'land' | 'fireworks' }[] = [];
+  let fireworkN = 0;
 
   let slowT = 0;
+  /** the finishing knockout's slow motion: real seconds left of FINISH_T */
+  let finishT = 0;
+  const FINISH_T = 0.7;
+  /** the last eruption call (several rocks arrive as one volley) */
+  let lastEruption = -9;
   let stopT = 0;
   let flashA = 0;
   let hurtFlash = 0;
@@ -193,6 +206,18 @@ export function createFx(stage: Stage): FxView {
         break;
       case 'ko': {
         fx.feathers(e.x, e.y, ENEMY_TINT[e.enemy], e.enemy === 'boss' ? 10 : 4);
+        if (e.enemy !== 'boss' && (w.phase === 'play' || w.phase === 'clear') && w.enemies.every((x) => !x.alive)) {
+          // the wave's last knockout: time sags and eases back, a gold burst, a call
+          finishT = FINISH_T;
+          hitStop(80);
+          shake(0.4);
+          flashA = Math.max(flashA, 0.22);
+          fx.ring(e.x, e.y, PALETTE.gold, 2.2, 0.45);
+          fx.flash(e.x, e.y, PALETTE.gold, 260, 0.35, 0.6);
+          fx.sparks(e.x, e.y, 16, PALETTE.gold, 420);
+          fx.streaks(e.x, e.y, 0, 6.28, 10, PALETTE.fireCore, 820);
+          callout(t('hud.lastKo'), PALETTE.gold, 66);
+        }
         const word = e.cause === 'fall' ? t('hud.fell') : e.cause === 'burn' ? t('hud.burned') : e.cause === 'crush' ? t('hud.crushed') : e.cause === 'head' ? null : t('hud.ko');
         if (word) text.word(e.id, e.x, e.y, word, PALETTE.cream, 60);
         if (e.enemy === 'boss') {
@@ -231,7 +256,9 @@ export function createFx(stage: Stage): FxView {
       case 'thunk':
         // the ledge throws up its own stuff: dirt, snow, sand or stone chips
         fx.shards(e.x, e.y, -Math.PI / 2, theme.debris, 6, 280);
-        fx.puffs(e.x, e.y, 3, theme.ambient === 'snow' ? PALETTE.white : PALETTE.dust, 70);
+        fx.puffs(e.x, e.y, 3, theme.ambient === 'snow' || theme.ambient === 'wisps' ? PALETTE.white : PALETTE.dust, 70);
+        // the caldera's rock spits embers where an arrow bites
+        if (theme.ambient === 'embers') fx.sparks(e.x, e.y, 5, PALETTE.fire, 220);
         break;
       case 'bounce':
         fx.sparks(e.x, e.y, 5, PALETTE.grassLight, 240);
@@ -324,6 +351,53 @@ export function createFx(stage: Stage): FxView {
         fx.flash(e.x, e.y, PALETTE.danger, 460, 0.45, 0.6);
         fx.streaks(e.x, e.y, 0, 6.28, 14, PALETTE.danger, 900);
         break;
+      case 'eruption': {
+        // a warning glint where each rock enters the sky, and one rumble per volley
+        fx.ring(e.x, e.y + 30, PALETTE.fire, 1.4, 0.35);
+        fx.flash(e.x, e.y + 30, PALETTE.fire, 200, 0.3, 0.7);
+        fx.sparks(e.x, e.y + 30, 8, PALETTE.fireCore, 300);
+        if (skyT - lastEruption > 0.4) {
+          lastEruption = skyT;
+          shake(0.35);
+          const boss = w.enemies.find((x) => x.id === e.id);
+          if (boss) {
+            const hx = boss.body.x[PT.head]!;
+            const hy = boss.body.y[PT.head]!;
+            fx.ring(hx, hy, PALETTE.fire, 2.4, 0.5);
+            fx.streaks(hx, hy, -Math.PI / 2, 1.4, 10, PALETTE.fire, 900);
+            fx.puffs(hx, hy - 30, 5, PALETTE.smoke, 160);
+          }
+          callout(t('hud.eruption'), PALETTE.fire, 64);
+        }
+        break;
+      }
+      case 'gust': {
+        // the wind turns: white streaks sweep across the sky the new way
+        const dir = e.wind > 0 ? 0 : Math.PI;
+        const x0 = e.wind > 0 ? 120 : 600;
+        for (let i = 0; i < 5; i++) fx.streaks(x0, 220 + i * 170, dir, 0.18, 4, PALETTE.white, 900 + i * 60);
+        if (e.by >= 0) {
+          fx.ring(e.x, e.y, PALETTE.bubble, 2.4, 0.45);
+          fx.flash(e.x, e.y, PALETTE.bubble, 260, 0.3, 0.6);
+          fx.sparks(e.x, e.y, 12, PALETTE.white, 380);
+          shake(0.3);
+        }
+        callout(t('hud.gust'), PALETTE.bubble, 56);
+        break;
+      }
+      case 'waveClear': {
+        // the player's little victory: confetti off the ledge and a ring; a boss stage gets fireworks
+        const p = w.player.body;
+        const cx = p.x[PT.neck]!;
+        const cy = p.y[PT.neck]!;
+        const colors = [PALETTE.gold, PALETTE.pink, PALETTE.bubble, PALETTE.leaf];
+        for (let i = 0; i < colors.length; i++) fx.shards(cx, cy - 30, -Math.PI / 2, colors[i]!, 4, 420);
+        fx.ring(cx, cy, PALETTE.gold, 1.6, 0.4);
+        if (w.stage === 7) {
+          later.push({ at: 0.35, kind: 'fireworks' }, { at: 0.75, kind: 'fireworks' }, { at: 1.15, kind: 'fireworks' });
+        }
+        break;
+      }
       case 'summon':
         fx.ring(e.x, e.y, PALETTE.imp, 1.8, 0.4);
         fx.sparks(e.x, e.y, 12, PALETTE.imp, 300);
@@ -405,7 +479,19 @@ export function createFx(stage: Stage): FxView {
     }
   }
 
-  function runLater(kind: 'land', w: World): void {
+  function runLater(kind: 'land' | 'fireworks', w: World): void {
+    if (kind === 'fireworks') {
+      // a chapter's boss is down: shells burst over the arena, each its own colour
+      const colors = [PALETTE.gold, PALETTE.pink, PALETTE.bubble, PALETTE.heal];
+      const col = colors[fireworkN++ % colors.length]!;
+      const x = 200 + ((fireworkN * 211) % 360);
+      const y = 260 + ((fireworkN * 97) % 220);
+      fx.ring(x, y, col, 2.2, 0.5);
+      fx.sparks(x, y, 22, col, 480);
+      fx.streaks(x, y, 0, 6.28, 12, mixWhite(col, 0.5), 700);
+      fx.flash(x, y, col, 260, 0.3, 0.6);
+      return;
+    }
     if (kind === 'land') {
       for (const x of w.enemies) {
         if (x.gone) continue;
@@ -505,6 +591,12 @@ export function createFx(stage: Stage): FxView {
         slowT -= real;
         scale = slowT > 0.07 ? 0.12 : 0.45;
       }
+      // the finishing knockout: down to 0.2 at once, easing back to full speed (quadratic)
+      if (finishT > 0) {
+        finishT = Math.max(0, finishT - real);
+        const k = 1 - finishT / FINISH_T;
+        scale = Math.min(scale, 0.2 + 0.8 * k * k);
+      }
       // hit-stop: a short freeze on body hits
       if (stopT > 0) {
         stopT -= real;
@@ -522,7 +614,7 @@ export function createFx(stage: Stage): FxView {
         text.clear();
         later.length = 0;
         for (let i = 0; i < BEAMS; i++) beams[i * 6 + 4] = 9;
-        slowT = stopT = flashA = hurtFlash = 0;
+        slowT = stopT = flashA = hurtFlash = finishT = 0;
       }
       lastWorldTime = w.time;
       skyT += real;
@@ -550,7 +642,7 @@ export function createFx(stage: Stage): FxView {
       lines.commit();
       under.commit();
 
-      shownFlash = setOpacity(flashEl, flashA, shownFlash);
+      shownFlash = setOpacity(flashEl, CALM ? flashA * 0.4 : flashA, shownFlash);
       shownHurt = setOpacity(hurtEl, hurtFlash > 0.02 ? hurtFlash * 0.85 : 0, shownHurt);
       shownFocus = setOpacity(focusEl, hurtFlash <= 0.02 && w.focusT > 0 ? 0.35 + Math.sin(skyT * 6) * 0.08 : 0, shownFocus);
     },

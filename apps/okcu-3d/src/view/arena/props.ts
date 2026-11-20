@@ -428,7 +428,7 @@ export function createProps(scene: THREE.Scene): PropsView {
           r.bar.scale.x = half * 2;
           r.stops[0].position.x = -half;
           r.stops[1].position.x = half;
-        } else {
+        } else if (mv.kind === 'swing') {
           grow(swings, nSwing + 1, makeSwing);
           const s = swings[nSwing++]!;
           if (!mv.cut) {

@@ -620,7 +620,7 @@ describe('balance (scripted players over many seeds, fresh save unless noted)', 
   const CH2 = 8;
   const CH3 = 15;
   const CH4 = 22;
-  const ENDLESS = 29;
+  const ENDLESS = 43;
   const table: Record<string, unknown> = {};
   const note = (name: string, reached: number[]) => {
     table[name] = { median: median(reached), ch2: share(reached, CH2), ch3: share(reached, CH3), ch4: share(reached, CH4), endless: share(reached, ENDLESS), min: Math.min(...reached), max: Math.max(...reached) };
@@ -677,7 +677,7 @@ describe('balance (scripted players over many seeds, fresh save unless noted)', 
 describe('robustness: every chapter, boss and bonus round can be played through', () => {
   it('a scripted player kept alive clears every stage of every chapter and the first endless laps (no stuck waves, no NaN)', () => {
     let worst = 0;
-    for (const chapter of [0, 1, 2, 3, 4]) {
+    for (const chapter of [0, 1, 2, 3, 4, 5, 6]) {
       for (const seed of [11, 12]) {
         const startWave = chapter * 7 + 1;
         let waveT0 = 0;

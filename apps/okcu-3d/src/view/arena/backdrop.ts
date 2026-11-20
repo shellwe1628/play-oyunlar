@@ -516,7 +516,185 @@ function buildNight(set: WorldSet, th: Theme): void {
   };
 }
 
-const BUILDERS = [buildMeadow, buildSnow, buildDesert, buildNight] as const;
+/** Chapter 5: a smoking volcano with a glowing crater far off, lava rivers down black slopes. */
+function buildVolcano(set: WorldSet, th: Theme): void {
+  const sky = th.skyBottom;
+  const LAVA = 0xff6a1e;
+  const LAVA_HOT = 0xffc04a;
+  const glowMat = new THREE.SpriteMaterial({ map: glowTexture(), color: LAVA, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, opacity: 0.75 });
+
+  // far: the great cone with its crater, hazed toward the burning horizon
+  const far2 = makeLayer(set.root, 300);
+  const cx = W * 0.58;
+  const crest = (x: number): number => {
+    const d = Math.abs(x - cx);
+    const cone = d < 70 ? H * 0.3 + Math.abs(Math.sin(x * 0.09)) * 8 : H * 0.3 + (d - 70) * 0.62;
+    return Math.min(H * 0.6 - Math.abs(Math.sin(x * 0.011)) * 30, cone);
+  };
+  const pale = mixHex(th.far, sky, 0.35);
+  const fp2: THREE.BufferGeometry[] = [ridge(crest, tintHex(pale, 0.1), pale, mixHex(pale, sky, 0.3), 160, 12)];
+  // lava tongues down the cone (unlit, so they glow)
+  for (const [dx, len] of [[-30, 120], [24, 170], [52, 90]] as const) {
+    const x0 = cx + dx;
+    let px = x0;
+    let py = H * 0.3 + 4;
+    for (let k = 1; k <= 6; k++) {
+      const x = x0 + dx * k * 0.35 + Math.sin(k * 1.7 + dx) * 8;
+      const y = H * 0.3 + (len * k) / 6;
+      fp2.push(bar(px, py, x, y, 5 - k * 0.5, mixHex(LAVA, LAVA_HOT, 1 - k / 6)));
+      px = x;
+      py = y;
+    }
+  }
+  addMesh(far2, merge(fp2));
+  const crater = new THREE.Sprite(glowMat);
+  crater.position.set(sx(cx), sy(H * 0.3), 0.1);
+  crater.scale.setScalar(m(190));
+  far2.group.add(crater);
+  set.glows.push(crater);
+  // a smoke column leaning with the wind (soft unlit puffs)
+  const smoke: THREE.BufferGeometry[] = [];
+  for (let i = 0; i < 7; i++) {
+    const r = 34 + i * 12;
+    smoke.push(blob(cx + i * 22 + Math.sin(i * 1.3) * 12, H * 0.27 - i * 46, r, mixHex(0x5a4048, sky, 0.12 + i * 0.03), mixHex(0x3a262c, sky, 0.1), 0.8));
+  }
+  const smokeLayer = makeLayer(set.root, 320);
+  addMesh(smokeLayer, merge(smoke));
+  set.layers.push(far2, smokeLayer);
+
+  const far = makeLayer(set.root, 190);
+  addMesh(far, ridge((x) => H * 0.61 - Math.abs(Math.sin(x * 0.007 + 0.4)) * 64 - Math.sin(x * 0.027) * 12, tintHex(th.far, 0.08), th.far, th.farShade, 110));
+  addMesh(makeLayer(set.root, 150), mist(H * 0.55, H * 0.66, H * 0.8, mixHex(sky, 0xff9a5a, 0.3), 0.45), mistMat);
+
+  // near: black jagged slopes with lava rivers and basalt spires
+  const near = makeLayer(set.root, 80);
+  const yNear = (x: number): number => H * 0.74 - Math.abs(Math.sin(x * 0.011 + 1)) * 56 - Math.abs(Math.sin(x * 0.037)) * 14;
+  const np: THREE.BufferGeometry[] = [ridge(yNear, tintHex(th.near, 0.14), th.near, th.nearShade, 80, 16)];
+  for (let i = -2; i < 9; i++) {
+    const x = 30 + i * 112 + ((i * 41) % 40);
+    const y = yNear(x) + 8;
+    const h = 60 + ((i * 37) % 4) * 22;
+    np.push(cone(x, y, 16, h, 5, tintHex(th.nearShade, 0.12), shadeHex(th.nearShade, 0.7), undefined, i + 31));
+  }
+  const rivers: THREE.BufferGeometry[] = [];
+  for (const x0 of [-60, 250, 560, 820]) {
+    let px = x0;
+    let py = yNear(x0) + 6;
+    for (let k = 1; k <= 7; k++) {
+      const x = x0 + Math.sin(k * 0.9 + x0) * 22 + k * 6;
+      const y = yNear(x0) + 6 + k * 26;
+      rivers.push(bar(px, py, x, y, 7 - k * 0.4, mixHex(LAVA_HOT, LAVA, k / 7)));
+      px = x;
+      py = y;
+    }
+  }
+  addMesh(near, merge(np));
+  addMesh(near, merge(rivers));
+  set.layers.push(far, near);
+  addMesh(makeLayer(set.root, 52), mist(H * 0.73, H * 0.83, H * 0.96, mixHex(sky, LAVA, 0.25), 0.4), mistMat);
+
+  // fore: a lava lake with a crust of black rock, glowing at its seams
+  const fore = makeLayer(set.root, 30);
+  const yFore = (x: number): number => H * 0.9 - Math.abs(Math.sin(x * 0.0062 + 2.2)) * 40 - Math.sin(x * 0.019) * 9;
+  const foreC = mixHex(th.nearShade, 0x120a0c, 0.4);
+  const fp: THREE.BufferGeometry[] = [ridge(yFore, tintHex(foreC, 0.16), foreC, shadeHex(foreC, 0.6), 70)];
+  const lake: THREE.BufferGeometry[] = [ridge((x) => H * 0.955 + Math.sin(x * 0.02) * 4, LAVA_HOT, LAVA, mixHex(LAVA, 0x8a2010, 0.6), 40)];
+  for (let i = 0; i < 6; i++) {
+    const x = -100 + i * 170 + ((i * 47) % 50);
+    const y = yFore(x) + 8;
+    const g = jitter(new THREE.IcosahedronGeometry(m(15 + (i % 3) * 7), 0), 0.22, i + 9).scale(1.3, 0.8, 0.8).translate(sx(x), sy(y), 0);
+    fp.push(baked(g, tintHex(foreC, 0.14), shadeHex(foreC, 0.6), true));
+  }
+  addMesh(fore, merge(lake));
+  addMesh(fore, merge(fp));
+  for (let i = 0; i < 4; i++) {
+    const s = new THREE.Sprite(glowMat);
+    s.position.set(sx(-40 + i * 260), sy(H * 0.96), 0.2);
+    s.scale.setScalar(m(240));
+    fore.group.add(s);
+    set.glows.push(s);
+  }
+  set.layers.push(fore);
+
+  addIslands(set, th, [
+    [105, 320, 40, 130],
+    [262, 600, 24, 165],
+    [655, 215, 30, 150],
+  ], th.cap);
+
+  set.animate = (t) => {
+    // the crater breathes, the lava pools flicker
+    set.glows[0]!.scale.setScalar(m(180 + Math.sin(t * 1.3) * 26 + Math.sin(t * 4.1) * 8));
+    for (let i = 1; i < set.glows.length; i++) set.glows[i]!.scale.setScalar(m(220 + Math.sin(t * 2.2 + i * 1.7) * 30));
+    glowMat.opacity = 0.62 + Math.sin(t * 3.3) * 0.08;
+  };
+}
+
+/** Chapter 6: a white citadel on a sea of clouds at sunrise, banners on its spires. */
+function buildSky(set: WorldSet, th: Theme): void {
+  const sky = th.skyBottom;
+  const GOLD = 0xf2c75a;
+  const puffRow = (layer: Layer, y: number, r: number, lit: number, shade: number, step: number, seed: number): void => {
+    const parts: THREE.BufferGeometry[] = [];
+    for (let x = X0, i = 0; x < X1; x += step, i++) {
+      const k = 0.75 + (((i * 7 + seed) % 5) / 5) * 0.6;
+      parts.push(blob(x, y - Math.sin(i * 1.7 + seed) * r * 0.25, r * k, lit, shade, 0.62));
+    }
+    parts.push(ridge(() => y + r * 0.2, lit, mixHex(lit, shade, 0.5), shade, 60, 300));
+    addMesh(layer, merge(parts));
+  };
+
+  // far: the cloud sea at the horizon and the citadel standing out of it
+  const far2 = makeLayer(set.root, 300);
+  puffRow(far2, H * 0.6, 60, mixHex(th.far, sky, 0.3), mixHex(th.farShade, sky, 0.4), 70, 3);
+  const castle = makeLayer(set.root, 230);
+  const cp: THREE.BufferGeometry[] = [];
+  const wallC = mixHex(0xf3eee2, sky, 0.3);
+  const wallS = mixHex(0xc9c0ae, sky, 0.3);
+  const roofC = mixHex(0x5a8fe8, sky, 0.3);
+  const base = H * 0.585;
+  cp.push(box(W * 0.5, base - 60, 360, 120, 40, wallC, wallS));
+  for (const [x, w, h] of [[W * 0.5 - 200, 50, 260], [W * 0.5 - 90, 60, 330], [W * 0.5, 80, 420], [W * 0.5 + 100, 60, 300], [W * 0.5 + 210, 46, 230]] as const) {
+    cp.push(baked(new THREE.CylinderGeometry(m(w / 2), m(w / 2 + 4), m(h), 10).translate(sx(x), sy(base) + m(h) / 2, 0), wallC, wallS, true));
+    cp.push(cone(x, base - h, w / 2 + 8, w * 1.1, 10, roofC, shadeHex(roofC, 0.7)));
+    cp.push(box(x, base - h - w * 1.1 - 10, 3, 24, 3, GOLD, shadeHex(GOLD, 0.7)));
+  }
+  addMesh(castle, merge(cp));
+  addMesh(makeLayer(set.root, 200), mist(H * 0.5, H * 0.6, H * 0.72, sky, 0.55), mistMat);
+
+  const far = makeLayer(set.root, 170);
+  puffRow(far, H * 0.66, 50, 0xffffff, mixHex(th.farShade, sky, 0.2), 64, 7);
+  // near and fore: billowing banks the islands float over
+  const near = makeLayer(set.root, 80);
+  puffRow(near, H * 0.78, 46, 0xffffff, th.nearShade, 58, 11);
+  set.layers.push(far2, castle, far, near);
+  addMesh(makeLayer(set.root, 52), mist(H * 0.76, H * 0.86, H * 0.98, sky, 0.35), mistMat);
+  const fore = makeLayer(set.root, 30);
+  puffRow(fore, H * 0.93, 54, 0xffffff, mixHex(th.nearShade, 0xb8c6e6, 0.4), 66, 17);
+  set.layers.push(fore);
+
+  // pennants on two far spires and a pair of drifting sky-boats (bobbing)
+  addIslands(set, th, [
+    [100, 300, 40, 130],
+    [262, 590, 26, 165],
+    [650, 230, 32, 150],
+  ], 0xffffff);
+  const sail = new THREE.Color(0xfff6e0);
+  for (let i = 0; i < 2; i++) {
+    const layer = makeLayer(set.root, 120 + i * 50);
+    set.layers.push(layer);
+    const hull = baked(new THREE.SphereGeometry(m(16), 12, 6, 0, Math.PI * 2, Math.PI / 2, Math.PI / 2).scale(1.9, 0.75, 0.7), mixHex(0x9a6a3c, sky, 0.35), mixHex(0x6e4526, sky, 0.35), true);
+    const mast = baked(new THREE.BoxGeometry(m(2), m(40), m(2)).translate(0, m(22), 0), mixHex(0x6e4526, sky, 0.4), mixHex(0x6e4526, sky, 0.4), true);
+    const cloth = baked(new THREE.PlaneGeometry(m(26), m(28)).translate(m(13), m(26), 0), sail.getHex(), mixHex(0xd8c8a8, sky, 0.3), false);
+    const mesh = addMesh(layer, merge([hull, mast, cloth]));
+    const x = i === 0 ? 170 : 590;
+    const y = i === 0 ? 420 : 260;
+    mesh.position.set(sx(x), sy(y), 0);
+    set.bobs.push({ obj: mesh, y: sy(y), amp: m(9), speed: 0.5 + i * 0.2, phase: i * 2 });
+  }
+}
+
+const BUILDERS = [buildMeadow, buildSnow, buildDesert, buildNight, buildVolcano, buildSky] as const;
 
 // ---------------------------------------------------------------- lighting per world
 
@@ -532,6 +710,10 @@ const LIGHTS: readonly LightPreset[] = [
   { sun: 0xffffff, sunI: 2.45, sky: 0xe6f2ff, ground: 0xb4c4de, hemiI: 1.45 },
   { sun: 0xffc892, sunI: 2.8, sky: 0xffbfa0, ground: 0xa8686a, hemiI: 1.15 },
   { sun: 0xe4e9ff, sunI: 2.2, sky: 0xcdd2f0, ground: 0x8a88aa, hemiI: 1.5 },
+  // the caldera: a hot key light, a dim ashen sky fill and a lava-red bounce from below
+  { sun: 0xffb887, sunI: 2.5, sky: 0xd09a90, ground: 0xc0502e, hemiI: 1.45 },
+  // the citadel: bright warm sunrise, white cloud bounce from below
+  { sun: 0xfff0d8, sunI: 2.6, sky: 0xe0ecff, ground: 0xf2ece0, hemiI: 1.45 },
 ];
 
 // ---------------------------------------------------------------- the backdrop
@@ -574,7 +756,8 @@ export function createBackdrop(scene: THREE.Scene): Backdrop {
   let blend = 1;
   let clock = 0;
 
-  const sunPos = (th: Theme): [number, number, number] => (th.id === 'desert' ? [W * 0.5, H * 0.5, 110] : [W * 0.74, H * 0.17, 56]);
+  const sunPos = (th: Theme): [number, number, number] =>
+    th.id === 'desert' ? [W * 0.5, H * 0.5, 110] : th.id === 'volcano' ? [W * 0.22, H * 0.2, 74] : th.id === 'sky' ? [W * 0.3, H * 0.46, 92] : [W * 0.74, H * 0.17, 56];
 
   function blendTo(i: number, k: number): void {
     const th = THEMES[i]!;
@@ -746,18 +929,23 @@ export function createBackdrop(scene: THREE.Scene): Backdrop {
   const mat4 = new THREE.Matrix4();
   let ambientKind: Theme['ambient'] | null = null;
 
+  /** how many points each weather draws (embers: rising sparks; wisps: streaks, like the sand) */
+  const ambientCount = (k: Theme['ambient']): number => (k === 'fireflies' ? 18 : k === 'meadow' ? 16 : k === 'embers' ? 34 : N_AMBIENT);
   function setAmbient(th: Theme): void {
     ambientKind = th.ambient;
-    sand.visible = th.ambient === 'sand';
-    ambient.visible = th.ambient !== 'sand';
-    sandMat.color.setHex(th.capLight);
-    ambMat.blending = th.ambient === 'fireflies' ? THREE.AdditiveBlending : THREE.NormalBlending;
-    ambMat.map = th.ambient === 'fireflies' ? glowTexture() : dotTexture();
-    ambMat.size = ptSize(th.ambient === 'fireflies' ? 26 : th.ambient === 'snow' ? 7 : 4.5);
-    ambMat.opacity = th.ambient === 'snow' ? 0.8 : th.ambient === 'fireflies' ? 1 : 0.55;
+    const streaks = th.ambient === 'sand' || th.ambient === 'wisps';
+    sand.visible = streaks;
+    ambient.visible = !streaks;
+    sandMat.color.setHex(th.ambient === 'wisps' ? 0xffffff : th.capLight);
+    sandMat.opacity = th.ambient === 'wisps' ? 0.55 : 0.45;
+    const glowing = th.ambient === 'fireflies' || th.ambient === 'embers';
+    ambMat.blending = glowing ? THREE.AdditiveBlending : THREE.NormalBlending;
+    ambMat.map = glowing ? glowTexture() : dotTexture();
+    ambMat.size = ptSize(th.ambient === 'fireflies' ? 26 : th.ambient === 'embers' ? 16 : th.ambient === 'snow' ? 7 : 4.5);
+    ambMat.opacity = th.ambient === 'snow' ? 0.8 : glowing ? 1 : 0.55;
     ambMat.needsUpdate = true;
-    ambient.geometry.setDrawRange(0, th.ambient === 'fireflies' ? 18 : th.ambient === 'meadow' ? 16 : N_AMBIENT);
-    const c = th.ambient === 'fireflies' ? tmp.setHex(0xe8ff7a) : tmp.setHex(0xffffff);
+    ambient.geometry.setDrawRange(0, ambientCount(th.ambient));
+    const c = th.ambient === 'fireflies' ? tmp.setHex(0xe8ff7a) : th.ambient === 'embers' ? tmp.setHex(0xff8a3a) : tmp.setHex(0xffffff);
     for (let i = 0; i < N_AMBIENT; i++) ambCol.setXYZ(i, c.r, c.g, c.b);
     ambCol.needsUpdate = true;
   }
@@ -778,6 +966,15 @@ export function createBackdrop(scene: THREE.Scene): Backdrop {
           ax[i] = ax[i]! + Math.sin(t * 0.7 + ap[i]!) * 18 * dt;
           ay[i] = ay[i]! + Math.cos(t * 0.9 + ap[i]! * 1.3) * 14 * dt;
           break;
+        case 'embers':
+          // sparks rising off the lava, flickering and wandering
+          ay[i] = ay[i]! - (50 + av[i]! * 70) * dt;
+          ax[i] = ax[i]! + Math.sin(t * 2.1 + ap[i]!) * 26 * dt + wind * 0.25 * dt;
+          break;
+        case 'wisps':
+          ax[i] = ax[i]! + (60 + av[i]! * 70 + wind * 0.9) * dt;
+          ay[i] = ay[i]! + Math.sin(t * 0.8 + ap[i]!) * 8 * dt;
+          break;
         default:
           ay[i] = ay[i]! - (8 + av[i]! * 10) * dt;
           ax[i] = ax[i]! + Math.sin(t + ap[i]!) * 10 * dt;
@@ -787,11 +984,12 @@ export function createBackdrop(scene: THREE.Scene): Backdrop {
       if (ax[i]! > W + 20) ax[i] = -20;
       if (ax[i]! < -20) ax[i] = W + 20;
     }
-    if (th.ambient === 'sand') {
+    if (th.ambient === 'sand' || th.ambient === 'wisps') {
+      const wisp = th.ambient === 'wisps';
       for (let i = 0; i < N_SAND; i++) {
         const s = (REST_DIST + az[i]!) / REST_DIST;
-        const len = m(18 + av[i]! * 14) * s;
-        mat4.makeScale(len, m(2.2) * s, 1);
+        const len = m(wisp ? 60 + av[i]! * 50 : 18 + av[i]! * 14) * s;
+        mat4.makeScale(len, m(wisp ? 3 : 2.2) * s, 1);
         mat4.setPosition(sx(ax[i]!) * s * 1.15 - len / 2, EYE_LIFT + (sy(ay[i]! * 0.7 + 260) - EYE_LIFT) * s, -az[i]!);
         sand.setMatrixAt(i, mat4);
       }
@@ -799,7 +997,8 @@ export function createBackdrop(scene: THREE.Scene): Backdrop {
       return;
     }
     const fire = th.ambient === 'fireflies';
-    const n = fire ? 18 : th.ambient === 'meadow' ? 16 : N_AMBIENT;
+    const ember = th.ambient === 'embers';
+    const n = ambientCount(th.ambient);
     for (let i = 0; i < n; i++) {
       const s = (REST_DIST + az[i]!) / REST_DIST;
       const y = fire ? ay[i]! * 0.55 + 380 : th.ambient === 'meadow' ? ay[i]! * 0.6 + 300 : ay[i]!;
@@ -807,14 +1006,19 @@ export function createBackdrop(scene: THREE.Scene): Backdrop {
       if (fire) {
         const a = 0.35 + 0.65 * Math.max(0, Math.sin(t * 2.4 + ap[i]! * 3));
         ambCol.setXYZ(i, 0.82 * a, 1 * a, 0.2 * a);
+      } else if (ember) {
+        // hot near the lava, cooling as they rise
+        const heat = THREE.MathUtils.clamp(ay[i]! / H, 0, 1);
+        const a = (0.4 + 0.6 * heat) * (0.6 + 0.4 * Math.sin(t * 7 + ap[i]! * 5));
+        ambCol.setXYZ(i, 1 * a, (0.35 + 0.35 * heat) * a, 0.1 * a);
       }
     }
     ambPos.needsUpdate = true;
-    if (fire) ambCol.needsUpdate = true;
+    if (fire || ember) ambCol.needsUpdate = true;
   }
 
   // ---- the worlds (built the first time each is needed)
-  const sets: (WorldSet | null)[] = [null, null, null, null];
+  const sets: (WorldSet | null)[] = THEMES.map(() => null);
   function worldSet(i: number): WorldSet {
     let s = sets[i];
     if (!s) {

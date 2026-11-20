@@ -1,10 +1,10 @@
 import { stageOf } from '../sim/chapters';
 /** Arena themes: data and the pure rule that picks one (drawing lives in src/scenes/worlds.ts). */
 
-export type AmbientKind = 'meadow' | 'snow' | 'sand' | 'fireflies';
+export type AmbientKind = 'meadow' | 'snow' | 'sand' | 'fireflies' | 'embers' | 'wisps';
 
 export interface Theme {
-  id: 'meadow' | 'snow' | 'desert' | 'night';
+  id: 'meadow' | 'snow' | 'desert' | 'night' | 'volcano' | 'sky';
   skyTop: number;
   skyBottom: number;
   far: number;
@@ -123,6 +123,54 @@ export const THEMES: readonly Theme[] = [
     cloud: 0x6a74b8,
     cloudAlpha: 0.45,
     dark: true,
+  },
+  {
+    // chapter 5: a smoky caldera, a red sun through the ash, lava glowing under the basalt
+    id: 'volcano',
+    skyTop: 0x2b1022,
+    skyBottom: 0xff7a3a,
+    far: 0x5a2434,
+    farShade: 0x3e1726,
+    near: 0x3a2226,
+    nearShade: 0x26161a,
+    sun: 0xffb05a,
+    moon: false,
+    stars: false,
+    cap: 0x5b4e52,
+    capLight: 0x8f7a74,
+    body: 0x4a3c40,
+    bodyDark: 0x2c2226,
+    under: 0x8a3420,
+    underDark: 0x4a1a12,
+    ambient: 'embers',
+    debris: 0x6e5e5e,
+    cloud: 0x6a4248,
+    cloudAlpha: 0.6,
+    dark: true,
+  },
+  {
+    // chapter 6: a citadel above a sea of clouds at sunrise, marble islands with gold seams
+    id: 'sky',
+    skyTop: 0x3f86f0,
+    skyBottom: 0xffe7cc,
+    far: 0xe4ecff,
+    farShade: 0xc4d2f2,
+    near: 0xfafcff,
+    nearShade: 0xd8e2f6,
+    sun: 0xfff3c4,
+    moon: false,
+    stars: false,
+    cap: 0xf6f9ff,
+    capLight: 0xffffff,
+    body: 0xe6dcc6,
+    bodyDark: 0xc0ae8a,
+    under: 0xd9c27e,
+    underDark: 0xa48a4c,
+    ambient: 'wisps',
+    debris: 0xf2eee4,
+    cloud: 0xffffff,
+    cloudAlpha: 0.92,
+    dark: false,
   },
 ];
 

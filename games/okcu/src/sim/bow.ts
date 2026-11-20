@@ -1,5 +1,6 @@
 /**
- * The bow as a permanent item (pure): enhancement levels +0 … +20 bought at the forge.
+ * The bow as a permanent item (pure): enhancement levels +0 … +25 bought at the forge
+ * (+21 … +25, the celestial bow, came with chapters 5 and 6).
  * One damage track: the bow's level is the only permanent damage upgrade.
  *
  * Forge rules (shown to the player exactly as written here):
@@ -12,15 +13,15 @@
  */
 import { createRng } from '@oyun/core/pure';
 
-export const BOW_MAX = 20;
+export const BOW_MAX = 25;
 /** forge heat added by each failed attempt (percentage points as a fraction) */
 export const HEAT_STEP = 0.1;
 
-export const BOW_TIERS = ['wood', 'horn', 'steel', 'gilded', 'crystal', 'mythic'] as const;
+export const BOW_TIERS = ['wood', 'horn', 'steel', 'gilded', 'crystal', 'mythic', 'celestial'] as const;
 export type BowTier = (typeof BOW_TIERS)[number];
 
 /** First level of each tier. */
-export const TIER_FROM: Record<BowTier, number> = { wood: 0, horn: 3, steel: 6, gilded: 9, crystal: 12, mythic: 15 };
+export const TIER_FROM: Record<BowTier, number> = { wood: 0, horn: 3, steel: 6, gilded: 9, crystal: 12, mythic: 15, celestial: 21 };
 
 export function bowTier(level: number): BowTier {
   for (let i = BOW_TIERS.length - 1; i >= 0; i--) if (level >= TIER_FROM[BOW_TIERS[i]!]) return BOW_TIERS[i]!;
@@ -33,14 +34,19 @@ export function bowDamage(level: number): number {
   return Math.round((1 + 0.08 * Math.min(L, 10) + 0.1 * Math.max(0, L - 10)) * 100) / 100;
 }
 
-/** Coins for one attempt at going from `level` to `level + 1` (null at the top). */
+/**
+ * Coins for one attempt at going from `level` to `level + 1` (null at the top). ×1.38 a level to
+ * +20; the levels after it climb only ×1.12 a level (20 370 … 32 052 coins), so the last
+ * five levels cost about what +17 … +20 did and stay a goal, not a wall.
+ */
 export function bowCost(level: number): number | null {
   if (level >= BOW_MAX) return null;
-  return Math.round(40 * 1.38 ** level);
+  if (level < 20) return Math.round(40 * 1.38 ** level);
+  return Math.round(40 * 1.38 ** 19 * 1.12 ** (level - 19));
 }
 
 /** Base success chance of an attempt from `level` (levels +0 … +5 always succeed). */
-const BASE: readonly number[] = [1, 1, 1, 1, 1, 1, 0.9, 0.8, 0.7, 0.6, 0.5, 0.45, 0.4, 0.35, 0.3, 0.25, 0.22, 0.2, 0.18, 0.15];
+const BASE: readonly number[] = [1, 1, 1, 1, 1, 1, 0.9, 0.8, 0.7, 0.6, 0.5, 0.45, 0.4, 0.35, 0.3, 0.25, 0.22, 0.2, 0.18, 0.15, 0.2, 0.2, 0.18, 0.18, 0.16];
 
 export function baseChance(level: number): number {
   return BASE[Math.max(0, Math.min(BASE.length - 1, level))]!;
@@ -104,7 +110,7 @@ export function bowLevelForOldDamage(dmgLevel: number): number {
 }
 
 /**
- * The glow ladder: seven bands the player can tell apart from the colour alone. Each band
+ * The glow ladder: eight bands the player can tell apart from the colour alone. Each band
  * starts at a level; within a band nothing changes, so every band is a visible step.
  */
 export const GLOW_BANDS = [
@@ -115,6 +121,7 @@ export const GLOW_BANDS = [
   { id: 'azure', from: 12, color: 0x3d7dff },
   { id: 'magenta', from: 16, color: 0xff2fd2 },
   { id: 'prism', from: 20, color: 0xffffff },
+  { id: 'solar', from: 25, color: 0xffd86b },
 ] as const;
 export type GlowBandId = (typeof GLOW_BANDS)[number]['id'];
 
@@ -158,6 +165,7 @@ const GLOW: readonly Omit<BowGlow, 'band' | 'color'>[] = [
   { sheen: 1, aura: 0.85, flame: 0.85, motes: 20, core: 0.6, light: 0.15, cycle: false },
   { sheen: 1, aura: 1.05, flame: 1, motes: 30, core: 1, light: 0.3, cycle: false },
   { sheen: 1, aura: 1.2, flame: 1.15, motes: 40, core: 1, light: 0.4, cycle: true },
+  { sheen: 1, aura: 1.32, flame: 1.3, motes: 48, core: 1, light: 0.55, cycle: false },
 ];
 
 export function bowGlow(level: number): BowGlow {

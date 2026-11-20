@@ -12,6 +12,12 @@
  * motion, and trauma shake with the same numbers as `@oyun/core` juice (trauma², decay 1.6 / s,
  * 22 px, 0.035 rad). `toScreen` / `toLogical` go through the camera matrices, so they stay right
  * during all of it.
+ *
+ * On top of the 2D game's camera: a boss's entrance (the camera eases in on the boss as it lands
+ * and holds, then glides back), the wave's finishing knockout (a slow push-in on the last enemy
+ * that falls), a nudge with each gust and a small punch at a stage clear. Reduced motion (the
+ * system's prefers-reduced-motion, or ?calm=1) keeps a third of the shake and half the zooms.
+ * All of it reads the frame's events and the world; none of it feeds back into the simulation.
  */
 import * as THREE from 'three';
 import { PLAYER_LEDGE, PLAYER_X } from '@sim/tuning';
@@ -29,6 +35,10 @@ const FAR = 600;
 /** names other modules of this renderer can look the lights up by (the arena tints them per world) */
 export const SUN_NAME = 'okcu-sun';
 export const HEMI_NAME = 'okcu-hemi';
+
+/** reduced motion: the system setting, or ?calm=1 */
+export const CALM =
+  (typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches) || new URLSearchParams(location.search).get('calm') === '1';
 
 const SHAKE_DECAY = 1.6;
 const SHAKE_OFFSET = 22;
@@ -82,6 +92,9 @@ export function createStage(root: HTMLElement): Stage {
   let pushX = 0;
   let pushY = 0;
   let slowT = 0;
+  /** a camera move that eases IN to `introZoom` on (focusX, focusY) and holds while > 0 (real s) */
+  let introT = 0;
+  let introZoom = 0;
   let trauma = 0;
   let shakeT = 0;
   let clock = 0;
@@ -154,7 +167,37 @@ export function createStage(root: HTMLElement): Stage {
             zoom = 0.14;
             focusX = e.x;
             focusY = e.y;
+          } else if (frame.w.phase === 'play' || frame.w.phase === 'clear') {
+            // the wave's finishing knockout: a slow push-in on the last one to fall
+            if (frame.w.enemies.every((x) => !x.alive)) {
+              introT = 0.55;
+              introZoom = Math.max(zoom, 0.16);
+              focusX = e.x;
+              focusY = e.y;
+            }
           }
+          break;
+        case 'waveStart': {
+          // a boss's entrance: ease in on it as it lands, hold, then glide back
+          const boss = e.boss ? frame.w.enemies.find((x) => x.type === 'boss') : undefined;
+          if (boss) {
+            const L = frame.w.ledges[boss.ledge];
+            introT = 1.35;
+            introZoom = 0.2;
+            focusX = boss.anchorX;
+            focusY = (L ? L.y : boss.anchorY) - 110;
+          }
+          break;
+        }
+        case 'waveClear':
+          punch = Math.max(punch, 0.045);
+          break;
+        case 'gust':
+          // the whole view leans into the new wind for a moment
+          pushX = Math.sign(e.wind) * 20;
+          break;
+        case 'eruption':
+          pushY = -14;
           break;
         case 'focus':
           if (e.on) slowT = Math.max(slowT, 0.18);
@@ -193,16 +236,19 @@ export function createStage(root: HTMLElement): Stage {
       return { x: px * PX_PER_M + LOGICAL_W / 2, y: LOGICAL_H / 2 - py * PX_PER_M };
     },
     shake(strength) {
-      trauma = Math.min(1, Math.max(0, trauma + strength));
+      trauma = Math.min(1, Math.max(0, trauma + strength * (CALM ? 0.35 : 1)));
     },
     render(frame) {
       const real = frame.real;
       clock += real;
       readEvents(frame);
 
-      // zoom holds through the slow motion, then eases back; the push springs back
+      // zoom holds through the slow motion (or eases in during a camera move), then eases back; the push springs back
       slowT = Math.max(0, slowT - real);
-      zoom += (0 - zoom) * Math.min(1, real * (slowT > 0 ? 0.3 : 4));
+      if (introT > 0) {
+        introT = Math.max(0, introT - real);
+        zoom += (introZoom * (CALM ? 0.5 : 1) - zoom) * Math.min(1, real * 3.2);
+      } else zoom += (0 - zoom) * Math.min(1, real * (slowT > 0 ? 0.3 : 2.6));
       pushX += (0 - pushX) * Math.min(1, real * 7);
       pushY += (0 - pushY) * Math.min(1, real * 7);
       const z = 1 + zoom + punch;

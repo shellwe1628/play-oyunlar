@@ -96,10 +96,10 @@ export class RanksScene extends OyunScene {
     });
     // the ladder: two columns of six
     const top = L.top + 650;
-    const rowH = Math.min(88, (L.bottom - 140 - top) / 6);
+    const rowH = Math.min(88, (L.bottom - 140 - top) / Math.ceil(RANKS.length / 2));
     RANKS.forEach((rk, i) => {
-      const col = Math.floor(i / 6);
-      const row = i % 6;
+      const col = Math.floor(i / Math.ceil(RANKS.length / 2));
+      const row = i % Math.ceil(RANKS.length / 2);
       const x = 70 + col * 330;
       const y = top + row * rowH;
       const here = i === r;
@@ -115,7 +115,7 @@ export class RanksScene extends OyunScene {
     const g = this.add.graphics();
     this.ui.add(g);
     const row = (y: number, left: string, right: string, date: string): void => {
-      g.fillStyle(PALETTE.ink, 0.5).fillRoundedRect(40, y - 26, 640, 52, 16);
+      g.fillStyle(PALETTE.ink, 0.5).fillRoundedRect(40, y - 21, 640, 42, 14);
       this.text(60, y, left, 28, PALETTE.cream, 0, 330);
       this.text(560, y, right, 28, right === this.t('rec.none') ? PALETTE.locked : PALETTE.gold, 1);
       this.text(668, y, date ? date.slice(5) : '', 22, PALETTE.locked, 1);
@@ -126,7 +126,7 @@ export class RanksScene extends OyunScene {
     for (let c = 0; c < CHAPTERS; c++) {
       const r = rec.chapter[c]!;
       row(y, this.t('rec.chapter', { c: this.t(`chapter.${c}`) }), r.n === 0 ? this.t('rec.none') : r.n > 7 ? this.t('rec.cleared') : this.t('rec.stage', { n: r.n }), r.date);
-      y += 60;
+      y += 46; // six chapters: rows packed tighter
     }
     y += 16;
     this.text(L.cx, y, this.t('rec.bossTitle'), 34, PALETTE.heal);
@@ -134,7 +134,7 @@ export class RanksScene extends OyunScene {
     for (let c = 0; c < CHAPTERS; c++) {
       const r = rec.bossTime[c]!;
       row(y, this.t('rec.boss', { b: this.t(`boss.${BOSS_KINDS[c]!}`) }), r.n === 0 ? this.t('rec.none') : this.t('rec.sec', { n: r.n }), r.date);
-      y += 60;
+      y += 46; // six chapters: rows packed tighter
     }
     y += 16;
     this.text(L.cx, y, this.t('rec.moreTitle'), 34, PALETTE.heal);
@@ -147,7 +147,7 @@ export class RanksScene extends OyunScene {
     ] as const) {
       if (y > L.bottom - 150) break;
       row(y, this.t(key), r.n === 0 ? this.t('rec.none') : String(r.n), r.date);
-      y += 60;
+      y += 46; // six chapters: rows packed tighter
     }
   }
 
@@ -191,10 +191,10 @@ export class RanksScene extends OyunScene {
     const t = time / 1000;
     drawBadge(g, 150, L.top + 280, 52, r, t);
     const top = L.top + 650;
-    const rowH = Math.min(88, (L.bottom - 140 - top) / 6);
+    const rowH = Math.min(88, (L.bottom - 140 - top) / Math.ceil(RANKS.length / 2));
     RANKS.forEach((_rk, i) => {
-      const col = Math.floor(i / 6);
-      const row = i % 6;
+      const col = Math.floor(i / Math.ceil(RANKS.length / 2));
+      const row = i % Math.ceil(RANKS.length / 2);
       drawBadge(g, 70 + col * 330, top + row * rowH, 24, i, t, i > r);
     });
   }

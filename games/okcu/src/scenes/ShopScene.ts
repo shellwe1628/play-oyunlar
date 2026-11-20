@@ -7,6 +7,7 @@ import { SFX } from '../sfx';
 import { PALETTE } from '../textures';
 import { drawHeadIcon } from './art';
 import { bowDamage, bowTier } from '../sim/bow';
+import { BOSS_KINDS } from '../sim/world';
 import { bowItemGeom, drawBowItem, newBowGeom } from './gear';
 import { BowAura } from './aura';
 import { fitButton } from './GameScene';
@@ -132,7 +133,7 @@ export class ShopScene extends OyunScene {
     const L = this.layout;
     const col = i % 4;
     const row = Math.floor(i / 4);
-    return { x: 135 + col * 150, y: L.bottom - 520 + row * 136 };
+    return { x: 135 + col * 150, y: L.bottom - 560 + row * 114 }; // four rows since chapters 5 and 6
   }
 
   /** Upgrade rows below the tabs. */
@@ -207,11 +208,11 @@ export class ShopScene extends OyunScene {
     t.clear();
     COSMETICS.forEach((cos, i) => {
       const { x, y } = this.tilePos(i);
-      const unlocked = isUnlocked(cos, save.best, save.runs);
+      const unlocked = isUnlocked(cos, save.best, save.runs, save.bosses);
       const worn = save.cosmetic === cos.id;
       const sel = i === this.preview;
-      t.fillStyle(PALETTE.ink, 1).fillRoundedRect(x - 59, y - 59, 118, 118, 24);
-      t.fillStyle(worn ? PALETTE.gold : sel ? PALETTE.cream : unlocked ? PALETTE.cardIcon : PALETTE.pipOff, 1).fillRoundedRect(x - 52, y - 52, 104, 104, 20);
+      t.fillStyle(PALETTE.ink, 1).fillRoundedRect(x - 52, y - 52, 104, 104, 22);
+      t.fillStyle(worn ? PALETTE.gold : sel ? PALETTE.cream : unlocked ? PALETTE.cardIcon : PALETTE.pipOff, 1).fillRoundedRect(x - 46, y - 46, 92, 92, 18);
       drawHeadIcon(t, x, y + 6, 26, cos, unlocked);
       if (!unlocked) {
         // padlock
@@ -221,9 +222,9 @@ export class ShopScene extends OyunScene {
       }
     });
     const cos = COSMETICS[this.preview]!;
-    const unlocked = isUnlocked(cos, save.best, save.runs);
+    const unlocked = isUnlocked(cos, save.best, save.runs, save.bosses);
     this.previewName.setText(this.t(`cos.${cos.id}`));
-    this.previewNote.setText(save.cosmetic === cos.id ? this.t('shop.worn') : unlocked ? '' : cos.runs > 0 ? this.t('shop.runs', { n: cos.runs }) : this.t('shop.unlock', { n: cos.wave }));
+    this.previewNote.setText(save.cosmetic === cos.id ? this.t('shop.worn') : unlocked ? '' : cos.boss !== undefined ? this.t('shop.boss', { b: this.t(`boss.${BOSS_KINDS[cos.boss]!}`) }) : cos.runs > 0 ? this.t('shop.runs', { n: cos.runs }) : this.t('shop.unlock', { n: cos.wave }));
   }
 
   private buy(id: UpgradeId): void {
@@ -246,7 +247,7 @@ export class ShopScene extends OyunScene {
     if (!cos) return;
     this.preview = i;
     const save = gameSave(this.oyun);
-    if (!isUnlocked(cos, save.data.best, save.data.runs)) {
+    if (!isUnlocked(cos, save.data.best, save.data.runs, save.data.bosses)) {
       this.oyun.audio.playPreset(SFX.cancel);
       this.refresh();
       return;

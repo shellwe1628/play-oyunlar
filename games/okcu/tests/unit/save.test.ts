@@ -40,7 +40,7 @@ describe('game save', () => {
     // the new progress fields start fresh
     expect(s.data.records).toEqual(freshRecords());
     expect(s.data.feats).toEqual([]);
-    expect(s.data.bosses).toEqual([0, 0, 0, 0]);
+    expect(s.data.bosses).toEqual([0, 0, 0, 0, 0, 0]);
     expect(s.data.chapter).toBe(0);
   });
 
@@ -72,7 +72,7 @@ describe('game save', () => {
     const r = repairSave(s.data);
     expect(r.upgrades.starter).toBe(0);
     expect(r.bow).toEqual({ level: 3, heat: 0, tries: 0 });
-    expect(r.records.chapter.length).toBe(4);
+    expect(r.records.chapter.length).toBe(6);
   });
 
   it('rejects a save whose coins are not a number', () => {

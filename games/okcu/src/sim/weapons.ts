@@ -36,7 +36,7 @@ const BASE = { speedMul: 1, gravityMul: 1, reloadMul: 1, dmgMul: 1, impulseMul: 
 export const WEAPONS: Record<WeaponId, WeaponDef> = {
   bow: { ...BASE, id: 'bow', projectile: 'arrow', unlockBoss: null },
   crossbow: { ...BASE, id: 'crossbow', projectile: 'bolt', speedMul: 1.45, gravityMul: 0.35, reloadMul: 1.6, windMul: 0.4, unlockBoss: 0 },
-  spear: { ...BASE, id: 'spear', projectile: 'spear', speedMul: 0.8, gravityMul: 1.15, impulseMul: 2.2, dmgMul: 1.35, pierce: 1, unlockBoss: 1 },
+  spear: { ...BASE, id: 'spear', projectile: 'spear', speedMul: 0.8, gravityMul: 1.15, impulseMul: 2.9, dmgMul: 1.35, pierce: 1, unlockBoss: 1 },
   boomerang: { ...BASE, id: 'boomerang', projectile: 'boomerang', dmgMul: 0.6, unlockBoss: 2 },
   sling: { ...BASE, id: 'sling', projectile: 'pebble', dmgMul: 0.55, bounces: 2, headMul: SLING_HEAD_MUL, unlockBoss: 4 },
   firework: { ...BASE, id: 'firework', projectile: 'rocket', reloadMul: 2.0, dmgMul: 0.8, unlockBoss: 3 },

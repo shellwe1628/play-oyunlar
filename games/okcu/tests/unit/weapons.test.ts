@@ -201,7 +201,7 @@ describe('bolt and spear behaviour', () => {
     expect(bw.hits.has(bw.ids[1]!)).toBe(false);
     // the measured shove: A's mean body velocity change on the hit frame, same seed, setup and aim point
     expect(bw.shove).toBeGreaterThan(0);
-    // measured 1.63x: the spear's 2.2 impulseMul is partly eaten by its 0.8 speed (the shove scales with arrow velocity)
-    expect(sp.shove).toBeGreaterThanOrEqual(1.5 * bw.shove);
+    // the shove scales with arrow velocity, so the spear's impulseMul is set above 2 to make up for its 0.8 speed
+    expect(sp.shove).toBeGreaterThanOrEqual(2 * bw.shove);
   });
 });

@@ -49,6 +49,7 @@ const STYLE = `
 .ok-btn{position:absolute;pointer-events:auto;cursor:pointer;touch-action:none;display:flex;align-items:center;justify-content:center;text-align:center;white-space:nowrap;transition:transform .09s ease-out,opacity .15s}
 .ok-btn::after{content:'';position:absolute;left:10px;right:10px;top:8px;height:34%;background:rgba(255,255,255,.18);border-radius:18px;pointer-events:none}
 .ok-btn.down{transform:scale(.94)}
+.ok-tile::after{height:16%;top:6px;opacity:.7}
 .ok-btn.off{opacity:.45;cursor:default}
 .ok-round{position:absolute;pointer-events:auto;cursor:pointer;touch-action:none;border-radius:50%;transition:transform .09s ease-out}
 .ok-round.down{transform:scale(.9)}
@@ -337,6 +338,59 @@ export function button(parent: HTMLElement, x: number, y: number, text: string, 
     const fit = Math.min(1, (w - 30) / Math.max(1, textWidth(s, size)));
     e.style.fontSize = `${size * fit}px`;
     e.textContent = s;
+  };
+  setText(text);
+  let enabled = true;
+  const fire = (): void => {
+    if (!enabled) return;
+    e.animate([{ transform: 'scale(1.08)' }, { transform: 'scale(1)' }], { duration: 180, easing: EASE.backOut });
+    onTap();
+  };
+  pressable(e, () => enabled, onDown, fire);
+  return {
+    el: e,
+    setEnabled(on) {
+      enabled = on;
+      e.classList.toggle('off', !on);
+    },
+    setText,
+    fire,
+  };
+}
+
+/**
+ * A menu tile: an icon drawn on a canvas above a short label, the same face for every entry of a
+ * menu row so the row reads as one bar. Centred on (x, y); `icon` draws in tile-local px with the
+ * icon centre at (w / 2, iconY).
+ */
+export function menuTile(
+  parent: HTMLElement,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  text: string,
+  icon: (g: Gfx, cx: number, cy: number) => void,
+  onDown: () => void,
+  onTap: () => void,
+  opts: { primary?: boolean; testid?: string } = {},
+): ButtonHandle {
+  const e = el('div', 'ok-btn ok-tile', parent);
+  const bg = opts.primary ? THEME.primary : THEME.secondary;
+  const fg = opts.primary ? THEME.primaryText : THEME.secondaryText;
+  e.style.cssText = `left:${x - w / 2}px;top:${y - h / 2}px;width:${w}px;height:${h}px;border-radius:26px;background:${css(bg)};color:${css(fg)};box-shadow:0 7px 0 ${rgba(THEME.shadow, 0.55)};flex-direction:column;justify-content:flex-end;padding-bottom:12px`;
+  if (opts.testid) e.dataset.testid = opts.testid;
+  const iconY = (h - 34) / 2;
+  const sk = new Sketch(e, 0, 0, w, h);
+  sk.cv.style.zIndex = '0';
+  const paint = (): void => icon(sk.begin(), w / 2, iconY);
+  paint();
+  const label = el('span', '', e);
+  label.style.cssText = 'position:relative;z-index:1;line-height:1';
+  const size = 27;
+  const setText = (s: string): void => {
+    label.style.fontSize = `${size * Math.min(1, (w - 16) / Math.max(1, textWidth(s, size)))}px`;
+    label.textContent = s;
   };
   setText(text);
   let enabled = true;

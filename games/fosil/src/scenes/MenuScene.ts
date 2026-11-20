@@ -1,4 +1,4 @@
-import { label, MenuScene as MenuShell } from '@oyun/core';
+import { button, label, MenuScene as MenuShell } from '@oyun/core';
 import type { PauseReason } from '@oyun/core/pure';
 import Phaser from 'phaser';
 import { addCardLife } from '../fx/CardLife';
@@ -88,6 +88,11 @@ export class MenuScene extends MenuShell {
     fitText(rt, width - (cx - 140) - 40);
     hitZone(this, cx, ry, width - 80, 110, () => this.goTo(SCENES.ranks));
     this.tweens.add({ targets: badge, scale: 0.66, yoyo: true, repeat: -1, duration: 1100, ease: 'Sine.easeInOut' });
+    // the two other places, one tap from the title: the museum and the ranks ladder
+    this.playButton.y -= 44;
+    const row = height * 0.62 + 74;
+    button(this, cx - 112, row, this.t('museum.title'), () => this.goTo(SCENES.museum), { width: 200, height: 80, fontSize: 32, variant: 'secondary' });
+    button(this, cx + 112, row, this.t('menu.ranks'), () => this.goTo(SCENES.ranks), { width: 200, height: 80, fontSize: 32, variant: 'secondary' });
     if (best) {
       label(this, cx, height * 0.3 + 170, this.t('menu.rarest', { name: fossilName(this, best), odds: oddsText(this, best.odds) }), {
         size: 34,

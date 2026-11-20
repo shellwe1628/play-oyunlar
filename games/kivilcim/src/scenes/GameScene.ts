@@ -220,6 +220,7 @@ export class GameScene extends OyunScene {
   private flowText!: Phaser.GameObjects.Text;
   private titleRank!: Phaser.GameObjects.Image;
   private titleRankText!: Phaser.GameObjects.Text;
+  private titleRankPill!: Phaser.GameObjects.Graphics;
   private deadStars!: Phaser.GameObjects.Text;
   private finishStars: Phaser.GameObjects.Image[] = [];
   private finishBonus!: Phaser.GameObjects.Text;
@@ -556,9 +557,11 @@ export class GameScene extends OyunScene {
     this.tweens.add({ targets: tap, scale: 1.1, alpha: 0.75, yoyo: true, repeat: -1, duration: 420, ease: 'Sine.easeInOut' });
     this.titleBest = bigText(this, L.cx, L.cy + 230, '', 32);
     // Your rank, on the title (tap the Ranks tile for the ladder).
+    // a dark pill under badge and text, so the rank's own colour reads on every backdrop
+    this.titleRankPill = this.add.graphics();
     this.titleRank = this.add.image(L.cx - 150, L.top + 450, 'badge-0').setScale(0.5);
     this.titleRankText = bigText(this, L.cx - 100, L.top + 450, '', 36, PALETTE.gold).setOrigin(0, 0.5);
-    c.add([logoGlow, logo, this.logoShine, tag, this.titleLevel, tap, this.titleBest, this.titleRank, this.titleRankText]);
+    c.add([logoGlow, logo, this.logoShine, tag, this.titleLevel, tap, this.titleBest, this.titleRankPill, this.titleRank, this.titleRankText]);
 
     const y = L.bottom - 150;
     const xs = [-2, -1, 0, 1, 2].map((k) => L.cx + k * 136);
@@ -854,6 +857,12 @@ export class GameScene extends OyunScene {
     const r = rankOf(score);
     this.titleRank.setTexture(`badge-${r}`);
     this.titleRankText.setText(`${this.t(`rank.${RANKS[r]!.id}` as 'rank.ember')} · ${this.t('rank.score', { n: score })}`).setColor(`#${RANKS[r]!.color.toString(16).padStart(6, '0')}`);
+    {
+      const tx = this.titleRankText;
+      const x0 = this.titleRank.x - 44;
+      const x1 = tx.x + tx.displayWidth + 26;
+      this.titleRankPill.clear().fillStyle(0x140a28, 0.55).fillRoundedRect(x0, tx.y - 34, x1 - x0, 68, 34);
+    }
     fitText(this.titleRankText, this.layout.width - 300, 36);
     const w = this.titleRank.displayWidth + 14 + this.titleRankText.displayWidth;
     this.titleRank.setX(this.layout.cx - w / 2 + this.titleRank.displayWidth / 2);

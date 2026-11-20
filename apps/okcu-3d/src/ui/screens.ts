@@ -4,7 +4,7 @@
  * Same positions, sizes, colours and timings as the 2D game, in its logical px.
  */
 import type { Audio } from '@oyun/core/pure';
-import { drawBadge } from '@okcu/scenes/gear';
+import { drawBadge, drawBowItem } from '@okcu/scenes/gear';
 import { drawCardIcon, drawCoin } from '@okcu/scenes/icons';
 import { SFX } from '@okcu/sfx';
 import { PALETTE } from '@okcu/textures';
@@ -14,7 +14,7 @@ import { CHAPTERS } from '@sim/chapters';
 import { dailyChallenge, liveStreak, progressScore, RANKS, rankOf } from '@sim/progress';
 import type { World } from '@sim/world';
 import type { Game, Stage } from '../contract';
-import { button, EASE, el, Label, pressable, roundButton, Sketch, type ButtonHandle } from './dom';
+import { button, EASE, el, Label, menuTile, pressable, roundButton, Sketch, type ButtonHandle } from './dom';
 import { Gfx, rgba } from './gfx';
 import type { RunResult } from './progress';
 import { todayKey } from './save';
@@ -161,21 +161,27 @@ export function createTitle(ui: Ui, parent: HTMLElement, hooks: TitleHooks): Tit
       hint = new Label(root, CX, hintY, t('title.drag'), { size: 50, color: PALETTE.white, wrap: 640, stroke: 14 });
       labels.push(hint);
       startPulse();
-      // top row: upgrades, forge, ranks (sound is the HUD's corner button); second row: daily and the chapter select
-      const row = 64;
-      const bw = 182;
+      // one menu bar of equal icon tiles: upgrades, forge, ranks, daily (sound is the HUD's corner
+      // button to the right); under it, when there is a choice, the chapter select as one wide pill
+      const row = 74;
+      const tw = 136;
+      const th = 128;
+      const tx = (i: number): number => 22 + tw / 2 + i * (tw + 10);
       const tap = (fn: () => void) => () => {
         ui.audio.play('tap');
         fn();
       };
-      buttons.push(button(root, 110, row, t('title.shop'), ui.unlock, tap(hooks.shop), { width: bw, height: 92, fontSize: 34, variant: 'secondary' }));
-      buttons.push(button(root, 302, row, t('title.forge'), ui.unlock, tap(hooks.forge), { width: bw, height: 92, fontSize: 34 }));
-      buttons.push(button(root, 494, row, t('title.ranks'), ui.unlock, tap(hooks.ranks), { width: bw, height: 92, fontSize: 34, variant: 'secondary' }));
-      const row2 = 160;
-      buttons.push(button(root, 110, row2, daily ? t('title.dailyExit') : t('title.daily'), ui.unlock, tap(hooks.daily), { width: bw, height: 84, fontSize: 34, variant: 'secondary' }));
+      const rank = rankOf(progressScore(save).total);
+      buttons.push(menuTile(root, tx(0), row, tw, th, t('title.shop'), (g, x, y) => drawUpgradeGlyph(g, x, y), ui.unlock, tap(hooks.shop), { testid: 'title-shop' }));
+      buttons.push(menuTile(root, tx(1), row, tw, th, t('title.forge'), (g, x, y) => drawBowItem(g.phaser, x, y, 30, ui.game.bowLevel, 0), ui.unlock, tap(hooks.forge), { primary: true, testid: 'title-forge' }));
+      buttons.push(menuTile(root, tx(2), row, tw, th, t('title.ranks'), (g, x, y) => drawBadge(g.phaser, x, y, 30, rank, 0), ui.unlock, tap(hooks.ranks), { testid: 'title-ranks' }));
+      buttons.push(menuTile(root, tx(3), row, tw, th, daily ? t('title.dailyExit') : t('title.daily'), (g, x, y) => drawCalendarGlyph(g, x, y, daily), ui.unlock, tap(hooks.daily), { testid: 'title-daily' }));
       if (!daily && save.chapter > 0) {
-        const cw = 430;
-        buttons.push(button(root, 720 - cw / 2 - 18, row2, t('title.chapterPick', { c: t(`chapter.${Math.min(CHAPTERS, ui.game.chapter)}`) }), ui.unlock, tap(hooks.chapter), { width: cw, height: 84, fontSize: 32, variant: 'secondary' }));
+        const cw = 470;
+        const pill = button(root, CX, 180, `${t('title.chapterPick', { c: t(`chapter.${Math.min(CHAPTERS, ui.game.chapter)}`) })}  ▾`, ui.unlock, tap(hooks.chapter), { width: cw, height: 88, fontSize: 32, variant: 'secondary' });
+        pill.el.style.background = rgba(PALETTE.ink, 0.62);
+        pill.el.dataset.testid = 'title-chapter';
+        buttons.push(pill);
       }
       // the menu drops in one button after another (eased with an overshoot, 55 ms apart)
       buttons.forEach((b, i) => b.el.animate([{ transform: 'translateY(-36px) scale(0.7)', opacity: 0 }, { transform: 'none', opacity: 1 }], { delay: 120 + i * 55, duration: 320, easing: EASE.backOut, fill: 'backwards' }));
@@ -204,6 +210,31 @@ export function createTitle(ui: Ui, parent: HTMLElement, hooks: TitleHooks): Tit
     },
     clear: drop,
   };
+}
+
+/** The upgrades tile: a chunky green arrow pointing up over an ink disc. */
+function drawUpgradeGlyph(g: Gfx, x: number, y: number): void {
+  g.fillStyle(PALETTE.ink, 0.35).fillCircle(x, y, 34);
+  const arrow = (dx: number, dy: number, color: number): void => {
+    g.fillStyle(color, 1).fillTriangle(x - 26 + dx, y - 2 + dy, x + 26 + dx, y - 2 + dy, x + dx, y - 30 + dy);
+    g.fillRect(x - 11 + dx, y - 4 + dy, 22, 30);
+  };
+  arrow(0, 4, PALETTE.ink);
+  arrow(0, 0, 0x7cf29c);
+}
+
+/** The daily tile: a calendar page with its rings and today's mark (a cross-out back to normal). */
+function drawCalendarGlyph(g: Gfx, x: number, y: number, exit: boolean): void {
+  g.fillStyle(PALETTE.ink, 1).fillRoundedRect(x - 30, y - 26, 60, 58, 10);
+  g.fillStyle(0xffffff, 1).fillRoundedRect(x - 25, y - 21, 50, 48, 7);
+  g.fillStyle(PALETTE.danger, 1).fillRect(x - 25, y - 21, 50, 14);
+  g.fillStyle(PALETTE.ink, 1).fillRoundedRect(x - 17, y - 34, 8, 18, 4).fillRoundedRect(x + 9, y - 34, 8, 18, 4);
+  if (exit) {
+    g.lineStyle(7, PALETTE.ink, 1).lineBetween(x - 11, y - 1, x + 11, y + 19).lineBetween(x + 11, y - 1, x - 11, y + 19);
+  } else {
+    g.fillStyle(PALETTE.gold, 1).fillCircle(x, y + 9, 10);
+    g.lineStyle(3, PALETTE.ink, 1).strokeCircle(x, y + 9, 10);
+  }
 }
 
 // ---------------------------------------------------------------------------- cards

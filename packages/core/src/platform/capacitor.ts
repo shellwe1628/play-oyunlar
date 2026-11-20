@@ -63,9 +63,11 @@ const EV = {
 /** Google says a loaded rewarded ad expires after one hour; reload a bit before that. */
 const AD_MAX_AGE_MS = 55 * 60_000;
 
-// Build-time settings (statically replaced by Vite; undefined in other builds).
-const ENV_REWARDED = import.meta.env.VITE_OYUN_ADMOB_REWARDED as string | undefined;
-const ENV_TEST = import.meta.env.VITE_OYUN_ADMOB_TEST as string | undefined;
+// Build-time settings (statically replaced by Vite). Outside Vite (node smoke tests) import.meta.env
+// does not exist, hence the optional chain.
+const ENV = (import.meta as { env?: Record<string, string | undefined> }).env;
+const ENV_REWARDED = ENV?.VITE_OYUN_ADMOB_REWARDED;
+const ENV_TEST = ENV?.VITE_OYUN_ADMOB_TEST;
 
 /**
  * Native app (Google Play / App Store) adapter: Google AdMob rewarded ads.

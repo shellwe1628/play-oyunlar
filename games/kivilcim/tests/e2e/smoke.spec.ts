@@ -1,7 +1,8 @@
+import { fileURLToPath } from 'node:url';
 import { act, collectErrors, colorNear, expect, openGame, pixel, setHidden, shot, state, test, waitForScene } from '@oyun/core/e2e';
 import type { Page } from '@playwright/test';
 
-const gameDir = new URL('../..', import.meta.url).pathname.replace(/\/$/, '');
+const gameDir = fileURLToPath(new URL('../..', import.meta.url)).replace(/[\\/]$/, '');
 
 type Data = Record<string, unknown> & {
   phase: string;

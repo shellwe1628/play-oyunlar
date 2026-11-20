@@ -1,9 +1,10 @@
+import { fileURLToPath } from 'node:url';
 import { collectErrors, expect, openGame, shot, state, test } from '@oyun/core/e2e';
 import type { CDPSession, Page } from '@playwright/test';
 import { buildLevel } from '../../src/sim/levels';
 import { K_REF, prepare, reactionWindow, solve, switchTicks } from '../../src/sim/solver';
 
-const gameDir = new URL('../..', import.meta.url).pathname.replace(/\/$/, '');
+const gameDir = fileURLToPath(new URL('../..', import.meta.url)).replace(/[\\/]$/, '');
 
 type Data = Record<string, unknown> & { phase: string; tick: number; dir: number; held: boolean; progress: number; retryReady: boolean; attempts: number; x: number };
 const data = async (page: Page): Promise<Data> => (await state(page)).data as Data;

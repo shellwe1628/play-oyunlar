@@ -28,7 +28,7 @@ import { BEAT_PX, DT, MINI_R, SHAFT_W, SPARK_R, START_X } from '../sim/constants
 import { EdgeQueue } from '../sim/input';
 import { buildEndless, dailyKey, dailySeed } from '../sim/endless';
 import { buildLevel, isBoss, LEVEL_COUNT, levelInfo, worldOf } from '../sim/levels';
-import { ACHIEVEMENTS, FLOW_MAX, progressScore, RANKS, rankOf, settle, type MetaGain } from '../sim/meta';
+import { ACHIEVEMENTS, FLOW_MAX, progressScore, RANKS, rankOf, settle, totalStars, type MetaGain } from '../sim/meta';
 import { MECHANICS, type Mechanic } from '../sim/patterns';
 import { endlessUnlocked, levelOpen, levelToPlay, recordDaily, recordEndless, recordLevelRun, recordStats, shouldShowInterstitial } from '../sim/progress';
 import { RunSim } from '../sim/run';
@@ -36,7 +36,7 @@ import { COLOR_SHIFT_STYLES, TRAILS } from '../sim/skins';
 import { K_REF, prepare, solve } from '../sim/solver';
 import { sdf, segmentAt, wallXAt, type GateKind, type Track } from '../sim/track';
 import { ENDLESS_THEMES, GATE_COLORS, PALETTE, PALETTES, type Palette } from '../textures';
-import { bigText, fitText, IconTile } from '../ui';
+import { bigText, fitText, IconTile, MenuCard, NeonButton, type MenuHit } from '../ui';
 import { SCENES } from './keys';
 import { TRIAL_KEY } from './SkinsScene';
 
@@ -52,6 +52,8 @@ export interface GameStart {
 
 /** Screen y of the spark (it climbs; the shaft scrolls down past it). */
 const SPARK_Y = 930;
+/** Title: height of the neon sign (logo) under the safe top edge. */
+const SIGN_Y = 272;
 const DT_MS = DT * 1000;
 const FREEZE_MS = 80;
 const RETRY_LOCK_MS = 260;
@@ -220,7 +222,25 @@ export class GameScene extends OyunScene {
   private flowText!: Phaser.GameObjects.Text;
   private titleRank!: Phaser.GameObjects.Image;
   private titleRankText!: Phaser.GameObjects.Text;
-  private titleRankPill!: Phaser.GameObjects.Graphics;
+  private titleRankScore!: Phaser.GameObjects.Text;
+  private rankChip!: NeonButton;
+  private rankChipX = 0;
+  private logoGroup!: Phaser.GameObjects.Container;
+  private signTubes!: Phaser.GameObjects.Graphics;
+  private signRunners: Phaser.GameObjects.Image[] = [];
+  private titlePlate!: Phaser.GameObjects.Container;
+  private levelPlate!: Phaser.GameObjects.Graphics;
+  private playBtn!: Phaser.GameObjects.Container;
+  private playW = 0;
+  private playH = 0;
+  private fuse!: Phaser.GameObjects.Particles.ParticleEmitter;
+  private fuseGlow!: Phaser.GameObjects.Image;
+  private ringA!: Phaser.GameObjects.Graphics;
+  private ringB!: Phaser.GameObjects.Graphics;
+  private deck!: Phaser.GameObjects.Container;
+  private deckTop = 0;
+  private deckRunner!: Phaser.GameObjects.Image;
+  private titleCards: MenuCard[] = [];
   private deadStars!: Phaser.GameObjects.Text;
   private finishStars: Phaser.GameObjects.Image[] = [];
   private finishBonus!: Phaser.GameObjects.Text;
@@ -280,9 +300,10 @@ export class GameScene extends OyunScene {
   private finishStyle!: Phaser.GameObjects.Text;
   private doubleBtn!: Button;
   private hint!: Phaser.GameObjects.Container;
-  private titleTiles: IconTile[] = [];
+  /** Title menu targets, in test-hook order: levels, endless, daily, skins, ranks. */
+  private titleTiles: MenuHit[] = [];
   private homeTile!: IconTile;
-  private endlessTile!: IconTile;
+  private endlessTile!: MenuCard;
   private titleLevel!: Phaser.GameObjects.Text;
   private titleBest!: Phaser.GameObjects.Text;
   private muteBtn!: IconButton;
@@ -323,6 +344,7 @@ export class GameScene extends OyunScene {
     this.plan = null;
     this.held = false;
     this.titleTiles = [];
+    this.titleCards = [];
     this.gemSlots = [];
     this.endlessThemeIdx = -1;
     this.advancing = false;
@@ -535,48 +557,270 @@ export class GameScene extends OyunScene {
     this.pauseBtn.setDepth(101);
   }
 
+  /**
+   * The title is a launch bay built over the live shaft:
+   *   a neon sign bolted across the shaft (logo, tagline) · your rank chip, top left
+   *   the level plate and a big PLAY capsule with a fuse spark running round it
+   *   the ignition ring around the waiting spark (a press anywhere outside the menu starts the run)
+   *   a glass control deck at the bottom: Levels, Shop, Endless, Daily, each with a live status.
+   */
   private buildTitle(): void {
     const L = this.layout;
     const c = this.add.container(0, 0).setDepth(200);
-    // Animated logo: one word (so every glyph renders whole), bouncing on the beat, swaying,
-    // with a shine sweeping across it.
-    const logo = bigText(this, L.cx, L.top + 250, this.t('title.logo'), 112, PALETTE.white).setAngle(-5);
+    this.titleUi = c;
+    const CYAN = 0x3ff6ff;
+
+    // ── The sign: a dark band across the shaft with two cyan tubes, the logo riding on it.
+    const sign = this.add.container(L.cx, L.top + SIGN_Y);
+    this.logoGroup = sign;
+    const bw = L.width + 60;
+    const bh = 176;
+    const band = this.add.graphics().setAngle(-5);
+    band.fillStyle(PALETTE.ink, 0.66).fillRect(-bw / 2, -bh / 2, bw, bh);
+    band.fillStyle(0xff2d95, 0.14).fillRect(-bw / 2, -bh / 2, bw, bh * 0.45);
+    band.fillStyle(0x000000, 0.18).fillRect(-bw / 2, bh * 0.2, bw, bh * 0.3);
+    const tubes = this.add.graphics().setAngle(-5);
+    for (const sy of [-bh / 2, bh / 2]) {
+      tubes.lineStyle(18, CYAN, 0.2).lineBetween(-bw / 2, sy, bw / 2, sy);
+      tubes.lineStyle(6, CYAN, 1).lineBetween(-bw / 2, sy, bw / 2, sy);
+      tubes.lineStyle(2, 0xffffff, 0.9).lineBetween(-bw / 2, sy, bw / 2, sy);
+    }
+    this.signTubes = tubes;
+    // light running along the tubes
+    const runners = this.add.container(0, 0).setAngle(-5);
+    this.signRunners = [-bh / 2, bh / 2].map((sy) => this.add.image(0, sy, 'glow').setBlendMode(Phaser.BlendModes.ADD).setTint(0xbffcff).setDisplaySize(150, 46));
+    runners.add(this.signRunners);
+    const logoGlow = this.add.image(0, 0, 'glow').setBlendMode(Phaser.BlendModes.ADD).setDisplaySize(720, 260).setAlpha(0.45).setTint(0xffb03b);
+    const logo = bigText(this, 0, -4, this.t('title.logo'), 112, PALETTE.white).setAngle(-5);
     logo.setStroke('#14062b', 22);
-    fitText(logo, L.width - 70, 112);
+    fitText(logo, L.width - 80, 112);
     const grad = logo.context.createLinearGradient(0, 20, 0, logo.height - 20);
     grad.addColorStop(0, '#fffbe0');
     grad.addColorStop(0.45, '#ffe14d');
     grad.addColorStop(1, '#ff7a1a');
     logo.setFill(grad);
     this.logoLetters = [logo];
-    this.logoShine = this.add.image(L.cx, L.top + 250, 'w-beam').setBlendMode(Phaser.BlendModes.ADD).setScale(2.2, 0.75).setAngle(20).setAlpha(0.8);
-    const logoGlow = this.add.image(L.cx, L.top + 250, 'glow').setBlendMode(Phaser.BlendModes.ADD).setDisplaySize(760, 300).setAlpha(0.55);
-    const tag = fitText(bigText(this, L.cx, L.top + 360, this.t('title.tagline'), 36), L.width - 140);
-    this.titleLevel = bigText(this, L.cx, L.cy + 60, '', 48, PALETTE.gold);
-    const tap = fitText(bigText(this, L.cx, L.cy + 150, this.t('title.tap'), 66), L.width - 170);
-    this.tweens.add({ targets: tap, scale: 1.1, alpha: 0.75, yoyo: true, repeat: -1, duration: 420, ease: 'Sine.easeInOut' });
-    this.titleBest = bigText(this, L.cx, L.cy + 230, '', 32);
-    // Your rank, on the title (tap the Ranks tile for the ladder).
-    // a dark pill under badge and text, so the rank's own colour reads on every backdrop
-    this.titleRankPill = this.add.graphics();
-    this.titleRank = this.add.image(L.cx - 150, L.top + 450, 'badge-0').setScale(0.5);
-    this.titleRankText = bigText(this, L.cx - 100, L.top + 450, '', 36, PALETTE.gold).setOrigin(0, 0.5);
-    c.add([logoGlow, logo, this.logoShine, tag, this.titleLevel, tap, this.titleBest, this.titleRankPill, this.titleRank, this.titleRankText]);
+    this.logoShine = this.add.image(0, 0, 'w-beam').setBlendMode(Phaser.BlendModes.ADD).setScale(2.2, 0.7).setAngle(20).setAlpha(0.8);
+    const tag = fitText(bigText(this, 0, bh / 2 + 62, this.t('title.tagline'), 34), L.width - 120);
+    sign.add([band, logoGlow, tubes, runners, logo, this.logoShine, tag]);
 
-    const y = L.bottom - 150;
-    const xs = [-2, -1, 0, 1, 2].map((k) => L.cx + k * 136);
-    const levels = new IconTile(this, xs[0]!, y, 'ic-levels', this.t('title.levels'), () => this.leave(SCENES.levels), { color: 0x2a6bff, radius: 56 });
-    this.endlessTile = new IconTile(this, xs[1]!, y, 'ic-endless', this.t('title.endless'), () => this.openEndless(), { color: 0xff3d8b, radius: 56 });
-    const daily = new IconTile(this, xs[2]!, y, 'ic-daily', this.t('title.daily'), () => this.openDaily(), { color: 0xff8a1a, radius: 56 });
-    const skins = new IconTile(this, xs[3]!, y, 'ic-skins', this.t('title.skins'), () => this.leave(SCENES.skins), { color: 0x16b886, radius: 56 });
-    const ranks = new IconTile(this, xs[4]!, y, 'ic-rank', this.t('title.ranks'), () => this.leave(SCENES.ranks), { color: 0xc35bff, radius: 56 });
-    this.titleTiles = [levels, this.endlessTile, daily, skins, ranks];
-    c.add(this.titleTiles);
-    this.titleUi = c;
+    // ── Rank chip (top left; opens the rank ladder).
+    this.titleRank = this.add.image(0, 0, 'badge-0').setScale(0.36);
+    this.titleRankText = bigText(this, 0, -14, '', 30, PALETTE.gold).setOrigin(0, 0.5);
+    this.titleRankScore = bigText(this, 0, 20, '', 22).setOrigin(0, 0.5);
+    this.rankChipX = L.left + 24 + 140;
+    this.rankChip = new NeonButton(this, this.rankChipX, L.top + 70, 280, 84, 0xc35bff, () => this.menuGo(() => this.leave(SCENES.ranks)));
+    this.rankChip.add([this.titleRank, this.titleRankText, this.titleRankScore]);
+
+    // ── Launch: level plate, the PLAY capsule, the ignition ring round the spark.
+    const playY = SPARK_Y - 226;
+    this.levelPlate = this.add.graphics();
+    this.titleLevel = bigText(this, L.cx, playY - 112, '', 34, PALETTE.gold).setOrigin(0, 0.5);
+    this.titleBest = bigText(this, L.cx, playY - 112, '', 28).setOrigin(0, 0.5);
+    this.titlePlate = this.add.container(0, 0, [this.levelPlate, this.titleLevel, this.titleBest]);
+
+    const pw = 404;
+    const ph = 124;
+    this.playW = pw;
+    this.playH = ph;
+    const play = this.add.container(L.cx, playY);
+    this.playBtn = play;
+    const halo = this.add.image(0, 6, 'glow').setBlendMode(Phaser.BlendModes.ADD).setTint(0xffb03b).setDisplaySize(pw + 260, ph + 170).setAlpha(0.7);
+    const pg = this.add.graphics();
+    pg.fillStyle(PALETTE.ink, 0.5).fillRoundedRect(-pw / 2, -ph / 2 + 12, pw, ph, ph / 2);
+    pg.fillStyle(0xff7a1a, 1).fillRoundedRect(-pw / 2, -ph / 2, pw, ph, ph / 2);
+    pg.fillStyle(0xffd23d, 1).fillRoundedRect(-pw / 2, -ph / 2, pw, ph - 14, (ph - 14) / 2);
+    pg.fillStyle(0xfff6b0, 0.55).fillRoundedRect(-pw / 2 + 26, -ph / 2 + 10, pw - 52, ph * 0.3, ph * 0.15);
+    pg.lineStyle(7, PALETTE.ink, 1).strokeRoundedRect(-pw / 2, -ph / 2, pw, ph, ph / 2);
+    const label = fitText(bigText(this, 0, -4, this.t('menu.play'), 76), pw - 150, 76);
+    const tri = this.add.graphics();
+    const lw = label.displayWidth;
+    const total = 46 + 16 + lw;
+    const tx = -total / 2 + 20;
+    tri.fillStyle(PALETTE.ink, 1).fillTriangle(tx - 22, -34, tx - 22, 26, tx + 30, -4);
+    tri.fillStyle(0xffffff, 1).fillTriangle(tx - 15, -24, tx - 15, 16, tx + 18, -4);
+    label.setX(-total / 2 + 46 + 16 + lw / 2);
+    this.fuse = this.add.particles(0, 0, 'oyun-dot', {
+      lifespan: { min: 260, max: 520 },
+      speed: { min: 20, max: 110 },
+      scale: { start: 0.55, end: 0 },
+      alpha: { start: 1, end: 0 },
+      tint: [0xffffff, 0xffe14d, 0xff8a1a],
+      blendMode: Phaser.BlendModes.ADD,
+      emitting: false,
+    });
+    this.fuseGlow = this.add.image(0, 0, 'glow').setBlendMode(Phaser.BlendModes.ADD).setTint(0xfff1a8).setScale(0.5);
+    play.add([halo, pg, tri, label, this.fuse, this.fuseGlow]);
+
+    const ringA = this.add.graphics({ x: L.cx, y: SPARK_Y });
+    const R = 128;
+    ringA.lineStyle(2, 0xffffff, 0.35).strokeCircle(0, 0, R);
+    for (let k = 0; k < 3; k++) {
+      const a0 = (k * 120 * Math.PI) / 180;
+      const a1 = a0 + (74 * Math.PI) / 180;
+      ringA.lineStyle(16, PALETTE.gold, 0.22).beginPath().arc(0, 0, R, a0, a1).strokePath();
+      ringA.lineStyle(6, PALETTE.gold, 1).beginPath().arc(0, 0, R, a0, a1).strokePath();
+      // a bright head on each arc
+      ringA.fillStyle(0xffffff, 1).fillCircle(Math.cos(a1) * R, Math.sin(a1) * R, 5);
+    }
+    const ringB = this.add.graphics({ x: L.cx, y: SPARK_Y });
+    for (let k = 0; k < 36; k++) {
+      const a0 = (k * 10 * Math.PI) / 180;
+      ringB.lineStyle(4, CYAN, k % 9 === 0 ? 1 : 0.55).beginPath().arc(0, 0, R - 18, a0, a0 + (4.5 * Math.PI) / 180).strokePath();
+    }
+    for (let k = 0; k < 4; k++) {
+      const a = (k * Math.PI) / 2 + Math.PI / 4;
+      const x = Math.cos(a);
+      const y = Math.sin(a);
+      ringB.lineStyle(4, CYAN, 0.9).lineBetween(x * (R + 10), y * (R + 10), x * (R + 26), y * (R + 26));
+    }
+    this.ringA = ringA;
+    this.ringB = ringB;
+
+    // ── Control deck.
+    const cw = Math.min(326, (L.width - 72) / 2);
+    const ch = 82;
+    const rowB = L.bottom - 64;
+    const rowA = rowB - 94;
+    this.deckTop = rowA - ch / 2 - 22;
+    const deck = this.add.container(0, 0);
+    this.deck = deck;
+    const dg = this.add.graphics();
+    const top = this.deckTop;
+    const chamfer = 40;
+    const V = Phaser.Math.Vector2;
+    const pts = [new V(0, top + chamfer), new V(chamfer, top), new V(L.width - chamfer, top), new V(L.width, top + chamfer), new V(L.width, L.height + 40), new V(0, L.height + 40)];
+    dg.fillStyle(PALETTE.ink, 0.8).fillPoints(pts, true);
+    dg.fillStyle(0x6a3dff, 0.12).fillRect(0, top + chamfer, L.width, 60);
+    const edge = pts.slice(0, 4);
+    dg.lineStyle(16, 0xff4fd8, 0.2).strokePoints(edge, false);
+    dg.lineStyle(5, 0xff4fd8, 1).strokePoints(edge, false);
+    dg.lineStyle(1.5, 0xffffff, 0.85).strokePoints(edge, false);
+    this.deckRunner = this.add.image(0, top, 'glow').setBlendMode(Phaser.BlendModes.ADD).setTint(0xffc8f4).setDisplaySize(170, 50);
+    deck.add([dg, this.deckRunner]);
+    const xl = L.cx - cw / 2 - 10;
+    const xr = L.cx + cw / 2 + 10;
+    const go = (fn: () => void) => () => this.menuGo(fn);
+    const levels = new MenuCard(this, xl, rowA, cw, ch, 'ic-levels', this.t('title.levels'), 0x5aa8ff, 0x2a6bff, go(() => this.leave(SCENES.levels)));
+    const skins = new MenuCard(this, xr, rowA, cw, ch, 'ic-skins', this.t('title.skins'), 0x3dffb0, 0x16b886, go(() => this.leave(SCENES.skins)));
+    this.endlessTile = new MenuCard(this, xl, rowB, cw, ch, 'ic-endless', this.t('title.endless'), 0xff6fb5, 0xff3d8b, go(() => this.openEndless()));
+    const daily = new MenuCard(this, xr, rowB, cw, ch, 'ic-daily', this.t('title.daily'), 0xffaa4a, 0xff8a1a, go(() => this.openDaily()));
+    this.titleCards = [levels, skins, this.endlessTile, daily];
+    deck.add(this.titleCards);
+    // Order kept for the test hooks: levels, endless, daily, skins, ranks.
+    this.titleTiles = [levels, this.endlessTile, daily, skins, this.rankChip];
+
+    c.add([ringA, ringB, sign, this.titlePlate, play, deck, this.rankChip]);
     this.muteBtn = muteButton(this, L.right - 70, L.top + 70);
     this.muteBtn.setDepth(201);
     this.homeTile = new IconTile(this, L.left + 70, L.top + 70, 'ic-back', null, () => this.goHome(), { radius: 46, color: PALETTE.ui });
     this.homeTile.setDepth(201);
+  }
+
+  /** Menu actions only while the title is up (not during its exit, once a run has started). */
+  private menuGo(fn: () => void): void {
+    if (this.phase !== 'title' || this.leaving) return;
+    fn();
+  }
+
+  /** Entrance: the sign drops in and flickers on, the deck slides up, the launch pops in. */
+  private enterTitle(): void {
+    const L = this.layout;
+    const tw = this.tweens;
+    for (const p of [this.logoGroup, this.signTubes, this.rankChip, this.titlePlate, this.playBtn, this.ringA, this.ringB, this.deck, ...this.titleCards]) tw.killTweensOf(p);
+    this.titleUi.setVisible(true).setAlpha(1);
+    const flicker = (k: number): number => (k < 0.25 ? 0 : k < 0.32 ? 1 : k < 0.42 ? 0.15 : k < 0.55 ? 1 : k < 0.6 ? 0.4 : 1);
+    this.logoGroup.setPosition(L.cx, L.top + SIGN_Y - 240).setAlpha(1);
+    tw.add({ targets: this.logoGroup, y: L.top + SIGN_Y, duration: 640, ease: 'Back.easeOut' });
+    this.signTubes.setAlpha(0);
+    tw.add({ targets: this.signTubes, alpha: 1, duration: 900, delay: 200, ease: flicker });
+    this.rankChip.setX(-260).setScale(1);
+    tw.add({ targets: this.rankChip, x: this.rankChipX, duration: 520, delay: 260, ease: 'Cubic.easeOut' });
+    this.titlePlate.setAlpha(0).setY(-20);
+    tw.add({ targets: this.titlePlate, alpha: 1, y: 0, duration: 360, delay: 420, ease: 'Cubic.easeOut' });
+    this.playBtn.setScale(0.2).setAlpha(0);
+    tw.add({ targets: this.playBtn, scale: 1, alpha: 1, duration: 560, delay: 320, ease: 'Back.easeOut' });
+    for (const r of [this.ringA, this.ringB]) {
+      r.setScale(2).setAlpha(0);
+      tw.add({ targets: r, scale: 1, alpha: 1, duration: 520, delay: 160, ease: 'Cubic.easeOut' });
+    }
+    this.deck.setY(L.height - this.deckTop + 40);
+    tw.add({ targets: this.deck, y: 0, duration: 520, delay: 80, ease: 'Cubic.easeOut' });
+    this.titleCards.forEach((card, i) => {
+      card.setScale(0.6).setAlpha(0);
+      tw.add({ targets: card, scale: 1, alpha: 1, duration: 420, delay: 300 + i * 70, ease: 'Back.easeOut' });
+    });
+  }
+
+  /** Exit when a run (or a mode's ready screen) takes over: everything flies off, the ring blows out. */
+  private exitTitle(): void {
+    const L = this.layout;
+    const tw = this.tweens;
+    for (const p of [this.logoGroup, this.signTubes, this.rankChip, this.titlePlate, this.playBtn, this.ringA, this.ringB, this.deck, ...this.titleCards]) tw.killTweensOf(p);
+    for (const card of this.titleCards) card.setScale(1).setAlpha(1);
+    this.signTubes.setAlpha(1);
+    tw.add({ targets: this.logoGroup, y: this.logoGroup.y - 220, duration: 240, ease: 'Quad.easeIn' });
+    tw.add({ targets: this.logoGroup, alpha: 0, duration: 220 });
+    tw.add({ targets: this.rankChip, x: -260, duration: 220, ease: 'Cubic.easeIn' });
+    tw.add({ targets: this.titlePlate, alpha: 0, duration: 120 });
+    tw.add({ targets: this.playBtn, scale: 1.4, alpha: 0, duration: 200, ease: 'Cubic.easeOut' });
+    tw.add({ targets: [this.ringA, this.ringB], scale: 2.4, alpha: 0, duration: 260, ease: 'Cubic.easeOut' });
+    tw.add({
+      targets: this.deck,
+      y: L.height - this.deckTop + 40,
+      duration: 260,
+      ease: 'Cubic.easeIn',
+      onComplete: () => {
+        if (this.phase !== 'title') this.titleUi.setVisible(false);
+      },
+    });
+  }
+
+  /** Idle life of the title (drawing only). */
+  private animateTitle(now: number, pulse: number): void {
+    if (!this.titleUi.visible || !this.fx) return;
+    const logo = this.logoLetters[0]!;
+    logo.setScale(1 + 0.06 * pulse).setAngle(-5 + Math.sin(now / 700) * 2);
+    const sweep = (now / 2400) % 1;
+    this.logoShine.setX(-420 + sweep * 840).setAlpha(sweep < 0.75 ? 0.85 : 0);
+    const bw = this.layout.width + 60;
+    const run = (now / 2200) % 1;
+    this.signRunners[0]!.setX(-bw / 2 + run * bw);
+    this.signRunners[1]!.setX(bw / 2 - run * bw);
+    if (!this.tweens.isTweening(this.signTubes)) {
+      const f = now % 5300;
+      this.signTubes.setAlpha(f < 70 ? 0.3 : f < 140 ? 1 : f < 190 ? 0.55 : 1);
+    }
+    if (this.phase === 'title' && !this.tweens.isTweening(this.playBtn)) this.playBtn.setScale(1 + 0.03 * Math.sin(now / 280) + 0.035 * pulse);
+    // the fuse: a spark running round the PLAY capsule, shedding embers
+    const r = this.playH / 2;
+    const s = this.playW - this.playH;
+    let d = ((now / 2600) % 1) * (2 * s + 2 * Math.PI * r);
+    let x: number;
+    let y: number;
+    if (d < s) {
+      x = -s / 2 + d;
+      y = -r;
+    } else if ((d -= s) < Math.PI * r) {
+      const a = -Math.PI / 2 + d / r;
+      x = s / 2 + Math.cos(a) * r;
+      y = Math.sin(a) * r;
+    } else if ((d -= Math.PI * r) < s) {
+      x = s / 2 - d;
+      y = r;
+    } else {
+      const a = Math.PI / 2 + (d - s) / r;
+      x = -s / 2 + Math.cos(a) * r;
+      y = Math.sin(a) * r;
+    }
+    this.fuseGlow.setPosition(x, y).setScale(0.42 + 0.12 * Math.sin(now / 45));
+    if (this.phase === 'title') this.fuse.emitParticleAt(x, y, 2);
+    if (!this.tweens.isTweening(this.ringA)) {
+      const k = 1 + 0.05 * pulse;
+      this.ringA.setRotation(now * 0.0007).setScale(k);
+      this.ringB.setRotation(-now * 0.0011).setScale(k);
+    }
+    this.deckRunner.setX(((now / 1900) % 1) * (this.layout.width + 200) - 100);
   }
 
   private buildReady(): void {
@@ -811,9 +1055,14 @@ export class GameScene extends OyunScene {
   // ───────────────────────────────────────────────────────────── phases
 
   private showPhase(p: Phase): void {
+    const from = this.phase;
     this.phase = p;
     const playingish = p === 'playing' || p === 'dead' || p === 'finishing' || p === 'finished';
-    this.titleUi.setVisible(p === 'title');
+    if (p === 'title') {
+      this.refreshTitle();
+      this.enterTitle();
+    } else if (from === 'title' && this.titleUi.visible) this.exitTitle();
+    else this.titleUi.setVisible(false);
     this.muteBtn.setVisible(p === 'title' || p === 'ready' || p === 'dead' || p === 'finished');
     this.homeTile.setVisible(p === 'ready' || p === 'dead' || p === 'finished');
     this.readyUi.setVisible(p === 'ready');
@@ -829,7 +1078,6 @@ export class GameScene extends OyunScene {
       this.tweens.killTweensOf(this.hint);
       this.hint.setAlpha(0);
     }
-    if (p === 'title') this.refreshTitle();
     if (p === 'ready') this.refreshReady();
     this.music.setMuffled(p !== 'playing');
     if (p !== 'playing') this.cue.setAlpha(0);
@@ -847,26 +1095,50 @@ export class GameScene extends OyunScene {
   }
 
   private refreshTitle(): void {
+    const L = this.layout;
     const save = gameSave(this.oyun).data;
+    // Level plate: "LEVEL n · Best x%" on a dark pill above the PLAY capsule.
     this.titleLevel.setText(this.t('title.level', { n: this.level }));
     const best = save.levels[this.level - 1]!.best;
     this.titleBest.setText(best > 0 ? this.t('dead.best', { n: best }) : '');
+    const gap = best > 0 ? 18 : 0;
+    const pw = this.titleLevel.displayWidth + gap + this.titleBest.displayWidth;
+    const px = L.cx - pw / 2;
+    this.titleLevel.setX(px);
+    this.titleBest.setX(px + this.titleLevel.displayWidth + gap);
+    const py = this.titleLevel.y;
+    this.levelPlate
+      .clear()
+      .fillStyle(PALETTE.ink, 0.62)
+      .fillRoundedRect(px - 28, py - 30, pw + 56, 60, 30)
+      .lineStyle(2, PALETTE.gold, 0.6)
+      .strokeRoundedRect(px - 28, py - 30, pw + 56, 60, 30);
+    // Deck cards: a live line under each.
+    const [levels, skins, endless, daily] = this.titleCards as [MenuCard, MenuCard, MenuCard, MenuCard];
+    levels.setSub(this.t('menu.stars', { n: totalStars(save) }));
+    skins.setSub(this.t('menu.gems', { n: save.gems }));
     const unlocked = endlessUnlocked(save);
-    this.endlessTile.setIcon(unlocked ? 'ic-endless' : 'ic-lock').setAlpha(unlocked ? 1 : 0.7);
+    endless.setIcon(unlocked ? 'ic-endless' : 'ic-lock').setSub(unlocked ? (save.endlessBest > 0 ? this.t('dead.height', { n: save.endlessBest }) : this.t('menu.new')) : this.t('menu.locked'));
+    const today = save.daily.date === dailyKey(new Date());
+    daily.setSub(!today ? this.t('menu.dailyNew') : save.daily.streak > 1 ? this.t('menu.streak', { n: save.daily.streak }) : this.t('daily.best', { n: save.daily.best }));
+    // Rank chip: badge, rank name in its colour, points; sized to its text, clear of the mute button.
     const score = progressScore(save);
     const r = rankOf(score);
+    const col = RANKS[r]!.color;
     this.titleRank.setTexture(`badge-${r}`);
-    this.titleRankText.setText(`${this.t(`rank.${RANKS[r]!.id}` as 'rank.ember')} · ${this.t('rank.score', { n: score })}`).setColor(`#${RANKS[r]!.color.toString(16).padStart(6, '0')}`);
-    {
-      const tx = this.titleRankText;
-      const x0 = this.titleRank.x - 44;
-      const x1 = tx.x + tx.displayWidth + 26;
-      this.titleRankPill.clear().fillStyle(0x140a28, 0.55).fillRoundedRect(x0, tx.y - 34, x1 - x0, 68, 34);
-    }
-    fitText(this.titleRankText, this.layout.width - 300, 36);
-    const w = this.titleRank.displayWidth + 14 + this.titleRankText.displayWidth;
-    this.titleRank.setX(this.layout.cx - w / 2 + this.titleRank.displayWidth / 2);
-    this.titleRankText.setX(this.titleRank.x + this.titleRank.displayWidth / 2 + 14);
+    this.titleRankText.setText(this.t(`rank.${RANKS[r]!.id}` as 'rank.ember')).setColor(`#${col.toString(16).padStart(6, '0')}`);
+    this.titleRankScore.setText(this.t('rank.score', { n: score }));
+    const bw = this.titleRank.displayWidth;
+    const maxText = L.right - 150 - (L.left + 24) - (16 + bw + 12 + 24);
+    fitText(this.titleRankText, maxText, 30);
+    fitText(this.titleRankScore, maxText, 22);
+    const w = Math.max(220, 16 + bw + 12 + Math.max(this.titleRankText.displayWidth, this.titleRankScore.displayWidth) + 24);
+    this.rankChip.reshape(w, 84, mix(col, 0xffffff, 0.15));
+    this.rankChipX = L.left + 24 + w / 2;
+    this.rankChip.setX(this.rankChipX);
+    this.titleRank.setX(-w / 2 + 16 + bw / 2);
+    this.titleRankText.setX(-w / 2 + 16 + bw + 12);
+    this.titleRankScore.setX(-w / 2 + 16 + bw + 12);
   }
 
   /** Award achievements, earned trails and rank-ups after a save change; show what was gained. */
@@ -941,8 +1213,11 @@ export class GameScene extends OyunScene {
   private isUi(x: number, y: number): boolean {
     if (this.leaving || this.scene.isPaused() || !this.scene.isActive()) return true;
     if (this.phase === 'playing') return this.pauseBtn.visible && Math.abs(x - this.pauseBtn.x) < 60 && Math.abs(y - this.pauseBtn.y) < 60;
-    const tiles = this.phase === 'title' ? this.titleTiles : [];
-    for (const t of tiles) if (t.hits(x, y)) return true;
+    if (this.phase === 'title') {
+      for (const t of this.titleTiles) if (t.hits(x, y)) return true;
+      // the control deck is all menu: a press on its glass never starts a run
+      if (y >= this.deckTop && this.deck.y < 40) return true;
+    }
     if (this.homeTile.hits(x, y)) return true;
     if (this.muteBtn.visible && Math.abs(x - this.muteBtn.x) < 60 && Math.abs(y - this.muteBtn.y) < 60) return true;
     for (const b of [this.continueBtn, this.doubleBtn]) {
@@ -1761,12 +2036,7 @@ export class GameScene extends OyunScene {
     const prog = this.mode === 'level' ? sim.progress : (this.ry % 6000) / 6000;
     this.backdrop.update(prog, dyScreen, pulse, speed, realDt);
     if (this.fx) this.worldFx.update(realDt, dyScreen, pulse, this.speedK);
-    if (this.phase === 'title' && this.fx) {
-      const logo = this.logoLetters[0]!;
-      logo.setScale(1 + 0.07 * pulse).setAngle(-5 + Math.sin(now / 700) * 2.5);
-      const sweep = (now / 2400) % 1;
-      this.logoShine.setX(this.layout.cx - 420 + sweep * 840).setAlpha(sweep < 0.75 ? 0.85 : 0);
-    }
+    this.animateTitle(now, pulse);
     if (this.phase === 'finished') this.finishRays.rotation += realDt * 0.6;
     this.boss.update(this.rx, pulse, now, realDt, this.layout.cx - 200, this.layout.top + 220, 400);
     this.attemptText.setVisible(!this.boss.active);

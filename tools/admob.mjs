@@ -1,11 +1,12 @@
 // AdMob settings shared by tools/aab.mjs (Google Play) and tools/ipa.mjs (App Store).
 //
-// An app shows rewarded ads only when its source is a template game (oyun.config.json, so it
-// uses the @oyun/core platform adapter) AND store/apps.json says `"platform": "capacitor"`.
+// An app shows rewarded ads only when its source uses the @oyun/core platform adapter (a template
+// game with oyun.config.json, or a Vite app whose package.json says `"oyun": { "platformAdapter":
+// true }`, like apps/okcu-3d, which okcu ships) AND store/apps.json says `"platform": "capacitor"`.
 // Then the build: passes the platform's rewarded ad unit id to the web bundle
 // (VITE_OYUN_ADMOB_REWARDED), adds @capacitor-community/admob to the generated Capacitor project,
 // and writes the AdMob app id into the native project (AndroidManifest / Info.plist).
-// Every other app (okcu ships apps/okcu-3d, which has no rewarded buttons) has no ad SDK at all.
+// Every other app (platform "web") has no ad SDK at all.
 //
 // Child-directed by design (Google Play Families, audience "all ages"): the adapter tags every
 // request TFCD + TFUA, max rating G, non-personalised; no ATT prompt, no IDFA, the Android AD_ID
@@ -13,11 +14,25 @@
 //
 // OYUN_ADMOB_TEST=1 builds ask for Google's test creatives (for testers' devices; never click
 // real ads on your own apps).
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { ROOT } from './template.mjs';
 
 export const ADMOB_PLUGIN = '@capacitor-community/admob';
+
+/**
+ * Does the Vite app in `dir` (absolute) talk to the platform through @oyun/core's adapter, so a
+ * build with VITE_OYUN_PLATFORM=capacitor shows AdMob rewarded ads? Template games carry
+ * oyun.config.json; other apps opt in with `"oyun": { "platformAdapter": true }` in package.json.
+ */
+export function usesPlatformAdapter(dir) {
+  if (existsSync(join(dir, 'oyun.config.json'))) return true;
+  try {
+    return JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8')).oyun?.platformAdapter === true;
+  } catch {
+    return false;
+  }
+}
 
 /** The plugin version pinned in the root package.json (it is installed there; the generated project resolves it upwards). */
 export function admobPluginVersion() {

@@ -9,7 +9,7 @@
  * never hand-roll the conversion.
  */
 import type * as THREE from 'three';
-import type { SaveStore } from '@oyun/core/pure';
+import type { Platform, RewardedResult, SaveStore } from '@oyun/core/pure';
 import type { SaveData } from '@sim/meta';
 import type { GameEvent, World } from '@sim/world';
 
@@ -106,6 +106,15 @@ export interface Game {
   readonly quick: boolean;
   /** this run does not touch the save (URL test switches ?wave ?bow ?armor ?chapter) */
   readonly testRun: boolean;
+  /** the distribution platform (main.ts detects it like core's createGame: VITE_OYUN_PLATFORM, native shell, ?platform=) */
+  readonly platform: Platform;
+  /** a rewarded ad is on screen (the world is frozen, audio suspended) */
+  readonly adShowing: boolean;
+  /**
+   * Show a rewarded ad (placements: extra_card, revive, double_coins). While it shows the platform
+   * pauses with reason 'ad': the world freezes and the HUD suspends audio. Grant only on 'granted'.
+   */
+  rewarded(placement: string): Promise<RewardedResult>;
   readonly paused: boolean;
   /** paused: the world does not advance and the view modules get dt = real = 0 (they keep drawing) */
   setPaused(on: boolean): void;
@@ -121,6 +130,12 @@ export interface Game {
   dragCancel(): void;
   pickCard(index: number): void;
   reroll(): void;
+  /** rewarded: one more card in the current offer (once per pick); false when not possible */
+  extraCard(): boolean;
+  /** the run that just ended can still be revived (once per run) */
+  readonly canRevive: boolean;
+  /** rewarded: continue the ended run from the same wave with half health; false when not possible */
+  revive(): boolean;
   unleash(): void;
   /** a fresh run of the same kind (new seed unless given), at the quick title */
   restart(seed?: number): void;

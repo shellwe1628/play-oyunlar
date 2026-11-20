@@ -27,6 +27,7 @@ import { createHash } from 'node:crypto';
 import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { foregroundVector, adaptiveIconXml, ICON_BG, LEGACY_SIZES, legacyIconPng } from '../apps/test-paketi/native/icon.mjs';
+import { usesPlatformAdapter } from './admob.mjs';
 import { findIconSource, writeIcon } from './aab/icon.mjs';
 import { checkThemeDump, fullScreenStyles } from './aab/theme.mjs';
 import { ROOT } from './template.mjs';
@@ -35,13 +36,13 @@ import { buildManifest, MANIFEST_FILE, releaseBase, repository } from './test-ap
 /** Games in the bundle, in launcher order (must match apps/test-paketi/src/games.ts). */
 export const SLUGS = ['kivilcim', 'okcu', 'okcu3d', 'fosil'];
 /**
- * Where each game's Vite app lives. The real games are games/<slug> (template-made, with the
- * platform adapter); okcu3d is apps/okcu-3d, the 3D renderer of okcu's simulation, which has no
- * platform adapter (no ads) and no store listing.
+ * Where each game's Vite app lives. The real games are games/<slug> (template-made); okcu3d is
+ * apps/okcu-3d, the 3D renderer of okcu's simulation (the build the okcu store app ships). All of
+ * them use the platform adapter (okcu-3d declares it in its package.json, tools/admob.mjs).
  */
 const SOURCE = { okcu3d: join('apps', 'okcu-3d') };
 const sourceDir = (slug) => join(ROOT, SOURCE[slug] ?? join('games', slug));
-const hasAdapter = (slug) => !SOURCE[slug];
+const hasAdapter = (slug) => usesPlatformAdapter(sourceDir(slug));
 const APP = join(ROOT, 'apps', 'test-paketi');
 const OUT_DIR = join(ROOT, 'build', 'test-apk');
 const WORK = join(OUT_DIR, 'work');

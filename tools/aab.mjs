@@ -25,7 +25,7 @@ import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync,
 import { isAbsolute, join, relative, resolve } from 'node:path';
 import { findIconSource, writeIcon } from './aab/icon.mjs';
 import { checkThemeDump, fullScreenStyles } from './aab/theme.mjs';
-import { ADMOB_PLUGIN, admobIds, admobPluginVersion, admobViteEnv, checkBundleAdIds } from './admob.mjs';
+import { ADMOB_PLUGIN, admobIds, admobPluginVersion, admobViteEnv, checkBundleAdIds, usesPlatformAdapter } from './admob.mjs';
 import { ROOT } from './template.mjs';
 
 const BIN = join(ROOT, 'node_modules', '.bin');
@@ -118,13 +118,14 @@ function loadApp(slug) {
   if (!['web', 'capacitor'].includes(app.platform)) fail(`${slug}: platform must be "web" or "capacitor", not "${app.platform}"`);
   if (!/^\d+\.\d+\.\d+$/.test(app.versionName)) fail(`${slug}: versionName must look like 1.2.3, not "${app.versionName}"`);
   // `source`: the Vite app the Play build ships, when it is not games/<slug> (okcu ships its 3D
-  // renderer, apps/okcu-3d, which runs the same simulation). Only template-made games carry
-  // oyun.config.json and the platform adapter; any other source is portrait-only by design.
+  // renderer, apps/okcu-3d, which runs the same simulation). Template-made games carry
+  // oyun.config.json; apps/okcu-3d declares the platform adapter in its package.json (tools/admob.mjs
+  // usesPlatformAdapter). A source without oyun.config.json is portrait-only by design.
   const source = app.source ?? join('games', slug);
   if (!existsSync(join(ROOT, source, 'index.html'))) fail(`${slug}: ${source} is missing`);
   const configFile = join(ROOT, source, 'oyun.config.json');
-  const adapter = existsSync(configFile);
-  if (adapter) {
+  const adapter = usesPlatformAdapter(join(ROOT, source));
+  if (existsSync(configFile)) {
     const meta = JSON.parse(readFileSync(configFile, 'utf8'));
     if (meta.orientation !== 'portrait') fail(`${slug}: oyun.config.json orientation is ${meta.orientation}; this script locks portrait`);
   }

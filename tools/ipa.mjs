@@ -23,7 +23,7 @@
 import { execFileSync, spawnSync } from 'node:child_process';
 import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { join, relative, resolve } from 'node:path';
-import { ADMOB_PLUGIN, admobIds, admobPluginVersion, admobViteEnv, checkBundleAdIds, SKADNETWORK_IDS } from './admob.mjs';
+import { ADMOB_PLUGIN, admobIds, admobPluginVersion, admobViteEnv, checkBundleAdIds, SKADNETWORK_IDS, usesPlatformAdapter } from './admob.mjs';
 import { ROOT } from './template.mjs';
 
 const BIN = join(ROOT, 'node_modules', '.bin');
@@ -250,14 +250,14 @@ function patchNative(app, work, info, sign) {
 }
 
 // ---------------------------------------------------------------- AdMob (tools/admob.mjs)
-// Template games built with platform "capacitor" show rewarded ads. Child-directed: the adapter
+// Apps on the platform adapter (template games, apps/okcu-3d) built with platform "capacitor" show rewarded ads. Child-directed: the adapter
 // tags requests TFCD/TFUA/G and non-personalised, and the app never asks for App Tracking
 // Transparency: no NSUserTrackingUsageDescription, no IDFA. Info.plist gets the AdMob app id and
 // Google's SKAdNetwork list (Google's own id first).
 
 function admobApp(app, source) {
   if (app.platform !== 'capacitor') return null;
-  if (!existsSync(join(ROOT, source, 'oyun.config.json'))) fail(`${app.slug}: platform "capacitor" needs the platform adapter, which ${source} does not use`);
+  if (!usesPlatformAdapter(join(ROOT, source))) fail(`${app.slug}: platform "capacitor" needs the platform adapter, which ${source} does not use`);
   try {
     return { ...admobIds(app, 'ios'), plugin: admobPluginVersion(), test: process.env.OYUN_ADMOB_TEST === '1' };
   } catch (e) {

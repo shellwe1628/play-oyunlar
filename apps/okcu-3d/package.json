@@ -4,6 +4,9 @@
   "private": true,
   "type": "module",
   "description": "Side-view 3D renderer for the okcu simulation (three.js + Mixamo characters). Same rules as games/okcu; only the drawing differs.",
+  "oyun": {
+    "platformAdapter": true
+  },
   "scripts": {
     "dev": "vite",
     "build": "vite build",

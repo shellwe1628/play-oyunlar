@@ -1,7 +1,8 @@
 /**
  * The overlays: title (GameScene.buildTitle), card pick (GameScene.openCards / buildCardFaces /
- * onPickCard) and the result card (core ResultScene shell + games/okcu ResultScene lines).
- * Same positions, sizes, colours and timings as the 2D game, in its logical px.
+ * onPickCard / onExtra) and the result card (core ResultScene shell + games/okcu ResultScene
+ * lines, revive and double coins). Same positions, sizes, colours and timings as the 2D game, in
+ * its logical px. The rewarded buttons (▶ AD) go through `Ui.rewarded` (the platform adapter).
  */
 import type { Audio } from '@oyun/core/pure';
 import { drawBadge, drawBowItem } from '@okcu/scenes/gear';
@@ -29,6 +30,11 @@ export interface Ui {
   audio: Audio;
   /** create/resume the audio context (must run inside a pointer gesture) */
   unlock: () => void;
+  /**
+   * Show a rewarded ad for `placement`; true only when it was watched ('granted'). On 'unavailable'
+   * the neutral core.noAd notice shows. The caller checks that its screen is still up before granting.
+   */
+  rewarded: (placement: string) => Promise<boolean>;
 }
 
 const CX = 360;
@@ -255,6 +261,24 @@ export function createCards(ui: Ui, parent: HTMLElement, onOpen: () => void, onS
   let cards: HTMLElement[] = [];
   /** bumped on every rebuild and close: late animation callbacks of old faces do nothing */
   let gen = 0;
+  /** the +1 card ad is showing */
+  let adPending = false;
+  let extraBtn: ButtonHandle | null = null;
+
+  /** GameScene.onExtra: a rewarded ad, then one more card in this offer (once per pick). */
+  async function extra(): Promise<void> {
+    const w = ui.game.w;
+    if (picking || adPending || w.phase !== 'cards' || w.offerExtra) return;
+    adPending = true;
+    extraBtn?.setEnabled(false);
+    const wave = w.wave;
+    const ok = await ui.rewarded('extra_card');
+    adPending = false;
+    // a late answer for an offer that is gone (picked, restarted) grants nothing
+    const still = ui.game.w === w && w.phase === 'cards' && w.wave === wave && !picking && root !== null;
+    if (ok && still && ui.game.extraCard()) return; // the offer grew: sync() rebuilds the faces
+    extraBtn?.setEnabled(!ui.game.w.offerExtra);
+  }
 
   function close(): void {
     gen += 1;
@@ -264,6 +288,7 @@ export function createCards(ui: Ui, parent: HTMLElement, onOpen: () => void, onS
     root = null;
     faces = null;
     cards = [];
+    extraBtn = null;
     key = '';
     picking = false;
   }
@@ -379,10 +404,10 @@ export function createCards(ui: Ui, parent: HTMLElement, onOpen: () => void, onS
       cards.push(card);
     });
     const by = Math.min(1200, startY + n * (ch + gap) + 40);
-    // the 2D game's second button here (+1 card) is a rewarded ad: left out, so the reroll is centred
+    // GameScene.buildCardFaces: reroll on the left, the rewarded +1 card (▶ AD) on the right
     const reroll: ButtonHandle = button(
       faces,
-      CX,
+      CX - 165,
       by,
       t('cards.reroll', { n: w.rerollsLeft }),
       () => ui.unlock(),
@@ -394,6 +419,10 @@ export function createCards(ui: Ui, parent: HTMLElement, onOpen: () => void, onS
       { width: 300, height: 100, fontSize: 38, variant: 'secondary' },
     );
     reroll.setEnabled(w.rerollsLeft > 0);
+    reroll.el.dataset.testid = 'cards-reroll';
+    extraBtn = button(faces, CX + 165, by, t('cards.extra'), () => ui.unlock(), () => void extra(), { width: 300, height: 100, fontSize: 38, ad: t('core.ad') });
+    extraBtn.setEnabled(!w.offerExtra && !adPending);
+    extraBtn.el.dataset.testid = 'cards-extra';
   }
 
   return {
@@ -428,16 +457,30 @@ export function createCards(ui: Ui, parent: HTMLElement, onOpen: () => void, onS
 
 // ---------------------------------------------------------------------------- result
 
+/** The rewarded offers on a result (ResultScene: revive once per run, double coins once per result). */
+export interface ResultAds {
+  /** the run can be continued */
+  revive: boolean;
+  /** coins a "double coins" ad adds (0 = no button) */
+  double: number;
+}
+
 export interface ResultScreen {
   readonly shown: boolean;
-  show(r: RunResult): void;
+  show(r: RunResult, ads: ResultAds): void;
   update(real: number): void;
   hide(): void;
 }
 
-/** The result's buttons (ResultScene): replay, upgrades, the forge, home (the title), the rank (the ranks screen). */
+/**
+ * The result's buttons (ResultScene): replay, upgrades, the forge, home (the title), the rank (the
+ * ranks screen); and the rewards after a watched ad: revive (continue the run; the result closes)
+ * and double (bank the coins once more; returns the coins added).
+ */
 export interface ResultHooks {
   replay: () => void;
+  revive: () => void;
+  double: (amount: number) => number;
   shop: () => void;
   forge: () => void;
   home: () => void;
@@ -456,8 +499,33 @@ export function createResult(ui: Ui, parent: HTMLElement, hooks: ResultHooks): R
   let age = 0;
   let dur = 0;
   let done = true;
+  /** bumped on every show and hide: an ad answer for an earlier result grants nothing */
+  let shows = 0;
+  /** a rewarded ad is showing: every button waits */
+  let busy = false;
+  let btns: ButtonHandle[] = [];
+
+  function setButtons(on: boolean): void {
+    for (const b of btns) b.setEnabled(on);
+  }
+
+  /** ResultScene.rewarded: every button disabled while the ad shows; true only if this result is still up. */
+  async function rewarded(placement: string): Promise<boolean> {
+    if (busy || !root) return false;
+    busy = true;
+    setButtons(false);
+    const token = shows;
+    const ok = await ui.rewarded(placement);
+    if (token !== shows) return false;
+    busy = false;
+    setButtons(true);
+    return ok;
+  }
 
   function hide(): void {
+    shows += 1;
+    busy = false;
+    btns = [];
     for (const l of labels) l.destroy();
     labels = [];
     root?.remove();
@@ -472,7 +540,7 @@ export function createResult(ui: Ui, parent: HTMLElement, hooks: ResultHooks): R
     get shown() {
       return root !== null;
     },
-    show(r) {
+    show(r, ads) {
       hide();
       const t = ui.t;
       const newBest = r.newBest;
@@ -496,6 +564,7 @@ export function createResult(ui: Ui, parent: HTMLElement, hooks: ResultHooks): R
       el('div', 'best', inner).textContent = t('core.best', { n: r.best });
       const where = r.chapter >= CHAPTERS ? t(`chapter.${CHAPTERS}`) : t('result.chapter', { c: t(`chapter.${r.chapter}`), s: r.stage });
       // ResultScene's lines: the daily, where, coins, knockouts, the daily goal, records, new achievements
+      const coinLine = r.daily ? 2 : 1;
       const lines = [...(r.daily ? [t('result.daily', { d: r.dailyKey })] : []), where, t('result.coins', { n: r.coins }), t('result.kos', { k: r.kos, h: r.headshots })];
       if (r.dailyCoins > 0) lines.push(t('result.dailyDone', { n: r.dailyStreak, c: r.dailyCoins }));
       // the run's bests, with the records screen's own captions
@@ -503,9 +572,11 @@ export function createResult(ui: Ui, parent: HTMLElement, hooks: ResultHooks): R
       if (r.chainBest > 1) lines.push(`${t('rec.chain')} ${r.chainBest}`);
       if (r.records.length > 0) lines.push(t('result.records'));
       for (const id of r.feats.slice(0, 2)) lines.push(`★ ${t(`feat.${id}.name`)}`);
+      let coinsEl: HTMLElement | null = null;
       lines.forEach((line, i) => {
         const l = el('div', 'line', inner);
         l.textContent = line;
+        if (i === coinLine) coinsEl = l;
         // the card's lines slide in one by one after the panel lands
         l.animate([{ transform: 'translateX(-26px)', opacity: 0 }, { transform: 'none', opacity: 1 }], { delay: 220 + i * 70, duration: 240, easing: EASE.cubicOut, fill: 'backwards' });
       });
@@ -521,15 +592,70 @@ export function createResult(ui: Ui, parent: HTMLElement, hooks: ResultHooks): R
       done = false;
       ui.audio.play(newBest ? 'win' : 'lose');
       const tap = (fn: () => void) => () => {
+        if (busy) return;
         ui.audio.play('tap');
         fn();
       };
-      // replay and upgrades as in ResultScene; the forge where the rewarded-ad buttons were
-      const btns = [
+      // replay and upgrades as in ResultScene, the forge under them; then the rewarded row (▶ AD):
+      // revive (once per run) and double coins (once per result), side by side when both are offered
+      btns = [
         button(root, CX, 820, t('core.replay'), ui.unlock, tap(hooks.replay), { width: 440 }),
         button(root, CX, 932, t('result.shop'), ui.unlock, tap(hooks.shop), { width: 440, variant: 'secondary' }),
         button(root, CX, 1044, t('title.forge'), ui.unlock, tap(hooks.forge), { width: 440, height: 96, fontSize: 40, variant: 'secondary' }),
       ];
+      const offers: { id: string; text: string; secondary: boolean; act: () => Promise<void> }[] = [];
+      if (ads.revive) {
+        offers.push({
+          id: 'result-revive',
+          text: t('result.revive'),
+          secondary: false,
+          act: async () => {
+            if (await rewarded('revive')) hooks.revive();
+          },
+        });
+      }
+      if (ads.double > 0) {
+        const amount = ads.double;
+        offers.push({
+          id: 'result-double',
+          text: t('result.double'),
+          secondary: true,
+          act: async () => {
+            if (!(await rewarded('double_coins'))) return;
+            const added = hooks.double(amount);
+            if (added <= 0) return;
+            // the button gives way to the news, in its place
+            const b = btns.find((x) => x.el.dataset.testid === 'result-double');
+            const bw = b ? parseFloat(b.el.style.width) : 440;
+            const bx = b ? parseFloat(b.el.style.left) + bw / 2 : CX;
+            if (b) {
+              b.el.remove();
+              btns = btns.filter((x) => x !== b);
+            }
+            if (coinsEl) {
+              coinsEl.textContent = t('result.coins', { n: r.coins + added });
+              coinsEl.animate([{ transform: 'scale(1.3)' }, { transform: 'scale(1)' }], { duration: 320, easing: EASE.backOut });
+            }
+            ui.audio.playPreset(SFX.loot);
+            if (root) {
+              const done = new Label(root, bx, 1156, t('result.doubled'), { size: bw < 400 ? 32 : 40, color: PALETTE.coin, stroke: 10, wrap: bw });
+              labels.push(done);
+              done.el.animate([{ transform: 'scale(1.6)' }, { transform: 'scale(1)' }], { duration: 300, easing: EASE.backOut });
+            }
+          },
+        });
+      }
+      const ow = offers.length > 1 ? 300 : 440;
+      offers.forEach((o, i) => {
+        const x = offers.length > 1 ? CX + (i === 0 ? -165 : 165) : CX;
+        const b = button(root!, x, 1156, o.text, ui.unlock, () => {
+          if (busy) return;
+          ui.audio.play('tap');
+          void o.act();
+        }, { width: ow, height: 96, fontSize: 40, variant: o.secondary ? 'secondary' : 'primary', ad: t('core.ad') });
+        b.el.dataset.testid = o.id;
+        btns.push(b);
+      });
       btns.forEach((b, i) => b.el.animate([{ transform: 'translateY(40px)', opacity: 0 }, { transform: 'none', opacity: 1 }], { delay: 200 + i * 60, duration: 260, easing: EASE.backOut, fill: 'backwards' }));
       // home (top left) and the rank (top right: badge, name, bow; a tap opens the ranks)
       roundButton(root, 70, 70, 96, 'home', ui.unlock, tap(hooks.home));

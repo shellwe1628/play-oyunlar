@@ -1,6 +1,7 @@
 /**
  * The interface layer and the sound of the 3D renderer: input, aim feedback, HUD, banners and
- * callouts, title, card pick, result. A port of the 2D game's GameScene HUD code (buildHud,
+ * callouts, title, card pick (with the rewarded +1 card), result (with the rewarded revive and
+ * double coins). A port of the 2D game's GameScene HUD code (buildHud,
  * syncHud, renderAim, handleEvents, onWaveStart, showBanner, callout, flyCoins) onto DOM + a 2D
  * canvas; texts, colours, sounds and icons are the game's own, imported from games/okcu.
  *
@@ -35,6 +36,8 @@ export function createHud(stage: Stage, game: Game): Module {
   const storage = webStorage();
   const audio = createAudio({ storage, key: 'oyun:okcu-3d:audio' });
   const unlock = (): void => audio.unlock();
+  // core's createGame: the platform's pause (an ad on screen, the app hidden) silences the game
+  game.platform.onLifecycle((e) => (e.type === 'pause' ? audio.suspend() : audio.resume()));
   const showMarkers = params.get('markers') !== '0';
 
   // ---- layers, bottom to top: shapes canvas, the logical DOM layer
@@ -49,7 +52,15 @@ export function createHud(stage: Stage, game: Game): Module {
   const toastGroup = el('div', 'ok-group', layer);
   const cornerGroup = el('div', 'ok-group', layer);
 
-  const ui: Ui = { stage, game, layer, t, audio, unlock };
+  /** a rewarded ad through the platform adapter; the neutral core.noAd notice when there is none */
+  async function rewarded(placement: string): Promise<boolean> {
+    const r = await game.rewarded(placement);
+    if (r === 'unavailable') notice(t('core.noAd'));
+    if (r !== 'granted') return false;
+    game.platform.track('reward_claimed', { placement });
+    return true;
+  }
+  const ui: Ui = { stage, game, layer, t, audio, unlock, rewarded };
   const timers = new Timers();
 
   // ---- HUD texts (GameScene.buildHud, L.top = 0)
@@ -203,6 +214,33 @@ export function createHud(stage: Stage, game: Game): Module {
     };
   }
 
+  /** A neutral one-line notice near the bottom (core toast, position 'bottom'), e.g. "no ad right now". */
+  let noticeEl: { root: HTMLElement; label: Label } | null = null;
+  function notice(text: string): void {
+    if (noticeEl) {
+      noticeEl.label.destroy();
+      noticeEl.root.remove();
+    }
+    const c = el('div', 'ok-anchor', toastGroup);
+    c.style.left = `${CX}px`;
+    c.style.top = '1236px';
+    c.dataset.testid = 'notice';
+    const bg = el('div', '', c);
+    bg.style.cssText = `position:absolute;left:-320px;top:-36px;width:640px;height:72px;border-radius:36px;background:${rgba(PALETTE.ink, 0.9)}`;
+    const label = new Label(c, 0, 0, text, { size: 28, color: PALETTE.cream, wrap: 600 });
+    if (label.width > 600) label.setScale(600 / label.width);
+    const mine = { root: c, label };
+    noticeEl = mine;
+    c.animate([{ transform: 'translateY(40px)', opacity: 0 }, { transform: 'none', opacity: 1 }], { duration: 220, easing: EASE.backOut });
+    const out = c.animate([{ opacity: 1 }, { opacity: 0 }], { delay: 2200, duration: 300, fill: 'forwards' });
+    out.onfinish = () => {
+      if (noticeEl !== mine) return;
+      label.destroy();
+      c.remove();
+      noticeEl = null;
+    };
+  }
+
   function clearToasts(): void {
     toasts.length = 0;
     toastBusy = false;
@@ -224,6 +262,26 @@ export function createHud(stage: Stage, game: Game): Module {
   const cards = createCards(ui, cardGroup, clearTransients, (syn) => callout(t('cards.synergy', { s: t(`syn.${syn}`) }), PALETTE.focus, 56));
   const result = createResult(ui, resultGroup, {
     replay: () => game.startRun({ daily: game.daily, quick: true }),
+    // ResultScene.revive → GameScene with revive: the same world, from the same wave, half health;
+    // coins and best were banked as the run went, the revived run banks only what it adds
+    revive: () => {
+      const w = game.w;
+      if (!game.revive()) return;
+      menus.closeAll();
+      result.hide();
+      resultPending = false;
+      tracker.revive();
+      showBanner(waveLabel(w), null);
+    },
+    // ResultScene.double: the run's coins once more (never in a test run, which leaves the save alone)
+    double: (amount) => {
+      if (amount <= 0 || game.testRun || !game.w.bank) return 0;
+      game.save.update((d) => {
+        d.coins += amount;
+      });
+      doubledCoins += amount;
+      return amount;
+    },
     shop: () => menus.openShop('result'),
     forge: () => menus.openForge('result'),
     home: () => game.toTitle(),
@@ -273,6 +331,8 @@ export function createHud(stage: Stage, game: Game): Module {
   let hudAlpha = 0;
   let treasurePick = false;
   let resultPending = false;
+  /** coins of this run already doubled by an ad (a revived run doubles only what it added since) */
+  let doubledCoins = 0;
   let lastTeach = -9;
   let lastCreak = 0;
   const seen = new Set<string>();
@@ -297,6 +357,7 @@ export function createHud(stage: Stage, game: Game): Module {
     coinsInFlight = 0;
     treasurePick = false;
     resultPending = false;
+    doubledCoins = 0;
     painter.snapHp(w);
     hudAlpha = w.phase === 'title' ? 0 : 1;
     if (w.phase === 'title') title.show(w);
@@ -780,7 +841,9 @@ export function createHud(stage: Stage, game: Game): Module {
         // GameScene.finish: bank everything (and the daily), then the result a beat later
         const run = tracker.finish(w);
         later(0.35, () => {
-          result.show(run);
+          // the rewarded offers: revive once per run; double the coins not doubled yet (a real run only)
+          const ads = { revive: game.canRevive, double: game.testRun || !w.bank ? 0 : Math.max(0, run.coins - doubledCoins) };
+          result.show(run, ads);
           // ResultScene: a higher rank than the one last celebrated plays the ceremony
           const rank = rankOf(progressScore(game.save.data).total);
           if (rank > game.save.data.rank) {

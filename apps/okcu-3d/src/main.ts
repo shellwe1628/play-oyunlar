@@ -14,8 +14,24 @@
  * Without switches every run is set up from the save (ui/save.ts) the way the 2D game does it:
  * `metaOf(save)` (shop upgrades + forged bow), the chapter select, the daily run. ?bow, ?armor,
  * ?chapter and ?wave override the save for testing, and such a test run never writes to it.
+ *
+ * The platform (rewarded ads, haptics) is chosen like core's createGame does it for the Phaser
+ * games: VITE_OYUN_PLATFORM at build time (the Play / App Store builds pass "capacitor": AdMob
+ * rewarded ads), else the native shell, ?platform=, else web (?test=1 always web).
  */
-import { createRng, hashSeed, pickLanguage, webStorage } from '@oyun/core/pure';
+import {
+  capacitorBridge,
+  createCapacitorPlatform,
+  createCrazyGamesPlatform,
+  createRng,
+  createWebPlatform,
+  detectPlatform,
+  hashSeed,
+  pickLanguage,
+  webStorage,
+  type Platform,
+  type PlatformName,
+} from '@oyun/core/pure';
 import { CAREFUL, planShot } from '@sim/aimbot';
 import { BOW_MAX } from '@sim/bow';
 import { metaOf, newBank, NO_META, UPGRADES } from '@sim/meta';
@@ -28,7 +44,9 @@ import {
   createWorld,
   jumpToWave,
   pickCard,
+  addExtraCard,
   reroll,
+  revive,
   shoot,
   takeEvents,
   unleash,
@@ -64,6 +82,34 @@ const root = document.getElementById('stage')!;
 const stage = createStage(root);
 
 const save = openSave(webStorage());
+
+/** core's createGame/makePlatform, without Phaser */
+function makePlatform(name: PlatformName): Platform {
+  switch (name) {
+    case 'crazygames':
+      return createCrazyGamesPlatform();
+    case 'capacitor':
+      return createCapacitorPlatform();
+    default:
+      return createWebPlatform();
+  }
+}
+const platform = makePlatform(
+  detectPlatform({
+    search: location.search,
+    hostname: location.hostname,
+    forced: import.meta.env.VITE_OYUN_PLATFORM as string | undefined,
+    capacitorNative: capacitorBridge()?.isNativePlatform?.() ?? false,
+  }),
+);
+// never rejects in practice; the game starts while the ad SDK warms up
+void platform.init().catch(() => undefined);
+/** the platform is paused (an ad is on screen, or the app is hidden): the world does not advance */
+let held = platform.paused;
+platform.onLifecycle(() => {
+  held = platform.paused;
+});
+let adShowing = false;
 const testRun = ['bow', 'armor', 'chapter', 'wave'].some((k) => params.has(k));
 /** the 3D build plays the harder setting; ?difficulty=classic for comparison */
 const difficulty: Difficulty = params.get('difficulty') === 'classic' ? 'classic' : 'hard';
@@ -138,6 +184,25 @@ const game: Game = {
     return mode.quick;
   },
   testRun,
+  platform,
+  get adShowing() {
+    return adShowing;
+  },
+  async rewarded(placement) {
+    if (adShowing) return 'unavailable';
+    adShowing = true;
+    // no half-drawn string under the ad
+    aim = null;
+    buffered = null;
+    world.player.draw = 0;
+    try {
+      return await platform.showRewarded(placement);
+    } catch {
+      return 'error';
+    } finally {
+      adShowing = false;
+    }
+  },
   get paused() {
     return paused;
   },
@@ -188,6 +253,19 @@ const game: Game = {
   reroll() {
     reroll(world);
   },
+  extraCard() {
+    return addExtraCard(world);
+  },
+  get canRevive() {
+    return world.phase === 'over' && !world.revived;
+  },
+  revive() {
+    if (!revive(world)) return false;
+    paused = false;
+    aim = null;
+    buffered = null;
+    return true;
+  },
   unleash() {
     unleash(world);
   },
@@ -199,6 +277,8 @@ const game: Game = {
 // the app may be killed while hidden: pause a run in progress (the UI banks and shows the menu)
 document.addEventListener('visibilitychange', () => {
   if (!document.hidden) return;
+  // an ad's own activity may hide the page: that is not the player leaving (no pause menu after it)
+  if (adShowing) return;
   const phase = world.phase;
   if (phase !== 'title' && phase !== 'over') game.setPaused(true);
 });
@@ -267,7 +347,7 @@ async function start(): Promise<void> {
   function tick(now: number): void {
     const real = Math.min(0.2, (now - last) / 1000);
     last = now;
-    if (paused) {
+    if (paused || held || adShowing) {
       // nothing advances; the view modules redraw a frozen frame, the UI keeps its own clock (menus animate)
       const still: Frame = { w: world, dt: 0, real: 0, time, events: [], aim: null };
       run('arena', arena, still);

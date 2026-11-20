@@ -346,7 +346,7 @@ Thank you for reviewing Noodle Archers.
 - The whole game (3D, rendered with WebGL) is bundled in the app and plays offline. There are no accounts, no logins and no in-app purchases. Progress is saved on the device only. Coins are earned in play.
 - Controls: drag anywhere to aim, release to shoot.
 - Optional online ranking uses Game Center: Title screen > Ranks > globe button (top right). Before anything goes online the game asks once for the player's year of birth (a neutral list). Under 13: online ranking is switched off on that install and Game Center is never started. 13 or over: Game Center starts and shows Apple's own sign-in if the device is not signed in. Scores go only to Game Center. The rest of the game needs no sign-in. To see the age question again, delete and reinstall the app.
-- Buttons marked as rewards give their reward straight away in this version: no ads are shown and there is no ad SDK in the app.
+- Three optional buttons marked "▶ AD" (one more card on the card pick; revive and double coins on the result screen) play a Google AdMob rewarded ad only when tapped. Every ad request is child-directed (TFCD, TFUA, max rating G, non-personalised); no App Tracking Transparency prompt and no IDFA. There are no other ads.
 - Violence is cartoon style: wobbly ragdoll archers are knocked off floating islands, with no blood.
 ```
 

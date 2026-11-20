@@ -51,6 +51,8 @@ const STYLE = `
 .ok-btn.down{transform:scale(.94)}
 .ok-tile::after{height:16%;top:6px;opacity:.7}
 .ok-btn.off{opacity:.45;cursor:default}
+.ok-ad{position:absolute;top:-16px;right:12px;height:36px;padding:0 14px 0 13px;border-radius:18px;background:${css(THEME.accent)};border:3px solid ${css(THEME.shadow)};color:${css(THEME.shadow)};font-size:22px;line-height:1;display:flex;align-items:center;gap:6px;pointer-events:none;z-index:1}
+.ok-ad::before{content:'';width:0;height:0;border-left:12px solid ${css(THEME.shadow)};border-top:7px solid transparent;border-bottom:7px solid transparent}
 .ok-round{position:absolute;pointer-events:auto;cursor:pointer;touch-action:none;border-radius:50%;transition:transform .09s ease-out}
 .ok-round.down{transform:scale(.9)}
 .ok-round>canvas{position:absolute;inset:0;width:100%;height:100%}
@@ -323,6 +325,11 @@ export interface ButtonOpts {
   height?: number;
   variant?: 'primary' | 'secondary';
   fontSize?: number;
+  /**
+   * Rewarded-ad button: this text (core.ad, "AD" / "REKLAM") in a "▶ AD" pill on the top-right
+   * corner, like core's Phaser button `{ ad: true }`, so the player knows an ad plays.
+   */
+  ad?: string;
 }
 
 /** The core's rounded button: drop shadow, top highlight, press squash, release pop. Centred on (x, y). */
@@ -334,10 +341,15 @@ export function button(parent: HTMLElement, x: number, y: number, text: string, 
   const e = el('div', 'ok-btn', parent);
   const r = Math.min(THEME.radius, h / 2);
   e.style.cssText = `left:${x - w / 2}px;top:${y - h / 2}px;width:${w}px;height:${h}px;border-radius:${r}px;background:${css(primary ? THEME.primary : THEME.secondary)};color:${css(primary ? THEME.primaryText : THEME.secondaryText)};box-shadow:0 8px 0 ${rgba(THEME.shadow, 0.55)};padding-bottom:4px`;
+  const label = el('span', '', e);
+  if (opts.ad) {
+    const tag = el('div', 'ok-ad', e);
+    tag.textContent = opts.ad;
+  }
   const setText = (s: string): void => {
     const fit = Math.min(1, (w - 30) / Math.max(1, textWidth(s, size)));
     e.style.fontSize = `${size * fit}px`;
-    e.textContent = s;
+    label.textContent = s;
   };
   setText(text);
   let enabled = true;

@@ -42,6 +42,8 @@ export interface Tracker {
   bank(w: World, reached?: number): void;
   /** the run is over: bank everything, the daily challenge, and build the result */
   finish(w: World): RunResult;
+  /** the ended run was revived (rewarded): it banks again as it goes, keeping this run's records */
+  revive(): void;
 }
 
 export function createTracker(game: Game, onFeat: (id: string, coins: number) => void): Tracker {
@@ -73,6 +75,9 @@ export function createTracker(game: Game, onFeat: (id: string, coins: number) =>
     },
     bank(w, reached) {
       if (!finished) bank(w, reached);
+    },
+    revive() {
+      finished = false;
     },
     finish(w) {
       finished = true;

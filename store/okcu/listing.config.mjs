@@ -224,6 +224,19 @@ export default {
       },
     },
     {
+      id: 'caldera',
+      // the end of the career, a fresh run in the fifth world: ledges bobbing on the lava
+      save: 'full',
+      caption: { 'en-US': 'Six worlds, from green islands to a lava caldera', 'tr-TR': 'Yeşil adalardan lav kazanına altı dünya' },
+      async run(g) {
+        await playTo(g, 4, (w) => w.wave >= 31 && w.phase === 'play' && w.enemies.filter((e) => e.alive).length >= 2, { seed: 11 });
+        await calm(g);
+        const aim = await g.eval(() => window.__storeBot.aimAt('head'));
+        await holdAim(g, { angle: aim.angle, power: aim.power * 0.95 });
+        await g.run(300, 33);
+      },
+    },
+    {
       id: 'bonus',
       save: 'full',
       caption: { 'en-US': 'Bonus rounds: shoot the floating targets', 'tr-TR': 'Bonus turları: uçan hedefleri vur' },
@@ -253,7 +266,7 @@ export default {
     {
       id: 'ranks',
       save: 'full',
-      caption: { 'en-US': 'Climb 12 ranks and beat your own records', 'tr-TR': '12 rütbeyi tırman, kendi rekorlarını kır' },
+      caption: { 'en-US': 'Climb 14 ranks and beat your own records', 'tr-TR': '14 rütbeyi tırman, kendi rekorlarını kır' },
       async run(g, { lang }) {
         await g.run(600, 100);
         await g.tap(L.ranks[lang]);

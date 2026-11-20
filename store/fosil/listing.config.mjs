@@ -6,7 +6,7 @@
 import { loadMods, newCareer, playFast } from './career.mjs';
 
 // every one-time tip the dig screen has (none of them over a screenshot)
-const TIPS = ['odds', 'dust', 'power', 'combo', 'assistant', 'fuse', 'glint', 'luck', 'locked', 'fever', 'pity', 'chain', 'relic', 'cavein', 'boss', 'golden', 'vein', 'unstable', 'twin', 'rank', 'daily', 'expedition', ...Array.from({ length: 10 }, (_, i) => `deeper-${i}`)];
+const TIPS = ['odds', 'dust', 'power', 'combo', 'assistant', 'fuse', 'glint', 'luck', 'locked', 'fever', 'pity', 'chain', 'relic', 'cavein', 'boss', 'golden', 'vein', 'unstable', 'twin', 'rank', 'daily', 'expedition', 'pressure', 'meteor', 'echo', ...Array.from({ length: 13 }, (_, i) => `deeper-${i}`)];
 const SAVE_KEY = 'oyun:fosil:save';
 const SAVE_VERSION = 2;
 /** The career ran over the days before the capture (record dates), the last dig today. */
@@ -81,6 +81,9 @@ export default {
     snaps.coal = null;
     snaps.magma = at(8, 8);
     snaps.seas = at(9, 10);
+    // the First Seas as the player first digs them (the boss block's layer), before the long dig
+    // on toward the expedition makes every block there a one-tap break
+    snaps.seasFirst = snaps.seas;
     if (!c.sim.canExpedition) playFast(m, c, { minutes: 600, until: (s) => s.canExpedition, expedition: false, startMs });
     for (let d = today - 3; d <= today; d++) c.sim.claimDaily(d);
     snaps.seas = save();
@@ -111,6 +114,7 @@ export default {
       magma: finish(snaps.magma, { combo: 0.9, ...day }),
       grand: finish(grand, { combo: 1, ...day }),
       seas: finish(snaps.seas, { combo: 1 }),
+      seasFirst: finish(snaps.seasFirst, { combo: 1 }),
     };
   },
   storageFor: (save) => ({ [SAVE_KEY]: save }),
@@ -142,11 +146,20 @@ export default {
     },
     {
       id: 'boss',
-      save: 'seas',
-      caption: { 'en-US': 'Ten layers, each with a twist, down to a boss block', 'tr-TR': 'Her biri ayrı sürprizli on katman ve patron blok' },
+      save: 'seasFirst',
+      caption: { 'en-US': 'Thirteen layers, each with a twist, and a boss block', 'tr-TR': 'Her biri ayrı sürprizli on üç katman ve patron blok' },
       async run(g) {
         await toDig(g, 9);
-        await tapUntil(g, (d) => d.block === 'boss' && !d.ceremony && !d.overlay, 6000);
+        // a lucky find's ceremony can come up on the way: let it play out, then dig on
+        for (let n = 0; ; n++) {
+          const d = await tapUntil(g, (d) => (d.block === 'boss' && !d.ceremony && !d.overlay) || !!d.overlay || !!d.ceremony, 6000);
+          if (!d.overlay && !d.ceremony) break;
+          if (n > 8) throw new Error('boss: overlays kept coming');
+          await g.run(4000, 200);
+          const o = await g.data();
+          if (o.overlay || o.ceremony) await g.act('tap', 1);
+          await g.run(800, 100);
+        }
         // let the chain labels and the "boss surfaces" toast clear, then strike at a finger's pace.
         // Each phase change floats a banner up onto the status line (the helper's hits cross
         // phases too), so the captured strike is one with no phase change in the 1.4 s before it.
@@ -204,7 +217,7 @@ export default {
     {
       id: 'museum',
       save: 'seas',
-      caption: { 'en-US': 'Fill your museum: 120 fossils in ten layers', 'tr-TR': 'Müzeni doldur: on katmanda 120 fosil' },
+      caption: { 'en-US': 'Fill your museum: 156 fossils in 13 layers', 'tr-TR': 'Müzeni doldur: 13 katmanda 156 fosil' },
       async run(g) {
         await toDig(g);
         await g.act('museum');
@@ -216,7 +229,7 @@ export default {
     {
       id: 'ranks',
       save: 'seas',
-      caption: { 'en-US': 'Climb 12 ranks and beat your own records', 'tr-TR': '12 rütbeyi tırman, kendi rekorlarını kır' },
+      caption: { 'en-US': 'Climb 15 ranks and beat your own records', 'tr-TR': '15 rütbeyi tırman, kendi rekorlarını kır' },
       async run(g) {
         await toDig(g);
         await g.act('ranks');

@@ -19,7 +19,7 @@ import type { DailyMod, RunSummary } from './progress';
 import { BOSS_PARTS, bowOrigin, createRagdoll, LEG_HEIGHT, PARTS, PT, setPose, type Part } from './ragdoll';
 import { PLAYER_LEDGE, PLAYER_SCALE, PLAYER_X, TUNING } from './tuning';
 import { bossHp, enemyAccuracy, enemyDamageMul, enemyHp, enemyScale, enemyTiming, enemyWeight, graceStep, HARD_COIN_MUL, helmetChance, waveGrace, type Difficulty } from './waves';
-import { WEAPONS, weaponDamage } from './weapons';
+import { WEAPONS, weaponDamage, weaponPerks } from './weapons';
 
 export type Phase = 'title' | 'play' | 'clear' | 'bonus' | 'cards' | 'dying' | 'over';
 export type ArcherType = EnemyType | 'player';
@@ -153,6 +153,10 @@ export interface Arrow {
   /** player: frost and blast arrow heads (drawn icy / with a charge) */
   frost: boolean;
   blast: boolean;
+  /** boomerang: flight age (s) at which it stops flying out and starts back */
+  turnT: number;
+  /** boomerang: archers already hit on this pass (cleared when it turns) */
+  hitIds: number[];
 }
 
 export interface Apple {
@@ -502,6 +506,8 @@ function newArrow(): Arrow {
     hex: false,
     frost: false,
     blast: false,
+    turnT: 0,
+    hitIds: [],
   };
 }
 
@@ -771,6 +777,8 @@ function spawnWave(w: World, wave: number, instant: boolean): void {
   for (const a of w.arrows) {
     if (!a.active) continue;
     if (a.state === 0 && a.owner === 'enemy') a.active = false;
+    // a boomerang still out would come back into the next wave: it is gone with the old one
+    if (a.state === 0 && a.kind === 'boomerang') a.active = false;
     if (a.state === 1 || a.state === 3) a.active = false;
   }
   clearProps(w);
@@ -973,6 +981,7 @@ function fireVolley(w: World, angle: number, power: number, first: boolean): voi
     ar.blast = w.stats.blastShare > 0;
     ar.pierce = w.stats.pierce + (focus ? 1 : 0);
     if (ar.kind === 'spear') ar.life = SPEAR_LIFE;
+    if (ar.kind === 'boomerang') ar.turnT = BOOM.turnBase + BOOM.turnPower * clamp(power, 0, 1);
     ar.bounces = w.stats.bounces;
     ar.seek = w.stats.seek > 0 && (k === 0 || w.stats.swarm);
     ar.over = over;
@@ -1035,6 +1044,8 @@ function spawnArrow(w: World, owner: 'player' | 'enemy', kind: Arrow['kind'], x:
   a.hex = false;
   a.frost = false;
   a.blast = false;
+  a.turnT = 0;
+  a.hitIds.length = 0;
   return a;
 }
 
@@ -2331,6 +2342,8 @@ function updateArrows(w: World): void {
       if (a.homing > 0) homeOrb(w, a);
       a.x += a.vx * DT;
       a.y += a.vy * DT;
+    } else if (a.kind === 'boomerang') {
+      if (flyBoomerang(w, a)) continue;
     } else {
       if (a.seek) steer(w, a);
       flyArrow(a, DT, TUNING.gravity * a.gravityMul);
@@ -2351,6 +2364,64 @@ function updateArrows(w: World): void {
     else enemyArrowHits(w, a, x0, y0);
   }
 }
+
+/**
+ * Boomerang flight: no gravity. Out along the launch line, slowing linearly to a stop at `turnT`
+ * (wind pushes it at 0.3 of an arrow's push); then back toward the bow, speeding up, on a path
+ * that curls up over the line it went out on and straightens as it nears the player, with the
+ * wind's 0.3 drift. Back within BOOM.catchR of the bow it ends (it never hurts the player).
+ * Returns true when it ended this step.
+ */
+function flyBoomerang(w: World, a: Arrow): boolean {
+  const t0 = a.age - DT;
+  const wind = w.wind * BOOM.windMul;
+  if (t0 < a.turnT) {
+    const left = a.turnT - t0;
+    const k = left > DT + 1e-9 ? 1 - DT / left : 0;
+    a.x += ((a.vx * (1 + k)) / 2) * DT + 0.5 * wind * DT * DT;
+    a.y += ((a.vy * (1 + k)) / 2) * DT;
+    a.vx = a.vx * k + wind * DT * k;
+    a.vy *= k;
+    if (a.age >= a.turnT - 1e-9) turnBoomerang(a);
+    return false;
+  }
+  const o = playerOrigin(w, w.player.aim);
+  let dx = o.x - a.x;
+  let dy = o.y - a.y;
+  let d = Math.hypot(dx, dy);
+  if (d < BOOM.catchR) return endBoomerang(w, a);
+  const mul = w.difficulty === 'hard' ? weaponPerks('boomerang', w.meta.wlevel).returnSpeedMul : 1;
+  const sp = Math.min(BOOM.returnMax, BOOM.returnAcc * (a.age - a.turnT)) * mul;
+  const dir = Math.atan2(dy, dx) + BOOM.curl * clamp((d - BOOM.catchR) / 500, 0, 1);
+  a.vx = Math.cos(dir) * sp + wind * BOOM.driftT;
+  a.vy = Math.sin(dir) * sp;
+  a.x += a.vx * DT;
+  a.y += a.vy * DT;
+  dx = o.x - a.x;
+  dy = o.y - a.y;
+  d = Math.hypot(dx, dy);
+  if (d < BOOM.catchR) return endBoomerang(w, a);
+  return false;
+}
+
+/** The boomerang starts back (at `turnT`, or early off a ledge or shield): a new pass. */
+function turnBoomerang(a: Arrow): void {
+  a.turnT = Math.min(a.turnT, a.age);
+  a.hitIds.length = 0;
+  a.vx = 0;
+  a.vy = 0;
+}
+
+function endBoomerang(w: World, a: Arrow): boolean {
+  missed(w, a);
+  a.active = false;
+  return true;
+}
+
+/** Boomerang: turn time 0.55 + 0.35 × power s; return acceleration (px/s²) and top speed (px/s), both × the return perk. */
+const BOOM = { turnBase: 0.55, turnPower: 0.35, windMul: 0.3, returnAcc: 1500, returnMax: 1400, curl: 0.7, driftT: 0.5, catchR: 60 } as const;
+
+const boomReturning = (a: Arrow): boolean => a.kind === 'boomerang' && a.age >= a.turnT;
 
 /** Ledge (or wall) test for a flying arrow from (x0,y0) to its current tip; returns true if it stopped. */
 function ledgeHit(w: World, a: Arrow, x0: number, y0: number): boolean {
@@ -2382,6 +2453,15 @@ function ledgeHit(w: World, a: Arrow, x0: number, y0: number): boolean {
   if (a.kind === 'orb') {
     a.active = false;
     w.events.push({ t: 'orbPop', x: hx, y: hy });
+    return true;
+  }
+  if (a.kind === 'boomerang') {
+    // a boomerang never sticks: going out it glances off and starts back (on the way back it
+    // passes over ledges, see playerArrowHits)
+    a.x = hx + best.nx * 2;
+    a.y = hy + best.ny * 2;
+    turnBoomerang(a);
+    w.events.push({ t: 'bounce', x: hx, y: hy });
     return true;
   }
   if (a.kind === 'pebble' && a.bounces <= 0) {
@@ -2472,6 +2552,7 @@ function playerArrowHits(w: World, a: Arrow, x0: number, y0: number): void {
   for (const e of w.enemies) {
     // archers dropping in cannot be hit until they land
     if (e.gone || e.id === a.ignore || (e.alive && e.brain === 'spawn')) continue;
+    if (a.hitIds.length > 0 && a.hitIds.includes(e.id)) continue;
     if (e.shield) {
       const h = hitParts(e.shield, 1, SHIELD_PARTS, x0, y0, a.x, a.y);
       if (h && h.t < bestT) {
@@ -2516,13 +2597,16 @@ function playerArrowHits(w: World, a: Arrow, x0: number, y0: number): void {
       hy = y0 + (a.y - y0) * t;
     }
   }
-  // ledges in front of the hit?
+  // ledges in front of the hit? (a boomerang on its way back passes over them)
+  const back = boomReturning(a);
   let ledgeT = 2;
-  for (const L of w.ledges) {
+  for (let i = 0; i < w.ledges.length && !back; i++) {
+    const L = w.ledges[i]!;
     const h = sweepAabb(x0, y0, a.x, a.y, L.x, L.y, L.w, L.h);
     if (h && h.t < ledgeT) ledgeT = h.t;
   }
-  for (const L of w.walls) {
+  for (let i = 0; i < w.walls.length && !back; i++) {
+    const L = w.walls[i]!;
     const h = sweepAabb(x0, y0, a.x, a.y, L.x, L.y, L.w, L.h);
     if (h && h.t < ledgeT) ledgeT = h.t;
   }
@@ -2551,14 +2635,18 @@ function playerArrowHits(w: World, a: Arrow, x0: number, y0: number): void {
     }
     return;
   }
-  ledgeHit(w, a, x0, y0);
+  if (!back) ledgeHit(w, a, x0, y0);
 }
 
 function hitShield(w: World, a: Arrow, e: Archer, hx: number, hy: number): void {
   const s = e.shield!;
   // a pebble still in flight after glancing off is not a miss; it is one only when finally spent
-  if (a.kind !== 'pebble' || a.bounces <= 0) missed(w, a);
-  if (a.kind === 'pebble') {
+  // (a boomerang only when it ends)
+  if (a.kind !== 'boomerang' && (a.kind !== 'pebble' || a.bounces <= 0)) missed(w, a);
+  if (a.kind === 'boomerang') {
+    // it never sticks: the shield's bearer is safe from it this pass (going out, it starts back; below)
+    a.hitIds.push(e.id);
+  } else if (a.kind === 'pebble') {
     // a pebble never sticks: it glances off the shield (0.7 restitution about the contact normal) while bounces last
     if (a.bounces > 0) {
       a.bounces -= 1;
@@ -2600,6 +2688,12 @@ function hitShield(w: World, a: Arrow, e: Archer, hx: number, hy: number): void 
   }
   w.events.push({ t: 'shieldHit', id: e.id, x: hx, y: hy, broke });
   if (w.stats.blastShare > 0) burst(w, a, hx, hy, null);
+  if (a.kind === 'boomerang' && !boomReturning(a)) {
+    a.x = hx - Math.sign(a.vx || 1) * 2;
+    a.y = hy;
+    turnBoomerang(a);
+    a.hitIds.push(e.id);
+  }
 }
 
 function hitEnemy(w: World, a: Arrow, e: Archer, part: Part, hx: number, hy: number): void {
@@ -2617,7 +2711,8 @@ function hitEnemy(w: World, a: Arrow, e: Archer, part: Part, hx: number, hy: num
   if (e.alive && e.type === 'ward' && e.wardUp) {
     e.wardUp = false;
     e.wardT = FX.wardWindow;
-    a.active = false;
+    if (a.kind === 'boomerang') a.hitIds.push(e.id);
+    else a.active = false;
     a.scored = true;
     w.events.push({ t: 'ward', id: e.id, x: hx, y: hy, up: false });
     return;
@@ -2735,6 +2830,11 @@ function zap(w: World, from: Archer, dmg: number, jumps: number): void {
 }
 
 function stickOrPierce(w: World, a: Arrow, e: Archer, part: Part, hx: number, hy: number): void {
+  if (a.kind === 'boomerang') {
+    // it cuts through and flies on (pierce is moot: it is not slowed or used up); once per archer per pass
+    a.hitIds.push(e.id);
+    return;
+  }
   if (a.pierce > 0) {
     a.pierce -= 1;
     a.ignore = e.id;

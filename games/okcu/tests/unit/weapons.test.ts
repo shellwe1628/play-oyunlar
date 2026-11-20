@@ -418,3 +418,157 @@ describe('sling pebbles', () => {
     expect(p.active && p.state !== 0).toBe(false);
   });
 });
+
+describe('boomerang', () => {
+  type W = ReturnType<typeof createWorld>;
+  const boomWorld = (wlevel = 1, seed = 3) => createWorld({ seed, difficulty: 'hard', meta: { ...NO_META, weapon: 'boomerang', wlevel } });
+  const freeze = (w: W) => {
+    for (const e of w.enemies) {
+      e.timer = 999;
+      e.hp = e.maxHp = 1e6;
+      e.shield = null;
+    }
+  };
+  /** Fire one boomerang up and away from every archer and follow it until it ends (or 4 s pass). */
+  const flight = (w: W, angle: number, power: number) => {
+    w.wind = 0;
+    const hp0 = w.player.hp;
+    expect(shoot(w, angle, power)).toBe(true);
+    const b = w.arrows.find((x) => x.active && x.owner === 'player')!;
+    expect(b.kind).toBe('boomerang');
+    const o = playerOrigin(w, w.player.aim);
+    const [x0, y0, sp0] = [b.x, b.y, Math.hypot(b.vx, b.vy)];
+    const dir = Math.atan2(b.vy, b.vx);
+    let far = { d: 0, t: 0 };
+    let t = 0;
+    let off = 0; // largest distance from the launch line during the first 0.3 s
+    let sp03 = 0;
+    const ev: string[] = [];
+    takeEvents(w);
+    while (b.active && t < 4) {
+      advance(w, 1 / 120);
+      t += 1 / 120;
+      for (const e of takeEvents(w)) ev.push(e.t);
+      if (!b.active) break;
+      expect(b.state).toBe(0);
+      const d = Math.hypot(b.x - o.x, b.y - o.y);
+      if (d > far.d) far = { d, t };
+      if (t <= 0.3) off = Math.max(off, Math.abs(-(b.x - x0) * Math.sin(dir) + (b.y - y0) * Math.cos(dir)));
+      if (Math.abs(t - 0.3) < 1e-6) sp03 = Math.hypot(b.vx, b.vy);
+    }
+    return { b, o, t, far, off, sp0, sp03, ev, hurt: hp0 - w.player.hp };
+  };
+
+  it('boomerang returns to the player', () => {
+    for (const power of [0.4, 1]) {
+      const w = boomWorld();
+      const f = flight(w, -1.25, power);
+      // no gravity: straight along the launch line on the way out, slowing down
+      expect(f.off).toBeLessThan(1);
+      expect(f.sp03).toBeLessThan(f.sp0);
+      // it turns at 0.55 + 0.35 × power s, far from the player
+      expect(f.far.t).toBeCloseTo(0.55 + 0.35 * power, 1);
+      expect(f.far.d).toBeGreaterThan(150);
+      // back within 2.5 s, ended within 60 px of the bow, and the player is untouched
+      expect(f.b.active).toBe(false);
+      expect(f.t).toBeLessThanOrEqual(2.5);
+      expect(Math.hypot(f.b.x - f.o.x, f.b.y - f.o.y)).toBeLessThan(60);
+      expect(f.hurt).toBe(0);
+      expect(f.ev).not.toContain('playerHit');
+    }
+  });
+
+  it('the return perk brings it back sooner', () => {
+    const slow = flight(boomWorld(1), -1.25, 1);
+    const fast = flight(boomWorld(20), -1.25, 1);
+    expect(slow.b.active).toBe(false);
+    expect(fast.b.active).toBe(false);
+    expect(fast.t - fast.far.t).toBeLessThan(0.9 * (slow.t - slow.far.t));
+  });
+
+  it('a boomerang that hits nobody breaks the headshot chain only when it ends', () => {
+    const w = boomWorld();
+    w.wind = 0;
+    expect(shoot(w, -1.25, 1)).toBe(true);
+    const b = w.arrows.find((x) => x.active && x.owner === 'player')!;
+    w.run.chain = 3;
+    for (let i = 0; i < 120 && b.active; i++) advance(w, 1 / 120);
+    expect(b.active).toBe(true);
+    expect(w.run.chain).toBe(3);
+    for (let i = 0; i < 480 && b.active; i++) advance(w, 1 / 120);
+    expect(b.active).toBe(false);
+    expect(w.run.chain).toBe(0);
+  });
+
+  it('boomerang hits on the way out and back', () => {
+    const w = boomWorld();
+    jumpToWave(w, 6);
+    w.wind = 0;
+    w.walls.length = 0;
+    for (let i = 0; i < 90; i++) {
+      freeze(w);
+      advance(w, 1 / 60);
+    }
+    const e = w.enemies.find((q) => q.alive)!;
+    const c = targetPoint(e, 'chest');
+    // aim straight at the chest; pick the power whose turn point lies 25 px past it
+    let angle = -0.3;
+    for (let k = 0; k < 5; k++) {
+      const o = playerOrigin(w, angle);
+      angle = Math.atan2(c.y - o.y, c.x - o.x);
+    }
+    const o = playerOrigin(w, angle);
+    const want = Math.hypot(c.x - o.x, c.y - o.y) + 25;
+    let power = 0;
+    for (let p = 0; p <= 1; p += 0.001) if (Math.abs((arrowSpeed(p) * (0.55 + 0.35 * p)) / 2 - want) < Math.abs((arrowSpeed(power) * (0.55 + 0.35 * power)) / 2 - want)) power = p;
+    w.reload = 0;
+    takeEvents(w);
+    expect(shoot(w, angle, power)).toBe(true);
+    const b = w.arrows.find((x) => x.active && x.owner === 'player')!;
+    expect(b.kind).toBe('boomerang');
+    const hp0 = e.hp;
+    let hits = 0;
+    let hpAfterFirst = 0;
+    for (let i = 0; i < 360 && b.active; i++) {
+      for (const q of w.enemies) {
+        q.timer = 999;
+        q.shield = null;
+      }
+      advance(w, 1 / 120);
+      for (const ev of takeEvents(w)) {
+        if (ev.t === 'hit' && ev.id === e.id) {
+          hits++;
+          if (hits === 1) {
+            hpAfterFirst = e.hp;
+            // a hit does not end it: it flies on
+            expect(b.active && b.state === 0).toBe(true);
+          }
+        }
+      }
+    }
+    expect(hits).toBe(2);
+    expect(hpAfterFirst).toBeLessThan(hp0);
+    expect(e.hp).toBeLessThan(hpAfterFirst);
+    expect(b.active).toBe(false);
+    expect(b.state).toBe(0);
+  });
+
+  it('boomerang cleared on wave change', () => {
+    const w = boomWorld();
+    w.wind = 0;
+    expect(shoot(w, -0.2, 0.8)).toBe(true);
+    const b = w.arrows.find((x) => x.active && x.owner === 'player')!;
+    expect(b.kind).toBe('boomerang');
+    advance(w, 0.25);
+    expect(b.active && b.state === 0).toBe(true);
+    jumpToWave(w, 6);
+    expect(w.arrows.some((x) => x.active && x.owner === 'player' && x.kind === 'boomerang')).toBe(false);
+    takeEvents(w);
+    let hits = 0;
+    for (let i = 0; i < 300; i++) {
+      advance(w, 1 / 120);
+      for (const ev of takeEvents(w)) if (ev.t === 'hit') hits++;
+    }
+    expect(hits).toBe(0);
+  });
+});

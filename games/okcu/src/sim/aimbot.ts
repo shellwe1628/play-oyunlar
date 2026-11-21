@@ -356,7 +356,8 @@ function bonusPoint(w: World): { x: number; y: number } | null {
 function tacticalPoint(w: World): { x: number; y: number } | null {
   for (const p of w.props) {
     if (!p.active || p.kind !== 'barrel') continue;
-    const near = aliveEnemies(w).filter((e) => Math.hypot(e.body.x[PT.pelvis]! - p.x, e.body.y[PT.pelvis]! - p.y) < 150).length;
+    // (an archer still hidden in the fog is not seen: no aiming at it through a barrel either)
+    const near = aliveEnemies(w).filter((e) => e.veil <= 0 && Math.hypot(e.body.x[PT.pelvis]! - p.x, e.body.y[PT.pelvis]! - p.y) < 150).length;
     if (near >= 1) return { x: p.x + p.w / 2, y: p.y + p.h / 2 };
   }
   return null;

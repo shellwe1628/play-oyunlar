@@ -515,6 +515,8 @@ export function createHud(stage: Stage, game: Game): Module {
     float(CX, 420, text, { size: 34, color: PALETTE.cream, rise: 30, duration: 2600 });
   }
 
+  const MOD_TIPS = { fog: 'hud.fogTip', lowCeiling: 'hud.ceilingTip', movingBase: 'hud.baseTip' } as const;
+
   const hasIntro = (type: string): boolean =>
     type === 'shield' || type === 'jumper' || type === 'bomber' || type === 'healer' || type === 'cover' || type === 'catcher' || type === 'ward' || type === 'elite' || type === 'volley' || type === 'mage' || type === 'armored';
 
@@ -542,9 +544,15 @@ export function createHud(stage: Stage, game: Game): Module {
     tip('rock', w.props.some((p) => p.active && p.kind === 'rock'), 'hud.rockTip');
     tip('bob', w.movers.some((m) => m.kind === 'bob'), 'hud.bobTip');
     tip('gust', w.gustEvery > 0, 'hud.gustTip');
-    tip('fog', w.stageMod === 'fog', 'hud.fogTip');
-    tip('ceiling', w.stageMod === 'lowCeiling', 'hud.ceilingTip');
-    tip('base', w.stageMod === 'movingBase', 'hud.baseTip');
+    // a stage modifier is explained on its first stage, always: in the banner if it is free,
+    // otherwise as a toast once the banner's intro has been read
+    const mod = w.stageMod;
+    if (mod && !seen.has(`modtip-${mod}`)) {
+      seen.add(`modtip-${mod}`);
+      const text = t(MOD_TIPS[mod]);
+      if (!intro) intro = text;
+      else later(3.4, () => teach(`mod-${mod}`, text));
+    }
     const obj = e.objective ? objectiveText(e.objective, e.limit) : null;
     // a grown field (hard widens it every chapter from the second): said at the first two
     // widenings of a run, after the banner

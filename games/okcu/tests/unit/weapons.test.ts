@@ -4,11 +4,11 @@ import { ARMORED_RESIST, ENEMY_DAMAGE, HARD_HEAD_MUL, resolveHit } from '../../s
 import { createRng } from '@oyun/core/pure';
 import { CARD_IDS, CARD_WEAPONS, HARD_BOW_POW, cardFits, drawOffer, statsFor, type CardId } from '../../src/sim/cards';
 import { NO_META } from '../../src/sim/meta';
-import { CAREFUL, playRun, solveShot } from '../../src/sim/aimbot';
+import { CAREFUL, planShot, playRun, solveShot } from '../../src/sim/aimbot';
 import { CHAPTERS, chapterStart, ENDLESS_WAVE, STAGES, stageDef, stageEnemies } from '../../src/sim/chapters';
 import { velX } from '../../src/sim/body';
 import { PLAYER_LEDGE, PLAYER_X, TUNING } from '../../src/sim/tuning';
-import { arrowSpeed, BOOM, createWorld, playerOrigin, ROCKET, rocketRadius, shoot, advance, jumpToWave, takeEvents, targetPoint, type World } from '../../src/sim/world';
+import { arrowSpeed, BOOM, createWorld, FX, playerOrigin, ROCKET, rocketRadius, shoot, advance, jumpToWave, takeEvents, targetPoint, type Archer, type World } from '../../src/sim/world';
 import { WEAPON_IDS, WEAPONS, bowEquivalent, levelForBow, weaponDamage, weaponPerks } from '../../src/sim/weapons';
 
 describe('weapons', () => {
@@ -1037,6 +1037,104 @@ describe('stage features (hard)', () => {
       jumpToWave(w, wave);
       expect(w.stageMod).toBeNull();
     }
+  });
+
+  /** a hard world on the first stage with an armored archer (and `n`-th such stage), only `keep` enemies left, nothing moving */
+  const armoredWorld = (weapon: 'bow' | 'spear', keep: (w: World) => Archer[], pick = 0) => {
+    const w = createWorld({ seed: 2, difficulty: 'hard', meta: { ...NO_META, weapon, wlevel: 5 } });
+    const wave = WAVES.filter((v) => stageEnemies(v, stageDef(v, rng(), 'hard'), 9, 'hard').includes('armored'))[pick]!;
+    jumpToWave(w, wave);
+    hold(w);
+    for (let i = 0; i < 60; i++) advance(w, 1 / 60);
+    takeEvents(w);
+    const kept = keep(w);
+    for (const x of w.enemies) {
+      if (!kept.includes(x)) x.gone = true;
+      x.hp = x.maxHp = 1e6;
+      x.shield = null;
+    }
+    w.movers.length = 0;
+    w.wind = 0;
+    w.reload = 0;
+    return w;
+  };
+  const fireAt = (w: World, x: number, y: number) => {
+    const s = solveShot(w, x, y, 1.04);
+    expect(shoot(w, s.angle, s.power)).toBe(true);
+  };
+
+  it('fire lit and chain lightning off an arrow are resisted by plate; a spear lights it at full', () => {
+    for (const weapon of ['bow', 'spear'] as const) {
+      const w = armoredWorld(weapon, (q) => q.enemies.filter((e) => e.type === 'armored'));
+      const e = w.enemies.find((x) => x.type === 'armored' && !x.gone)!;
+      w.stats = { ...w.stats, fireDps: 20, fireTime: 3 };
+      const c = targetPoint(e, 'chest');
+      fireAt(w, c.x, c.y);
+      for (let i = 0; i < 120 && e.burn <= 0; i++) advance(w, 1 / 60);
+      expect(e.burn, weapon).toBeGreaterThan(0);
+      expect(e.burnDps, weapon).toBeCloseTo(weapon === 'bow' ? 20 * ARMORED_RESIST : 20, 6);
+    }
+    // chain lightning: an arrow into a healer jumps to the armored archer on the island beside it
+    const healerPair = WAVES.filter((v) => stageDef(v, rng(), 'hard').enemies.join() === 'healer,archer,healer,armored')[0]!;
+    const w = createWorld({ seed: 2, difficulty: 'hard', meta: { ...NO_META, weapon: 'bow', wlevel: 5 } });
+    jumpToWave(w, healerPair);
+    hold(w);
+    for (let i = 0; i < 60; i++) advance(w, 1 / 60);
+    takeEvents(w);
+    const healer = w.enemies[2]!;
+    const armored = w.enemies[3]!;
+    expect([healer.type, armored.type]).toEqual(['healer', 'armored']);
+    for (const x of w.enemies) {
+      if (x !== healer && x !== armored) x.gone = true;
+      x.hp = x.maxHp = 1e6;
+    }
+    w.movers.length = 0;
+    w.wind = 0;
+    w.reload = 0;
+    w.stats = { ...w.stats, chainShare: 0.5, chainJumps: 1 };
+    const c = targetPoint(healer, 'chest');
+    fireAt(w, c.x, c.y);
+    let zapDmg = 0;
+    for (let i = 0; i < 120 && zapDmg === 0; i++) {
+      advance(w, 1 / 60);
+      for (const ev of takeEvents(w)) if (ev.t === 'zap') zapDmg = ev.dmg;
+    }
+    expect(zapDmg).toBeGreaterThan(0);
+    expect(1e6 - armored.hp).toBeCloseTo(zapDmg * ARMORED_RESIST, 4);
+  });
+
+  it('the environment hurts plate at full: a barrel blown up beside an armored archer', () => {
+    const w = armoredWorld('bow', (q) => q.enemies.filter((e) => e.type === 'armored'));
+    const e = w.enemies.find((x) => x.type === 'armored' && !x.gone)!;
+    const L = w.ledges[e.ledge]!;
+    const p = w.props.find((q) => !q.active)!;
+    Object.assign(p, { active: true, kind: 'barrel', x: e.anchorX - 58, y: L.y - 46, vy: 0, w: 36, h: 46, hanging: false });
+    fireAt(w, p.x + p.w / 2, p.y + p.h / 2);
+    let boom = false;
+    for (let i = 0; i < 120 && !boom; i++) {
+      advance(w, 1 / 60);
+      for (const ev of takeEvents(w)) if (ev.t === 'barrel') boom = true;
+    }
+    expect(boom).toBe(true);
+    expect(1e6 - e.hp).toBeCloseTo(FX.barrelDamage * w.stats.dmgMul, 4);
+  });
+
+  it('the scripted player never aims at what the fog hides, not even through a barrel', () => {
+    const wave = modWaves('fog')[0]!;
+    const w = createWorld({ seed: 6, difficulty: 'hard' });
+    jumpToWave(w, wave);
+    w.player.hp = w.player.maxHp = 1e9;
+    w.phase = 'play';
+    for (const e of w.enemies) e.veil = 5;
+    // a barrel right beside a hidden archer
+    const e = w.enemies[0]!;
+    const L = w.ledges[e.ledge]!;
+    const p = w.props.find((q) => !q.active)!;
+    Object.assign(p, { active: true, kind: 'barrel', x: e.anchorX - 58, y: L.y - 46, vy: 0, w: 36, h: 46, hanging: false });
+    expect(planShot(w, createRng(1), CAREFUL)).toBeNull();
+    // out of the fog, it is fair game (the barrel beside it first)
+    e.veil = 0;
+    expect(planShot(w, createRng(1), CAREFUL)).not.toBeNull();
   });
 
   it('low ceiling blocks high arcs', () => {

@@ -1725,12 +1725,17 @@ function setBurn(w: World, e: Archer): void {
   e.burnTick = Math.min(e.burnTick || 0.5, 0.5);
 }
 
-/** Damage from a blast, rock or chain (no part, no slow motion). Returns true on a knockout. */
 /** The weapon projectile an arrow is (plate armour cares), or undefined for enemy missiles. */
 function playerKind(a: Arrow): Projectile | undefined {
   return a.kind === 'bomb' || a.kind === 'orb' ? undefined : a.kind;
 }
 
+/**
+ * Damage from a blast, rock or chain (no part, no slow motion). Returns true on a knockout.
+ * Plate armour is the caller's business: what came off an arrow (a blast arrow's burst, chain
+ * lightning, the fire it lit) is scaled by `armourShare`; the environment (rocks, barrels,
+ * falls, the boom card) is not.
+ */
 function damageEnemy(w: World, e: Archer, dmg: number, cause: KoCause): boolean {
   if (!e.alive) return false;
   e.hp -= dmg;
@@ -2882,8 +2887,9 @@ function hitEnemy(w: World, a: Arrow, e: Archer, part: Part, hx: number, hy: num
     }
   }
   if (a.fire) {
+    // fire lit by a fire arrow: plate armour keeps most of it off (not a spear's or rocket's)
     e.burn = w.stats.fireTime;
-    e.burnDps = w.stats.fireDps;
+    e.burnDps = w.stats.fireDps * armourShare(e.type, playerKind(a));
     e.burnTick = 0.5;
   }
   if (w.stats.frostTime > 0) chillEnemy(w, e, w.stats.frostTime);
@@ -2909,7 +2915,7 @@ function hitEnemy(w: World, a: Arrow, e: Archer, part: Part, hx: number, hy: num
   if (crit) gainFocus(w, 0.05);
   if (w.stats.lifesteal > 0) heal(w, w.stats.lifesteal);
   // chain lightning jumps to the nearest other enemy (storm: twice)
-  if (w.stats.chainShare > 0) zap(w, e, out.damage * w.stats.chainShare, w.stats.chainJumps);
+  if (w.stats.chainShare > 0) zap(w, e, out.damage * w.stats.chainShare, w.stats.chainJumps, playerKind(a));
   if (ko) {
     knockOut(w, e, part.kind === 'head' ? 'head' : 'shot');
     // knockout kick: the whole body is thrown along the arrow with a little hop, so it
@@ -2924,7 +2930,8 @@ function hitEnemy(w: World, a: Arrow, e: Archer, part: Part, hx: number, hy: num
   if (!ko && e.type === 'mage') blink(w, e);
 }
 
-function zap(w: World, from: Archer, dmg: number, jumps: number): void {
+/** Chain lightning off a hit by a `kind` projectile: plate armour takes armourShare of each jump. */
+function zap(w: World, from: Archer, dmg: number, jumps: number, kind: Projectile | undefined): void {
   let src = from;
   const hit = new Set<number>([from.id]);
   for (let j = 0; j < jumps; j++) {
@@ -2944,7 +2951,7 @@ function zap(w: World, from: Archer, dmg: number, jumps: number): void {
     const t = targetPoint(best, 'chest');
     w.events.push({ t: 'zap', x0: s.x, y0: s.y, x1: t.x, y1: t.y, dmg });
     hit.add(best.id);
-    damageEnemy(w, best, dmg, 'blast');
+    damageEnemy(w, best, dmg * armourShare(best.type, kind), 'blast');
     src = best;
   }
 }

@@ -1,7 +1,7 @@
 /**
  * The staff-carriers' spells (the healer used to never strike: the "wizards don't hit" bug), the
  * new enemy classes (volley archer, wizard), the new arrow cards (frost, blast) and the field
- * that grows from chapter 4 on.
+ * that grows (classic from chapter 4 on, hard from chapter 2).
  */
 import { createRng } from '@oyun/core/pure';
 import { describe, expect, it } from 'vitest';
@@ -229,8 +229,8 @@ describe('new arrow cards', () => {
   });
 });
 
-describe('the field grows from chapter 4', () => {
-  it('span 1 up to chapter 3, bigger from chapter 4, bigger again from chapter 6 and in endless', () => {
+describe('the field grows (classic from chapter 4, hard from chapter 2)', () => {
+  it('classic: span 1 up to chapter 3, bigger from chapter 4, bigger again from chapter 6 and in endless', () => {
     expect(GROW_WAVE).toBe(chapterStart(3));
     for (let wave = 1; wave < GROW_WAVE; wave++) expect(fieldSpan(wave)).toBe(1);
     expect(fieldSpan(GROW_WAVE)).toBeGreaterThan(1);
@@ -259,11 +259,16 @@ describe('the field grows from chapter 4', () => {
           if (base) {
             // the stage's own islands sit further out on average, the highest one higher up
             const mean = (ls: readonly { x: number; y: number }[], k: 'x' | 'y') => ls.reduce((t, l) => t + l[k], 0) / ls.length;
-            // (hard's first widenings, 1.05 and 1.1, have little room: a slide near the edge can
-            // hold the spread back, but nothing ever comes closer)
-            const small = span < 1.15;
-            expect(mean(w.layout.slice(0, base.length), 'x'), `wave ${wave}`).toBeGreaterThan(mean(base, 'x') + (small ? -0.5 : 12));
-            expect(Math.min(...w.layout.slice(0, base.length).map((l) => l.y)), `wave ${wave}`).toBeLessThan(Math.min(...base.map((l) => l.y)) + (small ? 0.5 : -25));
+            if (span >= 1.15) {
+              expect(mean(w.layout.slice(0, base.length), 'x'), `wave ${wave}`).toBeGreaterThan(mean(base, 'x') + 12);
+              expect(Math.min(...w.layout.slice(0, base.length).map((l) => l.y)), `wave ${wave}`).toBeLessThan(Math.min(...base.map((l) => l.y)) - 25);
+            } else {
+              // hard's first widenings (1.05, 1.1) have little room: a slide near the edge can hold
+              // the spread at k = 1, so no minimum gain here, but the layout is scaled about the
+              // bow by k ≥ 1: no island comes closer to the player (1 px of rounding)
+              const far = (l: { x: number; y: number; w: number }) => Math.hypot(l.x + l.w / 2 - 150, l.y - 880);
+              base.forEach((b, i) => expect(far(w.layout[i]!), `wave ${wave} island ${i}`).toBeGreaterThanOrEqual(far(b) - 1));
+            }
           }
         } else if (base) expect(w.layout.length).toBe(base.length);
         // every island (and how far it slides or swings) stays inside a portrait view of the field

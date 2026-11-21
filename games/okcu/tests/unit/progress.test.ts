@@ -17,7 +17,10 @@ import {
   HEAT_STEP,
   maxFailStreak,
 } from '../../src/sim/bow';
+import { powerOf } from '../../src/sim/arsenal';
+import { CHAPTERS, RECOMMENDED_LEVEL, RECOMMENDED_POWER } from '../../src/sim/chapters';
 import { freshSave, newBank } from '../../src/sim/meta';
+import { bowEquivalent, WEAPON_MAX } from '../../src/sim/weapons';
 import {
   bankDailyChallenge,
   bankRecords,
@@ -170,8 +173,21 @@ describe('progress score and ranks', () => {
     s.bow.level = 7;
     s.best = 16;
     s.feats = ['firstKo', 'boss1', 'boss2'];
+    // the 2D game forges the bow and never levels a weapon: its +N counts as it always did
     const p = progressScore(s);
     expect(p).toEqual({ chapters: 2 * SCORE.chapter, bosses: 3 * SCORE.boss, bow: 7 * SCORE.bow, wave: 16 * SCORE.wave, feats: 3 * SCORE.feat, total: 1200 + 120 + 560 + 240 + 300 });
+    // the 3D build: the highest owned weapon level as an old bow +N, and 40 a weapon past the bow
+    s.bow.level = 0;
+    s.arsenal.weapons.bow.level = 10;
+    s.arsenal.weapons.crossbow = { owned: true, level: 5, shards: 0 };
+    s.arsenal.weapons.spear = { owned: false, level: 20, shards: 0 }; // not owned: counts for nothing
+    expect(bowEquivalent(10)).toBe(11);
+    expect(SCORE.weapon).toBe(40);
+    expect(progressScore(s).bow).toBe(11 * SCORE.bow + 1 * SCORE.weapon);
+    expect(progressScore(s).total).toBe(1200 + 120 + 920 + 240 + 300);
+    s.arsenal.weapons.crossbow.level = 15;
+    expect(progressScore(s).bow).toBe(bowEquivalent(15) * SCORE.bow + SCORE.weapon);
+    s.arsenal.weapons.crossbow.level = 5;
     s.best = 500;
     s.bosses = [100, 0, 0, 0];
     expect(progressScore(s).wave).toBe(SCORE.waveCap * SCORE.wave);
@@ -208,6 +224,53 @@ describe('achievements, records and the daily challenge', () => {
     expect(unlockFeats(s, null)).toEqual(['forge5', 'forge10']);
     expect(progressScore(s).feats).toBe(5 * SCORE.feat);
     expect(new Set(FEATS.map((f) => f.id)).size).toBe(FEATS.length);
+  });
+  it('forge feats follow weapon levels', () => {
+    const forge = ['forge5', 'forge10', 'forge15', 'forge20', 'forge25'];
+    const got = (s: ReturnType<typeof freshSave>) => FEATS.filter((f) => forge.includes(f.id) && f.test(s, null)).map((f) => f.id);
+    const s = freshSave();
+    expect(got(s)).toEqual([]);
+    s.arsenal.weapons.boomerang = { owned: true, level: 4, shards: 0 };
+    expect(got(s)).toEqual([]);
+    for (const [level, want] of [
+      [5, 1],
+      [9, 1],
+      [10, 2],
+      [15, 3],
+      [19, 3],
+      [WEAPON_MAX, 5],
+    ] as const) {
+      s.arsenal.weapons.boomerang.level = level;
+      expect(got(s), `L${level}`).toEqual(forge.slice(0, want));
+    }
+    // a weapon not owned does not count
+    s.arsenal.weapons.boomerang.owned = false;
+    expect(got(s)).toEqual([]);
+    // the 2D game's forged bow still earns them as before
+    s.bow.level = 25;
+    expect(got(s)).toEqual(forge);
+    s.bow.level = 20;
+    expect(got(s)).toEqual(forge.slice(0, 4));
+  });
+  it('recommended power increases by chapter', () => {
+    expect(RECOMMENDED_POWER.length).toBe(CHAPTERS);
+    // a new player is ready for chapter 1
+    expect(RECOMMENDED_POWER[0]).toBe(powerOf(freshSave()));
+    // each is the power of the bow at the measured level with no shop levels
+    RECOMMENDED_LEVEL.forEach((l, c) => {
+      const s = freshSave();
+      s.arsenal.weapons.bow.level = l;
+      expect(powerOf(s), `chapter ${c + 1}`).toBe(RECOMMENDED_POWER[c]);
+    });
+    for (let c = 1; c < CHAPTERS; c++) expect(RECOMMENDED_POWER[c]!, `chapter ${c + 1}`).toBeGreaterThan(RECOMMENDED_POWER[c - 1]!);
+    // every chapter is reachable: a maxed save meets every recommendation
+    const max = freshSave();
+    max.arsenal.weapons.bow.level = WEAPON_MAX;
+    max.upgrades = { hp: 12, coins: 8, reroll: 1, starter: 1 };
+    for (const r of RECOMMENDED_POWER) {
+      expect(Number.isInteger(r)).toBe(true);
+      expect(r).toBeLessThanOrEqual(powerOf(max));
+    }
   });
   it('records keep the bests with their dates; boss kills are banked once', () => {
     const s = freshSave();

@@ -1,8 +1,8 @@
 import { createSaveStore, memoryStorage } from '@oyun/core/pure';
 import { describe, expect, it } from 'vitest';
 import { repairSave, saveOptions, SAVE_VERSION } from '../../src/save';
-import { canUpgrade, freshArsenal, migrateArsenal, selectWeapon, upgradeCost, upgradeWeapon } from '../../src/sim/arsenal';
-import { freshSave, metaOf3d, type SaveData } from '../../src/sim/meta';
+import { canUpgrade, freshArsenal, migrateArsenal, powerOf, selectWeapon, upgradeCost, upgradeWeapon } from '../../src/sim/arsenal';
+import { freshSave, metaOf3d, UPGRADE_IDS, UPGRADES, type SaveData } from '../../src/sim/meta';
 import { progressScore } from '../../src/sim/progress';
 import { WEAPON_IDS, WEAPON_MAX } from '../../src/sim/weapons';
 
@@ -222,5 +222,72 @@ describe('weapon upgrades', () => {
     s.arsenal.weapons.spear.owned = true;
     expect(selectWeapon(s, 'spear')).toBe(true);
     expect(s.arsenal.selected).toBe('spear');
+  });
+});
+
+describe('power and rank', () => {
+  it('power rises with every upgrade', () => {
+    const s = freshSave();
+    expect(Number.isInteger(powerOf(s))).toBe(true);
+    // every weapon level, on every weapon
+    for (const id of WEAPON_IDS) {
+      const t = freshSave();
+      t.arsenal.weapons[id].owned = true;
+      t.arsenal.selected = id;
+      let last = powerOf(t);
+      for (let l = 2; l <= WEAPON_MAX; l++) {
+        t.arsenal.weapons[id].level = l;
+        const p = powerOf(t);
+        expect(Number.isInteger(p), `${id} L${l}`).toBe(true);
+        expect(p, `${id} L${l}`).toBeGreaterThan(last);
+        last = p;
+      }
+    }
+    // every shop level, on top of any weapon level
+    for (const wl of [1, 10, WEAPON_MAX]) {
+      const t = freshSave();
+      t.arsenal.weapons.bow.level = wl;
+      let last = powerOf(t);
+      for (const u of UPGRADE_IDS) {
+        for (let l = 1; l <= UPGRADES[u].max; l++) {
+          t.upgrades[u] = l;
+          const p = powerOf(t);
+          expect(p, `L${wl} ${u} ${l}`).toBeGreaterThan(last);
+          last = p;
+        }
+      }
+    }
+    // only the selected weapon's level counts
+    const t = freshSave();
+    t.arsenal.weapons.spear = { owned: true, level: 12, shards: 0 };
+    expect(powerOf(t)).toBe(powerOf(freshSave()));
+    selectWeapon(t, 'spear');
+    expect(powerOf(t)).toBeGreaterThan(powerOf(freshSave()));
+  });
+
+  it('rank never drops after migration', () => {
+    for (let bow = 0; bow <= 25; bow++) {
+      for (const bosses of [[0, 0, 0, 0, 0, 0], [2, 1, 0, 0, 0, 0], [5, 5, 5, 5, 5, 5]]) {
+        const s = oldSave((d) => {
+          d.bow.level = bow;
+          d.bosses = bosses;
+          d.best = 3 * bow;
+          d.feats = bow >= 5 ? ['firstKo', 'forge5'] : ['firstKo'];
+        });
+        const before = progressScore(s).total;
+        migrateArsenal(s);
+        const after = progressScore(s);
+        expect(s.arsenal.rankFloor, `+${bow}`).toBe(before);
+        expect(after.total, `+${bow} ${bosses.join(',')}`).toBeGreaterThanOrEqual(before);
+        expect(after.bow, `+${bow}`).toBeGreaterThanOrEqual(bow * 80);
+      }
+    }
+    // the floor holds even if the parts that make the score are lower than it
+    const s = freshSave();
+    s.arsenal.rankFloor = 5000;
+    expect(progressScore(s).total).toBe(5000);
+    s.bosses = s.bosses.map(() => 50);
+    s.best = 100;
+    expect(progressScore(s).total).toBeGreaterThan(5000);
   });
 });

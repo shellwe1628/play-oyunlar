@@ -8,6 +8,7 @@ import { createRng, hashSeed } from '@oyun/core/pure';
 import { BOW_MAX } from './bow';
 import { CHAPTERS, STAGES } from './chapters';
 import type { DatedRecord, RunBank, SaveData } from './meta';
+import { bowEquivalent, WEAPON_IDS } from './weapons';
 
 // ------------------------------------------------------------------ score
 
@@ -18,8 +19,10 @@ export const SCORE = {
   /** each boss knockout ever (counted up to 50) */
   boss: 40,
   bossCap: 50,
-  /** each bow level */
+  /** each bow level (the 3D build: the highest weapon level as an old bow +N, `bowEquivalent`) */
   bow: 80,
+  /** each weapon owned besides the bow (3D build) */
+  weapon: 40,
   /** each wave of the best wave (counted up to 100) */
   wave: 15,
   waveCap: 100,
@@ -42,14 +45,40 @@ export function chaptersCleared(save: SaveData): number {
   return n;
 }
 
+/** The highest level among the owned weapons (1 for a save that never levelled one, e.g. the 2D game's). */
+export function highestWeaponLevel(save: SaveData): number {
+  let l = 1;
+  for (const id of WEAPON_IDS) {
+    const w = save.arsenal.weapons[id];
+    if (w.owned && w.level > l) l = w.level;
+  }
+  return l;
+}
+
+/**
+ * The bow-level points: the highest owned weapon level as an old bow +N (`bowEquivalent`), or the
+ * forged bow's own +N if that is higher. The 3D build retired the forge, and migration gives the
+ * bow a level at least as strong as its old +N, so there the weapon side always wins; the 2D game
+ * forges the bow and never levels a weapon, so its ladder is exactly the old one.
+ */
+export function bowPoints(save: SaveData): number {
+  return Math.max(Math.min(BOW_MAX, save.bow.level), bowEquivalent(highestWeaponLevel(save)));
+}
+
+/**
+ * The parts, and their sum as the total, but never below `arsenal.rankFloor` (the score the
+ * player had when the arsenal arrived): the total can then exceed the parts' sum.
+ */
 export function progressScore(save: SaveData): ScoreBreakdown {
   const kills = save.bosses.reduce((a, b) => a + b, 0);
   const chapters = chaptersCleared(save) * SCORE.chapter;
   const bosses = Math.min(SCORE.bossCap, kills) * SCORE.boss;
-  const bow = Math.min(BOW_MAX, save.bow.level) * SCORE.bow;
+  const extra = WEAPON_IDS.filter((id) => id !== 'bow' && save.arsenal.weapons[id].owned).length;
+  const bow = bowPoints(save) * SCORE.bow + extra * SCORE.weapon;
   const wave = Math.min(SCORE.waveCap, save.best) * SCORE.wave;
   const feats = save.feats.length * SCORE.feat;
-  return { chapters, bosses, bow, wave, feats, total: chapters + bosses + bow + wave + feats };
+  const total = Math.max(chapters + bosses + bow + wave + feats, save.arsenal.rankFloor);
+  return { chapters, bosses, bow, wave, feats, total };
 }
 
 export const RANKS = [
@@ -65,7 +94,8 @@ export const RANKS = [
   { id: 'champion', at: 6000 },
   { id: 'legend', at: 7400 },
   { id: 'mythic', at: 9000 },
-  // chapters 5 and 6 raised the most a save can score from 9 400 to 11 700
+  // chapters 5 and 6 raised the most a save can score from 9 400 to 11 700 (the five weapons
+  // past the bow add 200 more in the 3D build)
   { id: 'paragon', at: 10200 },
   { id: 'eternal', at: 11400 },
 ] as const;
@@ -86,7 +116,7 @@ export function toNextRank(score: number): number | null {
 /** What a platform `submitScore` call would send (see GAME.md: candidate for core). */
 export function scoreSubmission(save: SaveData): { board: string; value: number; rank: RankId; meta: Record<string, number> } {
   const s = progressScore(save);
-  return { board: 'okcu-progress', value: s.total, rank: RANKS[rankOf(s.total)]!.id, meta: { best: save.best, bow: save.bow.level, chapters: chaptersCleared(save) } };
+  return { board: 'okcu-progress', value: s.total, rank: RANKS[rankOf(s.total)]!.id, meta: { best: save.best, bow: bowPoints(save), chapters: chaptersCleared(save) } };
 }
 
 // ------------------------------------------------------------------ a run's summary
@@ -137,11 +167,13 @@ export const FEATS: readonly Feat[] = [
   { id: 'boss5', coins: 400, test: (s) => (s.bosses[4] ?? 0) > 0 },
   { id: 'boss6', coins: 500, test: (s) => (s.bosses[5] ?? 0) > 0 },
   { id: 'allBosses', coins: 600, test: (s) => chaptersCleared(s) >= CHAPTERS },
-  { id: 'forge5', coins: 50, test: (s) => s.bow.level >= 5 },
-  { id: 'forge10', coins: 150, test: (s) => s.bow.level >= 10 },
-  { id: 'forge15', coins: 400, test: (s) => s.bow.level >= 15 },
-  { id: 'forge20', coins: 600, test: (s) => s.bow.level >= 20 },
-  { id: 'forge25', coins: 1000, test: (s) => s.bow.level >= 25 },
+  // the forge feats keep their ids: the 3D build earns them by weapon level (5/10/15/20/20, the
+  // last two both at the top level), the 2D game still by forging the bow (+5 … +25)
+  { id: 'forge5', coins: 50, test: (s) => highestWeaponLevel(s) >= 5 || s.bow.level >= 5 },
+  { id: 'forge10', coins: 150, test: (s) => highestWeaponLevel(s) >= 10 || s.bow.level >= 10 },
+  { id: 'forge15', coins: 400, test: (s) => highestWeaponLevel(s) >= 15 || s.bow.level >= 15 },
+  { id: 'forge20', coins: 600, test: (s) => highestWeaponLevel(s) >= 20 || s.bow.level >= 20 },
+  { id: 'forge25', coins: 1000, test: (s) => highestWeaponLevel(s) >= 20 || s.bow.level >= 25 },
   { id: 'chain10', coins: 250, test: (_s, r) => (r?.headChain ?? 0) >= 10 },
   { id: 'streak20', coins: 250, test: (_s, r) => (r?.streak ?? 0) >= 20 },
   { id: 'gold', coins: 80, test: (_s, r) => (r?.bonusGold ?? 0) > 0 },

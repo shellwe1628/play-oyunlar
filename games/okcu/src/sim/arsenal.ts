@@ -5,7 +5,7 @@
  * migration source.
  */
 import { progressScore } from './progress';
-import { levelForBow, WEAPON_IDS, WEAPON_MAX, WEAPONS, type WeaponId } from './weapons';
+import { levelForBow, WEAPON_IDS, WEAPON_MAX, WEAPONS, weaponDamage, type WeaponId } from './weapons';
 import type { SaveData } from './meta';
 
 export type ChestKind = 'wood' | 'silver' | 'gold' | 'boss';
@@ -87,6 +87,8 @@ export function repairArsenal(v: unknown): Arsenal {
 export function migrateArsenal(save: SaveData): void {
   const a = save.arsenal;
   if (a.migrated) return;
+  // the floor is the score as it stood before the move (unlocked weapons now add points of their own)
+  a.rankFloor = Math.max(a.rankFloor, progressScore(save).total);
   a.weapons.bow.owned = true;
   a.weapons.bow.level = Math.max(a.weapons.bow.level, levelForBow(save.bow.level));
   for (const id of WEAPON_IDS) {
@@ -94,7 +96,6 @@ export function migrateArsenal(save: SaveData): void {
     if (c !== null && (save.bosses[c] ?? 0) > 0) a.weapons[id].owned = true;
   }
   a.chests.push('gold');
-  a.rankFloor = Math.max(a.rankFloor, progressScore(save).total);
   a.migrated = true;
 }
 
@@ -138,4 +139,22 @@ export function selectWeapon(save: SaveData, id: WeaponId): boolean {
   if (!WEAPON_IDS.includes(id) || !save.arsenal.weapons[id].owned) return false;
   save.arsenal.selected = id;
   return true;
+}
+
+/**
+ * The power number (shown beside each chapter's `RECOMMENDED_POWER`): the selected weapon's
+ * damage at its level times one base for every weapon (the balance tests keep every weapon's
+ * clear time within ±25 % of the others at the same level), plus a fixed amount per shop level.
+ * Level 1 with no shop levels is 100; level 20 is 330; the shop adds up to 60 + 16 + 10 + 15.
+ */
+export const POWER_BASE = 100;
+export const POWER_PER_UPGRADE = { hp: 5, coins: 2, reroll: 10, starter: 15 } as const;
+
+export function powerOf(save: SaveData): number {
+  const a = save.arsenal;
+  const w = a.weapons[a.selected];
+  const level = w && w.owned ? w.level : 1;
+  let p = Math.round(POWER_BASE * weaponDamage(level));
+  for (const id of Object.keys(POWER_PER_UPGRADE) as (keyof typeof POWER_PER_UPGRADE)[]) p += POWER_PER_UPGRADE[id] * Math.max(0, Math.floor(save.upgrades[id] ?? 0));
+  return p;
 }

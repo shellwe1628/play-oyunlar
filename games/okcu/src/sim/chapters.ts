@@ -217,6 +217,18 @@ export function stageOf(wave: number): StagePos {
   return { chapter: CHAPTERS, stage: (k % STAGES) + 1, endless: true, theme: Math.floor(k / STAGES) % CHAPTERS };
 }
 
+/**
+ * The power (`powerOf`, arsenal.ts) recommended for each chapter, 0 … CHAPTERS − 1. Measured
+ * once (2026-11-21) with the balance tests' player: CAREFUL, 'hard', NO_META but for the bow at
+ * level L, seeds 1 … 8 (rng 1000 + seed), `startChapter` c to `untilWave chapterStart(c + 1)`;
+ * the lowest L (binary search, never below the previous chapter's) at which ≥ 6 of 8 runs clear
+ * the chapter: 1, 4, 8, 14, 14, 14. Chapters 5 and 6 already clear at chapter 4's level, so they
+ * are set one level above the chapter before (15, 16) to keep the ladder rising. The numbers are
+ * powerOf at those levels with no shop levels: round(100 × weaponDamage(L)).
+ */
+export const RECOMMENDED_LEVEL: readonly number[] = [1, 4, 8, 14, 15, 16];
+export const RECOMMENDED_POWER: readonly number[] = [100, 132, 174, 252, 265, 278];
+
 /** First wave of a chapter (CHAPTERS = endless). */
 export function chapterStart(chapter: number): number {
   return Math.max(0, Math.min(CHAPTERS, chapter)) * STAGES + 1;

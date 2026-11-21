@@ -8,7 +8,7 @@ import { createRng, hashSeed } from '@oyun/core/pure';
 import type { ChestKind } from './arsenal';
 import { SLING_UNLOCK_SHARDS } from './chests';
 import { COSMETICS, isUnlocked, type SaveData } from './meta';
-import { WEAPON_IDS, type WeaponId } from './weapons';
+import { WEAPON_IDS, WEAPON_MAX, type WeaponId } from './weapons';
 
 export interface ShopOffer {
   weapon: WeaponId;
@@ -23,16 +23,26 @@ export const OFFER_SHARDS: readonly [number, number] = [3, 6];
 export const OFFER_COINS_PER_SHARD = 30;
 
 /**
- * Three offers for the day, seeded from the day key alone. Only weapons the player can use are
- * offered: owned ones, plus the sling once chapter 2 is reached (`save.chapter >= 1`), the same
- * rule the chests use. With fewer than three such weapons the list repeats (a fresh save sees
- * three bow offers of different sizes). The weapon set cannot change when an offer is bought
- * (the sling is already eligible), so the offers stay the same all day.
+ * The day's offers (up to three). Seeded from the day key, then SNAPSHOT into `arsenal.shopOffers`
+ * the first time a new day is seen, so unlocks, chests or a chapter change later that day never
+ * reshuffle them and an offer index always means the same offer. Because it stores, this call may
+ * change the save (persist it). Pool: owned weapons below WEAPON_MAX, plus the sling once chapter 2
+ * is reached (`save.chapter >= 1`) while it is not maxed. With fewer than three such weapons the
+ * list repeats (sizes may coincide); with none (everything maxed) there are no offers that day.
+ * Clock skew: a day key not later than the stored day returns the stored offers; only a later key
+ * starts a new day (ISO date strings compare in date order).
  */
 export function dailyOffers(dayKey: string, save: SaveData): ShopOffer[] {
+  const { offers, fresh } = resolveDay(dayKey, save);
+  if (fresh) storeDay(save, dayKey, offers);
+  return offers.map((o) => ({ ...o }));
+}
+
+function generateOffers(dayKey: string, save: SaveData): ShopOffer[] {
   const rng = createRng(hashSeed(`okcu-shop-${dayKey}`));
   const a = save.arsenal;
-  const pool = WEAPON_IDS.filter((id) => a.weapons[id].owned || (id === 'sling' && save.chapter >= 1));
+  const pool = WEAPON_IDS.filter((id) => (a.weapons[id].owned || (id === 'sling' && save.chapter >= 1)) && a.weapons[id].level < WEAPON_MAX);
+  if (pool.length === 0) return [];
   const order = rng.shuffle(pool);
   const out: ShopOffer[] = [];
   for (let i = 0; i < OFFERS_PER_DAY; i++) {
@@ -42,20 +52,33 @@ export function dailyOffers(dayKey: string, save: SaveData): ShopOffer[] {
   return out;
 }
 
-/** The offers already bought on `dayKey` (a different stored day counts as none). */
-export function boughtToday(save: SaveData, dayKey: string): number[] {
-  return save.arsenal.shopDay === dayKey ? save.arsenal.shopBought : [];
+/** The offers valid for `dayKey` without touching the save; `fresh` = a new day that still has to be stored. */
+function resolveDay(dayKey: string, save: SaveData): { offers: ShopOffer[]; fresh: boolean } {
+  const a = save.arsenal;
+  if (a.shopDay !== '' && dayKey <= a.shopDay && (a.shopDay !== dayKey || a.shopOffers.length > 0)) return { offers: a.shopOffers, fresh: false };
+  return { offers: generateOffers(dayKey, save), fresh: true };
 }
 
-/** Buys offer `i` once per day: pays the coins, adds the shards (the sling unlocks at 10 like from a chest). */
-export function buyOffer(save: SaveData, dayKey: string, i: number): boolean {
-  const offer = dailyOffers(dayKey, save)[i];
-  if (!offer || boughtToday(save, dayKey).includes(i) || save.coins < offer.coins) return false;
+function storeDay(save: SaveData, dayKey: string, offers: ShopOffer[]): void {
   const a = save.arsenal;
-  if (a.shopDay !== dayKey) {
-    a.shopDay = dayKey;
-    a.shopBought = [];
-  }
+  a.shopDay = dayKey;
+  a.shopBought = [];
+  a.shopOffers = offers.map((o) => ({ ...o }));
+}
+
+/** The offer indices already bought for the day `dayKey` falls in (see the clock-skew rule on `dailyOffers`). */
+export function boughtToday(save: SaveData, dayKey: string): number[] {
+  return resolveDay(dayKey, save).fresh ? [] : save.arsenal.shopBought;
+}
+
+/** Buys the stored offer `i` once per day: pays the coins, adds the shards (the sling unlocks at 10 like from a chest). Refuses a maxed weapon. */
+export function buyOffer(save: SaveData, dayKey: string, i: number): boolean {
+  const { offers, fresh } = resolveDay(dayKey, save);
+  const offer = offers[i];
+  if (!offer || (!fresh && save.arsenal.shopBought.includes(i)) || save.coins < offer.coins) return false;
+  if (save.arsenal.weapons[offer.weapon].level >= WEAPON_MAX) return false;
+  if (fresh) storeDay(save, dayKey, offers);
+  const a = save.arsenal;
   a.shopBought.push(i);
   save.coins -= offer.coins;
   const w = a.weapons[offer.weapon];
@@ -104,7 +127,8 @@ export const AD_COINS_PER_DAY = 3;
 
 /** The coins one more rewarded ad would give today, or null once all 3 are used. */
 export function adCoins(save: SaveData, dayKey: string): number | null {
-  const used = save.arsenal.adCoinsDay === dayKey ? save.arsenal.adCoinsUsed : 0;
+  // a day key not later than the stored one (clock skew) keeps the stored counter
+  const used = dayKey > save.arsenal.adCoinsDay ? 0 : save.arsenal.adCoinsUsed;
   return used >= AD_COINS_PER_DAY ? null : AD_COINS;
 }
 
@@ -113,7 +137,7 @@ export function grantAdCoins(save: SaveData, dayKey: string): boolean {
   const n = adCoins(save, dayKey);
   if (n === null) return false;
   const a = save.arsenal;
-  if (a.adCoinsDay !== dayKey) {
+  if (dayKey > a.adCoinsDay) {
     a.adCoinsDay = dayKey;
     a.adCoinsUsed = 0;
   }

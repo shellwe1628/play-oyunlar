@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { repairSave } from '../../src/save';
 import { freshArsenal } from '../../src/sim/arsenal';
+import { openQueuedChest } from '../../src/sim/chests';
+import { WEAPON_MAX } from '../../src/sim/weapons';
 import { adCoins, AD_COINS, AD_COINS_PER_DAY, buyChest, buyCosmetic, buyOffer, CHEST_PRICE, COSMETIC_PRICE, dailyOffers, grantAdCoins } from '../../src/sim/shop';
 import { cosmeticById, COSMETICS, freshSave, isUnlocked, unlockedCosmetics, type SaveData } from '../../src/sim/meta';
 
@@ -25,20 +27,72 @@ describe('daily offers', () => {
   });
 
   it('only offers usable weapons: owned, plus the sling from chapter 2', () => {
-    const s = freshSave();
-    expect(new Set(dailyOffers(DAY, s).map((o) => o.weapon))).toEqual(new Set(['bow']));
-    s.chapter = 1;
-    s.arsenal.weapons.spear.owned = true;
-    for (let d = 1; d <= 30; d++) for (const o of dailyOffers(`2026-12-${d}`, s)) expect(['bow', 'spear', 'sling']).toContain(o.weapon);
+    const fresh = freshSave();
+    expect(new Set(dailyOffers(DAY, fresh).map((o) => o.weapon))).toEqual(new Set(['bow']));
+    for (let d = 10; d <= 30; d++) {
+      const s = freshSave();
+      s.chapter = 1;
+      s.arsenal.weapons.spear.owned = true;
+      for (const o of dailyOffers(`2026-12-${d}`, s)) expect(['bow', 'spear', 'sling']).toContain(o.weapon);
+    }
   });
 
   it('different days differ', () => {
-    const s = freshSave();
-    s.chapter = 1;
-    for (const id of ['crossbow', 'spear', 'boomerang', 'firework'] as const) s.arsenal.weapons[id].owned = true;
     const keys = new Set<string>();
-    for (let d = 1; d <= 10; d++) keys.add(JSON.stringify(dailyOffers(`2026-12-${d}`, s)));
+    for (let d = 10; d <= 20; d++) {
+      const s = freshSave();
+      s.chapter = 1;
+      for (const id of ['crossbow', 'spear', 'boomerang', 'firework'] as const) s.arsenal.weapons[id].owned = true;
+      keys.add(JSON.stringify(dailyOffers(`2026-12-${d}`, s)));
+    }
     expect(keys.size).toBeGreaterThan(1);
+  });
+
+  it('the day snapshot survives a mid-day unlock, chest and chapter change', () => {
+    const s = rich();
+    s.arsenal.weapons.spear.owned = true;
+    const a = dailyOffers(DAY, s);
+    expect(s.arsenal.shopOffers).toEqual(a);
+    s.arsenal.weapons.crossbow.owned = true;
+    expect(dailyOffers(DAY, s)).toEqual(a);
+    s.arsenal.chests.push('gold');
+    openQueuedChest(s);
+    expect(dailyOffers(DAY, s)).toEqual(a);
+    s.chapter = 1;
+    expect(dailyOffers(DAY, s)).toEqual(a);
+    s.arsenal.weapons.firework.owned = true;
+    const coins = s.coins;
+    expect(buyOffer(s, DAY, 2)).toBe(true);
+    expect(s.coins).toBe(coins - a[2]!.coins);
+    expect(dailyOffers(DAY, s)).toEqual(a);
+  });
+
+  it('an earlier day key (clock skew) never resets the caps or offers', () => {
+    const s = rich();
+    const b = dailyOffers('2026-11-21', s);
+    expect(buyOffer(s, '2026-11-21', 0)).toBe(true);
+    for (let i = 0; i < 3; i++) grantAdCoins(s, '2026-11-21');
+    expect(dailyOffers(DAY, s)).toEqual(b);
+    expect(buyOffer(s, DAY, 0)).toBe(false);
+    expect(grantAdCoins(s, DAY)).toBe(false);
+    expect(adCoins(s, DAY)).toBeNull();
+    expect(s.arsenal.shopDay).toBe('2026-11-21');
+    expect(s.arsenal.adCoinsDay).toBe('2026-11-21');
+    expect(s.arsenal.shopBought).toEqual([0]);
+  });
+
+  it('maxed weapons are not offered and cannot be bought', () => {
+    const s = rich();
+    s.arsenal.weapons.bow.level = WEAPON_MAX;
+    expect(dailyOffers(DAY, s)).toEqual([]);
+    s.arsenal.weapons.spear.owned = true;
+    const o = dailyOffers('2026-11-21', s);
+    expect(o).toHaveLength(3);
+    for (const x of o) expect(x.weapon).toBe('spear');
+    s.arsenal.weapons.spear.level = WEAPON_MAX;
+    const before = snap(s);
+    expect(buyOffer(s, '2026-11-21', 0)).toBe(false);
+    expect(snap(s)).toBe(before);
   });
 
   it('offer bought once', () => {
@@ -61,6 +115,7 @@ describe('daily offers', () => {
     expect(buyOffer(s, '2026-11-21', 0)).toBe(true);
     expect(s.arsenal.shopDay).toBe('2026-11-21');
     expect(s.arsenal.shopBought).toEqual([0]);
+    expect(s.arsenal.shopOffers).toEqual(dailyOffers('2026-11-21', s));
   });
 
   it('failed buys leave the save untouched', () => {
@@ -77,7 +132,7 @@ describe('daily offers', () => {
     const s = rich();
     s.chapter = 1;
     s.arsenal.weapons.sling.shards = 9;
-    for (let d = 1; d <= 60 && !s.arsenal.weapons.sling.owned; d++) {
+    for (let d = 10; d <= 31 && !s.arsenal.weapons.sling.owned; d++) {
       const day = `2027-01-${d}`;
       const i = dailyOffers(day, s).findIndex((o) => o.weapon === 'sling');
       if (i >= 0) buyOffer(s, day, i);
@@ -157,6 +212,11 @@ describe('looks', () => {
   });
   it('boughtLooks is repaired', () => {
     expect(freshArsenal().boughtLooks).toEqual([]);
+    expect(freshArsenal().shopOffers).toEqual([]);
+    const o = { weapon: 'spear', shards: 4, coins: 120 };
+    const junk = { ...freshSave(), arsenal: { ...freshArsenal(), shopDay: DAY, shopOffers: [o, { weapon: 'gun', shards: 1, coins: 1 }, { weapon: 'bow', shards: -1, coins: 5 }, 3, o, o, o] } };
+    expect(repairSave(junk as unknown as SaveData).arsenal.shopOffers).toEqual([o, o, o]);
+    expect(repairSave({ ...freshSave(), arsenal: { ...freshArsenal(), shopOffers: 'x' } } as unknown as SaveData).arsenal.shopOffers).toEqual([]);
     const bad = { ...freshSave(), arsenal: { ...freshArsenal(), boughtLooks: ['crown', 7, 'crown', null, 'ember'] } };
     expect(repairSave(bad as unknown as SaveData).arsenal.boughtLooks).toEqual(['crown', 'ember']);
     const nope = { ...freshSave(), arsenal: { ...freshArsenal(), boughtLooks: 'x' } };

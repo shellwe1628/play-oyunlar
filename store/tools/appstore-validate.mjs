@@ -33,7 +33,7 @@ const FORBIDDEN = /\b(android|google|play store|google play|play games|galaxy st
 const CLAIMS = /(#\s?1\b|number one|\bno\.\s?1\b|\btop[- ]?(rated|game|ranked|app)\b|\bbest (game|app|puzzle|archery|clicker|arcade|idle)\b|en iyi (oyun|uygulama)|\bfree\b|ücretsiz|bedava|[$€£₺]\s?\d|\d\s?(tl|usd|eur)\b|\baward|ödül(lü)? (kazanan|alan)|\bdownload now\b|şimdi indir|\b(sale|discount|indirim)\b)/i;
 const PLACEHOLDER = /(lorem|ipsum|\btodo\b|\btbd\b|\bxxx\b|placeholder|\{\{|\}\}|<[a-z]|\[(name|app|game)\])/i;
 const EMOJI = /\p{Extended_Pictographic}/u;
-const GAME_SUBS = new Set(['GAMES_ACTION', 'GAMES_ADVENTURE', 'GAMES_BOARD', 'GAMES_CARD', 'GAMES_CASINO', 'GAMES_CASUAL', 'GAMES_FAMILY', 'GAMES_MUSIC', 'GAMES_PUZZLE', 'GAMES_RACING', 'GAMES_ROLE_PLAYING', 'GAMES_SIMULATION', 'GAMES_SPORTS', 'GAMES_STRATEGY', 'GAMES_TRIVIA', 'GAMES_WORD', 'GAMES_ARCADE']);
+const GAME_SUBS = new Set(['GAMES_ACTION', 'GAMES_ADVENTURE', 'GAMES_BOARD', 'GAMES_CARD', 'GAMES_CASINO', 'GAMES_CASUAL', 'GAMES_FAMILY', 'GAMES_MUSIC', 'GAMES_PUZZLE', 'GAMES_RACING', 'GAMES_ROLE_PLAYING', 'GAMES_SIMULATION', 'GAMES_SPORTS', 'GAMES_STRATEGY', 'GAMES_TRIVIA', 'GAMES_WORD']);
 const CATEGORIES = new Set(['BOOKS', 'BUSINESS', 'DEVELOPER_TOOLS', 'EDUCATION', 'ENTERTAINMENT', 'FINANCE', 'FOOD_AND_DRINK', 'GAMES', 'GRAPHICS_AND_DESIGN', 'HEALTH_AND_FITNESS', 'LIFESTYLE', 'MAGAZINES_AND_NEWSPAPERS', 'MEDICAL', 'MUSIC', 'NAVIGATION', 'NEWS', 'PHOTO_AND_VIDEO', 'PRODUCTIVITY', 'REFERENCE', 'SHOPPING', 'SOCIAL_NETWORKING', 'SPORTS', 'STICKERS', 'TRAVEL', 'UTILITIES', 'WEATHER']);
 
 const TEXT = [

@@ -30,7 +30,7 @@ sırasıyla anlatır. Google Play kılavuzunun (`play-yayin.md`) iOS karşılı�
 | Mağaza adı en-US | Fossil Odds: Dig & Collect | Sparkrise: Neon Zigzag | Noodle Archers: Ragdoll Bows |
 | Mağaza adı tr | Fosil Şansı: Kaz ve Topla | Kıvılcım: Neon Zikzak | Sallanan Okçular: Ok ve Yay |
 | Ana ekrandaki ad | Fossil Odds | Sparkrise | Noodle Archers |
-| Kategori | Games → Casual | Games → Arcade | Games → Action |
+| Kategori | Games → Casual | Games → Action (App Store'da Arcade alt kategorisi yok) | Games → Action |
 | İkinci kategori | Entertainment | Entertainment | Entertainment |
 | Sürüm | 1.0.0 | 1.0.0 | 1.0.0 |
 | Game Center tabloları | `com.playoyunlar.fossilodds.score` | `com.playoyunlar.sparkrise.rank`, `com.playoyunlar.sparkrise.endless` | `com.playoyunlar.noodlearchers.wave` |

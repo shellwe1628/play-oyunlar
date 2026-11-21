@@ -7,9 +7,13 @@
 // Every size (360×640, 390×844, 412×915; the tall two with faked safe areas, ?safe=top,bottom)
 // in both languages (?lang=tr|en), with two saves written to localStorage before the app boots:
 // - fresh:      a brand-new player (chapter 1, nothing owned)
-// - progressed: chapter 4 reached, coins, a levelled bow and a second weapon, chests waiting,
-//               the free chest counting down, upgrades bought
-// Shots: home (progressed), home-fresh, events, and the screens the Shop / Weapons / Ranks tabs open.
+// - progressed: chapter 4 reached, coins, a levelled bow, the three weapons of the bosses beaten
+//               (the boomerang ready to level up), sling shards, chests waiting, the free chest
+//               counting down, upgrades bought
+// Shots: home (progressed), home-fresh, events, the Weapons tab (weapons: the selected bow;
+// weapons-fresh; weapons-detail: the crossbow; weapons-up: the boomerang, ready to level up;
+// weapons-locked: the sling's shards; weapons-archer: the archer's upgrades) and the screens the
+// Shop / Ranks tabs open.
 // PNGs go to <repo>/build/menu-shots/okcu3d-<tab>-<size>-<lang>.png. One browser, one page at a time.
 import { mkdirSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
@@ -85,7 +89,7 @@ const fresh = await freshEnvelope();
 const progressed = structuredClone(fresh);
 {
   const d = progressed.data;
-  d.coins = 12480;
+  d.coins = 16480;
   d.runs = 46;
   d.best = 34;
   d.chapter = 3;
@@ -95,6 +99,9 @@ const progressed = structuredClone(fresh);
   d.rank = 1;
   d.arsenal.weapons.bow.level = 12;
   d.arsenal.weapons.crossbow = { owned: true, level: 4, shards: 3 };
+  d.arsenal.weapons.spear = { owned: true, level: 2, shards: 1 };
+  d.arsenal.weapons.boomerang = { owned: true, level: 1, shards: 3 };
+  d.arsenal.weapons.sling = { owned: false, level: 1, shards: 4 };
   d.arsenal.chests = ['gold', 'wood'];
   d.arsenal.freeChestAt = Date.now() + 2 * 3600_000 + 17 * 60_000;
 }
@@ -106,6 +113,11 @@ const plan = [
   { tab: 'events', save: progressed, go: ['tab-events'] },
   { tab: 'shop', save: progressed, go: ['tab-shop'] },
   { tab: 'weapons', save: progressed, go: ['tab-weapons'] },
+  { tab: 'weapons-fresh', save: fresh, go: ['tab-weapons'] },
+  { tab: 'weapons-detail', save: progressed, go: ['tab-weapons', 'weapon-card-crossbow'] },
+  { tab: 'weapons-up', save: progressed, go: ['tab-weapons', 'weapon-card-boomerang'] },
+  { tab: 'weapons-locked', save: progressed, go: ['tab-weapons', 'weapon-card-sling'] },
+  { tab: 'weapons-archer', save: progressed, go: ['tab-weapons', 'archer-card'] },
   { tab: 'ranks', save: progressed, go: ['tab-ranks'] },
 ].filter((p) => !ONLY || ONLY.includes(p.tab));
 

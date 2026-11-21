@@ -6,28 +6,33 @@
  *                 the daily (a red "!" while today's daily is not done; opens the Events tab)
  * - tab bar:      Shop · Weapons · Home (centre, larger) · Ranks · Events, with red badges
  *
- * Home is title.ts's layer (`ShellHooks.home`), Events is the shell's own pane (the daily card and
- * its toggle); the two slide sideways on a switch. Shop, Weapons and Ranks still open the full
- * screens of menus.ts (the shop, the forge, the ranks) until their tabs get content of their own.
- * Tabs switch with a tap or a horizontal swipe on the tab bar (and on the Events pane); a drag on
+ * Home is title.ts's layer (`ShellHooks.home`), Weapons is weapons.ts's pane (the archer card, the
+ * weapon grid and the detail card), Events is the shell's own pane (the daily card and its toggle);
+ * they slide sideways on a switch. Shop and Ranks still open the full screens of menus.ts (the
+ * looks, the ranks); closing one comes back to the tab that was up before it (`returnTab`).
+ * A change made in the Weapons pane (an upgrade, a selection) needs a new world before the next run
+ * (its levels are fixed when the world is made): leaving the tab asks for one (`ShellHooks.rebuild`).
+ * Tabs switch with a tap or a horizontal swipe on the tab bar (and on the Weapons and Events panes); a drag on
  * the open sky of the Home tab still draws the bow, as before.
  *
  * Everything lives in the HUD's logical 720 × 1280 layer and follows the real screen edges and
  * safe areas (`Ui.view`). Reduced motion (`calmMotion`): no pulses or glows, tabs cut instead of slide.
  */
-import { drawBadge, drawBowItem } from '@okcu/scenes/gear';
+import { drawBadge } from '@okcu/scenes/gear';
 import { drawCoin } from '@okcu/scenes/icons';
 import { SFX } from '@okcu/sfx';
 import { PALETTE } from '@okcu/textures';
 import { powerOf } from '@sim/arsenal';
 import { claimFreeChest, freeChestWait } from '@sim/chests';
 import type { ChestKind } from '@sim/arsenal';
+import type { SaveData } from '@sim/meta';
 import { dailyChallenge, liveStreak, progressScore, RANKS, rankOf } from '@sim/progress';
 import { button, calmMotion, EASE, el, fitText, iconCanvas, Label, mix, pressable, roundButton, TAB_BAR_H } from './dom';
-import { css, type Gfx, rgba } from './gfx';
+import { css, Gfx, rgba } from './gfx';
 import { todayKey } from './save';
 import type { Ui } from './screens';
 import { drawCalendarGlyph } from './title';
+import { createWeaponsPane, drawWeaponIcon, type WeaponsPane } from './weapons';
 
 export type TabId = 'shop' | 'weapons' | 'home' | 'ranks' | 'events';
 export const TAB_IDS: readonly TabId[] = ['shop', 'weapons', 'home', 'ranks', 'events'];
@@ -37,13 +42,14 @@ export interface ShellHooks {
   home: HTMLElement;
   /** the tabs that still open a full screen of menus.ts */
   shop: () => void;
-  weapons: () => void;
   ranks: () => void;
+  /** the Weapons pane changed the save: a new world (its levels), then the shell back on `tab` */
+  rebuild: (tab: TabId) => void;
   /** the daily run on / off (the Events tab's button) */
   daily: () => void;
   /** a small piece of good news at the top (the HUD's toast) */
   toast: (head: string, sub: string) => void;
-  /** the shell changed the save (a free chest claimed): the badges again */
+  /** the shell changed the save (a free chest claimed, a weapon levelled): the badges again */
   changed: () => void;
 }
 
@@ -58,6 +64,8 @@ export interface Shell {
   hide(instant?: boolean): void;
   /** the same shell laid out again (resize, fonts), on the same tab, without the entrance */
   relayout(): void;
+  /** the tab that was up before a full-screen tab (Shop, Ranks) opened: where closing it returns */
+  readonly returnTab: TabId;
 }
 
 const CX = 360;
@@ -148,6 +156,19 @@ export function createShell(ui: Ui, parent: HTMLElement, hooks: ShellHooks): She
   let tabEls = new Map<TabId, HTMLElement>();
   let sel: HTMLElement | null = null;
   let events: HTMLElement | null = null;
+  let weapons: HTMLElement | null = null;
+  let weaponsPane: WeaponsPane | null = null;
+  /** the Weapons pane changed the save since this world was made */
+  let dirty = false;
+  /** where a full-screen tab returns */
+  let ret: TabId = 'home';
+  let powerEl: HTMLElement | null = null;
+  let coinsEl: HTMLElement | null = null;
+  let chipEl: HTMLElement | null = null;
+  let weaponsMed: HTMLCanvasElement | null = null;
+  let countUp = 0;
+  let paneTop = 0;
+  let paneBot = 1280;
   let dailyDot: HTMLElement | null = null;
   /** the side buttons (they belong to Home: away while Events is up) */
   let sideParts: HTMLElement[] = [];
@@ -164,11 +185,18 @@ export function createShell(ui: Ui, parent: HTMLElement, hooks: ShellHooks): She
     for (const l of labels) l.destroy();
     labels = [];
     tabEls = new Map();
-    sel = events = dailyDot = null;
-    sideParts = [];
+    dropRefs();
     root?.remove();
     root = null;
     resetHome();
+  }
+
+  function dropRefs(): void {
+    weaponsPane?.destroy();
+    weaponsPane = null;
+    window.cancelAnimationFrame(countUp);
+    sel = events = weapons = dailyDot = powerEl = coinsEl = chipEl = weaponsMed = null;
+    sideParts = [];
   }
 
   function resetHome(): void {
@@ -235,7 +263,12 @@ export function createShell(ui: Ui, parent: HTMLElement, hooks: ShellHooks): She
     if (calm) root.classList.add('ok-calm');
     const rank = rankOf(progressScore(save).total);
 
-    // ---- Events pane (under the bars, hidden until its tab)
+    // ---- Weapons and Events panes (under the bars, hidden until their tab; Weapons is built on first use)
+    paneTop = top;
+    paneBot = bot;
+    weapons = el('div', 'ok-s-pane', root);
+    weapons.style.display = 'none';
+    swipeable(weapons);
     events = el('div', 'ok-s-pane', root);
     events.style.display = 'none';
     buildEvents(events, top, bot);
@@ -254,7 +287,9 @@ export function createShell(ui: Ui, parent: HTMLElement, hooks: ShellHooks): She
     pow.dataset.testid = 'shell-power';
     iconCanvas(pow, 22, 28, (g) => drawBolt(g, 11, 14));
     el('b', '', pow).textContent = t('shell.power');
-    el('span', '', pow).textContent = String(powerOf(save));
+    powerEl = el('span', '', pow);
+    powerEl.textContent = String(powerOf(save));
+    chipEl = chip;
     pressable(chip, () => root !== null, ui.unlock, () => {
       ui.audio.play('tap');
       select('ranks', true);
@@ -262,7 +297,8 @@ export function createShell(ui: Ui, parent: HTMLElement, hooks: ShellHooks): She
     const coins = el('div', 'ok-s-coins ok-s-glass', bar);
     coins.dataset.testid = 'shell-coins';
     iconCanvas(coins, 48, 48, (g) => drawCoin(g.phaser, 24, 24, 17));
-    el('span', '', coins).textContent = String(save.coins);
+    coinsEl = el('span', '', coins);
+    coinsEl.textContent = String(save.coins);
     const sndP = part(root, 658, top + 60, 'translateY(-130px)', 60, quiet);
     const snd = roundButton(sndP, 0, 0, 92, ui.audio.muted ? 'sound-off' : 'sound-on', ui.unlock, () => {
       const muted = ui.audio.toggleMute();
@@ -333,7 +369,6 @@ export function createShell(ui: Ui, parent: HTMLElement, hooks: ShellHooks): She
     const tabs = el('div', 'ok-s-part', tabP);
     tabs.style.cssText = 'left:0;top:0';
     swipeable(tabP);
-    const level = game.bowLevel;
     for (const id of TAB_IDS) {
       const { x, w } = tabX(id);
       const tb = el('div', `ok-s-tab ${id}`, tabs);
@@ -351,12 +386,13 @@ export function createShell(ui: Ui, parent: HTMLElement, hooks: ShellHooks): She
       if (id === 'shop') med.dataset.testid = 'title-shop';
       if (id === 'weapons') med.dataset.testid = 'title-forge';
       if (id === 'ranks') med.dataset.testid = 'title-ranks';
-      iconCanvas(med, size, size, (g) => {
+      const icon = iconCanvas(med, size, size, (g) => {
         const c = size / 2;
         const k = size / 80;
         g.fillStyle(0xffffff, 0.22).fillCircle(c, c, 30 * k);
-        drawTabIcon(g, id, c, c, k, rank, level);
+        drawTabIcon(g, id, c, c, k, rank, save);
       });
+      if (id === 'weapons') weaponsMed = icon;
       const dot = el('div', 'ok-s-dot', tb);
       dot.style.display = 'none';
       tabEls.set(id, tb);
@@ -423,7 +459,7 @@ export function createShell(ui: Ui, parent: HTMLElement, hooks: ShellHooks): She
   }
 
   function paneOf(id: TabId): HTMLElement | null {
-    return id === 'home' ? home : id === 'events' ? events : null;
+    return id === 'home' ? home : id === 'events' ? events : id === 'weapons' ? weapons : null;
   }
 
   function moveSel(id: TabId, animate: boolean): void {
@@ -479,25 +515,75 @@ export function createShell(ui: Ui, parent: HTMLElement, hooks: ShellHooks): She
   }
 
   function select(next: TabId, animate: boolean): void {
-    if (!root) return;
+    if (!root || next === tab) return;
     const prev = tab;
     tab = next;
     moveSel(next, animate);
-    // the tabs that still open a full screen: the highlight shows where we went; the screen covers the rest
-    if (next === 'shop' || next === 'weapons' || next === 'ranks') {
-      const fire = next === 'shop' ? hooks.shop : next === 'weapons' ? hooks.weapons : hooks.ranks;
-      fire();
+    // the full-screen tabs: the highlight shows where we went; the screen covers the rest, and closing
+    // it builds a new world (so a change made in the Weapons pane is picked up there too)
+    if (next === 'shop' || next === 'ranks') {
+      if (paneOf(prev)) ret = prev;
+      (next === 'shop' ? hooks.shop : hooks.ranks)();
       return;
     }
-    // coming back from a screen tab, the pane that was up is still in place
-    const from = paneOf(prev) ? prev : next === 'home' ? 'events' : 'home';
-    if (next === 'home' && from !== 'events') {
-      if (events) events.style.display = 'none';
-      resetHome();
+    // leaving the Weapons pane after a change: a new world first, then the shell on `next`
+    if (prev === 'weapons' && dirty) {
+      dirty = false;
+      hooks.rebuild(next);
       return;
     }
+    if (next === 'weapons' && weapons && !weaponsPane) weaponsPane = createWeaponsPane(ui, weapons, paneTop, paneBot, weaponsHooks, !animate);
+    const from = paneOf(prev) ? prev : ret;
     sides(next === 'home', animate);
     slide(from, next, animate);
+  }
+
+  const weaponsHooks = {
+    changed: (before: number) => {
+      dirty = true;
+      bump(before);
+      hooks.changed();
+    },
+    looks: () => {
+      ui.audio.play('tap');
+      select('shop', true);
+    },
+    toast: (head: string, sub: string) => hooks.toast(head, sub),
+  };
+
+  /** the top bar after a change: POWER counts up from `before`, the coins follow, the Weapons medallion shows the selected weapon */
+  function bump(before: number): void {
+    const d = ui.game.save.data;
+    const now = powerOf(d);
+    if (coinsEl) coinsEl.textContent = String(d.coins);
+    if (weaponsMed) {
+      const c = weaponsMed.getContext('2d')!;
+      const m = c.getTransform();
+      c.setTransform(1, 0, 0, 1, 0, 0);
+      c.clearRect(0, 0, weaponsMed.width, weaponsMed.height);
+      c.setTransform(m);
+      const g = new Gfx(c);
+      g.fillStyle(0xffffff, 0.22).fillCircle(40, 40, 30);
+      drawTabIcon(g, 'weapons', 40, 40, 1, 0, d);
+    }
+    const p = powerEl;
+    if (!p) return;
+    window.cancelAnimationFrame(countUp);
+    if (calm || now === before) {
+      p.textContent = String(now);
+      return;
+    }
+    const t0 = performance.now();
+    const dur = 700;
+    const step = (): void => {
+      const u = Math.min(1, (performance.now() - t0) / dur);
+      const e = 1 - (1 - u) ** 3;
+      p.textContent = String(Math.round(before + (now - before) * e));
+      if (u < 1) countUp = window.requestAnimationFrame(step);
+    };
+    step();
+    chipEl?.animate([{ transform: 'scale(1)' }, { transform: 'scale(1.14)', offset: 0.3 }, { transform: 'scale(1)' }], { duration: 700, easing: EASE.backOut });
+    p.animate([{ color: '#fff' }, { color: css(PALETTE.heal), offset: 0.2 }, { color: css(PALETTE.heal), offset: 0.8 }, { color: '#fff' }], { duration: 900 });
   }
 
   return {
@@ -506,6 +592,9 @@ export function createShell(ui: Ui, parent: HTMLElement, hooks: ShellHooks): She
     },
     get tab() {
       return tab;
+    },
+    get returnTab() {
+      return ret;
     },
     show(next, opts) {
       const quiet = opts?.quiet ?? false;
@@ -529,10 +618,12 @@ export function createShell(ui: Ui, parent: HTMLElement, hooks: ShellHooks): She
       const gone = labels;
       labels = [];
       tabEls = new Map();
-      sel = events = dailyDot = null;
-      sideParts = [];
+      dropRefs();
       root = null;
       tab = 'home';
+      ret = 'home';
+      // a new world follows (or the run starts from this one, which the Home tab already brought up to date)
+      dirty = false;
       resetHome();
       if (instant || calm) {
         for (const l of gone) l.destroy();
@@ -554,7 +645,7 @@ export function createShell(ui: Ui, parent: HTMLElement, hooks: ShellHooks): She
       tab = 'home';
       build(true);
       moveSel('home', false);
-      if (keep === 'events') select('events', false);
+      if (keep === 'events' || keep === 'weapons') select(keep, false);
     },
   };
 }
@@ -562,13 +653,15 @@ export function createShell(ui: Ui, parent: HTMLElement, hooks: ShellHooks): She
 // ---------------------------------------------------------------------------- drawings
 
 /** A tab's glyph, centred on (x, y); `k` scales the 80 px medallion design. */
-function drawTabIcon(g: Gfx, id: TabId, x: number, y: number, k: number, rank: number, level: number): void {
+function drawTabIcon(g: Gfx, id: TabId, x: number, y: number, k: number, rank: number, save: SaveData): void {
   if (id === 'shop') {
     drawCoin(g.phaser, x - 12 * k, y + 8 * k, 15 * k);
     drawCoin(g.phaser, x + 12 * k, y + 8 * k, 15 * k);
     drawCoin(g.phaser, x, y - 10 * k, 16 * k);
   } else if (id === 'weapons') {
-    drawBowItem(g.phaser, x, y, 26 * k, level, 0);
+    // the selected weapon
+    const sel = save.arsenal.selected;
+    drawWeaponIcon(g, sel, x, y + 2 * k, 0.56 * k, { level: save.arsenal.weapons[sel].level });
   } else if (id === 'ranks') {
     drawBadge(g.phaser, x, y + 2 * k, 24 * k, rank, 0);
   } else if (id === 'events') {

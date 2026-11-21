@@ -10,15 +10,16 @@
 //   difficulty ('hard'): the CAREFUL scripted player from src/sim/aimbot.ts plays every run,
 //   progress is banked with the game's own bank*/unlockFeats functions and the bow is forged at
 //   the real anvil (attemptForge). The save goes into localStorage under the 3D app's key with
-//   the 2D game's schema (apps/okcu-3d/src/ui/save.ts).
+//   the 2D game's schema (apps/okcu-3d/src/ui/save.ts); the app moves the forged bow to its
+//   weapon levels on load (sim/arsenal.ts migrateArsenal), the bosses beaten unlock their weapons.
 // - Runs: a chapter is chosen like the chapter select does (Game.startRun({ chapter }), with a
 //   fixed seed so the capture repeats), then played by ./capture-bot.mjs: the same CAREFUL
 //   player, shooting through the app's release path (__okcu3d.shoot), picking cards through
 //   Game.pickCard, time stepped with the app's skip(). If the player loses a run on the way, the
 //   next seed is tried; nothing keeps the player alive and no world field is written.
 // - The aiming shots are real touch drags (Chrome DevTools touch events) on the 3D stage.
-// - Menus (forge, ranks) are opened by tapping their tabs (Weapons, Ranks); the forge strike is a real
-//   attempt on the staged save (seeded roll, the chance printed on screen).
+// - Menus (weapons, ranks) are opened by tapping their tabs (Weapons, Ranks); the Weapons tab shows
+//   the staged save's weapons (apps/okcu-3d/src/ui/weapons.ts).
 import { stageCareer } from './career.mjs';
 
 const SAVE_KEY = 'oyun:okcu-3d:save';
@@ -28,9 +29,8 @@ const DRAG_FULL = 300;
 
 /** Button labels in the game's two languages (games/okcu/src/strings.ts). */
 const L = {
-  // the main menu's Weapons tab (apps/okcu-3d/src/ui/shell.ts) opens the forge screen for now
-  forge: { en: 'Weapons', tr: 'Silahlar' },
-  forgeGo: { en: 'Forge ', tr: 'Döv ' },
+  // the main menu's Weapons tab (apps/okcu-3d/src/ui/shell.ts → weapons.ts)
+  weapons: { en: 'Weapons', tr: 'Silahlar' },
   ranks: { en: 'Ranks', tr: 'Rütbeler' },
   records: { en: 'Records', tr: 'Rekorlar' },
 };
@@ -143,7 +143,7 @@ export default {
   icon: { emblem: 'bow', bg: ['#4fc3ff', '#1d6fd1'], glow: '#fff2a8', mono: true },
 
   async stage(load) {
-    const { save, at, forgeAt } = await stageCareer(load, { bowTarget: 20, snapshots: [10, 16], difficulty: 'hard' });
+    const { save, at } = await stageCareer(load, { bowTarget: 20, snapshots: [10, 16], difficulty: 'hard' });
     const wrap = (data) => ({ v: SAVE_VERSION, data });
     return {
       // after the first runs: bow +10, every chapter reached
@@ -152,8 +152,6 @@ export default {
       mid: wrap(at[16]),
       // the end of the career: bow +20, armour (health upgrades) maxed
       full: wrap(save),
-      // just before the forge strike that took the bow to +20
-      forge20: wrap(forgeAt[20]),
     };
   },
   storageFor: (save) => ({ [SAVE_KEY]: save }),
@@ -184,7 +182,7 @@ export default {
     {
       id: 'glow',
       save: 'full',
-      caption: { 'en-US': 'Forge your bow to +20 and watch it blaze', 'tr-TR': 'Yayını +20’ye kadar döv, alev alev parlasın' },
+      caption: { 'en-US': 'Level your bow up and watch it blaze', 'tr-TR': 'Yayını geliştir, alev alev parlasın' },
       async run(g) {
         await playTo(g, 3, (w) => w.wave >= 23 && w.phase === 'play', { seed: 5 });
         await calm(g);
@@ -194,19 +192,16 @@ export default {
       },
     },
     {
-      id: 'forge',
-      save: 'forge20',
-      caption: { 'en-US': 'Every forge chance is shown before you strike', 'tr-TR': 'Demircide her şans vurmadan önce yazar' },
+      id: 'weapons',
+      save: 'full',
+      caption: { 'en-US': 'Six weapons to unlock and level up', 'tr-TR': 'Altı silahı aç, seviyesini yükselt' },
       async run(g, { lang }) {
         // the menus' DOM animations run on real time: slow them to the fake clock's pace
         await g.animRate(0.08);
         await g.run(600, 100);
-        await g.tap(L.forge[lang]);
-        await g.run(900, 100);
-        await g.tap(L.forgeGo[lang]);
-        // the strike in progress: the bow rises and blazes, the printed chance (15 % at +19) stays
-        // on screen until the payoff (this attempt, with the career's seeded roll, succeeds)
-        await g.run(1200, 66);
+        await g.tap(L.weapons[lang]);
+        // the pane slides in and its cards pop: let them settle
+        await g.run(1500, 100);
       },
     },
     {
@@ -279,7 +274,7 @@ export default {
   // Feature graphic: the name and tagline beside two crops of the real 3D captures (the armoured
   // archer drawing the +20 bow at night; a headshot in the snow).
   feature: {
-    tagline: { 'en-US': 'Knock them off in 3D, forge a blazing bow!', 'tr-TR': '3D okçuları düşür, yayını alev alev parlat!' },
+    tagline: { 'en-US': 'Knock them off in 3D, level up six weapons!', 'tr-TR': '3D okçuları düşür, altı silahı geliştir!' },
     cards: [
       ['glow', 0, 650, 280, 440],
       ['headshot', 300, 470, 420, 660],

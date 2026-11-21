@@ -16,7 +16,6 @@ import { PALETTE } from '@okcu/textures';
 import { canUpgrade } from '@sim/arsenal';
 import { bowTier } from '@sim/bow';
 import { CHAPTERS, stageOf, STAGES } from '@sim/chapters';
-import { UPGRADE_IDS, upgradeCost } from '@sim/meta';
 import { progressScore, rankOf } from '@sim/progress';
 import { WEAPON_IDS } from '@sim/weapons';
 import type { GameEvent, World } from '@sim/world';
@@ -25,7 +24,7 @@ import { EASE, el, injectStyle, Label, rerenderLabels, roundButton, setLabelRes,
 import { css, rgba } from './gfx';
 import { createMenus } from './menus';
 import { todayKey } from './save';
-import { createShell } from './shell';
+import { createShell, type TabId } from './shell';
 import { createPainter, HUD, type PullState } from './paint';
 import { createTracker } from './progress';
 import { createCards, createResult, type T, type Ui } from './screens';
@@ -271,6 +270,14 @@ export function createHud(stage: Stage, game: Game): Module {
   // ---- screens
   /** the next shell comes back without its entrance (our own chapter switch rebuilds the menu) */
   let shellQuiet = false;
+  /** the tab the next shell comes back on (Home, or where a full-screen tab or a new world left off) */
+  let shellTab: TabId = 'home';
+  /** a new world for the title, the shell back on `tab` without its entrance (the menu stays where it was) */
+  const titleOn = (tab: TabId): void => {
+    shellTab = tab;
+    shellQuiet = true;
+    game.startRun({ daily: game.daily });
+  };
   const title = createTitle(ui, homePane, {
     // chapter select: step through the chapters reached (and endless once unlocked), wrapping round
     chapter: (dir) => {
@@ -280,12 +287,13 @@ export function createHud(stage: Stage, game: Game): Module {
       game.startRun({ chapter: c > last ? 0 : c < 0 ? last : c });
     },
   });
-  // the main menu's tabs: Shop, Weapons and Ranks open the full screens of menus.ts for now
+  // the main menu's tabs: Shop (the looks) and Ranks open the full screens of menus.ts for now
   const shell = createShell(ui, shellGroup, {
     home: homePane,
     shop: () => menus.openShop('title'),
-    weapons: () => menus.openForge('title'),
     ranks: () => menus.openRanks('title'),
+    // the Weapons pane changed the save: the run's levels are fixed when its world is made
+    rebuild: (tab) => titleOn(tab),
     daily: () => game.startRun({ daily: !game.daily }),
     toast: (head, sub) => queueToast(head, sub, PALETTE.gold),
     changed: () => syncBadges(),
@@ -294,13 +302,10 @@ export function createHud(stage: Stage, game: Game): Module {
   /** the tab bar's red badges, from the save */
   function syncBadges(): void {
     const d = game.save.data;
-    const affordUp = !game.daily && UPGRADE_IDS.some((id) => {
-      const c = upgradeCost(id, d.upgrades[id]);
-      return c !== null && d.coins >= c;
-    });
-    shell.badge('shop', affordUp ? '!' : 0);
-    // chests waiting to be opened and weapons ready to level up (their tab's content comes with the arsenal screens)
-    shell.badge('weapons', d.arsenal.chests.length + WEAPON_IDS.filter((id) => canUpgrade(d, id)).length);
+    // the shop sells looks only for now (its offers and chests come with its own tab)
+    shell.badge('shop', 0);
+    // a weapon ready to level up (the archer card marks its own affordable upgrades)
+    shell.badge('weapons', WEAPON_IDS.some((id) => canUpgrade(d, id)) ? '!' : 0);
     shell.badge('ranks', rankOf(progressScore(d).total) > d.rank ? '!' : 0);
     shell.badge('events', !game.daily && d.dailyDone !== todayKey() ? '!' : 0);
   }
@@ -327,8 +332,8 @@ export function createHud(stage: Stage, game: Game): Module {
       doubledCoins += amount;
       return amount;
     },
+    upgrades: () => titleOn('weapons'),
     shop: () => menus.openShop('result'),
-    forge: () => menus.openForge('result'),
     home: () => game.toTitle(),
     ranks: () => {
       if (!menus.ceremonyOpen) menus.openRanks('result');
@@ -347,9 +352,14 @@ export function createHud(stage: Stage, game: Game): Module {
       tracker.bank(game.w);
       game.startRun({ daily: game.daily, quick: true });
     },
-    // 2D: back from the shop, forge or ranks is a fresh title, so a purchase shows on the next run at once
+    // 2D: back from the shop or ranks is a fresh title, so a change shows on the next run at once;
+    // opened from a tab, the shell comes back on the tab that was up before it
     back: () => {
+      const tab = shell.shown ? shell.returnTab : 'home';
+      const quiet = shell.shown;
       menus.closeAll();
+      shellTab = tab;
+      shellQuiet = quiet;
       game.toTitle();
     },
   });
@@ -807,7 +817,9 @@ export function createHud(stage: Stage, game: Game): Module {
     waveText.setText(showWave ? waveLabel(w) : '').setVisible(!bannerUp);
     objText.setText(w.objective && showWave ? objectiveText(w.objective.kind, w.objective.limit) : '').setVisible(!bannerUp);
     const level = game.bowLevel;
-    bowText.setText(level > 0 ? t('bow.name', { name: t(`bow.${bowTier(level)}`), n: level }) : '');
+    // the run's weapon and its level (hard, the 3D build); the classic setting still shows the forged bow
+    if (w.difficulty === 'hard') bowText.setText(`${t(`weapon.${w.meta.weapon}`)} · ${t('weapons.lv', { n: w.meta.wlevel })}`);
+    else bowText.setText(level > 0 ? t('bow.name', { name: t(`bow.${bowTier(level)}`), n: level }) : '');
     const b = w.bonus;
     bonusText.setText(b && b.t >= 0 && b.grade === null ? t('bonus.hits', { n: b.hits, c: b.coins }) : '');
     // coins count up as the flying coins land; with none in the air the counter is simply the truth
@@ -866,8 +878,9 @@ export function createHud(stage: Stage, game: Game): Module {
       // the tab shell frames the title's menu state; away in the ready state, in play and under the result
       const wantShell = w.phase === 'title' && title.shown && !title.ready && !result.shown;
       if (wantShell && !shell.shown) {
-        shell.show('home', { quiet: shellQuiet });
+        shell.show(shellTab, { quiet: shellQuiet });
         shellQuiet = false;
+        shellTab = 'home';
         syncBadges();
       } else if (!wantShell && shell.shown) shell.hide();
       // a menu screen replaces the title (the 2D game switches scenes)

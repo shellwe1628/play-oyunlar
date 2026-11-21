@@ -273,7 +273,7 @@ export interface ResultScreen {
 }
 
 /**
- * The result's buttons (ResultScene): replay, upgrades, the forge, home (the title), the rank (the
+ * The result's buttons (ResultScene): replay, upgrades (the Weapons tab), the shop, home (the title), the rank (the
  * ranks screen); and the rewards after a watched ad: revive (continue the run; the result closes)
  * and double (bank the coins once more; returns the coins added).
  */
@@ -281,8 +281,10 @@ export interface ResultHooks {
   replay: () => void;
   revive: () => void;
   double: (amount: number) => number;
+  /** the main menu on its Weapons tab (the weapons and the archer's upgrades) */
+  upgrades: () => void;
+  /** the shop (the looks) */
   shop: () => void;
-  forge: () => void;
   home: () => void;
   ranks: () => void;
 }
@@ -396,12 +398,12 @@ export function createResult(ui: Ui, parent: HTMLElement, hooks: ResultHooks): R
         ui.audio.play('tap');
         fn();
       };
-      // replay and upgrades as in ResultScene, the forge under them; then the rewarded row (▶ AD):
+      // replay and upgrades as in ResultScene, the shop under them; then the rewarded row (▶ AD):
       // revive (once per run) and double coins (once per result), side by side when both are offered
       btns = [
         button(root, CX, 820, t('core.replay'), ui.unlock, tap(hooks.replay), { width: 440 }),
-        button(root, CX, 932, t('result.shop'), ui.unlock, tap(hooks.shop), { width: 440, variant: 'secondary' }),
-        button(root, CX, 1044, t('title.forge'), ui.unlock, tap(hooks.forge), { width: 440, height: 96, fontSize: 40, variant: 'secondary' }),
+        button(root, CX, 932, t('result.shop'), ui.unlock, tap(hooks.upgrades), { width: 440, variant: 'secondary' }),
+        button(root, CX, 1044, t('tab.shop'), ui.unlock, tap(hooks.shop), { width: 440, height: 96, fontSize: 40, variant: 'secondary' }),
       ];
       const offers: { id: string; text: string; secondary: boolean; act: () => Promise<void> }[] = [];
       if (ads.revive) {

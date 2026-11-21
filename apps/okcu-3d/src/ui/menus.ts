@@ -360,7 +360,7 @@ export function createMenus(ui: Ui, parent: HTMLElement, hooks: MenuHooks): Menu
       const tg = tiles.begin();
       COSMETICS.forEach((cos, i) => {
         const { x, y } = tilePos(i);
-        const unlocked = isUnlocked(cos, d.best, d.runs, d.bosses);
+        const unlocked = isUnlocked(cos, d.best, d.runs, d.bosses, d.arsenal.boughtLooks);
         const worn = d.cosmetic === cos.id;
         const sel = i === previewIdx;
         tg.fillStyle(PALETTE.ink, 1).fillRoundedRect(x - half, y - half, half * 2, half * 2, 24);
@@ -373,7 +373,7 @@ export function createMenus(ui: Ui, parent: HTMLElement, hooks: MenuHooks): Menu
         }
       });
       const cos = COSMETICS[previewIdx]!;
-      const unlocked = isUnlocked(cos, d.best, d.runs, d.bosses);
+      const unlocked = isUnlocked(cos, d.best, d.runs, d.bosses, d.arsenal.boughtLooks);
       previewName.setText(t(`cos.${cos.id}`));
       previewNote.setText(d.cosmetic === cos.id ? t('shop.worn') : unlocked ? '' : cos.boss !== undefined ? t('shop.boss', { b: t(`boss.${BOSS_KINDS[cos.boss]!}`) }) : cos.runs > 0 ? t('shop.runs', { n: cos.runs }) : t('shop.unlock', { n: cos.wave }));
     }
@@ -395,7 +395,7 @@ export function createMenus(ui: Ui, parent: HTMLElement, hooks: MenuHooks): Menu
       const cos = COSMETICS[i];
       if (!cos) return;
       previewIdx = i;
-      if (!isUnlocked(cos, save.data.best, save.data.runs, save.data.bosses)) {
+      if (!isUnlocked(cos, save.data.best, save.data.runs, save.data.bosses, save.data.arsenal.boughtLooks)) {
         ui.audio.playPreset(SFX.cancel);
         refresh();
         return;
@@ -425,7 +425,7 @@ export function createMenus(ui: Ui, parent: HTMLElement, hooks: MenuHooks): Menu
         const cos = COSMETICS[previewIdx]!;
         const hop = Math.abs(Math.sin(bounce * Math.PI * 2)) * 18 * bounce;
         g.fillStyle(PALETTE.ink, 0.35).fillEllipse(CX, footY - 8, 170, 26);
-        drawHeadIcon(g.phaser, CX, footY - 110 - hop + Math.sin(clock * 2) * 4, 72, cos, isUnlocked(cos, save.data.best, save.data.runs, save.data.bosses));
+        drawHeadIcon(g.phaser, CX, footY - 110 - hop + Math.sin(clock * 2) * 4, 72, cos, isUnlocked(cos, save.data.best, save.data.runs, save.data.bosses, save.data.arsenal.boughtLooks));
       },
       destroy() {
         for (const l of labels) l.destroy();

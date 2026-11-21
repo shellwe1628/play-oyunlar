@@ -30,6 +30,8 @@ export interface Arsenal {
   /** daily shop: the day key and the offers bought that day (offer indices) */
   shopDay: string;
   shopBought: number[];
+  /** cosmetic ids bought with coins (they count as unlocked, see `isUnlocked`) */
+  boughtLooks: string[];
   /** the progress score the player had when the arsenal arrived (the rank never drops below it) */
   rankFloor: number;
   /** the one-off migration from the forged bow has run (a new save is created migrated) */
@@ -41,7 +43,7 @@ export interface Arsenal {
 export function freshArsenal(): Arsenal {
   const weapons = {} as Record<WeaponId, WeaponState>;
   for (const id of WEAPON_IDS) weapons[id] = { owned: id === 'bow', level: 1, shards: 0 };
-  return { selected: 'bow', weapons, chests: [], freeChestAt: 0, adCoinsDay: '', adCoinsUsed: 0, shopDay: '', shopBought: [], rankFloor: 0, migrated: true, chestsOpened: 0 };
+  return { selected: 'bow', weapons, chests: [], freeChestAt: 0, adCoinsDay: '', adCoinsUsed: 0, shopDay: '', shopBought: [], boughtLooks: [], rankFloor: 0, migrated: true, chestsOpened: 0 };
 }
 
 const obj = (v: unknown): Record<string, unknown> => (typeof v === 'object' && v !== null && !Array.isArray(v) ? (v as Record<string, unknown>) : {});
@@ -71,6 +73,7 @@ export function repairArsenal(v: unknown): Arsenal {
   base.adCoinsUsed = nat(a.adCoinsUsed);
   base.shopDay = str(a.shopDay);
   base.shopBought = Array.isArray(a.shopBought) ? a.shopBought.filter((n): n is number => Number.isInteger(n) && (n as number) >= 0) : [];
+  base.boughtLooks = Array.isArray(a.boughtLooks) ? [...new Set(a.boughtLooks.filter((x): x is string => typeof x === 'string' && x !== ''))] : [];
   base.rankFloor = nat(a.rankFloor);
   base.chestsOpened = nat(a.chestsOpened);
   base.migrated = present && a.migrated === true;

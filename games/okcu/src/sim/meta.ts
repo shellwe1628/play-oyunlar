@@ -69,14 +69,18 @@ export const COSMETICS: readonly Cosmetic[] = [
   { id: 'veteran', wave: 0, runs: 40, hat: 'beret', scarf: 0xffd23f, bow: 'gold' },
 ];
 
-/** `bosses`: the save's boss knockouts per chapter (boss looks stay locked without it). */
-export function isUnlocked(c: Cosmetic, best: number, runs: number, bosses: readonly number[] = []): boolean {
+/**
+ * `bosses`: the save's boss knockouts per chapter (boss looks stay locked without it);
+ * `bought`: `arsenal.boughtLooks`, looks paid for in the coin shop (always unlocked).
+ */
+export function isUnlocked(c: Cosmetic, best: number, runs: number, bosses: readonly number[] = [], bought: readonly string[] = []): boolean {
+  if (bought.includes(c.id)) return true;
   if (c.boss !== undefined) return (bosses[c.boss] ?? 0) > 0;
   return c.runs > 0 ? runs >= c.runs : best >= c.wave;
 }
 
-export function unlockedCosmetics(best: number, runs = 0, bosses: readonly number[] = []): Cosmetic[] {
-  return COSMETICS.filter((c) => isUnlocked(c, best, runs, bosses));
+export function unlockedCosmetics(best: number, runs = 0, bosses: readonly number[] = [], bought: readonly string[] = []): Cosmetic[] {
+  return COSMETICS.filter((c) => isUnlocked(c, best, runs, bosses, bought));
 }
 
 export function cosmeticById(id: string): Cosmetic {

@@ -1,8 +1,9 @@
 import { act, clockRate, collectErrors, colorNear, expect, openGame, pixel, shot, state, test, waitForScene } from '@oyun/core/e2e';
 import { DEFAULT_THEME, findOverlaps } from '@oyun/core/pure';
 import type { Page } from '@playwright/test';
+import { fileURLToPath } from 'node:url';
 
-const gameDir = new URL('../..', import.meta.url).pathname.replace(/\/$/, '');
+const gameDir = fileURLToPath(new URL('../..', import.meta.url)).replace(/[\\/]$/, '');
 
 async function phase(page: Page): Promise<string> {
   return (await state(page)).data.phase as string;

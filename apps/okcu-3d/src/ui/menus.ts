@@ -814,7 +814,8 @@ export function createMenus(ui: Ui, parent: HTMLElement, hooks: MenuHooks): Menu
         parts.forEach(([key, pts, per], i) => {
           const y = TOP + 410 + i * 42;
           g.fillStyle(PALETTE.ink, 0.5).fillRoundedRect(60, y - 18, 600, 36, 14);
-          tx(80, y, t(`ranks.part.${key}`, { k: per }), 28, PALETTE.cream, 0);
+          // the 3D build's "bow" points also count the weapons owned past the bow (progressScore): one "Weapons" row, no single multiplier
+          tx(80, y, key === 'bow' ? t('ranks.part.weapons') : t(`ranks.part.${key}`, { k: per }), 28, PALETTE.cream, 0);
           tx(640, y, String(pts), 30, PALETTE.gold, 1);
         });
         RANKS.forEach((rk, i) => {

@@ -13,14 +13,19 @@ import { CORE_STRINGS, createAudio, createI18n, pickLanguage, webStorage } from 
 import { DRAG_DEAD } from '@okcu/scenes/keys';
 import { SFX } from '@okcu/sfx';
 import { PALETTE } from '@okcu/textures';
+import { canUpgrade } from '@sim/arsenal';
 import { bowTier } from '@sim/bow';
 import { CHAPTERS, stageOf, STAGES } from '@sim/chapters';
+import { UPGRADE_IDS, upgradeCost } from '@sim/meta';
 import { progressScore, rankOf } from '@sim/progress';
+import { WEAPON_IDS } from '@sim/weapons';
 import type { GameEvent, World } from '@sim/world';
 import type { Frame, Game, Module, Stage } from '../contract';
 import { EASE, el, injectStyle, Label, rerenderLabels, roundButton, setLabelRes, Timers } from './dom';
 import { css, rgba } from './gfx';
 import { createMenus } from './menus';
+import { todayKey } from './save';
+import { createShell } from './shell';
 import { createPainter, HUD, type PullState } from './paint';
 import { createTracker } from './progress';
 import { createCards, createResult, type T, type Ui } from './screens';
@@ -47,6 +52,9 @@ export function createHud(stage: Stage, game: Game): Module {
   const hudGroup = el('div', 'ok-group', layer);
   const floatGroup = el('div', 'ok-group', layer);
   const titleGroup = el('div', 'ok-group', layer);
+  // the Home tab (title.ts) inside the tab shell's frame (shell.ts: top bar, side buttons, tab bar)
+  const homePane = el('div', 'ok-group', titleGroup);
+  const shellGroup = el('div', 'ok-group', layer);
   const cardGroup = el('div', 'ok-group', layer);
   const resultGroup = el('div', 'ok-group', layer);
   const menuGroup = el('div', 'ok-group', layer);
@@ -261,19 +269,41 @@ export function createHud(stage: Stage, game: Game): Module {
   const tracker = createTracker(game, (id, coins) => queueToast(t('feat.title'), `${t(`feat.${id}.name`)} · +${coins}`, PALETTE.gold));
 
   // ---- screens
-  const title = createTitle(ui, titleGroup, {
-    shop: () => menus.openShop('title'),
-    looks: () => menus.openShop('title', 'looks'),
-    forge: () => menus.openForge('title'),
-    ranks: () => menus.openRanks('title'),
-    daily: () => game.startRun({ daily: !game.daily }),
+  /** the next shell comes back without its entrance (our own chapter switch rebuilds the menu) */
+  let shellQuiet = false;
+  const title = createTitle(ui, homePane, {
     // chapter select: step through the chapters reached (and endless once unlocked), wrapping round
     chapter: (dir) => {
       const last = game.save.data.chapter;
       const c = game.chapter + dir;
+      shellQuiet = true;
       game.startRun({ chapter: c > last ? 0 : c < 0 ? last : c });
     },
   });
+  // the main menu's tabs: Shop, Weapons and Ranks open the full screens of menus.ts for now
+  const shell = createShell(ui, shellGroup, {
+    home: homePane,
+    shop: () => menus.openShop('title'),
+    weapons: () => menus.openForge('title'),
+    ranks: () => menus.openRanks('title'),
+    daily: () => game.startRun({ daily: !game.daily }),
+    toast: (head, sub) => queueToast(head, sub, PALETTE.gold),
+    changed: () => syncBadges(),
+  });
+
+  /** the tab bar's red badges, from the save */
+  function syncBadges(): void {
+    const d = game.save.data;
+    const affordUp = !game.daily && UPGRADE_IDS.some((id) => {
+      const c = upgradeCost(id, d.upgrades[id]);
+      return c !== null && d.coins >= c;
+    });
+    shell.badge('shop', affordUp ? '!' : 0);
+    // chests waiting to be opened and weapons ready to level up (their tab's content comes with the arsenal screens)
+    shell.badge('weapons', d.arsenal.chests.length + WEAPON_IDS.filter((id) => canUpgrade(d, id)).length);
+    shell.badge('ranks', rankOf(progressScore(d).total) > d.rank ? '!' : 0);
+    shell.badge('events', !game.daily && d.dailyDone !== todayKey() ? '!' : 0);
+  }
   const cards = createCards(ui, cardGroup, clearTransients, (syn) => callout(t('cards.synergy', { s: t(`syn.${syn}`) }), PALETTE.focus, 56));
   const result = createResult(ui, resultGroup, {
     replay: () => game.startRun({ daily: game.daily, quick: true }),
@@ -365,6 +395,8 @@ export function createHud(stage: Stage, game: Game): Module {
     cards.close();
     result.hide();
     title.clear();
+    // a new world: the shell comes back on Home (quietly after our own chapter switch)
+    shell.hide(true);
     seen.clear();
     brains.clear();
     for (const e of w.enemies) seen.add(e.type);
@@ -764,6 +796,7 @@ export function createHud(stage: Stage, game: Game): Module {
   const onFont = (): void => {
     rerenderLabels();
     if (title.shown && world && world.phase === 'title') title.relayout();
+    if (shell.shown) shell.relayout();
   };
   void document.fonts?.load(`800 40px "Nunito"`, 'AĞİŞÇÖÜ ağışçöü').then(onFont, () => undefined);
 
@@ -802,6 +835,7 @@ export function createHud(stage: Stage, game: Game): Module {
         setLabelRes(Math.min(3, window.devicePixelRatio || 1) * painter.k);
         // the menu follows the screen's real edges
         if (title.shown && w === world) title.relayout();
+        if (shell.shown && w === world) shell.relayout();
       }
       if (w !== world) resetRun(w);
       menus.update(real);
@@ -829,9 +863,17 @@ export function createHud(stage: Stage, game: Game): Module {
       if (w.phase === 'title') {
         if (!title.shown && !result.shown) title.show(w);
       } else if (title.shown) title.hide();
+      // the tab shell frames the title's menu state; away in the ready state, in play and under the result
+      const wantShell = w.phase === 'title' && title.shown && !title.ready && !result.shown;
+      if (wantShell && !shell.shown) {
+        shell.show('home', { quiet: shellQuiet });
+        shellQuiet = false;
+        syncBadges();
+      } else if (!wantShell && shell.shown) shell.hide();
       // a menu screen replaces the title (the 2D game switches scenes)
       const vis = menus.open ? 'hidden' : '';
       if (titleGroup.style.visibility !== vis) titleGroup.style.visibility = vis;
+      if (shellGroup.style.visibility !== vis) shellGroup.style.visibility = vis;
       // the corner: pause in play, nothing on the title, over the result or a menu
       const phase = w.phase;
       pauseBtn.el.style.display = phase !== 'title' && phase !== 'over' && !menus.pauseOpen && !menus.open ? '' : 'none';

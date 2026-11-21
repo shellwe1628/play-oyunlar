@@ -17,7 +17,7 @@
 //   Game.pickCard, time stepped with the app's skip(). If the player loses a run on the way, the
 //   next seed is tried; nothing keeps the player alive and no world field is written.
 // - The aiming shots are real touch drags (Chrome DevTools touch events) on the 3D stage.
-// - Menus (forge, ranks) are opened by tapping their buttons; the forge strike is a real
+// - Menus (forge, ranks) are opened by tapping their tabs (Weapons, Ranks); the forge strike is a real
 //   attempt on the staged save (seeded roll, the chance printed on screen).
 import { stageCareer } from './career.mjs';
 
@@ -28,7 +28,8 @@ const DRAG_FULL = 300;
 
 /** Button labels in the game's two languages (games/okcu/src/strings.ts). */
 const L = {
-  forge: { en: 'Forge', tr: 'Demirci' },
+  // the main menu's Weapons tab (apps/okcu-3d/src/ui/shell.ts) opens the forge screen for now
+  forge: { en: 'Weapons', tr: 'Silahlar' },
   forgeGo: { en: 'Forge ', tr: 'Döv ' },
   ranks: { en: 'Ranks', tr: 'Rütbeler' },
   records: { en: 'Records', tr: 'Rekorlar' },

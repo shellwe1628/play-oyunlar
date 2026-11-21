@@ -2,11 +2,14 @@
  * What a run writes to the save, exactly as the 2D GameScene does it (bank / finish): the run is
  * counted with its first arrow, coins and the best wave are banked as deltas at every wave clear,
  * on pause, on hide, on quit and at death; records, boss knockouts and achievements with them;
- * the daily challenge at the end. All rules are the game's (sim/meta, sim/progress).
+ * the daily challenge at the end. All rules are the game's (sim/meta, sim/progress). The 3D
+ * build's rewards (sim/rewards): a run-end chest at death, a boss chest (and weapon) for each
+ * chapter boss beaten the first time, a gold chest for the daily goal instead of its coins.
  */
 import { stageOf } from '@sim/chapters';
 import { bankProgress, bankStart, runOutcome } from '@sim/meta';
-import { bankDailyChallenge, bankRecords, FEATS, unlockFeats } from '@sim/progress';
+import { bankRecords, FEATS, unlockFeats } from '@sim/progress';
+import { bankDailyChest, grantFirstBossRewards, grantRunChest } from '@sim/rewards';
 import { reachedWave, summarize, type World } from '@sim/world';
 import type { Game } from '../contract';
 import { todayKey } from './save';
@@ -25,7 +28,8 @@ export interface RunResult {
   stage: number;
   feats: string[];
   records: string[];
-  dailyCoins: number;
+  /** the daily goal was met by this run: a gold chest was queued (the 3D build's daily reward) */
+  dailyChest: boolean;
   dailyStreak: number;
   startRank: number;
   /** the bests of this run (the 3D result already showed them) */
@@ -58,7 +62,10 @@ export function createTracker(game: Game, onFeat: (id: string, coins: number) =>
     let fresh: string[] = [];
     game.save.update((d) => {
       bankProgress(d, b, reached, coins);
+      const before = [...d.bosses];
       for (const r of bankRecords(d, b, sum, todayKey())) records.add(r);
+      // the first knockout of a chapter's boss: a boss chest, its weapon, the sky boss's celestial look
+      grantFirstBossRewards(d, before);
       fresh = unlockFeats(d, sum, b);
     });
     for (const id of fresh) onFeat(id, FEATS.find((f) => f.id === id)?.coins ?? 0);
@@ -83,14 +90,17 @@ export function createTracker(game: Game, onFeat: (id: string, coins: number) =>
       finished = true;
       bank(w, w.wave);
       const key = todayKey();
-      let dailyCoins = 0;
+      let dailyChest = false;
       let dailyStreak = 0;
       const b = w.bank;
-      if (game.daily && b) {
+      if (b) {
         game.save.update((d) => {
-          dailyCoins = bankDailyChallenge(d, key, w.wave);
+          // the run-end chest: once per run (a revived run that gets further upgrades it, RunBank.chest)
+          grantRunChest(d, b, w.wave);
+          if (!game.daily) return;
+          dailyChest = bankDailyChest(d, key, w.wave);
           dailyStreak = d.dailyStreak;
-          if (dailyCoins > 0) unlockFeats(d, null, b);
+          if (dailyChest) unlockFeats(d, null, b);
         });
       }
       const save = game.save.data;
@@ -109,7 +119,7 @@ export function createTracker(game: Game, onFeat: (id: string, coins: number) =>
         stage: p.stage,
         feats: [...(b?.feats ?? [])],
         records: [...records],
-        dailyCoins,
+        dailyChest,
         dailyStreak,
         startRank: b?.startRank ?? save.rank,
         streakBest: w.run.streakBest,

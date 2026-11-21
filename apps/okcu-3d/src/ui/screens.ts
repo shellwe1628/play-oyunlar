@@ -366,7 +366,7 @@ export function createResult(ui: Ui, parent: HTMLElement, hooks: ResultHooks): R
       // ResultScene's lines: the daily, where, coins, knockouts, the daily goal, records, new achievements
       const coinLine = r.daily ? 2 : 1;
       const lines = [...(r.daily ? [t('result.daily', { d: r.dailyKey })] : []), where, t('result.coins', { n: r.coins }), t('result.kos', { k: r.kos, h: r.headshots })];
-      if (r.dailyCoins > 0) lines.push(t('result.dailyDone', { n: r.dailyStreak, c: r.dailyCoins }));
+      if (r.dailyChest) lines.push(t('result.dailyChest', { n: r.dailyStreak }));
       // the run's bests, with the records screen's own captions
       if (r.streakBest > 1) lines.push(`${t('rec.streak')} ${r.streakBest}`);
       if (r.chainBest > 1) lines.push(`${t('rec.chain')} ${r.chainBest}`);

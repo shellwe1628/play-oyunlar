@@ -77,6 +77,17 @@ describe('arsenal', () => {
     // chapter index 0 → crossbow, index 2 → boomerang, index 4 → sling
     expect(owned(s)).toEqual(['bow', 'crossbow', 'boomerang', 'sling']);
     expect(s.arsenal.weapons.bow.level).toBeGreaterThan(1);
+    expect(s.arsenal.celestial).toBe(false);
+  });
+
+  it('a sky boss beaten before the arsenal brings the celestial look with the migration', () => {
+    const s = oldSave((d) => {
+      d.bosses = [1, 1, 1, 1, 1, 1];
+    });
+    migrateArsenal(s);
+    expect(s.arsenal.celestial).toBe(true);
+    // the migration's one welcome chest only (no boss chests for old knockouts)
+    expect(s.arsenal.chests).toEqual(['gold']);
   });
 
   it('migration runs once', () => {

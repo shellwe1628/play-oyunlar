@@ -261,19 +261,29 @@ export function dailyReward(streak: number): number {
 }
 
 /**
- * The daily's best and its challenge: the first time today's goal is met, the streak grows
- * (or restarts at 1 after a missed day) and the reward is paid. Returns the reward (0 if none).
+ * The daily's best and the streak (no reward): true the first time today's goal is met, when the
+ * streak grows (or restarts at 1 after a missed day). The reward is the caller's: coins in the 2D
+ * game (`bankDailyChallenge`), a gold chest in the 3D build (`bankDailyChest`, sim/rewards.ts).
  */
-export function bankDailyChallenge(save: SaveData, key: string, reached: number): number {
+export function meetDailyGoal(save: SaveData, key: string, reached: number): boolean {
   if (save.dailyDate !== key) {
     save.dailyDate = key;
     save.dailyBest = 0;
   }
   save.dailyBest = Math.max(save.dailyBest, reached);
   const ch = dailyChallenge(key);
-  if (save.dailyDone === key || reached < ch.goal) return 0;
+  if (save.dailyDone === key || reached < ch.goal) return false;
   save.dailyStreak = save.dailyDone === previousDay(key) ? save.dailyStreak + 1 : 1;
   save.dailyDone = key;
+  return true;
+}
+
+/**
+ * The daily's best and its challenge: the first time today's goal is met, the streak grows
+ * (or restarts at 1 after a missed day) and the reward is paid. Returns the reward (0 if none).
+ */
+export function bankDailyChallenge(save: SaveData, key: string, reached: number): number {
+  if (!meetDailyGoal(save, key, reached)) return 0;
   const coins = dailyReward(save.dailyStreak);
   save.coins += coins;
   return coins;

@@ -12,7 +12,9 @@
  * - the free chest is claimed whenever ready (play time drives its 4 h timer; the first is ready
  *   at once): wooden, or silver when the ad is watched;
  * - after every run: its coins, its `runChest(reached)`, and for every chapter boss beaten for the
- *   first time a boss chest and that chapter's weapon (Task 15); chests are opened at once.
+ *   first time a boss chest and that chapter's weapon (`grantBossReward`, sim/rewards.ts, the
+ *   rules the 3D build banks); chests are opened at once. The daily goal's gold chest is not
+ *   modelled (no daily runs are played).
  *
  * Spending policy (after each run and at each day start), for the selected weapon only:
  * 1. upgrade while it can;
@@ -27,7 +29,7 @@ import { CHAPTERS } from './chapters';
 import { CHEST_ODDS, claimFreeChest, openQueuedChest, runChest } from './chests';
 import { dailyKey, freshSave, type SaveData } from './meta';
 import { boughtToday, buyChest, buyOffer, CHEST_PRICE, dailyOffers, grantAdCoins } from './shop';
-import { WEAPON_IDS, WEAPONS } from './weapons';
+import { grantBossReward } from './rewards';
 
 /** Play minutes that make one in-game day (offers refresh, three more ad coins). */
 export const DAY_PLAY_MIN = 20;
@@ -146,8 +148,7 @@ export function simulateEconomy(o: EconomyOptions): EconomyResult {
     for (let c = 0; c < Math.min(CHAPTERS, r.chapter); c++) {
       if ((save.bosses[c] ?? 0) > 0) continue;
       save.bosses[c] = 1;
-      for (const wid of WEAPON_IDS) if (WEAPONS[wid].unlockBoss === c) save.arsenal.weapons[wid].owned = true;
-      save.arsenal.chests.push('boss');
+      grantBossReward(save, c);
     }
     save.arsenal.chests.push(runChest(r.reached));
     openAll(save, income);

@@ -4,6 +4,7 @@
  * `SaveData.arsenal`; the old forged bow (`SaveData.bow`) stays for the 2D game and as the
  * migration source.
  */
+import { CHAPTERS } from './chapters';
 import { progressScore } from './progress';
 import { levelForBow, WEAPON_IDS, WEAPON_MAX, WEAPONS, weaponDamage, type WeaponId } from './weapons';
 import type { SaveData } from './meta';
@@ -40,6 +41,8 @@ export interface Arsenal {
   migrated: boolean;
   /** chests opened so far (folded into the chest rng seed so identical states never repeat a roll) */
   chestsOpened: number;
+  /** the "göksel" (celestial) look for every weapon: earned by the first sky boss (chapter index 5) knockout */
+  celestial: boolean;
 }
 
 /** A day key: `YYYY-MM-DD`. */
@@ -48,7 +51,7 @@ export const DAY_FORMAT = /^\d{4}-\d{2}-\d{2}$/;
 export function freshArsenal(): Arsenal {
   const weapons = {} as Record<WeaponId, WeaponState>;
   for (const id of WEAPON_IDS) weapons[id] = { owned: id === 'bow', level: 1, shards: 0 };
-  return { selected: 'bow', weapons, chests: [], freeChestAt: 0, adCoinsDay: '', adCoinsUsed: 0, shopDay: '', shopBought: [], shopOffers: [], boughtLooks: [], rankFloor: 0, migrated: true, chestsOpened: 0 };
+  return { selected: 'bow', weapons, chests: [], freeChestAt: 0, adCoinsDay: '', adCoinsUsed: 0, shopDay: '', shopBought: [], shopOffers: [], boughtLooks: [], rankFloor: 0, migrated: true, chestsOpened: 0, celestial: false };
 }
 
 const obj = (v: unknown): Record<string, unknown> => (typeof v === 'object' && v !== null && !Array.isArray(v) ? (v as Record<string, unknown>) : {});
@@ -88,6 +91,7 @@ export function repairArsenal(v: unknown): Arsenal {
   base.boughtLooks = Array.isArray(a.boughtLooks) ? [...new Set(a.boughtLooks.filter((x): x is string => typeof x === 'string' && x !== ''))] : [];
   base.rankFloor = nat(a.rankFloor);
   base.chestsOpened = nat(a.chestsOpened);
+  base.celestial = a.celestial === true;
   base.migrated = present && a.migrated === true;
   return base;
 }
@@ -96,7 +100,7 @@ export function repairArsenal(v: unknown): Arsenal {
  * One-off, lossless move from the forged bow (guarded by `migrated`, so calling it again does
  * nothing): the bow gets the lowest weapon level at least as strong as old bow +N; every chapter
  * whose boss was beaten (`bosses[c] > 0`) unlocks the weapon with `unlockBoss === c` at level 1;
- * one gold welcome chest; the rank floor is today's progress score. Coins, feats and `save.bow`
+ * the sky boss beaten → the celestial look; one gold welcome chest; the rank floor is today's progress score. Coins, feats and `save.bow`
  * stay as they are.
  */
 export function migrateArsenal(save: SaveData): void {
@@ -110,6 +114,8 @@ export function migrateArsenal(save: SaveData): void {
     const c = WEAPONS[id].unlockBoss;
     if (c !== null && (save.bosses[c] ?? 0) > 0) a.weapons[id].owned = true;
   }
+  // the sky boss (chapter index 5) beaten before the arsenal: its celestial look comes along
+  if ((save.bosses[CHAPTERS - 1] ?? 0) > 0) a.celestial = true;
   a.chests.push('gold');
   a.migrated = true;
 }

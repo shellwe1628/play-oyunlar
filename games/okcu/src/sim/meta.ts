@@ -1,5 +1,5 @@
 /** Between-run progress: permanent upgrades, the bow, coins, cosmetics (pure). Stored by src/save.ts. */
-import { freshArsenal, type Arsenal } from './arsenal';
+import { freshArsenal, type Arsenal, type ChestKind } from './arsenal';
 import { freshBow, type BowState } from './bow';
 import { CHAPTERS } from './chapters';
 import type { WeaponId } from './weapons';
@@ -198,10 +198,12 @@ export interface RunBank {
   feats: string[];
   /** rank index when the run started */
   startRank: number;
+  /** the run-end chest this run queued (3D build, `grantRunChest`), null until it ends */
+  chest: ChestKind | null;
 }
 
 export function newBank(save: SaveData): RunBank {
-  return { coins: 0, startBest: save.best, started: false, bosses: 0, feats: [], startRank: save.rank };
+  return { coins: 0, startBest: save.best, started: false, bosses: 0, feats: [], startRank: save.rank, chest: null };
 }
 
 /** Count the run once, when its first arrow flies. */

@@ -240,7 +240,7 @@ describe('longer progression', () => {
 
   it('beating the new bosses is banked per chapter and opens their looks', () => {
     const s = freshSave();
-    const bank = { coins: 0, startBest: 0, started: true, bosses: 0, feats: [], startRank: 0 };
+    const bank = { coins: 0, startBest: 0, started: true, bosses: 0, feats: [], startRank: 0, chest: null };
     bankRecords(s, bank, summary({ reached: 43, bossKills: [{ kind: 4, time: 40 }, { kind: 5, time: 55 }], chapterStage: [0, 0, 0, 0, 8, 8] }), '2026-11-20');
     expect(s.bosses).toEqual([0, 0, 0, 0, 1, 1]);
     expect(s.chapter).toBe(6);

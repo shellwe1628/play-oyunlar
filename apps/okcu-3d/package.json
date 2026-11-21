@@ -1,0 +1,24 @@
+{
+  "name": "@oyun/okcu-3d",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Side-view 3D renderer for the okcu simulation (three.js + Mixamo characters). Same rules as games/okcu; only the drawing differs.",
+  "oyun": {
+    "platformAdapter": true
+  },
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "typecheck": "tsc -p tsconfig.json",
+    "shot": "node tools/shot.mjs"
+  },
+  "dependencies": {
+    "@fontsource/nunito": "5.3.0",
+    "@oyun/core": "*",
+    "three": "0.170.0"
+  },
+  "devDependencies": {
+    "@types/three": "0.170.0"
+  }
+}

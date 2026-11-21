@@ -1,0 +1,19 @@
+{
+  "name": "@oyun/test-paketi",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Debug-only Android test APK: a launcher screen plus every real game under one Capacitor shell.",
+  "scripts": {
+    "build": "vite build",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run",
+    "check-web": "node tests/web-check.mjs",
+    "check-update": "node tests/update-check.mjs"
+  },
+  "devDependencies": {
+    "@capacitor/android": "8.6.2",
+    "@capacitor/cli": "8.6.2",
+    "@capacitor/core": "8.6.2"
+  }
+}

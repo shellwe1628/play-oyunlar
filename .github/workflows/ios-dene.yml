@@ -1,0 +1,61 @@
+# iOS compile check for the App Store builds (tools/ipa.mjs --unsigned): fresh Capacitor iOS
+# project, every patch (bundle id, iPhone only, portrait, privacy manifest, icon, launch image,
+# Game Center plugin), Release build for a generic iPhone and the checks on the built app.
+# No Apple account or signing involved: this proves the project compiles before the account
+# exists. The signed archive + App Store Connect upload runs where the Apple key is stored.
+name: iOS derleme denemesi
+
+on:
+  workflow_dispatch:
+    inputs:
+      oyun:
+        description: 'fosil, kivilcim, okcu ya da all'
+        default: all
+
+permissions:
+  contents: read
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      oyunlar: ${{ steps.p.outputs.oyunlar }}
+    steps:
+      - id: p
+        env:
+          OYUN: ${{ inputs.oyun }}
+        run: |
+          case "$OYUN" in
+            all) echo 'oyunlar=["fosil","kivilcim","okcu"]' >> "$GITHUB_OUTPUT" ;;
+            fosil|kivilcim|okcu) echo "oyunlar=[\"$OYUN\"]" >> "$GITHUB_OUTPUT" ;;
+            *) echo "::error::oyun fosil, kivilcim, okcu ya da all olmalı"; exit 1 ;;
+          esac
+
+  ios:
+    needs: plan
+    runs-on: macos-15
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        oyun: ${{ fromJson(needs.plan.outputs.oyunlar) }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: xcodeproj gem
+        run: ruby -rxcodeproj -e 1 2>/dev/null || sudo gem install xcodeproj --no-document
+      - name: Unsigned Release build
+        run: node tools/ipa.mjs "${{ matrix.oyun }}" --unsigned
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ios-${{ matrix.oyun }}
+          path: |
+            build/${{ matrix.oyun }}-ios.json
+            build/ipa/${{ matrix.oyun }}/project-plan.json
+          if-no-files-found: ignore

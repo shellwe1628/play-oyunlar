@@ -1,0 +1,68 @@
+# play-oyunlar
+
+CrazyGames'te talebi görünen ama mobil mağazalarda karşılığı olmayan ya da zayıf olan
+mekanikleri bulup, her biri için özgün, küçük bir mobil oyun üreten bir üretim hattı.
+Oyunlar Phaser 4 + TypeScript + Vite ile yazılır; aynı kod tabanından web (portal)
+derlemesi çıkar, Android/iOS için Capacitor sarmalayıcısı hazırdır (doğrulanmadı, aşağıya bak).
+Görseller kodla çizilir, sesler WebAudio ile üretilir; indirilmiş varlık yoktur.
+
+## Klasörler
+
+| Yol | Ne |
+|---|---|
+| `packages/core/` | `@oyun/core`: tüm oyunların ortak çekirdeği (açılış, sahne kabukları, kayıt, ses, his, arayüz, dil, `platform` arayüzü, test kancası). Sözleşme: `packages/core/README.md` |
+| `apps/okcu-3d/` | Sallanan Okçular'ın 3D sürümü (deneme): okcu'nun simülasyonunu three.js ve Mixamo karakteriyle çizer; test APK'larında ayrı uygulama ve paket kartı olarak var. Ayrıntı: `apps/okcu-3d/README.md` |
+| `templates/game/` | Yeni oyun iskeleti (küçük, çalışan bir referans oyun) |
+| `games/<slug>/` | Her oyun ayrı bir Vite uygulaması. `games/ornek` şablonun değiştirilmemiş çıktısıdır, elle düzenlenmez |
+| `tools/` | `gate.mjs` (kalite kapısı), `new-game.mjs` (oyun üretir), `apk.mjs` + `test-apk/` + `test-imza/` (test APK'ları, uygulama içi güncelleme, herkese açık test anahtarı), `aab.mjs` + `aab/` (Play için imzalı AAB), `play-metadata.mjs` (sürüm notları), `gizlilik.mjs` (gizlilik sayfaları), `research/` (CrazyGames veri çekme ve mağaza arama) |
+| `store/` | `apps.json`: Play'deki üç uygulamanın kimlikleri, adları, sürüm adı; `store/<slug>/` mağaza kaydı metinleri, görselleri, simgesi |
+| `docs/superpowers/specs/` | Üretim sisteminin onaylı tasarım belgesi |
+| `docs/research/` | Boşluk araştırma raporu ve veri anlık görüntüsü |
+| `docs/production/` | İşletme belgeleri: `hat.md`, `backlog.md`, `yayin-listesi.md`, `concepts/`, `roles/` |
+| `.github/workflows/` | `ci.yml` (her push'ta `npm run gate`), `play-yukle.yml` (elle: imzalı AAB → Google Play, hiç çalışmadı), `android.yml` (elle tetiklenen debug APK, hiç çalışmadı), `test-apk.yml` (dört test APK'sını `test-latest` GitHub ön sürümüne koyar; uygulamalar oradan güncellenir; hiç çalışmadı) |
+| `docs/gizlilik/` | Gizlilik politikası sayfaları (GitHub Pages, `main` dalı `/docs`) |
+
+## Komutlar
+
+Gereken: Node >= 22.12, Python 3 (yalnızca araştırma araçları için).
+
+```text
+npm ci                                              # kurulum
+npm run dev -w games/<slug>                         # oyunu yerelde çalıştır (http://localhost:5173)
+npm run gate -- <slug>                              # kalite kapısı: çekirdek + bu oyun (slug'sız: hepsi)
+npm run new-game -- <slug> "<Başlık>" [portrait|landscape]   # yeni oyun iskeleti, npm install çalıştırır
+cd tools/research && python3 scrape.py              # CrazyGames verisini yenile (~1,5 dk)
+npm run apk [-- <slug> | all]                       # test APK'ları (paket / tek oyun / dördü): build/test-apk/ (apps/test-paketi/README.md)
+npm run aab -- <slug>                               # Play için imzalı release AAB: build/<slug>-release.aab (imza yalnız ortam değişkenlerinden; docs/production/play-yayin.md)
+node tools/gizlilik.mjs                             # docs/gizlilik/ gizlilik sayfalarını store/apps.json'dan yeniden yazar
+```
+
+Kapının tarayıcı adımı Chromium ister. Bu ortamda hazır geliyor; başka makinede
+`npx playwright install chromium` gerekebilir (CI bunu kendisi yapar).
+`new-game` aynı anda tek kişi/agent tarafından çalıştırılmalı (`package-lock.json` değişir).
+
+## Nerede ne var
+
+- İlk partinin güncel durumu ve bilinen açıklar: `docs/production/durum.md`
+- Üretim hattının aşamaları ve komutları: `docs/production/hat.md`
+- Tasarım belgesi: `docs/superpowers/specs/2026-11-16-uretim-sistemi-design.md`
+- Araştırma raporu: `docs/research/2026-11-16-crazygames-bosluk-raporu.md`
+- Konseptler: `docs/production/concepts/`; etkin oyunlar `games/` altında (`kivilcim`, `okcu`, `fosil`), rafa kalkan `fener` ve `murekkep` `archive/` altında
+- Rafa kalkan fikirler: `docs/production/backlog.md`
+- Yayın kontrol listesi: `docs/production/yayin-listesi.md`
+- Google Play'e yayın (sahibin adım adım kılavuzu): `docs/production/play-yayin.md`
+- Alt agent görev tanımları (İngilizce): `docs/production/roles/`
+
+## Doğrulanmayanlar
+
+- **Hiçbir Android paketi telefonda ya da emülatörde çalıştırılmadı.** Debug test APK'sı (`npm run apk`) ve
+  Play için imzalı AAB'ler (`npm run aab`, üç oyun, deneme anahtarıyla) bu makinede derlendi ve
+  denetlendi; `android.yml`, `play-yukle.yml` ve `test-apk.yml` hiç çalışmadı, Google Play'e hiç yükleme
+  yapılmadı. Test APK'larının uygulama içi güncellemesi (indirme, izin ekranı, Android kurucusu) hiçbir
+  cihazda denenmedi; yalnız arayüzü tarayıcıda sahte yerel köprüyle sınandı.
+  iOS için iş akışı yok, Mac gerekir.
+- **Reklam ve uygulama içi satın alma sağlayıcısı bağlı değil.** `platform` arayüzünde yalnızca
+  geçiş ve ödüllü reklam var; Capacitor bağdaştırıcısı ikisi için de `'unavailable'` döner.
+  Satın alma için arayüzde bir yöntem yok. CrazyGames bağdaştırıcısı belgeye bakılarak yazılmış, canlıda denenmemiş bir taslak.
+- Mağaza boşluğu kanıtları yalnızca ABD mağaza aramalarına dayanır.
+- Canlı ölçüm (tutunma, oturum) için henüz bir veri kaynağı yok: analitik olayları şu an hiçbir yere gitmiyor.

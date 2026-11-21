@@ -1,0 +1,53 @@
+# UNVERIFIED: this workflow has never been run on GitHub Actions. It was written in an
+# environment without an Android SDK: `npx cap add android` and `npx cap sync android` were run
+# there and succeeded (they need no SDK), but the Gradle `assembleDebug` step has never run.
+# Expect to fix details (Gradle/SDK versions) on its first run.
+name: Android debug APK
+
+on:
+  workflow_dispatch:
+    inputs:
+      game:
+        description: Game slug (folder name under games/)
+        required: true
+        default: ornek
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      GAME: ${{ inputs.game }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      # Capacitor 8 Android builds need JDK 21. ubuntu-latest ships the Android SDK.
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - name: Check game exists
+        run: test -f "games/$GAME/capacitor.config.ts"
+      - run: npm ci
+      - name: Build web bundle
+        run: npm run build -w "games/$GAME"
+        env:
+          VITE_OYUN_PLATFORM: capacitor
+      - name: Add Android platform and sync
+        working-directory: games/${{ inputs.game }}
+        run: |
+          npx cap add android
+          npx cap sync android
+      - name: Assemble debug APK
+        working-directory: games/${{ inputs.game }}/android
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleDebug --no-daemon
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.game }}-debug-apk
+          path: games/${{ inputs.game }}/android/app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error

@@ -1,0 +1,12 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "types": ["vite/client", "node"],
+    // the 3D build's aliases (apps/okcu-3d/tsconfig.json), for tests that import its save module
+    "paths": {
+      "@sim/*": ["./src/sim/*"],
+      "@okcu/*": ["./src/*"]
+    }
+  },
+  "include": ["src", "tests", "*.ts", "oyun.config.json"]
+}

@@ -27,10 +27,10 @@ export interface ChestOdds {
 
 /** Retuned against the economy simulation in Task 14. */
 export const CHEST_ODDS: Record<ChestKind, ChestOdds> = {
-  wood: { coins: [20, 40], shards: [1, 2], newWeaponChance: 0.05 },
-  silver: { coins: [60, 120], shards: [2, 4], newWeaponChance: 0.15 },
-  gold: { coins: [150, 300], shards: [4, 8], newWeaponChance: 0.3 },
-  boss: { coins: [300, 500], shards: [6, 12], newWeaponChance: 0.5 },
+  wood: { coins: [150, 300], shards: [1, 2], newWeaponChance: 0.05 },
+  silver: { coins: [400, 800], shards: [2, 4], newWeaponChance: 0.15 },
+  gold: { coins: [1200, 2400], shards: [4, 8], newWeaponChance: 0.3 },
+  boss: { coins: [2500, 4000], shards: [6, 12], newWeaponChance: 0.5 },
 };
 
 export const SLING_UNLOCK_SHARDS = 10;

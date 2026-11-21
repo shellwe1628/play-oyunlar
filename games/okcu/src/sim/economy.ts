@@ -30,7 +30,7 @@ import { boughtToday, buyChest, buyOffer, CHEST_PRICE, dailyOffers, grantAdCoins
 import { WEAPON_IDS, WEAPONS } from './weapons';
 
 /** Play minutes that make one in-game day (offers refresh, three more ad coins). */
-export const DAY_PLAY_MIN = 30;
+export const DAY_PLAY_MIN = 20;
 
 /** What the economy needs from one run. */
 export interface EconomyRun {
@@ -59,7 +59,15 @@ export interface EconomyResult {
   /** hours to `targetLevel`, null if not reached within `maxHours` */
   hours: number | null;
   runs: number;
+  /** coins earned, by source (runs, opened chests, rewarded ads) */
+  income: Income;
   save: SaveData;
+}
+
+export interface Income {
+  runs: number;
+  chests: number;
+  ads: number;
 }
 
 /** In-game day d (0, 1, …) as a day key (28-day months from 2026-01-01; d < 336). */
@@ -72,12 +80,12 @@ function bestChest(): 'silver' | 'gold' {
   return meanOf(CHEST_ODDS.silver.shards) / CHEST_PRICE.silver > meanOf(CHEST_ODDS.gold.shards) / CHEST_PRICE.gold ? 'silver' : 'gold';
 }
 
-function openAll(save: SaveData): void {
-  while (openQueuedChest(save) !== null);
+function openAll(save: SaveData, income: Income): void {
+  for (let o = openQueuedChest(save); o !== null; o = openQueuedChest(save)) income.chests += o.loot.coins;
 }
 
 /** The spending policy (see the module comment). */
-function spend(save: SaveData, dayKey: string): void {
+function spend(save: SaveData, dayKey: string, income: Income): void {
   const id = save.arsenal.selected;
   const w = save.arsenal.weapons[id];
   const chest = bestChest();
@@ -92,7 +100,7 @@ function spend(save: SaveData, dayKey: string): void {
       .sort((a, b) => b.shards - a.shards);
     if (offers.length > 0 && buyOffer(save, dayKey, offers[0]!.i)) continue;
     if (save.coins >= CHEST_PRICE[chest] + cost.coins && buyChest(save, chest)) {
-      openAll(save);
+      openAll(save, income);
       continue;
     }
     return;
@@ -107,25 +115,31 @@ export function simulateEconomy(o: EconomyOptions): EconomyResult {
   const maxMs = o.maxHours * 3600_000;
   let t = 0;
   let runs = 0;
+  const income: Income = { runs: 0, chests: 0, ads: 0 };
   const hours = () => t / 3600_000;
   for (;;) {
     const dayKey = dayKeyOf(Math.floor(t / dayMs));
-    if (o.ads) while (grantAdCoins(save, dayKey));
+    if (o.ads) {
+      const c0 = save.coins;
+      while (grantAdCoins(save, dayKey));
+      income.ads += save.coins - c0;
+    }
     const free = claimFreeChest(save, t, o.ads);
     if (free) {
       save.arsenal.chests.push(free);
-      openAll(save);
+      openAll(save, income);
     }
     const before = save.arsenal.weapons[id].level;
-    spend(save, dayKey);
+    spend(save, dayKey, income);
     for (let l = before + 1; l <= save.arsenal.weapons[id].level; l++) levelAt[l] = hours();
-    if (save.arsenal.weapons[id].level >= o.targetLevel) return { levelAt, hours: levelAt[o.targetLevel]!, runs, save };
-    if (t >= maxMs) return { levelAt, hours: null, runs, save };
+    if (save.arsenal.weapons[id].level >= o.targetLevel) return { levelAt, hours: levelAt[o.targetLevel]!, runs, income, save };
+    if (t >= maxMs) return { levelAt, hours: null, runs, income, save };
     const r = o.play(save, runs);
     runs += 1;
     t += r.time * 1000;
     save.runs += 1;
     save.coins += r.coins;
+    income.runs += r.coins;
     save.best = Math.max(save.best, r.reached);
     save.chapter = Math.max(save.chapter, Math.min(CHAPTERS, r.chapter));
     // every chapter before the one reached had its boss beaten
@@ -136,6 +150,6 @@ export function simulateEconomy(o: EconomyOptions): EconomyResult {
       save.arsenal.chests.push('boss');
     }
     save.arsenal.chests.push(runChest(r.reached));
-    openAll(save);
+    openAll(save, income);
   }
 }

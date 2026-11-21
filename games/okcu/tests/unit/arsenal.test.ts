@@ -167,7 +167,7 @@ describe('arsenal', () => {
 describe('weapon upgrades', () => {
   const rich = (): SaveData => {
     const s = freshSave();
-    // enough for every level 1 → 20 (about 1.1 M coins on the Task 14 curve)
+    // enough for every level 1 → 20 (about 0.6 M coins on the Task 14 curve)
     s.coins = 2_000_000;
     s.arsenal.weapons.bow.shards = 1000;
     return s;

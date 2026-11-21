@@ -116,15 +116,21 @@ export function migrateArsenal(save: SaveData): void {
 
 /**
  * Upgrade cost curve, tuned against the economy simulation (src/sim/economy.ts, tests/unit/
- * economy.test.ts): a careful player reaches level 10 after about 3.4 h of play without ads.
- * Shards grow by one a level (2, 3, … 10 up to level 10); coins grow mostly with the square
- * (50, 600, 2170, … 33 010 for 9 → 10), since a careful run already earns hundreds to thousands.
+ * economy.test.ts; numbers there). Shards grow by one a level (2, 3, … 10 to reach level 10).
+ * Coins grow about linearly (50, 4500, 9050, … 38 450 for 9 → 10; 169 050 to level 10), then by a
+ * fixed UPGRADE_COINS_TAIL per level (39 450 for 10 → 11 … 48 450 for 19 → 20), so chapters 4–6
+ * (recommended power ≈ levels 14–16) are no wall. A careful run earns thousands, chests too.
  */
 export const UPGRADE_SHARDS_BASE = 2;
 export const UPGRADE_SHARDS_PER_LEVEL = 1;
 export const UPGRADE_COINS_BASE = 50;
-export const UPGRADE_COINS_LINEAR = 40;
-export const UPGRADE_COINS_QUAD = 510;
+export const UPGRADE_COINS_LINEAR = 4400;
+export const UPGRADE_COINS_QUAD = 50;
+/** the level whose step up is the last on the square (9 → 10) */
+export const UPGRADE_TAIL_FROM = 9;
+export const UPGRADE_COINS_TAIL = 1000;
+
+const squareCoins = (n: number): number => UPGRADE_COINS_BASE + UPGRADE_COINS_LINEAR * n + UPGRADE_COINS_QUAD * n * n;
 
 /** What going from `level` to `level + 1` costs; null at WEAPON_MAX (or beyond). */
 export function upgradeCost(level: number): { shards: number; coins: number } | null {
@@ -132,7 +138,7 @@ export function upgradeCost(level: number): { shards: number; coins: number } | 
   const n = Math.floor(level) - 1;
   return {
     shards: UPGRADE_SHARDS_BASE + Math.floor(n * UPGRADE_SHARDS_PER_LEVEL),
-    coins: UPGRADE_COINS_BASE + UPGRADE_COINS_LINEAR * n + UPGRADE_COINS_QUAD * n * n,
+    coins: level <= UPGRADE_TAIL_FROM ? squareCoins(n) : squareCoins(UPGRADE_TAIL_FROM - 1) + UPGRADE_COINS_TAIL * (Math.floor(level) - UPGRADE_TAIL_FROM),
   };
 }
 

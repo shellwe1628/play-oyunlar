@@ -19,8 +19,8 @@ export interface ShopOffer {
 }
 
 export const OFFERS_PER_DAY = 3;
-export const OFFER_SHARDS: readonly [number, number] = [3, 6];
-export const OFFER_COINS_PER_SHARD = 30;
+export const OFFER_SHARDS: readonly [number, number] = [5, 10];
+export const OFFER_COINS_PER_SHARD = 250;
 
 /** Days since 1970-01-01 for a `YYYY-MM-DD` key (civil-date arithmetic, no Date). */
 function dayNumber(key: string): number {
@@ -120,7 +120,7 @@ export function buyOffer(save: SaveData, dayKey: string, i: number): boolean {
 }
 
 /** Only these two chests are for sale (wood is the free one, boss chests are earned). */
-export const CHEST_PRICE: { silver: number; gold: number } = { silver: 250, gold: 700 };
+export const CHEST_PRICE: { silver: number; gold: number } = { silver: 2000, gold: 5500 };
 
 /** Pays for a chest and QUEUES it in `arsenal.chests`; the UI opens it with `openQueuedChest`. */
 export function buyChest(save: SaveData, kind: 'silver' | 'gold' | ChestKind): boolean {
@@ -132,12 +132,12 @@ export function buyChest(save: SaveData, kind: 'silver' | 'gold' | ChestKind): b
   return true;
 }
 
-/** Price of a look: boss looks 1500, wave looks 50 per wave, run-count looks 60 per run; null for the default or an unknown id. */
+/** Price of a look: boss looks 12 000, wave looks 400 per wave, run-count looks 500 per run (on the run-coin scale of Task 14); null for the default or an unknown id. */
 export function COSMETIC_PRICE(id: string): number | null {
   const c = COSMETICS.find((x) => x.id === id);
   if (!c || c.id === 'classic') return null;
-  if (c.boss !== undefined) return 1500;
-  return c.runs > 0 ? c.runs * 60 : c.wave * 50;
+  if (c.boss !== undefined) return 12_000;
+  return c.runs > 0 ? c.runs * 500 : c.wave * 400;
 }
 
 /** Buys a look that is not unlocked yet (by progress or earlier). */
@@ -151,8 +151,8 @@ export function buyCosmetic(save: SaveData, id: string): boolean {
   return true;
 }
 
-/** About one average careful run's coins: three a day (a day = `DAY_PLAY_MIN` of play in economy.ts) make the bow's level 10 come about 30 % sooner. */
-export const AD_COINS = 2000;
+/** Three a day (a day = `DAY_PLAY_MIN` of play in economy.ts): see economy.test.ts for the speed-up and the ads' share of income. */
+export const AD_COINS = 1800;
 export const AD_COINS_PER_DAY = 3;
 
 /** The coins one more rewarded ad would give today, or null once all 3 are used. */

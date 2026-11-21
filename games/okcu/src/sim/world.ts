@@ -757,8 +757,18 @@ export function createWorld(opts: WorldOptions): World {
 export const SPEAR_LIFE = 1.2;
 
 /** hard: damage share of split's side arrows and of double's later volleys */
-const HARD_SIDE_ARROW = 0.5;
+const HARD_SIDE_ARROW = 0.25;
+/**
+ * angle between split's arrows (rad): hard opens the fan wider, so the side arrows reach other
+ * archers instead of landing on the same head as the middle one
+ */
+const SPLIT_ANGLE = 0.065;
+const HARD_SPLIT_ANGLE = 0.15;
 const HARD_EXTRA_VOLLEY = 0.6;
+/** hard: how many times a body hit on the first boss counts (classic 4) */
+const HARD_SHIELDS_BODY = 2;
+/** hard: the first boss's shield ring turns this much faster */
+const HARD_RING_SPIN = 1.25;
 
 function coinMul(w: World): number {
   return w.stats.coinMul * (w.mod === 'giants' ? 1.5 : 1) * (w.difficulty === 'hard' ? HARD_COIN_MUL : 1);
@@ -1015,7 +1025,7 @@ function fireVolley(w: World, angle: number, power: number, first: boolean): voi
   const over = power >= OVERDRAW_POWER && w.stats.overdraw > 1;
   const focus = w.focusT > 0;
   for (let k = -pairs; k <= pairs; k++) {
-    const ang = angle + k * 0.065;
+    const ang = angle + k * (w.difficulty === 'hard' ? HARD_SPLIT_ANGLE : SPLIT_ANGLE);
     const o = playerOrigin(w, angle);
     const ar = spawnArrow(w, 'player', w.stats.projectile, o.x, o.y, Math.cos(ang) * speed, Math.sin(ang) * speed);
     if (!ar) continue;
@@ -2077,7 +2087,9 @@ function updatePlates(w: World): void {
     return;
   }
   const n = boss.bossPhase === 2 ? 3 : 2;
-  const om = boss.bossPhase === 2 ? 1.9 : 1.25;
+  // hard: a quicker ring (the head has to be timed, not just aimed); not more plates: a fourth
+  // walled off the crossbow's flat bolts
+  const om = (boss.bossPhase === 2 ? 1.9 : 1.25) * (w.difficulty === 'hard' ? HARD_RING_SPIN : 1);
   const b = boss.body;
   const cx = (b.x[PT.neck]! + b.x[PT.pelvis]!) / 2;
   const cy = (b.y[PT.neck]! + b.y[PT.pelvis]!) / 2 - 10;
@@ -2861,7 +2873,8 @@ function hitEnemy(w: World, a: Arrow, e: Archer, part: Part, hx: number, hy: num
   w.run.hits += 1;
   const crit = w.critRng.chance(w.stats.crit + (a.focus ? FX.focusCrit : 0));
   // the first chapter's boss relies on its shields, not its armour: body hits count four times
-  const armourK = e.bossKind === 'shields' && part.kind !== 'weak' ? 4 : 1;
+  // (hard: twice, the ring has to be beaten with aimed shots, not out-traded)
+  const armourK = e.bossKind === 'shields' && part.kind !== 'weak' ? (w.difficulty === 'hard' ? HARD_SHIELDS_BODY : 4) : 1;
   const out = resolveHit(e.type, part.kind, a.dmgMul * (part.kind === 'head' && a.owner === 'player' ? w.stats.headMul : 1) * (crit ? w.stats.critMul : 1) * armourK, e.helmet, w.difficulty === 'hard', playerKind(a));
   if (crit) w.run.crits += 1;
   e.hurt = 0;

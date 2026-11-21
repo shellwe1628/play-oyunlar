@@ -17,6 +17,7 @@ import type { ArchersView, BowHandle, Frame, Game, Stage } from '../contract';
 import { Gear, recoil } from './archers/gear';
 import { lookFor, type Look } from './archers/looks';
 import { Outfit } from './archers/outfit';
+import { uprightView } from './archers/upright';
 import { ArcherRig, createRigKit } from './rig';
 import { celestialTime } from './weapons';
 
@@ -207,6 +208,8 @@ export function createArchers(stage: Stage, assets: Assets, game: Game): Archers
     const draw = p.out.drawOverride >= 0 ? p.out.drawOverride : a.draw;
     const standing = a.alive && a.falling <= 0 && a.brain !== 'jump' && a.brain !== 'spawn';
     p.flat += ((standing ? 1 : 0) - p.flat) * Math.min(1, frame.real * 12);
+    // a standing archer never folds its head behind its back (drawing only)
+    uprightView(p.vx, p.vy, p.flat);
     const rig = p.rig;
     // the string is held while drawing; the arrow shows whenever one is nocked
     const nocked = a.alive && draw > 0.02;

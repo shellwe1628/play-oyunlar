@@ -310,42 +310,50 @@ export interface CrossbowParts {
   nut: THREE.Vector3;
 }
 
-const PROD_TILT = 0.95;
+const PROD_TILT = 0.7;
+/**
+ * The crossbow is drawn larger than modelled (gear.ts scales its frame by this): at the bow's
+ * size it read as a dark stick on a phone.
+ */
+export const CROSSBOW_K = 1.25;
+const PROD_HALF = 31;
 
 export function crossbowGeometry(): CrossbowParts {
   const prod = sweep(
     20,
     (t) => {
-      const y = (t * 2 - 1) * 27;
-      const u = Math.abs(y) / 27;
-      return [22 - 9 * u * u, y] as const;
+      const y = (t * 2 - 1) * PROD_HALF;
+      const u = Math.abs(y) / PROD_HALF;
+      return [22 - 11 * u * u, y] as const;
     },
     (t) => {
       const u = Math.abs(t * 2 - 1);
-      return [3.4 - 1.4 * u, 2.6 - 0.8 * u] as const;
+      return [4.2 - 1.6 * u, 3.2 - 1 * u] as const;
     },
+    // bright steel limbs with red wraps at the tips: the prod reads against grass and sky
+    (t) => new THREE.Color(Math.abs(t * 2 - 1) > 0.82 ? RED : STEEL),
   ).rotateX(PROD_TILT);
-  paint(prod, STEEL_DARK);
   // the stock: a fore-end through the fist, a body and a butt that drops to the shoulder
-  const butt = box(-52, -34, -12, 5, 7);
+  const butt = box(-56, -34, -13, 6, 8);
   {
     const p = butt.getAttribute('position');
-    for (let i = 0; i < p.count; i++) if (p.getX(i) < -45 && p.getY(i) < 0) p.setY(i, p.getY(i) - 3);
+    for (let i = 0; i < p.count; i++) if (p.getX(i) < -48 && p.getY(i) < 0) p.setY(i, p.getY(i) - 4);
     butt.computeVertexNormals();
   }
   const body = build(
     [
-      paint(box(-36, 26, -1, 6.5, 6.5), WOOD),
+      paint(box(-36, 28, -1.5, 7.5, 8), WOOD),
+      paint(box(-30, 24, 7.5, 9, 4), WOOD_DARK),
       paint(butt, WOOD_DARK),
-      paint(box(-20, -14, -9, -1, 2.6), STEEL_DARK),
-      paint(box(18, 26, -2.5, 8, 7.4), BRASS),
-      paint(box(-10, -2, 5.5, 8.5, 4), BRASS),
+      paint(box(-20, -14, -10, -1.5, 3), STEEL_DARK),
+      paint(box(19, 28, -3, 9, 9), BRASS),
+      paint(box(-10, -2, 6.5, 10, 5), BRASS),
       prod,
     ],
-    1.4,
+    1.6,
   );
-  const tip = (s: number): THREE.Vector3 => new THREE.Vector3(13, s * 27, 0).applyAxisAngle(new THREE.Vector3(1, 0, 0), PROD_TILT);
-  return { body, tips: [tip(1), tip(-1)], nut: new THREE.Vector3(-6, 7, 0) };
+  const tip = (s: number): THREE.Vector3 => new THREE.Vector3(11, s * PROD_HALF, 0).applyAxisAngle(new THREE.Vector3(1, 0, 0), PROD_TILT);
+  return { body, tips: [tip(1), tip(-1)], nut: new THREE.Vector3(-6, 9, 0) };
 }
 
 /** Slingshot: a forked stick (the fork turned toward the camera so the Y reads) and a pouch. */

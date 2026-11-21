@@ -372,6 +372,9 @@ describe('exact values (so a changed number fails a test)', () => {
     expect(bossHp('shields', 0)).toBe(170);
     expect(bossHp('warden', 0)).toBe(520);
     expect(bossHp('giant', 2)).toBe(714);
+    // hard: the first boss is a real fight (×5), the others ×1.3
+    expect(bossHp('shields', 0, 'hard')).toBe(850);
+    expect(bossHp('giant', 0, 'hard')).toBe(546);
     expect(enemyDamageMul(1)).toBeCloseTo(0.45, 6);
     expect(enemyDamageMul(5)).toBeCloseTo(0.89 * 1.065 ** 4, 6);
     expect(enemyDamageMul(9)).toBeCloseTo(1.065 ** 8, 6);

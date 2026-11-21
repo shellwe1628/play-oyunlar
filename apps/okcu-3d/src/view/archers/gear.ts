@@ -18,6 +18,7 @@ import {
   boomerangGeometry,
   celestial,
   sweep,
+  CROSSBOW_K,
   crossbowGeometry,
   pebbleGeometry,
   slingGeometry,
@@ -373,6 +374,7 @@ export class Gear {
     switch (g.weapon) {
       case 'crossbow': {
         body.geometry = h.crossbow.body;
+        F.multiply(m1.makeScale(CROSSBOW_K, CROSSBOW_K, CROSSBOW_K));
         // spanned back to the nut while loaded; slack straight across the prod once loosed
         const t0 = v.copy(h.crossbow.tips[0]).applyMatrix4(F);
         const t1 = v2.copy(h.crossbow.tips[1]).applyMatrix4(F);
@@ -383,7 +385,7 @@ export class Gear {
         if (g.arrow) {
           load.visible = true;
           load.geometry = h.bolt;
-          load.matrix.copy(F).multiply(m1.makeTranslation(16, 9.5, 0));
+          load.matrix.copy(F).multiply(m1.makeTranslation(16, 11.5, 0));
         }
         break;
       }

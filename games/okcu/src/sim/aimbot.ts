@@ -486,8 +486,9 @@ export function playRun(seed: number, rng: Rng, p: Profile, opts: RunOptions | M
   const limit = o.maxTime ?? maxTime;
   while (w.time < limit && w.phase !== 'over') {
     if (o.untilWave && reachedWave(w) >= o.untilWave) break;
-    // god: no hit can knock the player out (late hits can be bigger than the whole health bar)
-    if (o.god) w.player.hp = 1e6;
+    // god: no hit can knock the player out (late hits can be bigger than the whole health bar;
+    // the cap too, or a heal mid-step clips the health back to the real bar)
+    if (o.god) w.player.hp = w.player.maxHp = 1e6;
     if (w.phase === 'cards') {
       let idx = 0;
       for (const c of p.prefer) {

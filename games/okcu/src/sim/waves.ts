@@ -119,8 +119,14 @@ export function enemyHp(type: EnemyType, level: number, d: Difficulty = 'classic
   return Math.round(BASE_HP[type] * (1 + 0.6 * (L - 1)) * 1.12 ** Math.min(14, Math.max(0, L - 8)) * 1.08 ** Math.max(0, L - 22));
 }
 
+/**
+ * hard: boss health over the classic table. The first boss gets more: its shield ring alone went
+ * down in five arrows and four seconds, the chapter's finale a formality.
+ */
+export const HARD_BOSS_HP: Record<BossKind, number> = { shields: 5, giant: 1.3, summoner: 1.3, warden: 1.3, magma: 1.3, tempest: 1.3 };
+
 export function bossHp(kind: BossKind, lap: number, d: Difficulty = 'classic'): number {
-  return Math.round(BOSS_HP[kind] * (d === 'hard' ? 1.3 : 1) * (1 + 0.35 * lap));
+  return Math.round(BOSS_HP[kind] * (d === 'hard' ? HARD_BOSS_HP[kind] : 1) * (1 + 0.35 * lap));
 }
 
 export function enemyScale(type: EnemyType): number {

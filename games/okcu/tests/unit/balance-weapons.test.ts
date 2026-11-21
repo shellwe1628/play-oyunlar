@@ -32,6 +32,30 @@ describe('weapon balance (careful player, hard)', { timeout: 600_000 }, () => {
     }
   });
 
+  it("chapter 1's boss takes a careful level-1 player several shots, not one or two", () => {
+    // it fell to a single crit to the head (408 hp) before; the boss is wave 7
+    const shots: number[] = [];
+    for (let seed = 1; seed <= 8; seed++) {
+      let s0 = -1;
+      let n = -1;
+      playRun(seed, createRng(1000 + seed), CAREFUL, {
+        difficulty: 'hard',
+        meta: { ...NO_META, weapon: 'bow', wlevel: 1 },
+        untilWave: CH2,
+        god: true,
+        maxTime: 600,
+        each: (w) => {
+          if (w.wave === 7 && w.phase === 'play' && s0 < 0) s0 = w.run.shots;
+          if (s0 >= 0 && n < 0 && (w.wave > 7 || w.phase !== 'play')) n = w.run.shots - s0;
+        },
+      });
+      shots.push(n);
+    }
+    note(`ch1 boss shots L1 ${JSON.stringify(shots)}`);
+    expect(Math.min(...shots)).toBeGreaterThanOrEqual(3);
+    expect(mean(shots)).toBeGreaterThanOrEqual(5);
+  });
+
   it('levels make chapter 2 faster for a body-shooting player', () => {
     // In chapter 1 a level-1 head shot already one-shots every archer (150 vs 58 … 77 hp), so
     // levels show where hits take more than one: a careful player aiming at chests, through

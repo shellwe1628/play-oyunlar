@@ -8,10 +8,10 @@
  * and opens it with `chestRng`.
  */
 import { createRng, hashSeed, type Rng } from '@oyun/core/pure';
-import type { Arsenal, ChestKind } from './arsenal';
+import { markUnseen, type Arsenal, type ChestKind } from './arsenal';
 import type { SaveData } from './meta';
 import type { WeaponId } from './weapons';
-import { WEAPON_IDS } from './weapons';
+import { WEAPON_IDS, WEAPON_MAX } from './weapons';
 
 export interface ChestOdds {
   /** coins, inclusive range */
@@ -19,7 +19,8 @@ export interface ChestOdds {
   /** shards in one stack, inclusive range */
   shards: [number, number];
   /**
-   * chance (0 … 1) that the shard stack goes to the sling instead of a random owned weapon, while
+   * chance (0 … 1) that the shard stack goes to the sling instead of a random owned weapon below
+   * WEAPON_MAX, while
    * the sling is still locked and chapter 2 has been reached (`save.chapter ≥ 1`)
    */
   newWeaponChance: number;
@@ -34,10 +35,15 @@ export const CHEST_ODDS: Record<ChestKind, ChestOdds> = {
 };
 
 export const SLING_UNLOCK_SHARDS = 10;
+/** coins per shard when every owned weapon is at WEAPON_MAX (the stack has nowhere to go) */
+export const MAXED_SHARD_COINS = 100;
 export const FREE_CHEST_MS = 4 * 3600_000;
 
 export interface ChestLoot {
+  /** every coin the chest gave (shards turned into coins included) */
   coins: number;
+  /** of those, coins from shards with nowhere to go (every owned weapon at WEAPON_MAX), else 0 */
+  fromShards: number;
   shards: { weapon: WeaponId; n: number }[];
   /** the weapon this chest unlocked (the sling), or null */
   unlocked: WeaponId | null;
@@ -60,11 +66,20 @@ export function openChest(save: SaveData, kind: ChestKind, rng: Rng): ChestLoot 
   const coins = rng.int(odds.coins[0], odds.coins[1]);
   const n = rng.int(odds.shards[0], odds.shards[1]);
   const slingOpen = save.chapter >= 1 && !a.weapons.sling.owned;
-  let weapon: WeaponId;
+  let weapon: WeaponId | null;
   if (slingOpen && rng.chance(odds.newWeaponChance)) weapon = 'sling';
-  else weapon = rng.pick(WEAPON_IDS.filter((id) => a.weapons[id].owned));
-  save.coins += coins;
+  else {
+    // shards only go where they still count: an owned weapon below the top level
+    const room = WEAPON_IDS.filter((id) => a.weapons[id].owned && a.weapons[id].level < WEAPON_MAX);
+    weapon = room.length > 0 ? rng.pick(room) : null;
+  }
   a.chestsOpened += 1;
+  if (weapon === null) {
+    const fromShards = n * MAXED_SHARD_COINS;
+    save.coins += coins + fromShards;
+    return { coins: coins + fromShards, fromShards, shards: [], unlocked: null };
+  }
+  save.coins += coins;
   const w = a.weapons[weapon];
   w.shards += n;
   let unlocked: WeaponId | null = null;
@@ -72,8 +87,9 @@ export function openChest(save: SaveData, kind: ChestKind, rng: Rng): ChestLoot 
     w.shards -= SLING_UNLOCK_SHARDS;
     w.owned = true;
     unlocked = 'sling';
+    markUnseen(a, 'sling');
   }
-  return { coins, shards: [{ weapon, n }], unlocked };
+  return { coins, fromShards: 0, shards: [{ weapon, n }], unlocked };
 }
 
 /** Opens (and removes) the queued chest at `index` (default the oldest); null if there is none. */

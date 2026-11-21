@@ -10,6 +10,8 @@ import { levelForBow, WEAPON_IDS, WEAPON_MAX, WEAPONS, weaponDamage, type Weapon
 import type { SaveData } from './meta';
 
 export type ChestKind = 'wood' | 'silver' | 'gold' | 'boss';
+/** a full-screen "new!" moment still owed to the player: a weapon a boss unlocked, or the celestial look */
+export type Reveal = WeaponId | 'celestial';
 export const CHEST_KINDS: readonly ChestKind[] = ['wood', 'silver', 'gold', 'boss'];
 
 export interface WeaponState {
@@ -50,6 +52,13 @@ export interface Arsenal {
   chestsOpened: number;
   /** the "göksel" (celestial) look for every weapon: earned by the first sky boss (chapter index 5) knockout */
   celestial: boolean;
+  /**
+   * reveals still to show, oldest first (`grantBossReward` adds them during the run's bank; the menu
+   * or the boss chest shows each one full-screen, then drops it with `takeReveal`)
+   */
+  reveals: Reveal[];
+  /** weapons unlocked but not yet looked at on the Weapons tab (its "new" badge; `markWeaponsSeen` clears it) */
+  unseen: WeaponId[];
 }
 
 /** A day key: `YYYY-MM-DD`. */
@@ -58,7 +67,7 @@ export const DAY_FORMAT = /^\d{4}-\d{2}-\d{2}$/;
 export function freshArsenal(): Arsenal {
   const weapons = {} as Record<WeaponId, WeaponState>;
   for (const id of WEAPON_IDS) weapons[id] = { owned: id === 'bow', level: 1, shards: 0 };
-  return { selected: 'bow', weapons, chests: [], runChest: -1, welcome: false, freeChestAt: 0, adCoinsDay: '', adCoinsUsed: 0, shopDay: '', shopBought: [], shopOffers: [], boughtLooks: [], rankFloor: 0, migrated: true, chestsOpened: 0, celestial: false };
+  return { selected: 'bow', weapons, chests: [], runChest: -1, welcome: false, freeChestAt: 0, adCoinsDay: '', adCoinsUsed: 0, shopDay: '', shopBought: [], shopOffers: [], boughtLooks: [], rankFloor: 0, migrated: true, chestsOpened: 0, celestial: false, reveals: [], unseen: [] };
 }
 
 const obj = (v: unknown): Record<string, unknown> => (typeof v === 'object' && v !== null && !Array.isArray(v) ? (v as Record<string, unknown>) : {});
@@ -102,6 +111,11 @@ export function repairArsenal(v: unknown): Arsenal {
   base.chestsOpened = nat(a.chestsOpened);
   base.celestial = a.celestial === true;
   base.migrated = present && a.migrated === true;
+  // reveals and the unseen list only ever name things the save really has
+  const reveals: unknown[] = Array.isArray(a.reveals) ? a.reveals : [];
+  base.reveals = [...new Set(reveals.filter((r): r is Reveal => (r === 'celestial' ? base.celestial : WEAPON_IDS.includes(r as WeaponId) && base.weapons[r as WeaponId].owned)))];
+  const unseen: unknown[] = Array.isArray(a.unseen) ? a.unseen : [];
+  base.unseen = [...new Set(unseen.filter((id): id is WeaponId => WEAPON_IDS.includes(id as WeaponId) && id !== 'bow' && base.weapons[id as WeaponId].owned))];
   return base;
 }
 
@@ -128,6 +142,28 @@ export function migrateArsenal(save: SaveData): void {
   a.chests.push('gold');
   a.welcome = true;
   a.migrated = true;
+}
+
+/** The oldest reveal still owed (it stays until `takeReveal`), or null. */
+export function nextReveal(a: Arsenal): Reveal | null {
+  return a.reveals[0] ?? null;
+}
+
+/** Drops the oldest reveal (call once it has been shown) and returns it; null when none is left. */
+export function takeReveal(save: SaveData): Reveal | null {
+  return save.arsenal.reveals.shift() ?? null;
+}
+
+/** A weapon just became owned: it shows as new on the Weapons tab until `markWeaponsSeen`. */
+export function markUnseen(a: Arsenal, id: WeaponId): void {
+  if (id !== 'bow' && !a.unseen.includes(id)) a.unseen.push(id);
+}
+
+/** The Weapons tab was looked at: no weapon is new any more. False when nothing changed. */
+export function markWeaponsSeen(save: SaveData): boolean {
+  if (save.arsenal.unseen.length === 0) return false;
+  save.arsenal.unseen = [];
+  return true;
 }
 
 /**

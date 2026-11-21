@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { freshArsenal, repairArsenal } from '../../src/sim/arsenal';
+import { freshArsenal, markWeaponsSeen, nextReveal, repairArsenal, takeReveal } from '../../src/sim/arsenal';
 import { openQueuedChest } from '../../src/sim/chests';
 import { freshSave, newBank } from '../../src/sim/meta';
 import { dailyChallenge } from '../../src/sim/progress';
@@ -152,5 +152,61 @@ describe('celestial in the arsenal', () => {
     expect(repairArsenal({ ...freshArsenal(), celestial: 'yes' }).celestial).toBe(false);
     expect(repairArsenal({ ...freshArsenal(), celestial: 1 }).celestial).toBe(false);
     expect(repairArsenal(undefined).celestial).toBe(false);
+  });
+});
+
+describe('reveals owed for boss unlocks', () => {
+  it('a boss-unlocked weapon is queued for its reveal and marked unseen; an owned one is not', () => {
+    const s = freshSave();
+    grantBossReward(s, 0);
+    expect(s.arsenal.reveals).toEqual(['crossbow']);
+    expect(s.arsenal.unseen).toEqual(['crossbow']);
+    const t = freshSave();
+    t.arsenal.weapons.sling.owned = true;
+    grantBossReward(t, 4);
+    expect(t.arsenal.reveals).toEqual([]);
+    expect(t.arsenal.unseen).toEqual([]);
+  });
+
+  it('the sky boss owes the celestial reveal once', () => {
+    const s = freshSave();
+    grantBossReward(s, SKY_CHAPTER);
+    grantBossReward(s, SKY_CHAPTER);
+    expect(s.arsenal.reveals).toEqual(['celestial']);
+    expect(s.arsenal.unseen).toEqual([]);
+  });
+
+  it('takeReveal hands them out oldest first, then null; markWeaponsSeen clears the badge list', () => {
+    const s = freshSave();
+    grantFirstBossRewards(s, []);
+    s.bosses[0] = 1;
+    s.bosses[1] = 1;
+    grantFirstBossRewards(s, [0, 0, 0, 0, 0, 0]);
+    expect(nextReveal(s.arsenal)).toBe('crossbow');
+    expect(takeReveal(s)).toBe('crossbow');
+    expect(takeReveal(s)).toBe('spear');
+    expect(takeReveal(s)).toBeNull();
+    expect(nextReveal(s.arsenal)).toBeNull();
+    expect(s.arsenal.unseen).toEqual(['crossbow', 'spear']);
+    expect(markWeaponsSeen(s)).toBe(true);
+    expect(s.arsenal.unseen).toEqual([]);
+    expect(markWeaponsSeen(s)).toBe(false);
+  });
+
+  it('freshArsenal starts with none; repairArsenal keeps only valid, owned, unique entries', () => {
+    expect(freshArsenal().reveals).toEqual([]);
+    expect(freshArsenal().unseen).toEqual([]);
+    const a = freshArsenal();
+    a.weapons.crossbow.owned = true;
+    a.celestial = true;
+    const r = repairArsenal({ ...a, reveals: ['crossbow', 'crossbow', 'spear', 'celestial', 'nope', 3], unseen: ['crossbow', 'bow', 'firework', 'x', 'crossbow'] });
+    expect(r.reveals).toEqual(['crossbow', 'celestial']);
+    expect(r.unseen).toEqual(['crossbow']);
+    const noCel = repairArsenal({ ...freshArsenal(), reveals: ['celestial'] });
+    expect(noCel.reveals).toEqual([]);
+    const junk = repairArsenal({ ...freshArsenal(), reveals: 'crossbow', unseen: { a: 1 } });
+    expect(junk.reveals).toEqual([]);
+    expect(junk.unseen).toEqual([]);
+    expect(repairArsenal(undefined).reveals).toEqual([]);
   });
 });

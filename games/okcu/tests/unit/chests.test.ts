@@ -1,8 +1,9 @@
 import { createRng } from '@oyun/core/pure';
 import { describe, expect, it } from 'vitest';
 import { CHEST_KINDS } from '../../src/sim/arsenal';
-import { CHEST_ODDS, chestRng, claimFreeChest, FREE_CHEST_MS, freeChestReady, freeChestWait, openChest, openQueuedChest, runChest, SLING_UNLOCK_SHARDS } from '../../src/sim/chests';
+import { CHEST_ODDS, chestRng, claimFreeChest, FREE_CHEST_MS, freeChestReady, freeChestWait, openChest, openQueuedChest, runChest, MAXED_SHARD_COINS, SLING_UNLOCK_SHARDS } from '../../src/sim/chests';
 import { freshSave } from '../../src/sim/meta';
+import { WEAPON_MAX } from '../../src/sim/weapons';
 
 describe('chests', () => {
   it('odds bounds hold', () => {
@@ -137,5 +138,61 @@ describe('chests', () => {
     expect(s.arsenal.freeChestAt).toBe(week + FREE_CHEST_MS);
     expect(claimFreeChest(s, week + 1, false)).toBeNull();
     expect(freeChestWait(s.arsenal, week + FREE_CHEST_MS * 5)).toBe(0);
+  });
+});
+
+describe('chest shards and maxed weapons', () => {
+  it('shards never go to a weapon at WEAPON_MAX while another owned weapon has room', () => {
+    for (let i = 0; i < 200; i++) {
+      const s = freshSave();
+      s.arsenal.weapons.crossbow.owned = true;
+      s.arsenal.weapons.bow.level = WEAPON_MAX;
+      const loot = openChest(s, 'gold', createRng(i));
+      expect(loot.shards).toEqual([{ weapon: 'crossbow', n: loot.shards[0]!.n }]);
+      expect(loot.fromShards).toBe(0);
+      expect(s.arsenal.weapons.bow.shards).toBe(0);
+    }
+  });
+
+  it('every owned weapon maxed: the shards turn into coins (MAXED_SHARD_COINS each)', () => {
+    for (let i = 0; i < 50; i++) {
+      const s = freshSave();
+      s.arsenal.weapons.bow.level = WEAPON_MAX;
+      const loot = openChest(s, 'boss', createRng(i));
+      expect(loot.shards).toEqual([]);
+      expect(loot.unlocked).toBeNull();
+      const odds = CHEST_ODDS.boss;
+      const n = loot.fromShards / MAXED_SHARD_COINS;
+      expect(Number.isInteger(n)).toBe(true);
+      expect(n).toBeGreaterThanOrEqual(odds.shards[0]);
+      expect(n).toBeLessThanOrEqual(odds.shards[1]);
+      expect(s.coins).toBe(loot.coins);
+      expect(loot.coins - loot.fromShards).toBeGreaterThanOrEqual(odds.coins[0]);
+      expect(loot.coins - loot.fromShards).toBeLessThanOrEqual(odds.coins[1]);
+      expect(s.arsenal.weapons.bow.shards).toBe(0);
+      expect(s.arsenal.chestsOpened).toBe(1);
+    }
+  });
+
+  it('the sling chance still applies when everything owned is maxed (chapter 2+)', () => {
+    let sling = 0;
+    for (let i = 0; i < 300; i++) {
+      const s = freshSave();
+      s.chapter = 1;
+      s.arsenal.weapons.bow.level = WEAPON_MAX;
+      const loot = openChest(s, 'boss', createRng(i));
+      if (loot.shards[0]?.weapon === 'sling') sling++;
+      else expect(loot.fromShards).toBeGreaterThan(0);
+    }
+    expect(sling).toBeGreaterThan(100);
+  });
+
+  it('a chest that unlocks the sling marks it unseen', () => {
+    const s = freshSave();
+    s.chapter = 1;
+    s.arsenal.weapons.sling.shards = SLING_UNLOCK_SHARDS - 1;
+    for (let i = 0; i < 100 && !s.arsenal.weapons.sling.owned; i++) openChest(s, 'boss', createRng(i));
+    expect(s.arsenal.weapons.sling.owned).toBe(true);
+    expect(s.arsenal.unseen).toEqual(['sling']);
   });
 });

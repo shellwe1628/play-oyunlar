@@ -2,7 +2,7 @@
 import { freshArsenal, type Arsenal, type ChestKind } from './arsenal';
 import { freshBow, type BowState } from './bow';
 import { CHAPTERS } from './chapters';
-import type { WeaponId } from './weapons';
+import { bowEquivalent, type WeaponId } from './weapons';
 
 /** Shop upgrades. Damage is not one of them any more: the forged bow is the one damage track. */
 export const UPGRADE_IDS = ['hp', 'coins', 'reroll', 'starter'] as const;
@@ -166,10 +166,15 @@ export function metaOf(save: SaveData): MetaLevels {
   return { ...save.upgrades, bow: save.bow.level, weapon: 'bow', wlevel: 1 };
 }
 
-/** The 3D build's run levels: `metaOf` plus the selected weapon at its level. */
+/**
+ * The 3D build's run levels: `metaOf` plus the selected weapon at its level. `bow` (hard never
+ * reads it for damage, only the 2D classic rules do) is the old bow +N that weapon level matches
+ * (`bowEquivalent`), so the glow follows the weapon in hand, not the retired forge.
+ */
 export function metaOf3d(save: SaveData): MetaLevels {
   const id = save.arsenal.selected;
-  return { ...metaOf(save), weapon: id, wlevel: save.arsenal.weapons[id].level };
+  const wlevel = save.arsenal.weapons[id].level;
+  return { ...metaOf(save), bow: bowEquivalent(wlevel), weapon: id, wlevel };
 }
 
 export function buyUpgrade(save: SaveData, id: UpgradeId): boolean {

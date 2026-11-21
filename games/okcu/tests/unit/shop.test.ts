@@ -3,7 +3,7 @@ import { repairSave } from '../../src/save';
 import { freshArsenal } from '../../src/sim/arsenal';
 import { openQueuedChest } from '../../src/sim/chests';
 import { WEAPON_MAX } from '../../src/sim/weapons';
-import { adCoins, AD_COINS, AD_COINS_PER_DAY, buyChest, buyCosmetic, buyOffer, CHEST_PRICE, COSMETIC_PRICE, dailyOffers, grantAdCoins } from '../../src/sim/shop';
+import { adCoins, AD_COINS, AD_COINS_PER_DAY, buyChest, buyCosmetic, buyOffer, CHEST_PRICE, COSMETIC_PRICE, dailyOffers, grantAdCoins, peekOffers } from '../../src/sim/shop';
 import { cosmeticById, COSMETICS, freshSave, isUnlocked, unlockedCosmetics, type SaveData } from '../../src/sim/meta';
 
 const DAY = '2026-11-20';
@@ -264,5 +264,22 @@ describe('looks', () => {
     expect(repairSave(bad as unknown as SaveData).arsenal.boughtLooks).toEqual(['crown', 'ember']);
     const nope = { ...freshSave(), arsenal: { ...freshArsenal(), boughtLooks: 'x' } };
     expect(repairSave(nope as unknown as SaveData).arsenal.boughtLooks).toEqual([]);
+  });
+});
+
+describe('peekOffers', () => {
+  it('gives the same offers as dailyOffers but never writes the save', () => {
+    const s = freshSave();
+    const before = JSON.stringify(s);
+    const p = peekOffers('2026-11-21', s);
+    expect(p.fresh).toBe(true);
+    expect(JSON.stringify(s)).toBe(before);
+    expect(dailyOffers('2026-11-21', s)).toEqual(p.offers);
+    const again = peekOffers('2026-11-21', s);
+    expect(again).toEqual({ offers: p.offers, fresh: false });
+    // the next day: fresh again, still without a write
+    const stored = JSON.stringify(s);
+    expect(peekOffers('2026-11-22', s).fresh).toBe(true);
+    expect(JSON.stringify(s)).toBe(stored);
   });
 });

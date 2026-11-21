@@ -67,6 +67,16 @@ export function dailyOffers(dayKey: string, save: SaveData): ShopOffer[] {
   return offers.map((o) => ({ ...o }));
 }
 
+/**
+ * The day's offers as `dailyOffers` would give them, WITHOUT storing anything: `fresh` says a new
+ * day still has to be snapshot (call `dailyOffers` inside a save update then). For reads that must
+ * not write the save (a badge, a redraw on the same day).
+ */
+export function peekOffers(dayKey: string, save: SaveData): { offers: ShopOffer[]; fresh: boolean } {
+  const { offers, fresh } = resolveDay(dayKey, save);
+  return { offers: offers.map((o) => ({ ...o })), fresh };
+}
+
 function generateOffers(dayKey: string, save: SaveData): ShopOffer[] {
   const rng = createRng(hashSeed(`okcu-shop-${dayKey}`));
   const a = save.arsenal;

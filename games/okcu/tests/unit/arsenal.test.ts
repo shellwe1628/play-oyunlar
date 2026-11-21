@@ -4,7 +4,8 @@ import { repairSave, saveOptions, SAVE_VERSION } from '../../src/save';
 import { canUpgrade, freshArsenal, migrateArsenal, powerOf, selectWeapon, upgradeCost, upgradeWeapon } from '../../src/sim/arsenal';
 import { freshSave, metaOf3d, UPGRADE_IDS, UPGRADES, type SaveData } from '../../src/sim/meta';
 import { progressScore } from '../../src/sim/progress';
-import { WEAPON_IDS, WEAPON_MAX } from '../../src/sim/weapons';
+import { bowEquivalent, WEAPON_IDS, WEAPON_MAX } from '../../src/sim/weapons';
+import { statsFor } from '../../src/sim/cards';
 
 const owned = (s: SaveData): string[] => WEAPON_IDS.filter((id) => s.arsenal.weapons[id].owned);
 
@@ -316,5 +317,26 @@ describe('power and rank', () => {
     s.bosses = s.bosses.map(() => 50);
     s.best = 100;
     expect(progressScore(s).total).toBeGreaterThan(5000);
+  });
+});
+
+describe('the 3D run levels and the glow', () => {
+  it('metaOf3d.bow follows the selected weapon level (bowEquivalent), not the retired forge', () => {
+    const s = freshSave();
+    s.bow.level = 18;
+    expect(metaOf3d(s).bow).toBe(bowEquivalent(1));
+    s.arsenal.weapons.crossbow = { owned: true, level: 12, shards: 0 };
+    selectWeapon(s, 'crossbow');
+    expect(metaOf3d(s)).toMatchObject({ weapon: 'crossbow', wlevel: 12, bow: bowEquivalent(12) });
+    expect(bowEquivalent(12)).toBeGreaterThan(0);
+    s.arsenal.weapons.crossbow.level = WEAPON_MAX;
+    expect(metaOf3d(s).bow).toBe(25);
+  });
+
+  it('hard damage ignores meta.bow (only the weapon level counts)', () => {
+    const m = metaOf3d(freshSave());
+    for (const bow of [0, 7, 25]) {
+      expect(statsFor([], { ...m, bow }, 'hard').dmgMul).toBe(statsFor([], m, 'hard').dmgMul);
+    }
   });
 });

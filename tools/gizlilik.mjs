@@ -21,7 +21,7 @@ import { ROOT } from './template.mjs';
 const EFFECTIVE = { tr: '20 Kasım 2026', en: '20 November 2026' };
 /** Developer contact e-mail shown on every page (App Store support URL needs a way to reach the
  *  developer). Empty: the pages point to the store pages' support sections instead. */
-const CONTACT = '';
+const CONTACT = 'emirhancin28@gmail.com';
 const cfg = JSON.parse(readFileSync(join(ROOT, 'store', 'apps.json'), 'utf8'));
 const OUT = join(ROOT, 'docs', 'gizlilik');
 
@@ -212,8 +212,12 @@ function indexPage() {
 <ul class="games">
 ${items}
 </ul>
-<p class="summary" lang="tr">Kısaca: bu oyunlar kişisel veri toplamaz. Yalnızca 13 yaş ve üstü oyuncuların isteğe bağlı online sıralaması, en iyi skorları Android'de Google Play Games'e, iPhone'da Game Center'a gönderir. Bazı oyunlarda ödüllü düğmeler, siz dokunduğunuzda, çocuklara yönelik ayarlarla bir Google AdMob reklamı gösterir (her oyunun sayfasına bakın).</p>
-<p class="summary" lang="en">In short: these games collect no personal data. Only the optional online ranking for players aged 13 and over sends best scores to Google Play Games on Android or Game Center on iPhone. In some games the rewarded buttons show a Google AdMob ad when you tap them, with child-directed settings (see each game's page).</p>`;
+<p class="summary" lang="tr">Kısaca: oyunların kendisi hesap açtırmaz ve kişisel veri toplamaz; ilerleme yalnızca cihazda saklanır. 13 yaş ve üstü oyuncuların isteğe bağlı online sıralaması en iyi skorları Android'de Google Play Games'e, iPhone'da Game Center'a gönderir. Ödüllü düğmeler, siz dokunduğunuzda, çocuklara yönelik ve kişiselleştirilmemiş ayarlarla bir Google AdMob reklamı gösterir; AdMob reklamı göstermek için cihaz ve kullanım verisi işler (her oyunun sayfasına bakın).</p>
+<p class="summary" lang="en">In short: the games themselves need no account and collect no personal data; progress stays on the device. The optional online ranking for players aged 13 and over sends best scores to Google Play Games on Android or Game Center on iPhone. Rewarded buttons show a Google AdMob ad when you tap them, with child-directed, non-personalised settings; AdMob processes device and usage data to serve it (see each game's page).</p>${
+    CONTACT
+      ? `\n<h2>İletişim / Contact</h2>\n<p>Destek ve sorularınız için / For support and questions: <a href="mailto:${CONTACT}">${CONTACT}</a></p>`
+      : ''
+  }`;
   return page('Gizlilik politikaları / Privacy policies', 'tr', body).replace('STYLE', 'stil.css');
 }
 

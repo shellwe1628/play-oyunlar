@@ -13,6 +13,8 @@ import { css, Gfx, rgba } from './gfx';
 
 export const W = 720;
 export const H = 1280;
+/** Height of the main menu's bottom tab bar (shell.ts) above the safe bottom edge; the title's PLAY sits on it. */
+export const TAB_BAR_H = 150;
 /** The core theme's font (bundled by @oyun/core), with rounded system fallbacks. */
 export const FONT = `${DEFAULT_THEME.fontFamily.replace(', system-ui, sans-serif', '')}, ui-rounded, "Arial Rounded MT Bold", "Trebuchet MS", system-ui, sans-serif`;
 
@@ -490,4 +492,42 @@ export class Timers {
   clear(): void {
     this.list = [];
   }
+}
+
+// ---------------------------------------------------------------------------- small shared helpers
+
+/** A crisp canvas of w × h logical px; `draw` gets a Gfx in those px. */
+export function iconCanvas(parent: HTMLElement, w: number, h: number, draw: (g: Gfx) => void, cls = ''): HTMLCanvasElement {
+  const cv = el('canvas', cls, parent);
+  const r = Math.min(3, Math.max(1, labelRes()));
+  cv.width = Math.ceil(w * r);
+  cv.height = Math.ceil(h * r);
+  cv.style.width = `${w}px`;
+  cv.style.height = `${h}px`;
+  cv.style.flex = 'none';
+  const g = new Gfx(cv.getContext('2d')!);
+  g.ctx.setTransform(r, 0, 0, r, 0, 0);
+  draw(g);
+  return cv;
+}
+
+/** Fit a DOM text to `max` px by shrinking its font from `size`. */
+export function fitText(e: HTMLElement, text: string, size: number, max: number): void {
+  e.textContent = text;
+  e.style.fontSize = `${(size * Math.min(1, max / Math.max(1, textWidth(text, size)))).toFixed(1)}px`;
+}
+
+/** Two 0xRRGGBB colours blended, k = 0 … 1. */
+export function mix(a: number, b: number, k: number): number {
+  const m = (s: number) => Math.round(((a >> s) & 0xff) + (((b >> s) & 0xff) - ((a >> s) & 0xff)) * k);
+  return (m(16) << 16) | (m(8) << 8) | m(0);
+}
+
+/**
+ * Reduced motion for the menus: the system's prefers-reduced-motion, ?calm=1 (the stage's switch)
+ * or ?fx=0. Loops (pulses, glows, wobbles) stay still and tab switches cut instead of sliding.
+ */
+export function calmMotion(): boolean {
+  const q = new URLSearchParams(location.search);
+  return (typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches) || q.get('calm') === '1' || q.get('fx') === '0';
 }

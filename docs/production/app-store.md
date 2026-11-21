@@ -221,8 +221,9 @@ reddedilme sebebidir**. Üç oyun için ortak cevaplar:
 (kan yok, ragdoll karakterler adalardan düşüyor, komik), ama oyunun ana döngüsü insan biçimli
 okçulara ok atmak, yani **sık**. Apple'ın formu sıklık ve yoğunluğu tek seçenekte birleştirir;
 "Infrequent/Mild" seçmek eksik beyan sayılabilir. Sonuç büyük olasılıkla 9+ ya da 13+ çıkar;
-ikisi de olur (online sıralama zaten 13+ için). Silah sorusu varsa: yay ve ok fantastik/çizgi
-film tarzında; "Guns or Other Weapons" sorusunu formdaki açıklamaya göre cevapla, emin değilsen
+ikisi de olur (online sıralama zaten 13+ için). Silah sorusu varsa: altı silah (yay, arbalet, mızrak, bumerang, sapan
+ve "fişek atar" denen çizgi film havai fişek tüpü) fantastik/çizgi film tarzında, gerçekçi ateşli
+silah yok; "Guns or Other Weapons" sorusunu formdaki açıklamaya göre cevapla, emin değilsen
 "Infrequent/Mild" seç (yine üst sınırı yükseltir, sorun değil). Play'deki karşılığı PEGI 7 /
 ESRB 10+ (fantastik şiddet).
 
@@ -324,7 +325,7 @@ Fossil Odds için:
 Thank you for reviewing Fossil Odds.
 
 - The whole game is bundled in the app and plays offline. There are no accounts, no logins and no in-app purchases. Progress is saved on the device only.
-- Optional online ranking uses Game Center: Title screen > Ranks > globe button (top right). Before anything goes online the game asks once for the player's year of birth (a neutral list). Under 13: online ranking is switched off on that install and Game Center is never started. 13 or over: Game Center starts and shows Apple's own sign-in if the device is not signed in. Scores go only to Game Center. The rest of the game needs no sign-in. To see the age question again, delete and reinstall the app.
+- Optional online ranking uses Game Center: main menu > Ranks tab > globe button (top right). Before anything goes online the game asks once for the player's year of birth (a neutral list). Under 13: online ranking is switched off on that install and Game Center is never started. 13 or over: Game Center starts and shows Apple's own sign-in if the device is not signed in. Scores go only to Game Center. The rest of the game needs no sign-in. To see the age question again, delete and reinstall the app.
 - Buttons marked as rewards (for example "Double dust (ad)" after time away, and the luck boost) give their reward straight away in this version: no ads are shown and there is no ad SDK in the app.
 - The odds printed on fossils (for example "1 in 1,000,000") only show how rare a find is. Nothing is wagered or can be lost, every block always gives a fossil, and nothing can be bought with real money, so there is no simulated gambling.
 ```
@@ -348,11 +349,11 @@ Thank you for reviewing Noodle Archers.
 - The whole game (3D, rendered with WebGL) is bundled in the app and plays offline. There are no accounts, no logins and no in-app purchases. Progress is saved on the device only. Coins are earned in play.
 - Controls: drag anywhere to aim, release to shoot.
 - Optional online ranking uses Game Center: Title screen > Ranks > globe button (top right). Before anything goes online the game asks once for the player's year of birth (a neutral list). Under 13: online ranking is switched off on that install and Game Center is never started. 13 or over: Game Center starts and shows Apple's own sign-in if the device is not signed in. Scores go only to Game Center. The rest of the game needs no sign-in. To see the age question again, delete and reinstall the app.
-- Three optional buttons marked "▶ AD" (one more card on the card pick; revive and double coins on the result screen) play a Google AdMob rewarded ad only when tapped. Every ad request is child-directed (TFCD, TFUA, max rating G, non-personalised); no App Tracking Transparency prompt and no IDFA. There are no other ads.
+- Optional buttons marked "▶ AD" (one more card on the card pick; revive and double coins on the result screen; turning the wooden chest of the 4-hour timer into a silver one; extra coins in the Shop, at most 3 a day) play a Google AdMob rewarded ad only when tapped. There are no real-money purchases. Every ad request is child-directed (TFCD, TFUA, max rating G, non-personalised); no App Tracking Transparency prompt and no IDFA. There are no other ads.
 - Violence is cartoon style: wobbly ragdoll archers are knocked off floating islands, with no blood.
 ```
 
-> Göndermeden önce notlardaki yolu (Title screen > Ranks > globe) gerçek derlemede bir kez
+> Göndermeden önce notlardaki yolu (main menu > Ranks tab > globe) gerçek derlemede bir kez
 > izleyerek doğrula; menü değişmişse notu düzelt. Fossil'deki "(ad)" etiketi kaldırıldıysa o
 > örneği nottan sil.
 

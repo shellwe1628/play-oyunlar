@@ -12,8 +12,10 @@ import { drawHeart } from '@okcu/scenes/icons';
 import { drawWind } from '@okcu/scenes/props';
 import { PALETTE, TEXTURES } from '@okcu/textures';
 import { PT } from '@sim/ragdoll';
+import { sweepAabb } from '@sim/geom';
 import { TUNING } from '@sim/tuning';
-import { arrowSpeed, canShoot, effectiveAngle, OVERDRAW_POWER, playerOrigin, type World } from '@sim/world';
+import { WEAPONS } from '@sim/weapons';
+import { arrowSpeed, BOOM, canShoot, effectiveAngle, OVERDRAW_POWER, PEBBLE_REST, playerOrigin, ROCKET, rocketRadius, type World } from '@sim/world';
 import type { AimState, Stage } from '../contract';
 import { el, H, W } from './dom';
 import { Gfx } from './gfx';
@@ -151,7 +153,12 @@ export function createPainter(stage: Stage): Painter {
       ctx.clearRect(0, 0, cv.width, cv.height);
     },
 
-    /** Dotted arc preview (on the 3D scene, wind included) + the rubber band under the thumb (screen). */
+    /**
+     * Dotted flight preview (on the 3D scene, wind included) + the rubber band under the thumb
+     * (screen). The dots follow the selected weapon with the simulation's own numbers: its speed,
+     * gravity and wind multipliers; the boomerang's straight, slowing out-path to its turn point;
+     * the rocket's line to the end of its fuse and its burst ring; the pebble's first bounce.
+     */
     aim(w, aim, pull) {
       if (!aim || !pull) return;
       // rubber band from where the thumb went down
@@ -173,23 +180,125 @@ export function createPainter(stage: Stage): Painter {
       ctx.lineCap = 'butt';
       g.fillStyle(col, 0.9).fillCircle(dx, dy, over ? 16 : 12);
       const ang = effectiveAngle(w, shot.angle);
-      const speed = arrowSpeed(shot.power);
+      const wpn = WEAPONS[w.stats.weapon];
+      const speed = arrowSpeed(shot.power) * w.stats.speedMul;
       const o = playerOrigin(w, ang);
-      const vx = Math.cos(ang) * speed;
-      const vy = Math.sin(ang) * speed;
-      const grav = TUNING.gravity;
+      let vx = Math.cos(ang) * speed;
+      let vy = Math.sin(ang) * speed;
       const steps = Math.round(15 * w.stats.previewMul);
       const ready = canShoot(w) || w.reload < 0.3;
-      for (let i = 1; i <= steps; i++) {
-        const t = i * 0.032;
-        const x = o.x + vx * t + 0.5 * w.wind * t * t;
-        const y = o.y + vy * t + 0.5 * grav * t * t;
-        const r = 8 - (i / steps) * 4;
-        const a = ready ? 1 - (i / steps) * 0.6 : 0.35;
-        const s = stage.toScreen(x, y);
-        around(s.x, s.y);
+      const dotCol = over ? PALETTE.focus : PALETTE.white;
+      const dot = (x: number, y: number, i: number, n: number): void => {
+        const r = 8 - (i / n) * 4;
+        const a = ready ? 1 - (i / n) * 0.6 : 0.35;
+        const p = stage.toScreen(x, y);
+        around(p.x, p.y);
         g.fillStyle(PALETTE.ink, a * 0.8).fillCircle(0, 0, r + 3);
-        g.fillStyle(over ? PALETTE.focus : PALETTE.white, a).fillCircle(0, 0, r);
+        g.fillStyle(dotCol, a).fillCircle(0, 0, r);
+      };
+      const DT = TUNING.dt;
+
+      if (wpn.projectile === 'boomerang') {
+        // no gravity: straight out along the line, slowing to a stop at the turn (the sim's flyBoomerang)
+        const turn = BOOM.turnBase + BOOM.turnPower * Math.max(0, Math.min(1, shot.power));
+        const wind = w.wind * BOOM.windMul;
+        const n = Math.max(6, Math.round(12 * w.stats.previewMul));
+        let x = o.x;
+        let y = o.y;
+        let t = 0;
+        let next = 1;
+        while (t < turn - 1e-9) {
+          const left = turn - t;
+          const k = left > DT + 1e-9 ? 1 - DT / left : 0;
+          x += ((vx * (1 + k)) / 2) * DT + 0.5 * wind * DT * DT;
+          y += ((vy * (1 + k)) / 2) * DT;
+          vx = vx * k + wind * DT * k;
+          vy *= k;
+          t += DT;
+          // dots evenly spaced in time: they bunch up as it slows
+          if (t >= (next / n) * turn - 1e-9 && next < n) dot(x, y, next++, n);
+        }
+        // the turn point: a curling arrow back toward the bow
+        const p = stage.toScreen(x, y);
+        around(p.x, p.y);
+        const back = Math.atan2(o.y - y, o.x - x);
+        const a = ready ? 1 : 0.4;
+        g.lineStyle(9, PALETTE.ink, 0.7 * a).beginPath().arc(0, 0, 20, back + 0.6, back + 0.6 + Math.PI * 1.5, false).strokePath();
+        g.lineStyle(5, dotCol, a).beginPath().arc(0, 0, 20, back + 0.6, back + 0.6 + Math.PI * 1.5, false).strokePath();
+        const ea = back + 0.6 + Math.PI * 1.5;
+        const ex = Math.cos(ea) * 20;
+        const ey = Math.sin(ea) * 20;
+        const tx = -Math.sin(ea);
+        const ty = Math.cos(ea);
+        g.fillStyle(dotCol, a).fillTriangle(ex + tx * 10, ey + ty * 10, ex - ty * 8, ey + tx * 8, ex + ty * 8, ey - tx * 8);
+        return;
+      }
+
+      const grav = TUNING.gravity * w.stats.gravityMul;
+      const wind = w.wind * wpn.windMul;
+      const rocket = wpn.projectile === 'rocket';
+      const pebble = wpn.projectile === 'pebble';
+      // a rocket's dots stop where its fuse runs out
+      const n = rocket ? Math.max(1, Math.round(ROCKET.fuse / 0.032)) : steps;
+      let x0 = o.x;
+      let y0 = o.y;
+      let t0 = 0;
+      let bounced = !pebble;
+      for (let i = 1; i <= n; i++) {
+        const t = i * 0.032 - t0;
+        let x = x0 + vx * t + 0.5 * wind * t * t;
+        let y = y0 + vy * t + 0.5 * grav * t * t;
+        if (!bounced) {
+          // the pebble's first bounce off a ledge or wall (the sim's ledgeHit, PEBBLE_REST)
+          const px = i === 1 ? o.x : x0 + vx * (t - 0.032) + 0.5 * wind * (t - 0.032) ** 2;
+          const py = i === 1 ? o.y : y0 + vy * (t - 0.032) + 0.5 * grav * (t - 0.032) ** 2;
+          let best: { t: number; nx: number; ny: number } | null = null;
+          for (const L of w.ledges) {
+            const h = sweepAabb(px, py, x, y, L.x, L.y, L.w, L.h);
+            if (h && (!best || h.t < best.t)) best = h;
+          }
+          for (const L of w.walls) {
+            const h = sweepAabb(px, py, x, y, L.x, L.y, L.w, L.h);
+            if (h && (!best || h.t < best.t)) best = h;
+          }
+          if (best) {
+            bounced = true;
+            const tt = t - 0.032 + 0.032 * best.t;
+            const hx = px + (x - px) * best.t;
+            const hy = py + (y - py) * best.t;
+            let bvx = vx + wind * tt;
+            let bvy = vy + grav * tt;
+            if (best.nx !== 0) bvx = -bvx * PEBBLE_REST;
+            if (best.ny !== 0) bvy = -bvy * PEBBLE_REST;
+            vx = bvx;
+            vy = bvy;
+            x0 = hx + best.nx * 2;
+            y0 = hy + best.ny * 2;
+            t0 = i * 0.032 - (0.032 - 0.032 * best.t);
+            // a little star where it glances off
+            const p = stage.toScreen(hx, hy);
+            around(p.x, p.y);
+            g.lineStyle(4, PALETTE.ink, 0.6).strokeCircle(0, 0, 11);
+            g.lineStyle(3, dotCol, ready ? 0.9 : 0.35).strokeCircle(0, 0, 11);
+            const t2 = i * 0.032 - t0;
+            x = x0 + vx * t2 + 0.5 * wind * t2 * t2;
+            y = y0 + vy * t2 + 0.5 * grav * t2 * t2;
+          }
+        }
+        dot(x, y, i, Math.max(n, steps));
+        if (rocket && i === n) {
+          // the burst: the simulation's radius around the end of the fuse
+          const c = stage.toScreen(x, y);
+          const e = stage.toScreen(x + rocketRadius(w), y);
+          const R = Math.abs(e.x - c.x) / k;
+          around(c.x, c.y);
+          const a = ready ? 1 : 0.4;
+          g.fillStyle(PALETTE.fire, 0.12 * a).fillCircle(0, 0, R);
+          ctx.setLineDash([14, 10]);
+          g.lineStyle(7, PALETTE.ink, 0.45 * a).strokeCircle(0, 0, R);
+          g.lineStyle(4, over ? PALETTE.focus : PALETTE.fireCore, 0.9 * a).strokeCircle(0, 0, R);
+          ctx.setLineDash([]);
+        }
       }
     },
 

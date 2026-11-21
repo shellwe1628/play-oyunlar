@@ -13,14 +13,21 @@ import { CORE_STRINGS, createAudio, createI18n, pickLanguage, webStorage } from 
 import { DRAG_DEAD } from '@okcu/scenes/keys';
 import { SFX } from '@okcu/sfx';
 import { PALETTE } from '@okcu/textures';
+import { canUpgrade, type ChestKind } from '@sim/arsenal';
 import { bowTier } from '@sim/bow';
 import { CHAPTERS, stageOf, STAGES } from '@sim/chapters';
+import { openQueuedChest } from '@sim/chests';
 import { progressScore, rankOf } from '@sim/progress';
+import { boughtToday, peekOffers } from '@sim/shop';
+import { WEAPON_IDS, WEAPON_MAX } from '@sim/weapons';
 import type { GameEvent, World } from '@sim/world';
 import type { Frame, Game, Module, Stage } from '../contract';
+import { createChestScreen } from './chest';
 import { EASE, el, injectStyle, Label, rerenderLabels, roundButton, setLabelRes, Timers } from './dom';
 import { css, rgba } from './gfx';
 import { createMenus } from './menus';
+import { todayKey } from './save';
+import { createShell, type TabId } from './shell';
 import { createPainter, HUD, type PullState } from './paint';
 import { createTracker } from './progress';
 import { createCards, createResult, type T, type Ui } from './screens';
@@ -47,9 +54,13 @@ export function createHud(stage: Stage, game: Game): Module {
   const hudGroup = el('div', 'ok-group', layer);
   const floatGroup = el('div', 'ok-group', layer);
   const titleGroup = el('div', 'ok-group', layer);
+  // the Home tab (title.ts) inside the tab shell's frame (shell.ts: top bar, side buttons, tab bar)
+  const homePane = el('div', 'ok-group', titleGroup);
+  const shellGroup = el('div', 'ok-group', layer);
   const cardGroup = el('div', 'ok-group', layer);
   const resultGroup = el('div', 'ok-group', layer);
   const menuGroup = el('div', 'ok-group', layer);
+  const chestGroup = el('div', 'ok-group', layer);
   const toastGroup = el('div', 'ok-group', layer);
   const cornerGroup = el('div', 'ok-group', layer);
 
@@ -261,19 +272,94 @@ export function createHud(stage: Stage, game: Game): Module {
   const tracker = createTracker(game, (id, coins) => queueToast(t('feat.title'), `${t(`feat.${id}.name`)} · +${coins}`, PALETTE.gold));
 
   // ---- screens
-  const title = createTitle(ui, titleGroup, {
-    shop: () => menus.openShop('title'),
-    looks: () => menus.openShop('title', 'looks'),
-    forge: () => menus.openForge('title'),
-    ranks: () => menus.openRanks('title'),
-    daily: () => game.startRun({ daily: !game.daily }),
+  /** the next shell comes back without its entrance (our own chapter switch rebuilds the menu) */
+  let shellQuiet = false;
+  /** the tab the next shell comes back on (Home, or where a full-screen tab or a new world left off) */
+  let shellTab: TabId = 'home';
+  /** our own rebuild keeps the good news already queued (an achievement earned in a pane) */
+  let keepToasts = false;
+  /** a new world for the title, the shell back on `tab` without its entrance (the menu stays where it was) */
+  const titleOn = (tab: TabId, keep = false): void => {
+    shellTab = tab;
+    shellQuiet = true;
+    keepToasts = keep;
+    game.startRun({ daily: game.daily });
+  };
+  const title = createTitle(ui, homePane, {
     // chapter select: step through the chapters reached (and endless once unlocked), wrapping round
     chapter: (dir) => {
       const last = game.save.data.chapter;
       const c = game.chapter + dir;
+      shellQuiet = true;
       game.startRun({ chapter: c > last ? 0 : c < 0 ? last : c });
     },
   });
+  // the main menu's tabs: Ranks still opens the full screen of menus.ts
+  const shell = createShell(ui, shellGroup, {
+    home: homePane,
+    ranks: () => menus.openRanks('title'),
+    // the Weapons pane changed the save: the run's levels are fixed when its world is made
+    rebuild: (tab) => titleOn(tab, true),
+    // the Events tab's daily switch: a new world, the menu back on Home without the entrances
+    daily: () => {
+      shellQuiet = true;
+      keepToasts = true;
+      title.quiet();
+      game.startRun({ daily: !game.daily });
+    },
+    toast: (head, sub) => queueToast(head, sub, PALETTE.gold),
+    changed: () => syncBadges(),
+    chest: (p) => chests.play(p),
+    chestBusy: () => chests.shown,
+  });
+  // the chest opening (chest.ts): over the menu and the result card, under the toasts
+  const chests = createChestScreen(ui, chestGroup, { toast: (head, sub) => queueToast(head, sub, PALETTE.gold) });
+  /** the run chest the result card offers: still where `grantRunChest` put it, unopened */
+  const runChestWaiting = (): ChestKind | null => {
+    const a = game.save.data.arsenal;
+    return a.runChest >= 0 ? (a.chests[a.runChest] ?? null) : null;
+  };
+  /** the migration's welcome gold chest, presented once when the menu first comes up */
+  function welcome(): void {
+    if (!game.save.data.arsenal.welcome || chests.shown || game.testRun || !shell.shown) return;
+    chests.play({
+      take: (d) => {
+        d.arsenal.welcome = false;
+        const i = d.arsenal.chests.indexOf('gold');
+        return i >= 0 ? openQueuedChest(d, i) : null;
+      },
+      title: t('chest.welcome'),
+      sub: t('chest.welcomeSub'),
+      done: (before) => {
+        shell.opened(before);
+        owedReveals();
+      },
+    });
+  }
+  /** weapons a boss unlocked (and the celestial look) not revealed yet: shown full-screen when the menu comes up */
+  function owedReveals(): void {
+    if (game.save.data.arsenal.reveals.length === 0 || chests.shown || game.testRun || !shell.shown) return;
+    chests.reveals(() => syncBadges());
+  }
+
+  /** the day the badges were last worked out for (a menu left open past midnight works them out again) */
+  let badgeDay = '';
+  let badgeCheck = 0;
+  /** the tab bar's red badges, from the save */
+  function syncBadges(): void {
+    const d = game.save.data;
+    badgeDay = todayKey();
+    // today's offers still to buy that the coins cover (a new day's offers are read without being stored)
+    const key = todayKey();
+    const got = boughtToday(d, key);
+    const offers = peekOffers(key, d).offers;
+    shell.badge('shop', offers.filter((o, i) => !got.includes(i) && d.coins >= o.coins && d.arsenal.weapons[o.weapon].level < WEAPON_MAX).length);
+    // new weapons not looked at yet (their count), else a weapon ready to level up (the archer card marks its own affordable upgrades)
+    const fresh = d.arsenal.unseen.length;
+    shell.badge('weapons', fresh > 0 ? fresh : WEAPON_IDS.some((id) => canUpgrade(d, id)) ? '!' : 0);
+    shell.badge('ranks', rankOf(progressScore(d).total) > d.rank ? '!' : 0);
+    shell.badge('events', !game.daily && d.dailyDone !== todayKey() ? '!' : 0);
+  }
   const cards = createCards(ui, cardGroup, clearTransients, (syn) => callout(t('cards.synergy', { s: t(`syn.${syn}`) }), PALETTE.focus, 56));
   const result = createResult(ui, resultGroup, {
     replay: () => game.startRun({ daily: game.daily, quick: true }),
@@ -297,8 +383,13 @@ export function createHud(stage: Stage, game: Game): Module {
       doubledCoins += amount;
       return amount;
     },
-    shop: () => menus.openShop('result'),
-    forge: () => menus.openForge('result'),
+    upgrades: () => titleOn('weapons'),
+    shop: () => titleOn('shop'),
+    runChest: runChestWaiting,
+    openRunChest: () => {
+      if (!runChestWaiting()) return false;
+      return chests.play({ take: (d) => (d.arsenal.runChest >= 0 ? openQueuedChest(d, d.arsenal.runChest) : null) });
+    },
     home: () => game.toTitle(),
     ranks: () => {
       if (!menus.ceremonyOpen) menus.openRanks('result');
@@ -317,9 +408,14 @@ export function createHud(stage: Stage, game: Game): Module {
       tracker.bank(game.w);
       game.startRun({ daily: game.daily, quick: true });
     },
-    // 2D: back from the shop, forge or ranks is a fresh title, so a purchase shows on the next run at once
+    // 2D: back from the shop or ranks is a fresh title, so a change shows on the next run at once;
+    // opened from a tab, the shell comes back on the tab that was up before it
     back: () => {
+      const tab = shell.shown ? shell.returnTab : 'home';
+      const quiet = shell.shown;
       menus.closeAll();
+      shellTab = tab;
+      shellQuiet = quiet;
       game.toTitle();
     },
   });
@@ -351,13 +447,16 @@ export function createHud(stage: Stage, game: Game): Module {
   let lastTeach = -9;
   let lastCreak = 0;
   const seen = new Set<string>();
+  /** "the field grows" toasts this run (at most two) */
+  let growTips = 0;
   const brains = new Map<number, string>();
 
   function resetRun(w: World): void {
     world = w;
     timers.clear();
     clearTransients();
-    clearToasts();
+    if (!keepToasts) clearToasts();
+    keepToasts = false;
     tracker.reset(w);
     menus.closeAll();
     cancelDrag();
@@ -365,7 +464,10 @@ export function createHud(stage: Stage, game: Game): Module {
     cards.close();
     result.hide();
     title.clear();
+    // a new world: the shell comes back on Home (quietly after our own chapter switch)
+    shell.hide(true);
     seen.clear();
+    growTips = 0;
     brains.clear();
     for (const e of w.enemies) seen.add(e.type);
     coinShown = w.run.coins;
@@ -426,8 +528,10 @@ export function createHud(stage: Stage, game: Game): Module {
     float(CX, 420, text, { size: 34, color: PALETTE.cream, rise: 30, duration: 2600 });
   }
 
+  const MOD_TIPS = { fog: 'hud.fogTip', lowCeiling: 'hud.ceilingTip', movingBase: 'hud.baseTip' } as const;
+
   const hasIntro = (type: string): boolean =>
-    type === 'shield' || type === 'jumper' || type === 'bomber' || type === 'healer' || type === 'cover' || type === 'catcher' || type === 'ward' || type === 'elite' || type === 'volley' || type === 'mage';
+    type === 'shield' || type === 'jumper' || type === 'bomber' || type === 'healer' || type === 'cover' || type === 'catcher' || type === 'ward' || type === 'elite' || type === 'volley' || type === 'mage' || type === 'armored';
 
   function onWaveStart(w: World, e: Extract<GameEvent, { t: 'waveStart' }>): void {
     const wave = e.wave;
@@ -453,9 +557,20 @@ export function createHud(stage: Stage, game: Game): Module {
     tip('rock', w.props.some((p) => p.active && p.kind === 'rock'), 'hud.rockTip');
     tip('bob', w.movers.some((m) => m.kind === 'bob'), 'hud.bobTip');
     tip('gust', w.gustEvery > 0, 'hud.gustTip');
+    // a stage modifier is explained on its first stage, always: in the banner if it is free,
+    // otherwise as a toast once the banner's intro has been read
+    const mod = w.stageMod;
+    if (mod && !seen.has(`modtip-${mod}`)) {
+      seen.add(`modtip-${mod}`);
+      const text = t(MOD_TIPS[mod]);
+      if (!intro) intro = text;
+      else later(3.4, () => teach(`mod-${mod}`, text));
+    }
     const obj = e.objective ? objectiveText(e.objective, e.limit) : null;
-    // a grown field (chapter 4, and again chapter 6): said once a run, after the banner
-    if (w.span > 1) {
+    // a grown field (hard widens it every chapter from the second): said at the first two
+    // widenings of a run, after the banner
+    if (w.span > 1 && !seen.has(`tip-grow-${w.span}`) && growTips < 2) {
+      growTips += 1;
       const key = `grow-${w.span}`;
       later(1.7, () => teach(key, t('hud.fieldGrows')));
     }
@@ -489,6 +604,11 @@ export function createHud(stage: Stage, game: Game): Module {
           audio.playPreset(SFX.whistle, { volume: 0.6 + e.power * 0.4, pitch: e.power * 2 });
           break;
         case 'hit':
+          if (e.extra && !e.ko) {
+            // a barrage's extra arrow: a soft thunk only
+            audio.playPreset(SFX.thunk, { volume: 0.45, pitch: e.part === 'head' ? 3 : 0 });
+            break;
+          }
           audio.playPreset(SFX.thunk, { pitch: e.part === 'head' ? 3 : 0 });
           if (e.crit) audio.playPreset(SFX.crit);
           if (e.slowmo) audio.playPreset(SFX.ping);
@@ -540,7 +660,15 @@ export function createHud(stage: Stage, game: Game): Module {
           audio.playPreset(SFX.boom);
           break;
         case 'blast':
-          audio.playPreset(SFX.boom, { volume: 0.6, pitch: 4 });
+          if (e.rocket) {
+            // a firework: a bang and a crackle
+            audio.playPreset(SFX.boom, { volume: 0.8, pitch: 2 });
+            audio.playPreset(SFX.fuse, { volume: 0.7 });
+          } else audio.playPreset(SFX.boom, { volume: 0.6, pitch: 4 });
+          break;
+        case 'boomCatch':
+          audio.playPreset(SFX.thock, { volume: 0.6, pitch: 5 });
+          audio.playPreset(SFX.plink, { volume: 0.5, pitch: 3 });
           break;
         case 'orbPop':
           audio.playPreset(SFX.plink);
@@ -566,7 +694,7 @@ export function createHud(stage: Stage, game: Game): Module {
           break;
         case 'bossPhase':
           audio.playPreset(SFX.roar);
-          showBanner(t('hud.phase2'), null);
+          showBanner(t(e.rage ? 'hud.rage' : 'hud.phase2'), null);
           break;
         case 'summon':
           audio.playPreset(SFX.summon);
@@ -764,6 +892,7 @@ export function createHud(stage: Stage, game: Game): Module {
   const onFont = (): void => {
     rerenderLabels();
     if (title.shown && world && world.phase === 'title') title.relayout();
+    if (shell.shown) shell.relayout();
   };
   void document.fonts?.load(`800 40px "Nunito"`, 'AĞİŞÇÖÜ ağışçöü').then(onFont, () => undefined);
 
@@ -774,7 +903,9 @@ export function createHud(stage: Stage, game: Game): Module {
     waveText.setText(showWave ? waveLabel(w) : '').setVisible(!bannerUp);
     objText.setText(w.objective && showWave ? objectiveText(w.objective.kind, w.objective.limit) : '').setVisible(!bannerUp);
     const level = game.bowLevel;
-    bowText.setText(level > 0 ? t('bow.name', { name: t(`bow.${bowTier(level)}`), n: level }) : '');
+    // the run's weapon and its level (hard, the 3D build); the classic setting still shows the forged bow
+    if (w.difficulty === 'hard') bowText.setText(`${t(`weapon.${w.meta.weapon}`)} · ${t('weapons.lv', { n: w.meta.wlevel })}`);
+    else bowText.setText(level > 0 ? t('bow.name', { name: t(`bow.${bowTier(level)}`), n: level }) : '');
     const b = w.bonus;
     bonusText.setText(b && b.t >= 0 && b.grade === null ? t('bonus.hits', { n: b.hits, c: b.coins }) : '');
     // coins count up as the flying coins land; with none in the air the counter is simply the truth
@@ -802,6 +933,7 @@ export function createHud(stage: Stage, game: Game): Module {
         setLabelRes(Math.min(3, window.devicePixelRatio || 1) * painter.k);
         // the menu follows the screen's real edges
         if (title.shown && w === world) title.relayout();
+        if (shell.shown && w === world) shell.relayout();
       }
       if (w !== world) resetRun(w);
       menus.update(real);
@@ -829,9 +961,25 @@ export function createHud(stage: Stage, game: Game): Module {
       if (w.phase === 'title') {
         if (!title.shown && !result.shown) title.show(w);
       } else if (title.shown) title.hide();
+      // the tab shell frames the title's menu state; away in the ready state, in play and under the result
+      const wantShell = w.phase === 'title' && title.shown && !title.ready && !result.shown;
+      stage.menu(wantShell);
+      if (wantShell && !shell.shown) {
+        shell.show(shellTab, { quiet: shellQuiet });
+        shellQuiet = false;
+        shellTab = 'home';
+        syncBadges();
+        if (game.save.data.arsenal.welcome) later(0.7, () => welcome());
+        else if (game.save.data.arsenal.reveals.length > 0) later(0.7, () => owedReveals());
+      } else if (!wantShell && shell.shown) shell.hide();
+      else if (shell.shown && (badgeCheck += real) > 1) {
+        badgeCheck = 0;
+        if (todayKey() !== badgeDay) syncBadges();
+      }
       // a menu screen replaces the title (the 2D game switches scenes)
       const vis = menus.open ? 'hidden' : '';
       if (titleGroup.style.visibility !== vis) titleGroup.style.visibility = vis;
+      if (shellGroup.style.visibility !== vis) shellGroup.style.visibility = vis;
       // the corner: pause in play, nothing on the title, over the result or a menu
       const phase = w.phase;
       pauseBtn.el.style.display = phase !== 'title' && phase !== 'over' && !menus.pauseOpen && !menus.open ? '' : 'none';

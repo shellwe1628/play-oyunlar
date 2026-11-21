@@ -8,6 +8,8 @@
 // --eval   JavaScript run in the page once ready (e.g. fire a shot, skip time)
 // --size   WxH of the viewport, default 540x960 (portrait 9:16)
 // --clip   x,y,w,h in viewport px to crop every capture (zoom in on a detail)
+// --drag   x0,y0,x1,y1 viewport px: press there and pull to the second point, held through the
+//          captures (the aim preview; use a run in play, e.g. ?wave=1)
 // Prints console errors and window.__okcu3d.failures so a broken module is visible.
 import { mkdirSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
@@ -32,6 +34,12 @@ page.on('pageerror', (err) => errors.push(String(err)));
 await page.goto(url, { waitUntil: 'load' });
 await page.waitForFunction(() => window.__okcu3d?.ready === true, null, { timeout: 60_000 });
 if (args.eval) await page.evaluate(args.eval);
+if (args.drag) {
+  const [x0, y0, x1, y1] = args.drag.split(',').map(Number);
+  await page.mouse.move(x0, y0);
+  await page.mouse.down();
+  await page.mouse.move(x1, y1, { steps: 8 });
+}
 const t0 = Date.now();
 for (const t of at) {
   const wait = t * 1000 - (Date.now() - t0);

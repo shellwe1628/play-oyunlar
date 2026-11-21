@@ -17,7 +17,7 @@ describe('game save', () => {
       d.feats.push('firstKo');
     });
     const b = createSaveStore(saveOptions(storage, 'test'));
-    expect(SAVE_VERSION).toBe(3);
+    expect(SAVE_VERSION).toBe(4);
     expect(b.data.best).toBe(6);
     expect(b.data.coins).toBe(55);
     expect(b.data.upgrades.hp).toBe(1);
@@ -65,7 +65,7 @@ describe('game save', () => {
 
   it('a current-version save missing newer fields is repaired, not reset', () => {
     const data = { best: 9, coins: 40, runs: 2, upgrades: { hp: 1 }, cosmetic: 'classic', dailyDate: '', dailyBest: 0, bow: { level: 3 } };
-    const storage = memoryStorage({ 'oyun:test:save': JSON.stringify({ v: 3, data }) });
+    const storage = memoryStorage({ 'oyun:test:save': JSON.stringify({ v: SAVE_VERSION, data }) });
     const s = createSaveStore(saveOptions(storage, 'test'));
     expect(s.status).toBe('loaded');
     expect(s.data.coins).toBe(40);

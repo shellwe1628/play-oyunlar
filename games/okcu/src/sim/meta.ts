@@ -1,14 +1,19 @@
 /** Between-run progress: permanent upgrades, the bow, coins, cosmetics (pure). Stored by src/save.ts. */
+import { freshArsenal, type Arsenal, type ChestKind } from './arsenal';
 import { freshBow, type BowState } from './bow';
 import { CHAPTERS } from './chapters';
+import { bowEquivalent, type WeaponId } from './weapons';
 
 /** Shop upgrades. Damage is not one of them any more: the forged bow is the one damage track. */
 export const UPGRADE_IDS = ['hp', 'coins', 'reroll', 'starter'] as const;
 export type UpgradeId = (typeof UPGRADE_IDS)[number];
-/** What a run is created with: shop levels plus the bow's enhancement level. */
-export type MetaLevels = Record<UpgradeId, number> & { bow: number };
+/**
+ * What a run is created with: shop levels, the old bow's enhancement level (classic only) and the
+ * selected weapon with its level (hard, the 3D build).
+ */
+export type MetaLevels = Record<UpgradeId, number> & { bow: number; weapon: WeaponId; wlevel: number };
 
-export const NO_META: MetaLevels = { hp: 0, coins: 0, reroll: 0, starter: 0, bow: 0 };
+export const NO_META: MetaLevels = { hp: 0, coins: 0, reroll: 0, starter: 0, bow: 0, weapon: 'bow', wlevel: 1 };
 
 /** cost(level) = round(base × growth^level) until max. */
 export const UPGRADES: Record<UpgradeId, { max: number; base: number; growth: number }> = {
@@ -64,14 +69,18 @@ export const COSMETICS: readonly Cosmetic[] = [
   { id: 'veteran', wave: 0, runs: 40, hat: 'beret', scarf: 0xffd23f, bow: 'gold' },
 ];
 
-/** `bosses`: the save's boss knockouts per chapter (boss looks stay locked without it). */
-export function isUnlocked(c: Cosmetic, best: number, runs: number, bosses: readonly number[] = []): boolean {
+/**
+ * `bosses`: the save's boss knockouts per chapter (boss looks stay locked without it);
+ * `bought`: `arsenal.boughtLooks`, looks paid for in the coin shop (always unlocked).
+ */
+export function isUnlocked(c: Cosmetic, best: number, runs: number, bosses: readonly number[] = [], bought: readonly string[] = []): boolean {
+  if (bought.includes(c.id)) return true;
   if (c.boss !== undefined) return (bosses[c.boss] ?? 0) > 0;
   return c.runs > 0 ? runs >= c.runs : best >= c.wave;
 }
 
-export function unlockedCosmetics(best: number, runs = 0, bosses: readonly number[] = []): Cosmetic[] {
-  return COSMETICS.filter((c) => isUnlocked(c, best, runs, bosses));
+export function unlockedCosmetics(best: number, runs = 0, bosses: readonly number[] = [], bought: readonly string[] = []): Cosmetic[] {
+  return COSMETICS.filter((c) => isUnlocked(c, best, runs, bosses, bought));
 }
 
 export function cosmeticById(id: string): Cosmetic {
@@ -127,6 +136,8 @@ export interface SaveData {
   feats: string[];
   /** rank index last celebrated (a higher rank than this plays the rank-up ceremony) */
   rank: number;
+  /** the 3D build's weapons, chests and daily offers (src/sim/arsenal.ts) */
+  arsenal: Arsenal;
 }
 
 export function freshSave(): SaveData {
@@ -146,12 +157,24 @@ export function freshSave(): SaveData {
     records: freshRecords(),
     feats: [],
     rank: 0,
+    arsenal: freshArsenal(),
   };
 }
 
 /** The levels a normal run is created with (the daily ignores all of them). */
 export function metaOf(save: SaveData): MetaLevels {
-  return { ...save.upgrades, bow: save.bow.level };
+  return { ...save.upgrades, bow: save.bow.level, weapon: 'bow', wlevel: 1 };
+}
+
+/**
+ * The 3D build's run levels: `metaOf` plus the selected weapon at its level. `bow` (hard never
+ * reads it for damage, only the 2D classic rules do) is the old bow +N that weapon level matches
+ * (`bowEquivalent`), so the glow follows the weapon in hand, not the retired forge.
+ */
+export function metaOf3d(save: SaveData): MetaLevels {
+  const id = save.arsenal.selected;
+  const wlevel = save.arsenal.weapons[id].level;
+  return { ...metaOf(save), bow: bowEquivalent(wlevel), weapon: id, wlevel };
 }
 
 export function buyUpgrade(save: SaveData, id: UpgradeId): boolean {
@@ -180,10 +203,12 @@ export interface RunBank {
   feats: string[];
   /** rank index when the run started */
   startRank: number;
+  /** the run-end chest this run queued (3D build, `grantRunChest`), null until it ends */
+  chest: ChestKind | null;
 }
 
 export function newBank(save: SaveData): RunBank {
-  return { coins: 0, startBest: save.best, started: false, bosses: 0, feats: [], startRank: save.rank };
+  return { coins: 0, startBest: save.best, started: false, bosses: 0, feats: [], startRank: save.rank, chest: null };
 }
 
 /** Count the run once, when its first arrow flies. */

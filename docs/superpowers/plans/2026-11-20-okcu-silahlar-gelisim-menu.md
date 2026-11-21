@@ -15,7 +15,7 @@
 - No real-money purchases; coins + optional rewarded ads only (`ui.rewarded(placement)`). Every ad reward has a no-ad path.
 - No realistic firearms; the sixth weapon is the cartoon "Fişek Atar" (firework tube).
 - Simulation stays pure and deterministic (seeded `Rng`); no `Math.random`, no `Date` inside `sim/` (time is passed in as numbers).
-- Weapon levels 1…20; `weaponDamage(1) = 1.00`, `weaponDamage(20) = 2.30`; in hard the same `HARD_BOW_POW = 1.6` exponent applies.
+- Weapon levels 1…20; `weaponDamage(1) = 1.00`, `weaponDamage(20) = 3.30` (= bowDamage(25), today's +25 ceiling); in hard the same `HARD_BOW_POW = 1.6` exponent applies.
 - Old bow +N migrates to the lowest weapon level L with `weaponDamage(L) ≥ bowDamage(N)`; +25 → 20. Forge and heat are retired in the 3D build; no coin refund.
 - Rank score never drops on migration; earned feats stay earned.
 - Beaten bosses unlock their chapter's weapon at migration; one one-time "welcome" gold chest; selected weapon = bow.
@@ -57,9 +57,9 @@ Starting values (spec 5.1; tune in Task 8): bow 1/1/1/1/1, pierce 0, bounces 0, 
 - [ ] **Step 1: Write the failing tests**
 
 ```ts
-it('weapon damage runs 1.00 → 2.30 over levels 1…20, monotonic', () => {
+it('weapon damage runs 1.00 → 3.30 over levels 1…20, monotonic', () => {
   expect(weaponDamage(1)).toBe(1);
-  expect(weaponDamage(20)).toBeCloseTo(2.3, 2);
+  expect(weaponDamage(20)).toBeCloseTo(3.3, 2);
   for (let l = 2; l <= 20; l++) expect(weaponDamage(l)).toBeGreaterThan(weaponDamage(l - 1));
 });
 it('old bow levels map to a level with at least the same damage', () => {
@@ -76,7 +76,7 @@ it('every weapon except the bow is unlocked by a different boss', () => {
 ```
 
 - [ ] **Step 2:** `npx vitest run tests/unit/weapons.test.ts` (in `games/okcu`) → FAIL (module missing).
-- [ ] **Step 3:** Implement `weapons.ts`. `weaponDamage(L) = bowDamage(round((L-1) × 25/19))` interpolated linearly between neighbours (so 1 → 1.00, 20 → 2.30), rounded to 2 decimals and kept strictly increasing.
+- [ ] **Step 3:** Implement `weapons.ts`. `weaponDamage(L) = bowDamage(round((L-1) × 25/19))` interpolated linearly between neighbours (so 1 → 1.00, 20 → 3.30), rounded to 2 decimals and kept strictly increasing.
 - [ ] **Step 4:** Run the test → PASS.
 - [ ] **Step 5:** Commit `okcu sim: weapon table and damage curve`.
 

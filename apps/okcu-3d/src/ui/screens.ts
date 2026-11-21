@@ -9,15 +9,17 @@ import { drawBadge } from '@okcu/scenes/gear';
 import { drawCardIcon } from '@okcu/scenes/icons';
 import { SFX } from '@okcu/sfx';
 import { PALETTE } from '@okcu/textures';
+import type { ChestKind } from '@sim/arsenal';
 import { bowTier } from '@sim/bow';
 import { countCards, synergyFor, type CardId, type SynergyId } from '@sim/cards';
 import { CHAPTERS } from '@sim/chapters';
 import { progressScore, RANKS, rankOf } from '@sim/progress';
 import type { World } from '@sim/world';
 import type { Game, Stage } from '../contract';
-import { button, EASE, el, Label, pressable, roundButton, Sketch, type ButtonHandle } from './dom';
+import { button, calmMotion, EASE, el, fitText, iconCanvas, Label, pressable, roundButton, Sketch, type ButtonHandle } from './dom';
 import { Gfx } from './gfx';
 import type { RunResult } from './progress';
+import { drawChestIcon } from './shop';
 
 export type T = (key: string, params?: Readonly<Record<string, string | number>>) => string;
 
@@ -273,7 +275,7 @@ export interface ResultScreen {
 }
 
 /**
- * The result's buttons (ResultScene): replay, upgrades, the forge, home (the title), the rank (the
+ * The result's buttons (ResultScene): replay, upgrades (the Weapons tab), the shop, home (the title), the rank (the
  * ranks screen); and the rewards after a watched ad: revive (continue the run; the result closes)
  * and double (bank the coins once more; returns the coins added).
  */
@@ -281,10 +283,16 @@ export interface ResultHooks {
   replay: () => void;
   revive: () => void;
   double: (amount: number) => number;
+  /** the main menu on its Weapons tab (the weapons and the archer's upgrades) */
+  upgrades: () => void;
+  /** the shop (the looks) */
   shop: () => void;
-  forge: () => void;
   home: () => void;
   ranks: () => void;
+  /** the run's chest, while it still waits unopened (null: none, or opened) */
+  runChest: () => ChestKind | null;
+  /** open the run's chest on the chest screen; false when it was not there any more */
+  openRunChest: () => boolean;
 }
 
 export function createResult(ui: Ui, parent: HTMLElement, hooks: ResultHooks): ResultScreen {
@@ -366,7 +374,7 @@ export function createResult(ui: Ui, parent: HTMLElement, hooks: ResultHooks): R
       // ResultScene's lines: the daily, where, coins, knockouts, the daily goal, records, new achievements
       const coinLine = r.daily ? 2 : 1;
       const lines = [...(r.daily ? [t('result.daily', { d: r.dailyKey })] : []), where, t('result.coins', { n: r.coins }), t('result.kos', { k: r.kos, h: r.headshots })];
-      if (r.dailyCoins > 0) lines.push(t('result.dailyDone', { n: r.dailyStreak, c: r.dailyCoins }));
+      if (r.dailyChest) lines.push(t('result.dailyChest', { n: r.dailyStreak }));
       // the run's bests, with the records screen's own captions
       if (r.streakBest > 1) lines.push(`${t('rec.streak')} ${r.streakBest}`);
       if (r.chainBest > 1) lines.push(`${t('rec.chain')} ${r.chainBest}`);
@@ -396,12 +404,12 @@ export function createResult(ui: Ui, parent: HTMLElement, hooks: ResultHooks): R
         ui.audio.play('tap');
         fn();
       };
-      // replay and upgrades as in ResultScene, the forge under them; then the rewarded row (▶ AD):
+      // replay and upgrades as in ResultScene, the shop under them; then the rewarded row (▶ AD):
       // revive (once per run) and double coins (once per result), side by side when both are offered
       btns = [
         button(root, CX, 820, t('core.replay'), ui.unlock, tap(hooks.replay), { width: 440 }),
-        button(root, CX, 932, t('result.shop'), ui.unlock, tap(hooks.shop), { width: 440, variant: 'secondary' }),
-        button(root, CX, 1044, t('title.forge'), ui.unlock, tap(hooks.forge), { width: 440, height: 96, fontSize: 40, variant: 'secondary' }),
+        button(root, CX, 932, t('result.shop'), ui.unlock, tap(hooks.upgrades), { width: 440, variant: 'secondary' }),
+        button(root, CX, 1044, t('tab.shop'), ui.unlock, tap(hooks.shop), { width: 440, height: 96, fontSize: 40, variant: 'secondary' }),
       ];
       const offers: { id: string; text: string; secondary: boolean; act: () => Promise<void> }[] = [];
       if (ads.revive) {
@@ -467,6 +475,27 @@ export function createResult(ui: Ui, parent: HTMLElement, hooks: ResultHooks): R
       const zone = el('div', '', root);
       zone.style.cssText = 'position:absolute;left:510px;top:9px;width:180px;height:150px;pointer-events:auto;cursor:pointer';
       pressable(zone, () => true, ui.unlock, tap(hooks.ranks));
+      // top centre: the run's chest, "Open!" (left closed, it waits in the Home tab's chest pile)
+      const kind = r.chest ? hooks.runChest() : null;
+      if (kind) {
+        const ch = el('div', '', root);
+        ch.dataset.testid = 'result-chest';
+        ch.style.cssText = 'position:absolute;left:285px;top:4px;width:150px;height:146px;pointer-events:auto;cursor:pointer;touch-action:none';
+        const ic = iconCanvas(ch, 150, 112, (g) => drawChestIcon(g, kind, 75, 60, 1.35));
+        ic.style.cssText += ';position:absolute;left:0;top:0';
+        const pill = el('div', '', ch);
+        pill.style.cssText = `position:absolute;left:10px;right:10px;top:104px;height:40px;border-radius:20px;background:${'#ffc93c'};border:4px solid #2a1838;color:#2a1838;font-size:24px;line-height:32px;text-align:center;white-space:nowrap`;
+        fitText(pill, t('chest.openRun'), 24, 120);
+        if (!calmMotion()) {
+          ic.animate([{ transform: 'none' }, { transform: 'rotate(-6deg) scale(1.06)', offset: 0.1 }, { transform: 'rotate(5deg) scale(1.06)', offset: 0.2 }, { transform: 'none', offset: 0.3 }, { transform: 'none' }], { duration: 1600, iterations: Infinity, delay: 900 });
+          ch.animate([{ transform: 'scale(0)' }, { transform: 'none' }], { duration: 360, delay: 450, easing: EASE.backOut, fill: 'backwards' });
+        }
+        pressable(ch, () => !busy, ui.unlock, () => {
+          ui.audio.play('tap');
+          hooks.openRunChest();
+          if (!hooks.runChest()) ch.remove();
+        });
+      }
     },
     update(real) {
       clock += real;

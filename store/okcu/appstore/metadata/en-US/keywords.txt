@@ -1,1 +1,1 @@
-archery,arrow,physics,3d,boss,shooting,aim,wobbly,duel,forge,island,battle,target,shooter
+archery,arrow,physics,3d,boss,shooting,aim,wobbly,duel,weapons,spear,island,battle,target,chest

@@ -499,6 +499,15 @@ describe('cards in play', () => {
     run(w, 0.2);
     expect(count(w)).toBe(6);
   });
+  it('hard: split widens only the first volley, so double + split is 3 + 1 arrows, not 6', () => {
+    const w = createWorld({ seed: 3, difficulty: 'hard' });
+    w.cards.push('double', 'split');
+    w.stats = statsFor(w.cards, w.meta);
+    shoot(w, -0.6, 0.4);
+    expect(count(w)).toBe(3);
+    run(w, 0.2);
+    expect(count(w)).toBe(4);
+  });
   it('heavy arrows deal 1.3× damage', () => {
     const plain = createWorld({ seed: 3 });
     const heavy = withCards(['heavy']);

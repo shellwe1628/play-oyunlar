@@ -96,7 +96,7 @@ kontrolü aynı kalır (geri çek, bırak), değişen mermi davranışı ve temp
 - Her silahın seviyesi var: **1 … 20**. Seviye atlatmak = **o silahın parçası + altın**,
   garantili (şans yok). Örn. 2. seviye 2 parça + 50 altın; maliyet seviyeyle büyür.
 - Hasar çarpanı seviyeyle: **ortak silah eğrisi** `weaponDamage(seviye)`, seviye 1 = 1,00,
-  seviye 20 = 2,30 (bugünkü yayın +25 tavanı). Eğri bugünkü `bowDamage`'ı +0…+25 aralığında
+  seviye 20 = 3,30 (= bugünkü yayın +25 tavanı, `bowDamage(25)`). Eğri bugünkü `bowDamage`'ı +0…+25 aralığında
   20 seviyeye gerer; `hard`'daki `HARD_BOW_POW` üssü aynen uygulanır. Böylece bölüm 5–6'nın
   düşman canı (+25 yaya göre ayarlı, `HARD_LATE_*`) yeniden dengelenmez. *(kurucu kararı)*
   Her seviye ayrıca küçük bir silaha özel özellik açar (örn. 5'te arbalet +1 deler, 10'da

@@ -13,7 +13,8 @@
  * - cycle: at the top band the colour runs through the rainbow, along the limbs and in time.
  *
  * It flares on every shot and surges on headshots, multi-kills, streaks and focus, as in
- * GameScene. Only the player's bow glows (enemies and bosses never do in the 2D game either).
+ * GameScene. Only the player's weapon glows (enemies and bosses never do in the 2D game either):
+ * the bow, or the selected weapon's model (the 3D build's level, `bowEquivalent`, picks the band).
  * Everything follows `archers.bowOf(player)`: the limb tips and the grip, every frame.
  */
 import * as THREE from 'three';
@@ -185,7 +186,7 @@ export function createBowGlow(stage: Stage, archers: ArchersView, game: Game): M
       // a shot (≈ 1) or a headshot / streak / focus (≈ 2): the aura flares and throws off sparks
       for (const e of events) {
         if (e.t === 'shot') pendingFlare = Math.max(pendingFlare, e.over ? 1.4 : 1);
-        else if (e.t === 'hit' && e.slowmo) pendingFlare = Math.max(pendingFlare, 2);
+        else if (e.t === 'hit' && e.slowmo && !e.extra) pendingFlare = Math.max(pendingFlare, 2);
         else if (e.t === 'multi') pendingFlare = Math.max(pendingFlare, 2);
         else if (e.t === 'streak') pendingFlare = Math.max(pendingFlare, 2.2);
         else if (e.t === 'focus' && e.on) pendingFlare = Math.max(pendingFlare, 2.5);

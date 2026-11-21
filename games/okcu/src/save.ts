@@ -1,5 +1,6 @@
 import type { OyunContext } from '@oyun/core';
 import { createSaveStore, type SaveOptions, type SaveStore, type StorageAdapter } from '@oyun/core/pure';
+import { repairArsenal } from './sim/arsenal';
 import { BOW_MAX, bowLevelForOldDamage } from './sim/bow';
 import { freshRecords, freshSave, UPGRADE_IDS, type DatedRecord, type SaveData } from './sim/meta';
 
@@ -11,8 +12,11 @@ import { freshRecords, freshSave, UPGRADE_IDS, type DatedRecord, type SaveData }
  * four to six entries (repairSave pads them with zeros, never drops what is there), and
  * `chapter` keeps its meaning (furthest chapter reached), so a save that had endless unlocked
  * (chapter 4) now opens chapter 5, the Ember Caldera, as its next step and keeps everything else.
+ * v4: the arsenal (weapons, chests). A new save is created with it already migrated; an older
+ * save gets one still to be migrated (the store fills missing fields from freshSave, so only the
+ * version step can tell the two apart), and the 3D build's openSave runs `migrateArsenal` once.
  */
-export const SAVE_VERSION = 3;
+export const SAVE_VERSION = 4;
 
 const num = (v: unknown, lo = 0): number | null => (typeof v === 'number' && Number.isFinite(v) && v >= lo ? v : null);
 
@@ -47,7 +51,8 @@ export function repairSave(d: Partial<SaveData>): SaveData {
   };
   const bosses = base.bosses.map((_, i) => Math.floor(num(Array.isArray(d.bosses) ? d.bosses[i] : undefined) ?? 0));
   const feats = Array.isArray(d.feats) ? d.feats.filter((f): f is string => typeof f === 'string') : [];
-  return { ...base, ...d, upgrades, bow, records, bosses, feats };
+  const arsenal = repairArsenal(d.arsenal);
+  return { ...base, ...d, upgrades, bow, records, bosses, feats, arsenal };
 }
 
 /** Kept for older tests and callers: the same repair. */
@@ -85,6 +90,12 @@ export function saveOptions(storage: StorageAdapter, gameId: string): SaveOption
       1: (old) => old,
       // v2 → v3: the damage upgrade becomes bow levels
       2: (old) => migrateV2(old),
+      // v3 → v4: a save from before the arsenal gets one still to be migrated (repairArsenal of
+      // nothing); everything else stays
+      3: (old) => {
+        const d = (typeof old === 'object' && old !== null ? old : {}) as Record<string, unknown>;
+        return { ...d, arsenal: repairArsenal(undefined) };
+      },
     },
     validate: valid,
     storage,

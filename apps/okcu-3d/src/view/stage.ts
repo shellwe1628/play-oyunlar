@@ -9,23 +9,23 @@
  *
  * Camera feel mirrors the 2D game's GameScene.updateCamera: a kick against each shot, a small
  * punch, a zoom toward headshots / boss knockouts / the player's fall that holds through the slow
- * motion, and trauma shake with the same numbers as `@oyun/core` juice (trauma², decay 1.6 / s,
+ * motion, and trauma shake with the same numbers as `@oyun/core` juice (trauma², decay 2.4 / s here, capped at 0.75, one per frame,
  * 22 px, 0.035 rad). `toScreen` / `toLogical` go through the camera matrices, so they stay right
  * during all of it.
  *
  * On top of the 2D game's camera: a boss's entrance (the camera eases in on the boss as it lands
  * and holds, then glides back), the wave's finishing knockout (a slow push-in on the last enemy
  * that falls), a nudge with each gust and a small punch at a stage clear. Reduced motion (the
- * system's prefers-reduced-motion, or ?calm=1) keeps a third of the shake and half the zooms.
+ * system's prefers-reduced-motion, or ?calm=1) keeps a quarter of the shake and half the zooms.
  * All of it reads the frame's events and the world; none of it feeds back into the simulation.
  *
- * A grown field (from chapter 4, the sim's `w.span`, chapters.ts `fieldSpan`) widens the resting
+ * A grown field (hard: from chapter 2, the sim's `w.span`, chapters.ts `fieldSpan`) widens the resting
  * window to `span` times the frame, anchored at the bottom left where the player stands, so the
  * farthest island still fits a portrait phone; the camera glides out to it as the wave drops in.
  * Every effect above works on top of that base view, in its screen space.
  */
 import * as THREE from 'three';
-import { PLAYER_LEDGE, PLAYER_X } from '@sim/tuning';
+import { PLAYER_LEDGE } from '@sim/tuning';
 import type { Frame, Stage } from '../contract';
 import { FRAME_H, FRAME_W, LOGICAL_H, LOGICAL_W, PX_PER_M } from '../coords';
 
@@ -33,6 +33,14 @@ import { FRAME_H, FRAME_W, LOGICAL_H, LOGICAL_W, PX_PER_M } from '../coords';
 export const FOV = 22;
 /** eye height above the frame centre, metres */
 export const EYE_LIFT = 4.2;
+/**
+ * The main menu's framing (`Stage.menu`): the player's archer (its middle, MENU_LIFT logical px
+ * over the ledge) lands at MENU_AT on the logical frame, MENU_ZOOM times closer, in the free band
+ * between the chapter card and PLAY, right of the side buttons. Checked with tools/menu-shots.mjs.
+ */
+export const MENU_ZOOM = 1.32;
+export const MENU_LIFT = 92;
+export const MENU_AT = { x: 330, y: 760 } as const;
 /** distance from the resting eye to the gameplay plane, metres */
 export const REST_DIST = FRAME_H / 2 / Math.tan((FOV / 2) * (Math.PI / 180));
 const NEAR = 2;
@@ -45,7 +53,10 @@ export const HEMI_NAME = 'okcu-hemi';
 export const CALM =
   (typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches) || new URLSearchParams(location.search).get('calm') === '1';
 
-const SHAKE_DECAY = 1.6;
+/** trauma fades this much a second (the 2D game's 1.6 kept a barrage shaking non-stop) */
+const SHAKE_DECAY = 2.4;
+/** the most trauma there can be (a quarter less than juice's 1) */
+const TRAUMA_MAX = 0.75;
 const SHAKE_OFFSET = 22;
 const SHAKE_ROLL = 0.035;
 
@@ -101,6 +112,8 @@ export function createStage(root: HTMLElement): Stage {
   let introT = 0;
   let introZoom = 0;
   let trauma = 0;
+  /** the strongest shake asked for since the last frame */
+  let shakeAsk = 0;
   let shakeT = 0;
   let clock = 0;
   let cssW = 1;
@@ -108,6 +121,9 @@ export function createStage(root: HTMLElement): Stage {
   /** the field's size as shown (eases to the world's span) */
   let span = 1;
   let spanWorld: unknown = null;
+  /** the menu framing: wanted (Stage.menu) and how far in it is, 0 … 1 */
+  let menuOn = false;
+  let menuK = 0;
 
   /** Aim the frustum: the plane-z=0 window centred on logical (cx, cy), 1 / z of the frame in size. */
   function frameCamera(cx: number, cy: number, z: number, roll: number, swayX: number, swayY: number): void {
@@ -162,7 +178,7 @@ export function createStage(root: HTMLElement): Stage {
           break;
         }
         case 'hit':
-          if (e.slowmo) {
+          if (e.slowmo && !e.extra) {
             slowT = 0.25;
             zoom = 0.26;
             focusX = e.x;
@@ -213,7 +229,8 @@ export function createStage(root: HTMLElement): Stage {
         case 'dying':
           slowT = 0.35;
           zoom = 0.12;
-          focusX = PLAYER_X;
+          // (a sliding base carries the player: follow it)
+          focusX = frame.w.player.anchorX;
           focusY = PLAYER_LEDGE.y - 150;
           break;
         default:
@@ -243,13 +260,21 @@ export function createStage(root: HTMLElement): Stage {
       const py = camera.position.y + dir.y * t;
       return { x: px * PX_PER_M + LOGICAL_W / 2, y: LOGICAL_H / 2 - py * PX_PER_M };
     },
+    menu(on) {
+      menuOn = on;
+    },
     shake(strength) {
-      trauma = Math.min(1, Math.max(0, trauma + strength * (CALM ? 0.35 : 1)));
+      // shakes asked for in one frame do not stack: the strongest one counts (a barrage's dozen hits)
+      shakeAsk = Math.max(shakeAsk, strength);
     },
     render(frame) {
       const real = frame.real;
       clock += real;
       readEvents(frame);
+      if (shakeAsk > 0) {
+        trauma = Math.min(TRAUMA_MAX, Math.max(0, trauma + shakeAsk * (CALM ? 0.25 : 1)));
+        shakeAsk = 0;
+      }
 
       // zoom holds through the slow motion (or eases in during a camera move), then eases back; the push springs back
       slowT = Math.max(0, slowT - real);
@@ -295,7 +320,23 @@ export function createStage(root: HTMLElement): Stage {
       // a slow idle sway of the eye: the gameplay plane stays put, depth gets parallax
       const swayX = Math.sin(clock * 0.23) * 0.5 + Math.sin(clock * 0.11 + 1.7) * 0.22;
       const swayY = Math.sin(clock * 0.17 + 0.6) * 0.16;
-      frameCamera(cx, cy, z * base, roll, swayX, swayY);
+      // the menu's framing: ease in on the player's archer (reduced motion: a cut)
+      const goalK = menuOn && frame.w.phase === 'title' ? 1 : 0;
+      menuK = CALM ? goalK : menuK + (goalK - menuK) * Math.min(1, real * 2.6);
+      if (Math.abs(goalK - menuK) < 1e-3) menuK = goalK;
+      let mx = cx;
+      let my = cy;
+      let mz = z * base;
+      if (menuK > 0) {
+        const e = menuK * menuK * (3 - 2 * menuK);
+        const zm = mz * MENU_ZOOM;
+        const px = frame.w.player.anchorX;
+        const py = PLAYER_LEDGE.y - MENU_LIFT;
+        mx += (px - (MENU_AT.x - LOGICAL_W / 2) / zm - cx) * e;
+        my += (py - (MENU_AT.y - LOGICAL_H / 2) / zm - cy) * e;
+        mz += (zm - mz) * e;
+      }
+      frameCamera(mx, my, mz, roll, swayX, swayY);
 
       renderer.render(scene, camera);
     },

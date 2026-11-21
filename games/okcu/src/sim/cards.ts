@@ -1,6 +1,7 @@
 /** In-run upgrade cards, their synergies and the stats they produce (pure). */
 import type { Rng } from '@oyun/core/pure';
 import { bowDamage } from './bow';
+import { WEAPONS, weaponDamage, weaponPerks, type Projectile, type WeaponId } from './weapons';
 import { UPGRADE_EFFECT, type MetaLevels } from './meta';
 import { TUNING } from './tuning';
 import type { Difficulty } from './waves';
@@ -56,6 +57,45 @@ export const CARDS: Record<CardId, { max: number; weight: number; from?: number 
   blast: { max: 2, weight: 6, from: 2 },
 };
 
+/**
+ * Cards limited to some weapons (absent = every weapon); a card fits a weapon only if it changes
+ * something for that weapon's projectile. Every card not listed works the same on all six:
+ * heavy (dmgMul/impulse, the rocket burst too), fire/frost/vampire/chain/keen (on a body hit, the
+ * rocket's contact hit included), quick (reload), boom (knockouts), zen (focus), vitality,
+ * magnet, shield (the player). Limited ones (world.ts fireVolley / updateArrows / ledgeHit /
+ * hitShield / stickOrPierce / burst):
+ * - double, split: one slow rocket is the firework's shot (reload ×1.8, full-radius burst); more
+ *   rockets would stack whole bursts, so not for firework.
+ * - bounce: a boomerang flies over ledges and walls (playerArrowHits never calls ledgeHit for it)
+ *   and its shield glance ignores bounces; a rocket would bounce instead of bursting (the bounce
+ *   branch runs first) - not for either.
+ *   Sling: +1 bounce.
+ * - pierce: stickOrPierce lets a boomerang cut through anyway (pierce is moot) and ends a rocket
+ *   before pierce is read - not for either.
+ * - seeker: flyBoomerang never steers; the rocket bursts at a 0.48 s fuse before steering pays
+ *   off - not for either.
+ * - overdraw: a boomerang's draw power sets how far it flies before turning, a range choice, not
+ *   a power shot - not for boomerang.
+ * - longsight: the 15-step preview already spans 0.48 s, the rocket's whole 0.48 s fuse - not
+ *   for firework.
+ * - blast: burst() uses the rocket's own radius and share, never the card's - not for firework.
+ */
+export const CARD_WEAPONS: Partial<Record<CardId, readonly WeaponId[]>> = {
+  double: ['bow', 'crossbow', 'spear', 'boomerang', 'sling'],
+  split: ['bow', 'crossbow', 'spear', 'boomerang', 'sling'],
+  bounce: ['bow', 'crossbow', 'spear', 'sling'],
+  pierce: ['bow', 'crossbow', 'spear', 'sling'],
+  seeker: ['bow', 'crossbow', 'spear', 'sling'],
+  overdraw: ['bow', 'crossbow', 'spear', 'sling', 'firework'],
+  longsight: ['bow', 'crossbow', 'spear', 'boomerang', 'sling'],
+  blast: ['bow', 'crossbow', 'spear', 'boomerang', 'sling'],
+};
+
+/** Does card `id` do something with `weapon`? (classic is always the bow, which fits every card) */
+export function cardFits(id: CardId, weapon: WeaponId): boolean {
+  return CARD_WEAPONS[id]?.includes(weapon) ?? true;
+}
+
 /** Two cards that do something extra together (shown on the card when it completes a pair). */
 export const SYNERGIES = [
   { id: 'inferno', a: 'fire', b: 'boom' },
@@ -80,6 +120,12 @@ export function synergyFor(held: readonly CardId[], card: CardId): SynergyId | n
 }
 
 export interface PlayerStats {
+  /** hard: the selected weapon (classic is always the bow) and what it shoots */
+  weapon: WeaponId;
+  projectile: Projectile;
+  gravityMul: number;
+  speedMul: number;
+  headMul: number;
   dmgMul: number;
   impulseMul: number;
   /** arrows per shot, fired 0.12 s apart */
@@ -145,22 +191,32 @@ export const FOCUS_TIME = 5;
  */
 export const HARD_BOW_POW = 1.6;
 
-export function statsFor(cards: readonly CardId[], meta: MetaLevels, d: Difficulty = 'classic'): PlayerStats {
-  const n = (id: CardId) => countCards(cards, id);
+export function statsFor(held: readonly CardId[], meta: MetaLevels, d: Difficulty = 'classic'): PlayerStats {
   const hard = d === 'hard';
+  // a held card that does nothing with the weapon (a daily, a draft or the starter card) is ignored
+  const weapon: WeaponId = hard ? meta.weapon : 'bow';
+  const cards = held.filter((c) => cardFits(c, weapon));
+  const n = (id: CardId) => countCards(cards, id);
   const fire = n('fire');
   const syn = activeSynergies(cards);
   const hawk = syn.includes('hawk');
+  const wd = WEAPONS[weapon];
+  const perks = hard ? weaponPerks(weapon, meta.wlevel) : weaponPerks('bow', 1);
   return {
-    dmgMul: hard ? (1 + 0.2 * n('heavy')) * bowDamage(meta.bow) ** HARD_BOW_POW : 1.3 ** n('heavy') * bowDamage(meta.bow),
+    weapon: wd.id,
+    projectile: wd.projectile,
+    gravityMul: wd.gravityMul,
+    speedMul: wd.speedMul,
+    headMul: wd.headMul,
+    dmgMul: hard ? (1 + 0.2 * n('heavy')) * weaponDamage(meta.wlevel) ** HARD_BOW_POW * wd.dmgMul : 1.3 ** n('heavy') * bowDamage(meta.bow),
     impulseMul: hard ? 1 + 0.22 * n('heavy') : 1.35 ** n('heavy'),
     volleys: 1 + n('double'),
     splitPairs: n('split'),
     fireDps: fire > 0 ? 8 + 6 * fire : 0,
     fireTime: fire > 0 ? 2.5 + 0.5 * fire : 0,
-    bounces: n('bounce'),
-    pierce: n('pierce'),
-    reload: TUNING.reload * 0.72 ** n('quick'),
+    bounces: n('bounce') + (hard ? perks.bounces : 0),
+    pierce: n('pierce') + (hard ? perks.pierce : 0),
+    reload: TUNING.reload * 0.72 ** n('quick') * (hard ? wd.reloadMul * perks.reloadMul : 1),
     maxHp: TUNING.playerMaxHp + 25 * n('vitality') + UPGRADE_EFFECT.hp * meta.hp,
     appleHealMul: 1 + 0.6 * n('magnet'),
     appleRadiusMul: 1 + 1.1 * n('magnet'),
@@ -196,12 +252,13 @@ export function cardOpen(id: CardId, chapter: number): boolean {
 }
 
 /**
- * n distinct cards, weighted, never one already at its cap nor one whose chapter is still ahead
- * (`chapter` = the chapter the pick leads into; omitted = every card). New cards sit at the end
+ * n distinct cards, weighted, never one already at its cap, one whose chapter is still ahead
+ * (`chapter` = the chapter the pick leads into; omitted = every card) nor one that does nothing
+ * with `weapon` (the bow fits every card, so its draws are unchanged). New cards sit at the end
  * of CARD_IDS, so the first chapter's offers are the same draws as before they existed.
  */
-export function drawOffer(rng: Rng, held: readonly CardId[], n: number, chapter = Infinity): CardId[] {
-  const pool = CARD_IDS.filter((id) => countCards(held, id) < CARDS[id].max && cardOpen(id, chapter));
+export function drawOffer(rng: Rng, held: readonly CardId[], n: number, chapter = Infinity, weapon: WeaponId = 'bow'): CardId[] {
+  const pool = CARD_IDS.filter((id) => countCards(held, id) < CARDS[id].max && cardOpen(id, chapter) && cardFits(id, weapon));
   const out: CardId[] = [];
   while (out.length < n && pool.length > 0) {
     let total = 0;

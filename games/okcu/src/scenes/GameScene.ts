@@ -120,6 +120,7 @@ const ENEMY_TINT: Record<EnemyType, number> = {
   imp: PALETTE.imp,
   volley: PALETTE.volley,
   mage: PALETTE.mage,
+  armored: PALETTE.archer,
 };
 
 const W = 720;
@@ -2193,6 +2194,7 @@ function animKind(t: Archer['type']): Kind {
     case 'catcher':
     case 'imp':
     case 'volley':
+    case 'armored':
       return 'archer';
     case 'elite':
       return 'boss';

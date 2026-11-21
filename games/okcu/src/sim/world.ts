@@ -2,8 +2,10 @@
  * The whole game as a deterministic fixed-step simulation: the player and enemy archers
  * (ragdolls with muscles), arrows, bombs, orbs, apples, ledges (some slide or swing on ropes),
  * props (barrels, hanging rocks), chapters, bosses, bonus rounds, cards, focus and coins.
- * From chapter 4 on the field grows (chapters.ts `fieldSpan`): `w.span` tells the renderers how
- * far to pull their cameras back.
+ * The field grows (chapters.ts `fieldSpan`; classic from chapter 4, hard from chapter 2): `w.span`
+ * tells the renderers how far to pull their cameras back. hard stages may carry a modifier
+ * (`w.stageMod`): a rock ceiling (`w.ceiling`), fog that hides far archers (`Archer.veil`) or the
+ * player's ledge sliding (`w.baseX`).
  * Scenes call `advance`, `aimAt`, `shoot`, `pickCard`, `unleash`, … and draw the state; they
  * hold no rules.
  */
@@ -11,15 +13,16 @@ import { createRng, type Rng } from '@oyun/core/pure';
 import { flyArrow, hitParts, sweepCapsule } from './arrow';
 import { addVelocity, createBody, stepBody, translateBody, type Body, type Ledge } from './body';
 import { draftPick, drawOffer, statsFor, type CardId, type PlayerStats } from './cards';
-import { bonusAfter, CHAPTERS, chapterStart, ENDLESS_WAVE, fieldSpan, fieldTop, growLayout, levelOf, objectiveFor, STAGES, stageDef, stageEnemies, stageOf, type BonusKind, type BossKind, type LedgeDef, type ObjectiveKind } from './chapters';
-import { ENEMY_DAMAGE, resolveHit, type EnemyType, type HitPart } from './combat';
+import { bonusAfter, CHAPTERS, chapterStart, ENDLESS_WAVE, fieldSpan, fieldTop, growLayout, levelOf, objectiveFor, RECOMMENDED_POWER, STAGES, stageDef, stageEnemies, stageOf, type BonusKind, type BossKind, type LedgeDef, type ObjectiveKind, type StageMod } from './chapters';
+import { armourShare, ENEMY_DAMAGE, resolveHit, type EnemyType, type HitPart } from './combat';
 import { clamp, solveLaunchAngle, sweepAabb } from './geom';
 import { NO_META, type MetaLevels, type RunBank } from './meta';
 import type { DailyMod, RunSummary } from './progress';
 import { BOSS_PARTS, bowOrigin, createRagdoll, LEG_HEIGHT, PARTS, PT, setPose, type Part } from './ragdoll';
 import { PLAYER_LEDGE, PLAYER_SCALE, PLAYER_X, TUNING } from './tuning';
 import { bossHp, enemyAccuracy, enemyDamageMul, enemyHp, enemyScale, enemyTiming, enemyWeight, graceStep, HARD_COIN_MUL, helmetChance, waveGrace, type Difficulty } from './waves';
-import { bowDamage } from './bow';
+import { POWER_BASE } from './arsenal';
+import { WEAPONS, weaponDamage, weaponPerks, type Projectile } from './weapons';
 
 export type Phase = 'title' | 'play' | 'clear' | 'bonus' | 'cards' | 'dying' | 'over';
 export type ArcherType = EnemyType | 'player';
@@ -52,6 +55,8 @@ export interface Archer {
   aimGoal: number;
   speedGoal: number;
   aimPenalty: number;
+  /** hard: this draw was already broken once by a hit; it is not broken again before it is loosed */
+  steady: boolean;
   stagger: number;
   wobble: number;
   burn: number;
@@ -86,6 +91,8 @@ export interface Archer {
   /** chapter boss: which one, its phase (1, 2) and its special-move timer */
   bossKind: BossKind | null;
   bossPhase: number;
+  /** hard: a chapter boss still standing after BOSS_RAGE_AFTER s aims true, draws twice as fast, hits twice as hard */
+  rage: boolean;
   special: number;
   /** arrow-catcher: seconds until it can catch again */
   catchCd: number;
@@ -96,12 +103,17 @@ export interface Archer {
   chill: number;
   /** wizard: seconds until it can blink to another ledge again */
   blinkCd: number;
+  /** fog stage: seconds until it comes out of the fog (0 = seen); unseen, it cannot be hit and keeps still */
+  veil: number;
 }
 
 export interface Arrow {
   active: boolean;
   owner: 'player' | 'enemy';
-  kind: 'arrow' | 'bomb' | 'orb';
+  kind: 'arrow' | 'bomb' | 'orb' | 'bolt' | 'spear' | 'boomerang' | 'pebble' | 'rocket';
+  /** gravity and wind scale (1 for everything but some weapons' projectiles) */
+  gravityMul: number;
+  windMul: number;
   /** 0 flying, 1 stuck in a ledge, 2 stuck in a body, 3 stuck in a shield */
   state: 0 | 1 | 2 | 3;
   x: number;
@@ -150,6 +162,10 @@ export interface Arrow {
   /** player: frost and blast arrow heads (drawn icy / with a charge) */
   frost: boolean;
   blast: boolean;
+  /** boomerang: flight age (s) at which it stops flying out and starts back */
+  turnT: number;
+  /** boomerang: archers already hit on this pass (cleared when it turns) */
+  hitIds: number[];
 }
 
 export interface Apple {
@@ -249,9 +265,11 @@ export type GameEvent =
   | { t: 'enemyShot'; id: number; kind: 'arrow' | 'bomb' | 'orb'; x: number; y: number }
   /** a wizard that was hit vanishes from one ledge and appears on another */
   | { t: 'blink'; id: number; x0: number; y0: number; x1: number; y1: number }
+  /** fog: an archer comes out of the fog (it can be hit from now on) */
+  | { t: 'reveal'; id: number; x: number; y: number }
   /** a frost arrow (or a shatter burst) chilled an archer */
   | { t: 'chill'; id: number; x: number; y: number }
-  | { t: 'hit'; id: number; part: HitPart; x: number; y: number; dmg: number; ko: boolean; slowmo: boolean; vx: number; vy: number; fire: boolean; enemy: EnemyType; crit: boolean }
+  | { t: 'hit'; id: number; part: HitPart; x: number; y: number; dmg: number; ko: boolean; slowmo: boolean; vx: number; vy: number; fire: boolean; enemy: EnemyType; crit: boolean; extra?: boolean }
   | { t: 'bodyThunk'; id: number; x: number; y: number }
   | { t: 'playerHit'; part: HitPart; x: number; y: number; dmg: number; vx: number; vy: number; by: number }
   | { t: 'blocked'; x: number; y: number }
@@ -272,7 +290,7 @@ export type GameEvent =
   | { t: 'ward'; id: number; x: number; y: number; up: boolean }
   | { t: 'healBeam'; from: number; to: number; x0: number; y0: number; x1: number; y1: number; amount: number }
   | { t: 'plate'; x: number; y: number }
-  | { t: 'bossPhase'; id: number; kind: BossKind; x: number; y: number }
+  | { t: 'bossPhase'; id: number; kind: BossKind; x: number; y: number; rage?: boolean }
   | { t: 'summon'; id: number; x: number; y: number }
   /** the cinder king calls lava rocks down on the player (one event per rock, at its spawn point) */
   | { t: 'eruption'; id: number; x: number; y: number }
@@ -283,7 +301,10 @@ export type GameEvent =
   | { t: 'rockHit'; x: number; y: number; id: number }
   | { t: 'rockBreak'; x: number; y: number }
   | { t: 'zap'; x0: number; y0: number; x1: number; y1: number; dmg: number }
-  | { t: 'blast'; x: number; y: number; r: number; fire: boolean }
+  /** a burst of radius `r`: the boom card, a blast arrow, or a firework rocket (`rocket`) */
+  | { t: 'blast'; x: number; y: number; r: number; fire: boolean; rocket: boolean }
+  /** the player's boomerang came back to the bow (it ends here) */
+  | { t: 'boomCatch'; x: number; y: number }
   | { t: 'multi'; n: number; x: number; y: number }
   | { t: 'streak'; n: number }
   | { t: 'chain'; n: number; x: number; y: number; coins: number }
@@ -356,8 +377,16 @@ export interface World {
   ledges: Ledge[];
   /** the enemy ledges of the current stage (indices into `ledges` start at 1) */
   layout: readonly Ledge[];
-  /** field size against the 720 x 1280 frame (1, then bigger from chapter 4: chapters.ts fieldSpan) */
+  /** field size against the 720 x 1280 frame (1, then bigger: classic from chapter 4, hard from chapter 2; chapters.ts fieldSpan) */
   span: number;
+  /** hard: this stage's modifier (chapters.ts StageMod), null on a plain stage and always in classic */
+  stageMod: StageMod | null;
+  /** lowCeiling: projectiles above this y are stopped by the rock (−Infinity: no ceiling) */
+  ceiling: number;
+  /** movingBase: how far the player's ledge (and the player) stands from its usual x, px */
+  baseX: number;
+  /** movingBase: the slide's phase (rad); it glides home on the next plain stage */
+  baseTheta: number;
   /** cover walls: block arrows only (bodies pass); `on` is the ledge they stand on */
   walls: (Ledge & { on: number })[];
   movers: Mover[];
@@ -463,6 +492,8 @@ function newArrow(): Arrow {
     active: false,
     owner: 'player',
     kind: 'arrow',
+    gravityMul: 1,
+    windMul: 1,
     state: 0,
     x: 0,
     y: 0,
@@ -497,11 +528,18 @@ function newArrow(): Arrow {
     hex: false,
     frost: false,
     blast: false,
+    turnT: 0,
+    hitIds: [],
   };
 }
 
 function playerPelvisY(): number {
   return PLAYER_LEDGE.y - LEG_HEIGHT * PLAYER_SCALE;
+}
+
+/** Where the player stands (PLAYER_X, moved by a sliding base). */
+export function playerX(w: World): number {
+  return PLAYER_X + w.baseX;
 }
 
 function makeArcher(w: World, type: ArcherType, x: number, ledgeTop: number, facing: number, ledge: number): Archer {
@@ -531,6 +569,7 @@ function makeArcher(w: World, type: ArcherType, x: number, ledgeTop: number, fac
     aimGoal: 0,
     speedGoal: 0,
     aimPenalty: 0,
+    steady: false,
     stagger: 0,
     wobble: 0,
     burn: 0,
@@ -560,12 +599,14 @@ function makeArcher(w: World, type: ArcherType, x: number, ledgeTop: number, fac
     bob: (w.nextId * 1.7) % 6.28,
     bossKind: null,
     bossPhase: 1,
+    rage: false,
     special: 0,
     catchCd: 0,
     wardUp: type === 'ward',
     wardT: 0,
     chill: 0,
     blinkCd: 0,
+    veil: 0,
   };
   if (type === 'shield') {
     const sx = x + facing * 30;
@@ -658,6 +699,10 @@ export function createWorld(opts: WorldOptions): World {
     ledges: [{ ...PLAYER_LEDGE }],
     layout: [],
     span: 1,
+    stageMod: null,
+    ceiling: -Infinity,
+    baseX: 0,
+    baseTheta: 0,
     walls: [],
     movers: [],
     props: Array.from({ length: 6 }, () => ({ active: false, kind: 'barrel', x: 0, y: 0, vy: 0, w: 0, h: 0, hanging: false, pivotY: PIVOT_Y })),
@@ -695,13 +740,13 @@ export function createWorld(opts: WorldOptions): World {
   } as unknown as World;
   w.layoutRot = w.waveRng.int(0, 2);
   if (w.stats.starterCard) {
-    const [card] = drawOffer(w.cardRng, [], 1);
+    const [card] = drawOffer(w.cardRng, [], 1, Infinity, w.stats.weapon);
     if (card) w.cards.push(card);
   }
   if (w.mod === 'fire') w.cards.push('fire');
   // chapter select: a fair hand for the chapters skipped, drafted from real offers
   for (let i = 0; i < w.startChapter * DRAFT_PER_CHAPTER; i++) {
-    const offer = drawOffer(w.cardRng, w.cards, 3, Math.floor(i / DRAFT_PER_CHAPTER));
+    const offer = drawOffer(w.cardRng, w.cards, 3, Math.floor(i / DRAFT_PER_CHAPTER), w.stats.weapon);
     if (offer.length === 0) break;
     w.cards.push(offer[draftPick(offer)]!);
   }
@@ -715,9 +760,66 @@ export function createWorld(opts: WorldOptions): World {
 
 // ---------------------------------------------------------------- waves
 
+/** a thrown spear is gone after this many seconds in the air (a bow arrow flies for 5) */
+export const SPEAR_LIFE = 1.2;
+
 /** hard: damage share of split's side arrows and of double's later volleys */
-const HARD_SIDE_ARROW = 0.5;
+const HARD_SIDE_ARROW = 0.25;
+/**
+ * angle between split's arrows (rad): hard opens the fan wider, so the side arrows reach other
+ * archers instead of landing on the same head as the middle one
+ */
+const SPLIT_ANGLE = 0.065;
+const HARD_SPLIT_ANGLE = 0.15;
 const HARD_EXTRA_VOLLEY = 0.6;
+
+/**
+ * hard: a chapter boss fought below the chapter's recommended power (RECOMMENDED_POWER, shown on
+ * the chapter card) is a wall: the player's hits on it shrink and its hits on the player grow,
+ * both by (recommended / power)^BOSS_POWER_GATE (its hits at most ×BOSS_POWER_HURT_MAX). At or
+ * above the recommendation nothing changes. Chapter 1 recommends the starting weapon, so it never
+ * applies there; endless bosses are not gated.
+ */
+export const BOSS_POWER_GATE = 4;
+const BOSS_POWER_HURT_MAX = 50;
+
+/** the player's power as the chapter card counts it (the selected weapon's level) */
+const weaponPower = (w: World): number => Math.round(POWER_BASE * weaponDamage(w.meta.wlevel));
+
+/** how far below the chapter's recommended power the player is: 1 = not below, else need / power */
+function powerGap(w: World): number {
+  if (w.difficulty !== 'hard') return 1;
+  const p = stageOf(w.wave);
+  if (p.endless) return 1;
+  const need = RECOMMENDED_POWER[p.chapter] ?? 0;
+  const power = weaponPower(w);
+  return power >= need ? 1 : need / power;
+}
+
+/** damage multiplier on the player's hits on a chapter boss (see BOSS_POWER_GATE) */
+export function underPower(w: World): number {
+  return powerGap(w) ** -BOSS_POWER_GATE;
+}
+
+/**
+ * hard: a chapter boss (chapter 2 on; not endless) still standing this long into its stage
+ * enrages (Archer.rage): fought at the recommended power it falls in a few seconds, so only a
+ * fight dragged out by an under-powered weapon ever sees it.
+ */
+export const BOSS_RAGE_AFTER = 20;
+
+function updateRage(w: World, a: Archer): void {
+  if (a.rage || a.type !== 'boss' || !a.alive || w.difficulty !== 'hard' || w.phase !== 'play') return;
+  const p = stageOf(w.wave);
+  if (p.endless || p.chapter < 1 || w.time - w.waveT0 < BOSS_RAGE_AFTER) return;
+  a.rage = true;
+  w.events.push({ t: 'bossPhase', id: a.id, kind: a.bossKind ?? 'shields', x: a.body.x[PT.head]!, y: a.body.y[PT.head]!, rage: true });
+}
+
+/** damage multiplier on a chapter boss's hits on the player (see BOSS_POWER_GATE) */
+export function bossHurtMul(w: World): number {
+  return Math.min(BOSS_POWER_HURT_MAX, powerGap(w) ** BOSS_POWER_GATE);
+}
 
 function coinMul(w: World): number {
   return w.stats.coinMul * (w.mod === 'giants' ? 1.5 : 1) * (w.difficulty === 'hard' ? HARD_COIN_MUL : 1);
@@ -752,9 +854,10 @@ function spawnWave(w: World, wave: number, instant: boolean): void {
   w.stage = pos.stage;
   w.theme = pos.theme;
   w.level = levelOf(wave, w.difficulty);
-  const def = stageDef(wave, w.waveRng);
-  w.span = fieldSpan(wave);
-  const defs: LedgeDef[] = growLayout(def.ledges, w.span);
+  const def = stageDef(wave, w.waveRng, w.difficulty);
+  w.stageMod = w.difficulty === 'hard' ? def.mod ?? null : null;
+  w.span = fieldSpan(wave, w.difficulty);
+  const defs: LedgeDef[] = growLayout(def.ledges, w.span, w.stageMod !== 'lowCeiling');
   if (wave === 1) nudgeFirst(w, defs);
   const pivotY = ropeTop(w.span);
   // leftover bodies of the last wave poof now
@@ -763,11 +866,19 @@ function spawnWave(w: World, wave: number, instant: boolean): void {
   for (const a of w.arrows) {
     if (!a.active) continue;
     if (a.state === 0 && a.owner === 'enemy') a.active = false;
+    // a boomerang still out would come back into the next wave: it is gone with the old one
+    if (a.state === 0 && a.kind === 'boomerang') a.active = false;
+    // a rocket still in its fuse would burst on the next wave's archers
+    if (a.state === 0 && a.kind === 'rocket') a.active = false;
     if (a.state === 1 || a.state === 3) a.active = false;
   }
   clearProps(w);
   w.layout = defs.map((l) => ({ x: l.x, y: l.y, w: l.w, h: l.h ?? 58 }));
-  w.ledges = [{ ...PLAYER_LEDGE }, ...w.layout.map((l) => ({ ...l }))];
+  // (a sliding base stays where it is: it glides home from there, see updateBase)
+  w.ledges = [{ ...PLAYER_LEDGE, x: PLAYER_LEDGE.x + w.baseX }, ...w.layout.map((l) => ({ ...l }))];
+  if (w.stageMod === 'movingBase') w.baseTheta = Math.asin(clamp(w.baseX / BASE_SLIDE.amp, -1, 1));
+  // the rock ceiling hangs CEILING_ROOM above the highest island (its bob included)
+  w.ceiling = w.stageMod === 'lowCeiling' ? Math.max(fieldTop(w.span) + 60, Math.min(...defs.map((l) => l.y - (l.bob?.amp ?? 0))) - CEILING_ROOM) : -Infinity;
   defs.forEach((l, i) => {
     if (l.slide) w.movers.push({ index: i + 1, kind: 'slide', x0: l.x, y0: l.y, amp: l.slide.amp, speed: l.slide.speed, theta: w.waveRng.range(0, Math.PI * 2), pivotX: 0, pivotY, len: 0, cut: false, vy: 0 });
     if (l.swing) w.movers.push({ index: i + 1, kind: 'swing', x0: l.x, y0: l.y, amp: l.swing.amp, speed: l.swing.speed, theta: w.waveRng.range(0, Math.PI * 2), pivotX: l.x + l.w / 2, pivotY, len: l.y - pivotY, cut: false, vy: 0 });
@@ -796,6 +907,7 @@ function spawnWave(w: World, wave: number, instant: boolean): void {
       w.walls.push({ x: L.x + L.w / 2 - 46, y: L.y - 118, w: 26, h: 118, on: i + 1 });
     }
     if (type === 'catcher') e.catchCd = 0.6;
+    if (w.stageMod === 'fog') e.veil = fogVeil(w, L);
     if (!instant) {
       e.brain = 'spawn';
       e.spawnT = 0;
@@ -821,6 +933,22 @@ function spawnWave(w: World, wave: number, instant: boolean): void {
   w.waveT0 = w.time;
   // the title's wave is announced by startRun when the first arrow flies
   if (!instant) pushWaveStart(w);
+}
+
+/** lowCeiling: px between the highest island's top and the ceiling (an archer's head, and a flat shot over it) */
+export const CEILING_ROOM = 250;
+/** movingBase: the player's ledge slides ±amp px at `speed` rad/s; between stages it glides at `home` px/s */
+export const BASE_SLIDE = { amp: 34, speed: 0.75, home: 60 } as const;
+/**
+ * fog: an archer further than `near` px (straight line from the player's bow to its ledge's
+ * centre) stays hidden for (distance − near) / pxPerS seconds after it lands, at most `max`.
+ */
+export const FOG = { near: 260, pxPerS: 110, max: 3.5 } as const;
+
+function fogVeil(w: World, L: Ledge): number {
+  const o = playerOrigin(w, -0.4);
+  const d = Math.hypot(L.x + L.w / 2 - o.x, L.y - 100 - o.y);
+  return Math.round(clamp((d - FOG.near) / FOG.pxPerS, 0, FOG.max) * 100) / 100;
 }
 
 function pushWaveStart(w: World): void {
@@ -913,7 +1041,7 @@ export function arrowSpeed(power: number): number {
 }
 
 export function playerOrigin(w: World, angle: number): { x: number; y: number } {
-  return bowOrigin(PLAYER_X, playerPelvisY(), angle, PLAYER_SCALE);
+  return bowOrigin(playerX(w), playerPelvisY(), angle, PLAYER_SCALE);
 }
 
 export function canShoot(w: World): boolean {
@@ -938,31 +1066,38 @@ export function shoot(w: World, angle: number, power: number): boolean {
   w.volleyAngle = a;
   w.volleyPower = power;
   const o = playerOrigin(w, a);
-  w.events.push({ t: 'shot', x: o.x, y: o.y, angle: a, power, arrows: w.stats.volleys * (1 + 2 * w.stats.splitPairs), over: power >= OVERDRAW_POWER && w.stats.overdraw > 1 });
+  w.events.push({ t: 'shot', x: o.x, y: o.y, angle: a, power, arrows: w.difficulty === 'hard' ? w.stats.volleys + 2 * w.stats.splitPairs : w.stats.volleys * (1 + 2 * w.stats.splitPairs), over: power >= OVERDRAW_POWER && w.stats.overdraw > 1 });
   return true;
 }
 
 function fireVolley(w: World, angle: number, power: number, first: boolean): void {
-  const speed = arrowSpeed(power);
-  const pairs = w.stats.splitPairs;
+  const speed = arrowSpeed(power) * w.stats.speedMul;
+  // hard: split's side arrows fly with the first volley only (double + split was up to 15
+  // arrows a shot; now at most 5 + 2)
+  const pairs = w.difficulty === 'hard' && !first ? 0 : w.stats.splitPairs;
   const over = power >= OVERDRAW_POWER && w.stats.overdraw > 1;
   const focus = w.focusT > 0;
   for (let k = -pairs; k <= pairs; k++) {
-    const ang = angle + k * 0.065;
+    const ang = angle + k * (w.difficulty === 'hard' ? HARD_SPLIT_ANGLE : SPLIT_ANGLE);
     const o = playerOrigin(w, angle);
-    const ar = spawnArrow(w, 'player', 'arrow', o.x, o.y, Math.cos(ang) * speed, Math.sin(ang) * speed);
+    const ar = spawnArrow(w, 'player', w.stats.projectile, o.x, o.y, Math.cos(ang) * speed, Math.sin(ang) * speed);
     if (!ar) continue;
     // hard: extra arrows (split's side arrows, double's later volleys) hit for a share, so the
     // run's cards widen the shot without multiplying its damage four to six times
     const extra = w.difficulty === 'hard' ? (k !== 0 ? HARD_SIDE_ARROW : 1) * (first ? 1 : HARD_EXTRA_VOLLEY) : 1;
+    ar.gravityMul = w.stats.gravityMul;
+    ar.windMul = WEAPONS[w.stats.weapon].windMul;
     ar.dmgMul = w.stats.dmgMul * (over ? w.stats.overdraw : 1) * (focus ? FX.focusDmg : 1) * extra;
     // hard: the forged bow pushes as well as it hurts (a stronger bow sends archers flying)
-    ar.impulseMul = w.stats.impulseMul * (over && w.stats.siege ? 1.5 : 1) * (w.difficulty === 'hard' ? bowDamage(w.meta.bow) : 1);
+    ar.impulseMul = w.stats.impulseMul * (over && w.stats.siege ? 1.5 : 1) * (w.difficulty === 'hard' ? weaponDamage(w.meta.wlevel) * WEAPONS[w.stats.weapon].impulseMul : 1);
     ar.fire = w.stats.fireDps > 0;
     ar.frost = w.stats.frostTime > 0;
     ar.blast = w.stats.blastShare > 0;
     ar.pierce = w.stats.pierce + (focus ? 1 : 0);
-    ar.bounces = w.stats.bounces;
+    if (ar.kind === 'spear') ar.life = SPEAR_LIFE;
+    if (ar.kind === 'boomerang') ar.turnT = BOOM.turnBase + BOOM.turnPower * clamp(power, 0, 1);
+    // a rocket always bursts on contact: it never bounces, whatever cards are held
+    ar.bounces = ar.kind === 'rocket' ? 0 : w.stats.bounces;
     ar.seek = w.stats.seek > 0 && (k === 0 || w.stats.swarm);
     ar.over = over;
     ar.focus = focus;
@@ -1000,7 +1135,9 @@ function spawnArrow(w: World, owner: 'player' | 'enemy', kind: Arrow['kind'], x:
   a.vy = vy;
   a.angle = Math.atan2(vy, vx);
   a.age = 0;
-  a.life = kind === 'arrow' ? 5 : 6;
+  a.gravityMul = 1;
+  a.windMul = 1;
+  a.life = kind === 'arrow' || owner === 'player' ? 5 : 6;
   a.dmgMul = 1;
   a.impulseMul = 1;
   a.fire = false;
@@ -1022,6 +1159,8 @@ function spawnArrow(w: World, owner: 'player' | 'enemy', kind: Arrow['kind'], x:
   a.hex = false;
   a.frost = false;
   a.blast = false;
+  a.turnT = 0;
+  a.hitIds.length = 0;
   return a;
 }
 
@@ -1067,14 +1206,14 @@ export function pickCard(w: World, index: number): boolean {
 export function reroll(w: World): boolean {
   if (w.phase !== 'cards' || w.rerollsLeft <= 0) return false;
   w.rerollsLeft -= 1;
-  w.offer = drawOffer(w.cardRng, w.cards, w.offer.length, pickChapter(w));
+  w.offer = drawOffer(w.cardRng, w.cards, w.offer.length, pickChapter(w), w.stats.weapon);
   return true;
 }
 
 /** Rewarded: one more card to choose from (once per pick). */
 export function addExtraCard(w: World): boolean {
   if (w.phase !== 'cards' || w.offerExtra) return false;
-  const more = drawOffer(w.cardRng, [...w.cards, ...w.offer.flatMap((c) => Array<CardId>(9).fill(c))], 1, pickChapter(w));
+  const more = drawOffer(w.cardRng, [...w.cards, ...w.offer.flatMap((c) => Array<CardId>(9).fill(c))], 1, pickChapter(w), w.stats.weapon);
   if (more.length === 0) return false;
   w.offer.push(more[0]!);
   w.offerExtra = true;
@@ -1086,7 +1225,7 @@ export function revive(w: World): boolean {
   if (w.phase !== 'over' || w.revived) return false;
   w.revived = true;
   const old = w.player;
-  w.player = makeArcher(w, 'player', PLAYER_X, PLAYER_LEDGE.y, 1, 0);
+  w.player = makeArcher(w, 'player', playerX(w), PLAYER_LEDGE.y, 1, 0);
   w.player.maxHp = w.stats.maxHp;
   w.player.hp = Math.ceil(w.stats.maxHp / 2);
   for (const a of w.arrows) {
@@ -1158,6 +1297,7 @@ function tick(w: World): void {
     }
   }
   updateMovers(w);
+  updateBase(w);
   if (w.gustEvery > 0 && w.phase === 'play') updateGust(w);
   updateArcher(w, w.player);
   for (let i = 0; i < w.enemies.length; i++) updateArcher(w, w.enemies[i]!);
@@ -1244,7 +1384,7 @@ function openCards(w: World): void {
   w.bonus = null;
   for (const t of w.targets) t.active = false;
   w.offerExtra = false;
-  w.offer = drawOffer(w.cardRng, w.cards, n, pickChapter(w));
+  w.offer = drawOffer(w.cardRng, w.cards, n, pickChapter(w), w.stats.weapon);
   if (w.offer.length === 0) {
     // every card is maxed out: straight on to the next wave
     w.phase = 'play';
@@ -1319,6 +1459,29 @@ function updateMovers(w: World): void {
         a.y += dy;
       }
     }
+  }
+}
+
+/** movingBase: the player's ledge slides to and fro; on any other stage it glides home. The player and arrows stuck in it ride along. */
+function updateBase(w: World): void {
+  if (w.stageMod !== 'movingBase' && w.baseX === 0) return;
+  let goal = 0;
+  if (w.stageMod === 'movingBase') {
+    w.baseTheta += BASE_SLIDE.speed * DT;
+    goal = BASE_SLIDE.amp * Math.sin(w.baseTheta);
+  }
+  const step = w.stageMod === 'movingBase' ? Infinity : BASE_SLIDE.home * DT;
+  const dx = clamp(goal - w.baseX, -step, step);
+  if (dx === 0) return;
+  w.baseX += dx;
+  const L = w.ledges[0]!;
+  L.x = PLAYER_LEDGE.x + w.baseX;
+  const p = w.player;
+  p.anchorX += dx;
+  p.stanceX += dx;
+  translateBody(p.body, dx, 0);
+  for (const a of w.arrows) {
+    if (a.active && a.state === 1 && a.host === 0) a.x += dx;
   }
 }
 
@@ -1609,7 +1772,7 @@ function knockOut(w: World, a: Archer, cause: KoCause): void {
 /** The boom card: a knocked-out enemy bursts, hurting (and with inferno burning) its neighbours. */
 function boom(w: World, a: Archer): void {
   const c = targetPoint(a, 'chest');
-  w.events.push({ t: 'blast', x: c.x, y: c.y, r: FX.boomRadius, fire: w.stats.inferno });
+  w.events.push({ t: 'blast', x: c.x, y: c.y, r: FX.boomRadius, fire: w.stats.inferno, rocket: false });
   for (const e of w.enemies) {
     if (!e.alive || e === a) continue;
     const t = targetPoint(e, 'chest');
@@ -1625,7 +1788,17 @@ function setBurn(w: World, e: Archer): void {
   e.burnTick = Math.min(e.burnTick || 0.5, 0.5);
 }
 
-/** Damage from a blast, rock or chain (no part, no slow motion). Returns true on a knockout. */
+/** The weapon projectile an arrow is (plate armour cares), or undefined for enemy missiles. */
+function playerKind(a: Arrow): Projectile | undefined {
+  return a.kind === 'bomb' || a.kind === 'orb' ? undefined : a.kind;
+}
+
+/**
+ * Damage from a blast, rock or chain (no part, no slow motion). Returns true on a knockout.
+ * Plate armour is the caller's business: what came off an arrow (a blast arrow's burst, chain
+ * lightning, the fire it lit) is scaled by `armourShare`; the environment (rocks, barrels,
+ * falls, the boom card) is not.
+ */
 function damageEnemy(w: World, e: Archer, dmg: number, cause: KoCause): boolean {
   if (!e.alive) return false;
   e.hp -= dmg;
@@ -1664,6 +1837,7 @@ function checkBossPhase(w: World, e: Archer): void {
 }
 
 function brain(w: World, a: Archer): void {
+  updateRage(w, a);
   const active = w.phase === 'play' || w.phase === 'clear';
   if (a.chill > 0) a.chill = Math.max(0, a.chill - DT);
   if (a.blinkCd > 0) a.blinkCd -= DT;
@@ -1711,10 +1885,19 @@ function brain(w: World, a: Archer): void {
     return;
   }
   if (a.type === 'boss') bossSpecial(w, a);
-  if (a.stagger > 0 && a.brain === 'draw') {
+  if (a.veil > 0) {
+    // fog: an unseen archer keeps still, then gets a beat before its first draw
+    a.veil = Math.max(0, a.veil - DT);
+    a.timer = Math.max(a.timer, FOG_BEAT);
+    a.draw = 0;
+    if (a.veil === 0) w.events.push({ t: 'reveal', id: a.id, x: a.body.x[PT.neck]!, y: a.body.y[PT.neck]! });
+    return;
+  }
+  if (a.stagger > 0 && a.brain === 'draw' && !(w.difficulty === 'hard' && a.steady)) {
     a.brain = 'cool';
     a.timer = 0.5;
     a.draw = 0;
+    if (w.difficulty === 'hard') a.steady = true;
   }
   // frost arrows: a chilled archer's clock runs slow (draw, cool-down, hops)
   const slow = a.chill > 0 ? w.stats.frostSlow : 1;
@@ -1750,6 +1933,7 @@ function brain(w: World, a: Archer): void {
       a.aim += (a.aimGoal - a.aim) * Math.min(1, DT * 8);
       if (a.timer <= 0) {
         release(w, a);
+        a.steady = false;
         a.brain = 'cool';
         a.timer = timing.cool + w.brainRng.range(0, 0.6);
       }
@@ -1759,6 +1943,9 @@ function brain(w: World, a: Archer): void {
       break;
   }
 }
+
+/** fog: seconds an archer waits after it comes out of the fog before it draws */
+const FOG_BEAT = 0.6;
 
 function drawTimeOf(a: Archer, draw: number): number {
   switch (a.type) {
@@ -1804,7 +1991,7 @@ export function staffTip(a: Archer): { x: number; y: number } {
 function castOrb(w: World, a: Archer, speed: number, share: number, homing: number): void {
   const acc = enemyAccuracy(w.level, w.difficulty);
   const o = staffTip(a);
-  const ang = Math.atan2(playerPelvisY() - 30 - o.y, PLAYER_X - o.x) + gauss(w.brainRng) * (acc.angle + a.aimPenalty) * 0.3;
+  const ang = Math.atan2(playerPelvisY() - 30 - o.y, playerX(w) - o.x) + gauss(w.brainRng) * (acc.angle + a.aimPenalty) * 0.3;
   const ar = spawnArrow(w, 'enemy', 'orb', o.x, o.y, Math.cos(ang) * speed, Math.sin(ang) * speed);
   if (ar) {
     ar.by = a.id;
@@ -1865,14 +2052,18 @@ function chillEnemy(w: World, e: Archer, t: number): void {
  * stop the arrow, not the burst.
  */
 function burst(w: World, a: Arrow, x: number, y: number, struck: Archer | null): void {
-  const r = w.stats.blastRadius;
-  const dmg = ENEMY_DAMAGE.body * a.dmgMul * w.stats.blastShare;
-  w.events.push({ t: 'blast', x, y, r, fire: false });
+  // a firework rocket bursts with its own radius (perk-scaled) and full body damage; the blast card's numbers are for arrows
+  const rocket = a.kind === 'rocket';
+  const r = rocket ? rocketRadius(w) : w.stats.blastRadius;
+  const dmg = ENEMY_DAMAGE.body * a.dmgMul * (rocket ? ROCKET.share : w.stats.blastShare);
+  w.events.push({ t: 'blast', x, y, r, fire: false, rocket });
   for (const e of w.enemies) {
-    if (!e.alive || e === struck || e.brain === 'spawn') continue;
+    if (!e.alive || e === struck || e.brain === 'spawn' || e.veil > 0) continue;
     const t = targetPoint(e, 'chest');
     if (Math.hypot(t.x - x, t.y - y) > r + 20 * e.scale) continue;
-    damageEnemy(w, e, dmg * (e.type === 'boss' ? 0.5 : 1), 'blast');
+    // plate armour shrugs off a blast arrow's burst, not a rocket's
+    damageEnemy(w, e, dmg * (e.type === 'boss' ? 0.5 : 1) * armourShare(e.type, rocket ? 'rocket' : 'arrow'), 'blast');
+    if (rocket) a.scored = true;
     if (w.stats.shatter) chillEnemy(w, e, w.stats.frostTime);
   }
 }
@@ -1921,7 +2112,7 @@ function eruption(w: World, a: Archer): void {
   const row = a.bossPhase === 2 ? ERUPTION_PHASE2 : ERUPTION_PHASE1;
   const jitter = w.brainRng.range(-24, 24);
   for (let i = 0; i < row.length; i++) {
-    const x = PLAYER_X + row[i]! + jitter;
+    const x = playerX(w) + row[i]! + jitter;
     const y = -70 - i * 45;
     const ar = spawnArrow(w, 'enemy', 'bomb', x, y, w.brainRng.range(-25, 25), 120);
     if (ar) {
@@ -2002,6 +2193,7 @@ function enemySpeed(a: Archer): number {
 }
 
 function blocksArc(w: World, x: number, y: number): boolean {
+  if (y < w.ceiling) return true;
   for (const L of w.ledges) if (x > L.x - 4 && x < L.x + L.w + 4 && y > L.y - 4 && y < L.y + L.h) return true;
   for (const L of w.walls) if (x > L.x - 4 && x < L.x + L.w + 4 && y > L.y - 4 && y < L.y + L.h) return true;
   return false;
@@ -2009,16 +2201,16 @@ function blocksArc(w: World, x: number, y: number): boolean {
 
 /**
  * True when an arrow launched from (ox, oy) reaches the vertical line x = tx (within `ty` ± 60
- * when it gets there) without passing through a ledge or wall (wind included). Used by enemies
- * (and the scripted player) to pick an arc that is not blocked.
+ * when it gets there) within `maxT` s without passing through a ledge or wall (wind included;
+ * gravity `g`, lighter for some weapons' projectiles). Used by enemies (and the scripted player)
+ * to pick an arc that is not blocked.
  */
-export function arcClear(w: World, ox: number, oy: number, angle: number, speed: number, tx: number, ty: number, windK = 1): boolean {
+export function arcClear(w: World, ox: number, oy: number, angle: number, speed: number, tx: number, ty: number, windK = 1, g: number = TUNING.gravity, maxT = 3): boolean {
   const vx = Math.cos(angle) * speed;
   const vy = Math.sin(angle) * speed;
-  const g = TUNING.gravity;
   const wind = w.wind * windK;
   const dir = Math.sign(tx - ox) || 1;
-  for (let t = 1 / 90; t < 3; t += 1 / 90) {
+  for (let t = 1 / 90; t < maxT; t += 1 / 90) {
     const x = ox + vx * t + 0.5 * wind * t * t;
     const y = oy + vy * t + 0.5 * g * t * t;
     if ((x - tx) * dir >= 0) return Math.abs(y - ty) < 60;
@@ -2036,14 +2228,14 @@ const LOB_STEPS = [0.88, 0.94, 1, 1.12, 1.25] as const;
 const HIGH_FIRST = [true, false] as const;
 
 /**
- * Launch angle to hit (tx, ty) from (ox, oy) at `speed` with gravity and wind: the wind shift
+ * Launch angle to hit (tx, ty) from (ox, oy) at `speed` with gravity `g` and wind: the wind shift
  * over the flight time is aimed off (two refinement passes). Null if out of reach.
  */
-export function solveWithWind(ox: number, oy: number, tx: number, ty: number, speed: number, wind: number, high: boolean): number | null {
+export function solveWithWind(ox: number, oy: number, tx: number, ty: number, speed: number, wind: number, high: boolean, g: number = TUNING.gravity): number | null {
   let aimX = tx;
   let angle: number | null = null;
   for (let i = 0; i < 3; i++) {
-    angle = solveLaunchAngle(aimX - ox, ty - oy, speed, TUNING.gravity, high);
+    angle = solveLaunchAngle(aimX - ox, ty - oy, speed, g, high);
     if (angle === null || wind === 0) return angle;
     const vx = Math.cos(angle) * speed;
     const T = Math.abs(vx) > 1 ? (aimX - ox) / vx : 1;
@@ -2055,7 +2247,7 @@ export function solveWithWind(ox: number, oy: number, tx: number, ty: number, sp
 /** Aim solve for an enemy: an unblocked arc to the player's chest (before the wave's error). */
 export function enemyAimSolution(w: World, a: Archer): { angle: number; speed: number } {
   const base = enemySpeed(a);
-  const tx = PLAYER_X;
+  const tx = playerX(w);
   const ty = playerPelvisY() - 24;
   let first: { angle: number; speed: number } | null = null;
   // the volley archer lobs: its arrows come down from above, over walls and ledges
@@ -2084,20 +2276,22 @@ function beginDraw(w: World, a: Archer, drawTime: number): void {
   if (a.bossKind === 'warden') {
     // the warden aims its orb fan straight at the player (orbs fly without gravity)
     const o = bowOrigin(a.stanceX, a.anchorY, a.aim, a.scale);
-    a.aimGoal = Math.atan2(playerPelvisY() - 30 - o.y, PLAYER_X - o.x) + gauss(w.brainRng) * acc.angle * 0.3;
+    a.aimGoal = Math.atan2(playerPelvisY() - 30 - o.y, playerX(w) - o.x) + gauss(w.brainRng) * acc.angle * 0.3 * (a.rage ? 0 : 1);
     a.speedGoal = FX.orbSpeed;
   } else if (a.type === 'mage') {
     // the wizard's staff points at the player while the hex gathers (aimed for real on release)
     const o = staffTip(a);
-    a.aimGoal = Math.atan2(playerPelvisY() - 30 - o.y, PLAYER_X - o.x);
+    a.aimGoal = Math.atan2(playerPelvisY() - 30 - o.y, playerX(w) - o.x);
     a.speedGoal = FX.mageSpeed;
   } else {
     const sol = enemyAimSolution(w, a);
-    a.aimGoal = sol.angle + gauss(w.brainRng) * (acc.angle + a.aimPenalty);
-    a.speedGoal = sol.speed * (1 + gauss(w.brainRng) * acc.speed);
+    // an enraged boss aims true (the noise is still drawn, so the rng stream stays in step)
+    const true_ = a.rage ? 0 : 1;
+    a.aimGoal = sol.angle + gauss(w.brainRng) * (acc.angle + a.aimPenalty) * true_;
+    a.speedGoal = sol.speed * (1 + gauss(w.brainRng) * acc.speed * true_);
   }
   a.brain = 'draw';
-  a.timer = drawTime;
+  a.timer = drawTime * (a.rage ? 0.5 : 1);
   w.events.push({ t: 'enemyDraw', id: a.id });
 }
 
@@ -2251,7 +2445,7 @@ function steer(w: World, a: Arrow): void {
   let tx = 0;
   let ty = 0;
   for (const e of w.enemies) {
-    if (!e.alive || e.brain === 'spawn' || e.id === a.ignore) continue;
+    if (!e.alive || e.brain === 'spawn' || e.veil > 0 || e.id === a.ignore) continue;
     const dx = e.body.x[PT.head]! - a.x;
     const dy = e.body.y[PT.head]! - a.y;
     if (dx * a.vx + dy * a.vy <= 0) continue; // only what lies ahead
@@ -2276,7 +2470,7 @@ function steer(w: World, a: Arrow): void {
 /** The wizard's hex turns toward the player's chest while it is still in front of the player. */
 function homeOrb(w: World, a: Arrow): void {
   const p = w.player;
-  if (!p.alive || a.x < PLAYER_X + 30) return;
+  if (!p.alive || a.x < playerX(w) + 30) return;
   const tx = (p.body.x[PT.neck]! + p.body.x[PT.pelvis]!) / 2 - a.x;
   const ty = (p.body.y[PT.neck]! + p.body.y[PT.pelvis]!) / 2 - a.y;
   const cur = Math.atan2(a.vy, a.vx);
@@ -2288,6 +2482,9 @@ function homeOrb(w: World, a: Arrow): void {
   a.vx = Math.cos(cur + turn) * sp;
   a.vy = Math.sin(cur + turn) * sp;
 }
+
+/** A sling pebble keeps 70% of its normal speed off ledges, walls and shields. */
+export const PEBBLE_REST = 0.7;
 
 function updateArrows(w: World): void {
   for (const a of w.arrows) {
@@ -2315,17 +2512,27 @@ function updateArrows(w: World): void {
       if (a.homing > 0) homeOrb(w, a);
       a.x += a.vx * DT;
       a.y += a.vy * DT;
+    } else if (a.kind === 'boomerang') {
+      if (flyBoomerang(w, a)) continue;
     } else {
       if (a.seek) steer(w, a);
-      flyArrow(a, DT, TUNING.gravity);
+      flyArrow(a, DT, TUNING.gravity * a.gravityMul);
       if (w.wind !== 0) {
-        a.x += 0.5 * w.wind * DT * DT;
-        a.vx += w.wind * DT;
+        const wind = w.wind * a.windMul;
+        a.x += 0.5 * wind * DT * DT;
+        a.vx += wind * DT;
       }
     }
     a.angle = Math.atan2(a.vy, a.vx);
     a.life -= DT;
-    if (a.life <= 0 || a.x < -300 || a.x > 1020 || a.y > 1600) {
+    if (a.kind === 'rocket' && a.age >= ROCKET.fuse - 1e-9) {
+      burst(w, a, a.x, a.y, null);
+      missed(w, a);
+      a.active = false;
+      continue;
+    }
+    // a low ceiling stops anything that climbs into the rock
+    if (a.life <= 0 || a.x < -300 || a.x > 1020 || a.y > 1600 || a.y < w.ceiling || (a.kind === 'rocket' && a.y < ROCKET.topEdge)) {
       missed(w, a);
       a.active = false;
       continue;
@@ -2334,6 +2541,75 @@ function updateArrows(w: World): void {
     else enemyArrowHits(w, a, x0, y0);
   }
 }
+
+/**
+ * Boomerang flight: no gravity. Out along the launch line, slowing linearly to a stop at `turnT`
+ * (wind pushes it at 0.3 of an arrow's push); then back toward the bow, speeding up, on a path
+ * that curls up over the line it went out on and straightens as it nears the player, with the
+ * wind's 0.3 drift. It flies over ledges and walls both ways (see playerArrowHits); a shield
+ * turns it early. Back within BOOM.catchR of the bow it ends (it never hurts the player).
+ * Returns true when it ended this step.
+ */
+function flyBoomerang(w: World, a: Arrow): boolean {
+  const t0 = a.age - DT;
+  const wind = w.wind * BOOM.windMul;
+  if (t0 < a.turnT) {
+    const left = a.turnT - t0;
+    const k = left > DT + 1e-9 ? 1 - DT / left : 0;
+    a.x += ((a.vx * (1 + k)) / 2) * DT + 0.5 * wind * DT * DT;
+    a.y += ((a.vy * (1 + k)) / 2) * DT;
+    a.vx = a.vx * k + wind * DT * k;
+    a.vy *= k;
+    if (a.age >= a.turnT - 1e-9) turnBoomerang(a);
+    return false;
+  }
+  const o = playerOrigin(w, w.player.aim);
+  let dx = o.x - a.x;
+  let dy = o.y - a.y;
+  let d = Math.hypot(dx, dy);
+  if (d < BOOM.catchR) return endBoomerang(w, a);
+  const mul = w.difficulty === 'hard' ? weaponPerks('boomerang', w.meta.wlevel).returnSpeedMul : 1;
+  const sp = Math.min(BOOM.returnMax, BOOM.returnAcc * (a.age - a.turnT)) * mul;
+  const dir = Math.atan2(dy, dx) + BOOM.curl * clamp((d - BOOM.catchR) / 500, 0, 1);
+  a.vx = Math.cos(dir) * sp + wind * BOOM.driftT;
+  a.vy = Math.sin(dir) * sp;
+  a.x += a.vx * DT;
+  a.y += a.vy * DT;
+  dx = o.x - a.x;
+  dy = o.y - a.y;
+  d = Math.hypot(dx, dy);
+  if (d < BOOM.catchR) return endBoomerang(w, a);
+  return false;
+}
+
+/** The boomerang starts back (at `turnT`, or early off a ledge or shield): a new pass. */
+function turnBoomerang(a: Arrow): void {
+  a.turnT = Math.min(a.turnT, a.age);
+  a.hitIds.length = 0;
+  a.vx = 0;
+  a.vy = 0;
+}
+
+/** Caught: back within BOOM.catchR of the bow. */
+function endBoomerang(w: World, a: Arrow): boolean {
+  missed(w, a);
+  a.active = false;
+  w.events.push({ t: 'boomCatch', x: a.x, y: a.y });
+  return true;
+}
+
+/** Boomerang: turn time 0.55 + 0.5 × power s (a full draw reaches 919 px, the far corner of the widest fields); return acceleration (px/s²) and top speed (px/s), both × the return perk. */
+export const BOOM = { turnBase: 0.55, turnPower: 0.5, windMul: 0.3, returnAcc: 1500, returnMax: 1400, curl: 0.7, driftT: 0.5, catchR: 60 } as const;
+
+/** Firework rocket: fuse (s; a full draw flies 840 px before it, and its burst reaches the far corner of the widest fields), burst radius (px) and share of a body hit every archer in it takes; it leaves the field this far above it. */
+export const ROCKET = { fuse: 0.48, radius: 145, share: 1, topEdge: 0 } as const;
+
+/** A firework rocket's burst radius in this world (px): ROCKET.radius × the level's perk (hard). */
+export function rocketRadius(w: World): number {
+  return ROCKET.radius * (w.difficulty === 'hard' ? weaponPerks('firework', w.meta.wlevel).blastRadiusMul : 1);
+}
+
+const boomReturning = (a: Arrow): boolean => a.kind === 'boomerang' && a.age >= a.turnT;
 
 /** Ledge (or wall) test for a flying arrow from (x0,y0) to its current tip; returns true if it stopped. */
 function ledgeHit(w: World, a: Arrow, x0: number, y0: number): boolean {
@@ -2367,15 +2643,30 @@ function ledgeHit(w: World, a: Arrow, x0: number, y0: number): boolean {
     w.events.push({ t: 'orbPop', x: hx, y: hy });
     return true;
   }
+  if (a.kind === 'pebble' && a.bounces <= 0) {
+    // a pebble never sticks: the contact after its last bounce ends it
+    missed(w, a);
+    a.active = false;
+    w.events.push({ t: 'thunk', x: hx, y: hy, owner: a.owner });
+    return true;
+  }
   if (a.bounces > 0) {
+    const pebble = a.kind === 'pebble';
     a.bounces -= 1;
     a.x = hx + best.nx * 2;
     a.y = hy + best.ny * 2;
-    if (best.nx !== 0) a.vx = -a.vx * 0.78;
-    if (best.ny !== 0) a.vy = -a.vy * 0.78;
-    a.vx *= 0.92;
+    if (best.nx !== 0) a.vx = -a.vx * (pebble ? PEBBLE_REST : 0.78);
+    if (best.ny !== 0) a.vy = -a.vy * (pebble ? PEBBLE_REST : 0.78);
+    if (!pebble) a.vx *= 0.92;
     a.ignore = -1;
     w.events.push({ t: 'bounce', x: hx, y: hy });
+    return true;
+  }
+  if (a.kind === 'rocket') {
+    // a rocket never sticks: it bursts on the ledge or wall (missed only if the burst hurt nobody)
+    burst(w, a, hx, hy, null);
+    missed(w, a);
+    a.active = false;
     return true;
   }
   missed(w, a);
@@ -2445,8 +2736,9 @@ function playerArrowHits(w: World, a: Arrow, x0: number, y0: number): void {
   let hx = 0;
   let hy = 0;
   for (const e of w.enemies) {
-    // archers dropping in cannot be hit until they land
-    if (e.gone || e.id === a.ignore || (e.alive && e.brain === 'spawn')) continue;
+    // archers dropping in cannot be hit until they land, nor ones still hidden in the fog
+    if (e.gone || e.id === a.ignore || (e.alive && (e.brain === 'spawn' || e.veil > 0))) continue;
+    if (a.hitIds.length > 0 && a.hitIds.includes(e.id)) continue;
     if (e.shield) {
       const h = hitParts(e.shield, 1, SHIELD_PARTS, x0, y0, a.x, a.y);
       if (h && h.t < bestT) {
@@ -2491,13 +2783,17 @@ function playerArrowHits(w: World, a: Arrow, x0: number, y0: number): void {
       hy = y0 + (a.y - y0) * t;
     }
   }
-  // ledges in front of the hit?
+  // ledges in front of the hit? (a boomerang flies over ledges and walls both ways: it curls
+  // over cover onto archers a straight shot cannot reach; only bodies and shields stop it)
+  const over = a.kind === 'boomerang';
   let ledgeT = 2;
-  for (const L of w.ledges) {
+  for (let i = 0; i < w.ledges.length && !over; i++) {
+    const L = w.ledges[i]!;
     const h = sweepAabb(x0, y0, a.x, a.y, L.x, L.y, L.w, L.h);
     if (h && h.t < ledgeT) ledgeT = h.t;
   }
-  for (const L of w.walls) {
+  for (let i = 0; i < w.walls.length && !over; i++) {
+    const L = w.walls[i]!;
     const h = sweepAabb(x0, y0, a.x, a.y, L.x, L.y, L.w, L.h);
     if (h && h.t < ledgeT) ledgeT = h.t;
   }
@@ -2526,13 +2822,49 @@ function playerArrowHits(w: World, a: Arrow, x0: number, y0: number): void {
     }
     return;
   }
-  ledgeHit(w, a, x0, y0);
+  if (!over) ledgeHit(w, a, x0, y0);
 }
 
 function hitShield(w: World, a: Arrow, e: Archer, hx: number, hy: number): void {
   const s = e.shield!;
-  missed(w, a);
-  stickTo(a, e, s, SHIELD_PARTS[0]!, hx, hy, 3);
+  // a pebble still in flight after glancing off is not a miss; it is one only when finally spent
+  // (a boomerang only when it ends)
+  if (a.kind !== 'boomerang' && a.kind !== 'rocket' && (a.kind !== 'pebble' || a.bounces <= 0)) missed(w, a);
+  if (a.kind === 'rocket') {
+    // it bursts on the shield (below) and never sticks
+    a.active = false;
+  } else if (a.kind === 'boomerang') {
+    // it never sticks: the shield's bearer is safe from it this pass (going out, it starts back; below)
+    a.hitIds.push(e.id);
+  } else if (a.kind === 'pebble') {
+    // a pebble never sticks: it glances off the shield (0.7 restitution about the contact normal) while bounces last
+    if (a.bounces > 0) {
+      a.bounces -= 1;
+      let nx = hx - s.x[0]!;
+      let ny = hy - s.y[0]!;
+      const sx = s.x[1]! - s.x[0]!;
+      const sy = s.y[1]! - s.y[0]!;
+      const t = clamp((nx * sx + ny * sy) / (sx * sx + sy * sy || 1), 0, 1);
+      nx -= sx * t;
+      ny -= sy * t;
+      const len = Math.hypot(nx, ny);
+      if (len < 1e-6) {
+        nx = -Math.sign(a.vx || 1);
+        ny = 0;
+      } else {
+        nx /= len;
+        ny /= len;
+      }
+      const vn = a.vx * nx + a.vy * ny;
+      if (vn < 0) {
+        a.vx -= (1 + PEBBLE_REST) * vn * nx;
+        a.vy -= (1 + PEBBLE_REST) * vn * ny;
+      }
+      a.x = hx + nx * 2;
+      a.y = hy + ny * 2;
+      w.events.push({ t: 'bounce', x: hx, y: hy });
+    } else a.active = false;
+  } else stickTo(a, e, s, SHIELD_PARTS[0]!, hx, hy, 3);
   w.run.hits += 1;
   let broke = false;
   if (e.shieldOn) {
@@ -2545,7 +2877,16 @@ function hitShield(w: World, a: Arrow, e: Archer, hx: number, hy: number): void 
     pushBody(s, hx, hy, a.vx, a.vy, 0.4, 120);
   }
   w.events.push({ t: 'shieldHit', id: e.id, x: hx, y: hy, broke });
-  if (w.stats.blastShare > 0) burst(w, a, hx, hy, null);
+  if (a.kind === 'rocket') {
+    burst(w, a, hx, hy, null);
+    missed(w, a);
+  } else if (w.stats.blastShare > 0) burst(w, a, hx, hy, null);
+  if (a.kind === 'boomerang' && !boomReturning(a)) {
+    a.x = hx - Math.sign(a.vx || 1) * 2;
+    a.y = hy;
+    turnBoomerang(a);
+    a.hitIds.push(e.id);
+  }
 }
 
 function hitEnemy(w: World, a: Arrow, e: Archer, part: Part, hx: number, hy: number): void {
@@ -2563,7 +2904,8 @@ function hitEnemy(w: World, a: Arrow, e: Archer, part: Part, hx: number, hy: num
   if (e.alive && e.type === 'ward' && e.wardUp) {
     e.wardUp = false;
     e.wardT = FX.wardWindow;
-    a.active = false;
+    if (a.kind === 'boomerang') a.hitIds.push(e.id);
+    else a.active = false;
     a.scored = true;
     w.events.push({ t: 'ward', id: e.id, x: hx, y: hy, up: false });
     return;
@@ -2588,16 +2930,21 @@ function hitEnemy(w: World, a: Arrow, e: Archer, part: Part, hx: number, hy: num
   const crit = w.critRng.chance(w.stats.crit + (a.focus ? FX.focusCrit : 0));
   // the first chapter's boss relies on its shields, not its armour: body hits count four times
   const armourK = e.bossKind === 'shields' && part.kind !== 'weak' ? 4 : 1;
-  const out = resolveHit(e.type, part.kind, a.dmgMul * (crit ? w.stats.critMul : 1) * armourK, e.helmet, w.difficulty === 'hard');
+  const out = resolveHit(e.type, part.kind, a.dmgMul * (part.kind === 'head' && a.owner === 'player' ? w.stats.headMul : 1) * (crit ? w.stats.critMul : 1) * armourK, e.helmet, w.difficulty === 'hard', playerKind(a));
   if (crit) w.run.crits += 1;
   e.hurt = 0;
   e.body.muscle = Math.min(e.body.muscle, e.type === 'boss' ? 0.35 : TUNING.hitMuscle);
   e.aimPenalty += out.aimPenalty;
-  if (out.stagger > 0) e.stagger = Math.max(e.stagger, out.stagger);
-  if (e.brain === 'draw' && e.type !== 'boss' && e.type !== 'elite') {
+  // hard: a barrage (double's later volleys, split's side arrows) does not stun-lock: only a
+  // shot's main arrow staggers, and a draw is broken at most once (the next one is loosed)
+  const hard = w.difficulty === 'hard';
+  const jolt = !hard || a.owner !== 'player' || a.primary;
+  if (out.stagger > 0 && jolt) e.stagger = Math.max(e.stagger, out.stagger);
+  if (e.brain === 'draw' && e.type !== 'boss' && e.type !== 'elite' && !(hard && e.steady)) {
     e.brain = 'cool';
     e.timer = 0.6;
     e.draw = 0;
+    if (hard) e.steady = true;
   }
   // shove the stance; off the edge means a fall
   const shove = ((out.shove + (part.kind === 'body' ? 0.35 : 0) * (a.impulseMul > 1.2 ? 1 : 0)) * TUNING.legShove * a.impulseMul) / weight;
@@ -2613,20 +2960,28 @@ function hitEnemy(w: World, a: Arrow, e: Archer, part: Part, hx: number, hy: num
     }
   }
   if (a.fire) {
+    // fire lit by a fire arrow: plate armour keeps most of it off (not a spear's or rocket's)
     e.burn = w.stats.fireTime;
-    e.burnDps = w.stats.fireDps;
+    e.burnDps = w.stats.fireDps * armourShare(e.type, playerKind(a)) * (e.type === 'boss' ? underPower(w) : 1);
     e.burnTick = 0.5;
   }
   if (w.stats.frostTime > 0) chillEnemy(w, e, w.stats.frostTime);
+  if (e.type === 'boss') out.damage = Math.round(out.damage * underPower(w) * 100) / 100;
   e.hp -= out.damage;
   checkBossPhase(w, e);
   const ko = out.ko || e.hp <= 0;
   const head = part.kind === 'head' || part.kind === 'weak';
   if (head) w.run.headshots += 1;
-  w.events.push({ t: 'hit', id: e.id, part: part.kind, x: hx, y: hy, dmg: out.ko ? Math.max(out.damage, e.hp + out.damage) : out.damage, ko, slowmo: out.slowmo || (ko && e.type === 'boss'), vx, vy, fire: a.fire, enemy: e.type as EnemyType, crit });
-  // headshot chain: consecutive headshots, each one paying a little more
+  // hard: a barrage's extra arrows (double's later volleys, split's side arrows) hit quietly:
+  // the views keep the big flashes, words and shake for a shot's main arrow
+  const extra = hard && a.owner === 'player' && !a.primary;
+  w.events.push({ t: 'hit', id: e.id, part: part.kind, x: hx, y: hy, dmg: out.ko ? Math.max(out.damage, e.hp + out.damage) : out.damage, ko, slowmo: out.slowmo || (ko && e.type === 'boss'), vx, vy, fire: a.fire, enemy: e.type as EnemyType, crit, extra });
+  // headshot chain: consecutive headshots, each one paying a little more (hard: main arrows only,
+  // so a barrage neither pays a chain per arrow nor breaks one)
   const r = w.run;
-  if (head) {
+  if (extra) {
+    // no change
+  } else if (head) {
     r.chain += 1;
     r.chainBest = Math.max(r.chainBest, r.chain);
     if (r.chain >= 2) {
@@ -2640,7 +2995,7 @@ function hitEnemy(w: World, a: Arrow, e: Archer, part: Part, hx: number, hy: num
   if (crit) gainFocus(w, 0.05);
   if (w.stats.lifesteal > 0) heal(w, w.stats.lifesteal);
   // chain lightning jumps to the nearest other enemy (storm: twice)
-  if (w.stats.chainShare > 0) zap(w, e, out.damage * w.stats.chainShare, w.stats.chainJumps);
+  if (w.stats.chainShare > 0) zap(w, e, out.damage * w.stats.chainShare, w.stats.chainJumps, playerKind(a));
   if (ko) {
     knockOut(w, e, part.kind === 'head' ? 'head' : 'shot');
     // knockout kick: the whole body is thrown along the arrow with a little hop, so it
@@ -2650,12 +3005,13 @@ function hitEnemy(w: World, a: Arrow, e: Archer, part: Part, hx: number, hy: num
     addVelocity(e.body, PT.head, vx * kick * 0.8, vy * kick * 0.4, DT);
   }
   stickOrPierce(w, a, e, part, hx, hy);
-  if (w.stats.blastShare > 0) burst(w, a, hx, hy, e);
+  if (a.kind === 'rocket' || w.stats.blastShare > 0) burst(w, a, hx, hy, e);
   // after the arrow is stuck: it travels with the wizard
   if (!ko && e.type === 'mage') blink(w, e);
 }
 
-function zap(w: World, from: Archer, dmg: number, jumps: number): void {
+/** Chain lightning off a hit by a `kind` projectile: plate armour takes armourShare of each jump. */
+function zap(w: World, from: Archer, dmg: number, jumps: number, kind: Projectile | undefined): void {
   let src = from;
   const hit = new Set<number>([from.id]);
   for (let j = 0; j < jumps; j++) {
@@ -2663,7 +3019,7 @@ function zap(w: World, from: Archer, dmg: number, jumps: number): void {
     let best: Archer | null = null;
     let bd = 260;
     for (const e of w.enemies) {
-      if (!e.alive || hit.has(e.id) || e.brain === 'spawn') continue;
+      if (!e.alive || hit.has(e.id) || e.brain === 'spawn' || e.veil > 0) continue;
       const t = targetPoint(e, 'chest');
       const d = Math.hypot(t.x - s.x, t.y - s.y);
       if (d < bd) {
@@ -2675,17 +3031,30 @@ function zap(w: World, from: Archer, dmg: number, jumps: number): void {
     const t = targetPoint(best, 'chest');
     w.events.push({ t: 'zap', x0: s.x, y0: s.y, x1: t.x, y1: t.y, dmg });
     hit.add(best.id);
-    damageEnemy(w, best, dmg, 'blast');
+    damageEnemy(w, best, dmg * armourShare(best.type, kind), 'blast');
     src = best;
   }
 }
 
 function stickOrPierce(w: World, a: Arrow, e: Archer, part: Part, hx: number, hy: number): void {
+  if (a.kind === 'boomerang') {
+    // it cuts through and flies on (pierce is moot: it is not slowed or used up); once per archer per pass
+    a.hitIds.push(e.id);
+    return;
+  }
+  if (a.kind === 'rocket') {
+    a.active = false;
+    return;
+  }
   if (a.pierce > 0) {
     a.pierce -= 1;
     a.ignore = e.id;
     a.vx *= 0.85;
     a.vy *= 0.85;
+    return;
+  }
+  if (a.kind === 'pebble') {
+    a.active = false;
     return;
   }
   stickTo(a, e, e.body, part, hx, hy, 2);
@@ -2695,6 +3064,9 @@ function stickOrPierce(w: World, a: Arrow, e: Archer, part: Part, hx: number, hy
 function damagePlayer(w: World, part: HitPart, dmg: number, x: number, y: number, vx: number, vy: number, by = -1): void {
   const p = w.player;
   const out = resolveHit('player', part, 1);
+  // under the recommended power a chapter boss hits harder (BOSS_POWER_GATE)
+  const boss = by >= 0 ? w.enemies.find((e) => e.id === by && e.type === 'boss') : undefined;
+  if (boss) dmg *= bossHurtMul(w) * (boss.rage ? 2 : 1);
   // a bonus round never knocks the player out
   const amount = w.phase === 'bonus' ? Math.min(dmg, Math.max(0, p.hp - 1)) : dmg;
   p.hp -= amount;
@@ -2803,7 +3175,7 @@ function spawnTarget(w: World, kind: Target['kind']): Target | null {
     t.x = 770;
     t.y = r.range(320, 760);
     t.baseY = t.y;
-    const tx = PLAYER_X;
+    const tx = playerX(w);
     const ty = playerPelvisY() - 30;
     const sp = r.range(300, 380);
     const d = Math.hypot(tx - t.x, ty - t.y) || 1;

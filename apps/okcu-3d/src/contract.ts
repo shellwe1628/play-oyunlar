@@ -51,6 +51,11 @@ export interface Stage {
   toLogical(clientX: number, clientY: number): { x: number; y: number };
   /** trauma-style shake, 0 … 1 (same strengths the 2D game passes to juice.shake) */
   shake(strength: number): void;
+  /**
+   * the main menu is up (true) or away: the camera eases in on the player's archer so it stands in
+   * the menu's free middle band, clear of the side buttons and PLAY, and eases back for play
+   */
+  menu(on: boolean): void;
   /** per-frame housekeeping (shake decay, theme fades) then draw */
   render(frame: Frame): void;
 }
@@ -66,8 +71,8 @@ export interface ArchersView extends Module {
 }
 
 export interface BowHandle {
-  /** skinned meshes that make up the bow (their materials are this archer's own clones) */
-  meshes: THREE.SkinnedMesh[];
+  /** the meshes of the weapon in hand: the bow, or the selected weapon's model (their materials are this archer's own) */
+  meshes: THREE.Mesh[];
   /** follows the bow hand; children added here ride the bow */
   grip: THREE.Object3D;
   /** bow limb tips in world space (top, bottom), refreshed every frame, for glow and trails */
@@ -94,10 +99,12 @@ export interface RunOptions {
 /** The only way UI code acts on the game. */
 export interface Game {
   readonly w: World;
-  /** bow level shown on the player's bow (the run's meta.bow, which comes from the save) */
+  /** glow level of the player's weapon (the run's meta.bow: in the 3D build the selected weapon's level as old bow +N, `bowEquivalent`) */
   readonly bowLevel: number;
   /** the persistent progress (coins, upgrades, bow, records, …); mutate only through `update` */
   readonly save: SaveStore<SaveData>;
+  /** the celestial weapon look (`arsenal.celestial`, or ?celestial=1|0) */
+  readonly celestial: boolean;
   /** the current run is the daily run */
   readonly daily: boolean;
   /** the chapter the chapter select starts runs at */

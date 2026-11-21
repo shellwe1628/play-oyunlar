@@ -26,6 +26,8 @@ export interface Look {
   plate: boolean;
   /** sash across the chest (elite) */
   sash: boolean;
+  /** full steel plate and a closed helm (the armored archer: arrows glance off it) */
+  armour?: boolean;
 }
 
 const WOOD = 0xb9713a;
@@ -80,6 +82,9 @@ export function lookFor(a: Archer): Look {
       return { ...enemy, body: PALETTE.volley, accent: PALETTE.volleyBand, hat: 'band', bow: BOWS.wood, sash: true };
     case 'mage':
       return { ...enemy, body: PALETTE.mage, accent: PALETTE.mageStar, hat: 'wizard', bow: BOWS.dark };
+    case 'armored':
+      // gunmetal cloth under bright steel plate, a cold rim: it reads as metal at phone size
+      return { ...enemy, body: 0x4a5368, accent: 0xcfe2ff, hat: 'none', bow: BOWS.dark, armour: true };
   }
 }
 

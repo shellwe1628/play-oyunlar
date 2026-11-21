@@ -9,12 +9,13 @@ import { repairSave, saveOptions } from '../../src/save';
 import { CAREFUL, planShot, playRun } from '../../src/sim/aimbot';
 import { BOW_MAX, bowCost, bowDamage } from '../../src/sim/bow';
 import { HARD_BOW_POW } from '../../src/sim/cards';
-import { CHAPTER_DEFS, CHAPTERS, chapterStart, ENDLESS_WAVE, levelOf, stageOf } from '../../src/sim/chapters';
+import { CHAPTER_DEFS, CHAPTERS, chapterStart, ENDLESS_WAVE, fieldSpan, levelOf, STAGES, stageDef, stageOf } from '../../src/sim/chapters';
 import { cosmeticById, freshSave, isUnlocked, NO_META, UPGRADES } from '../../src/sim/meta';
 import { bankRecords, FEATS, progressScore, RANKS, rankOf, unlockFeats, type RunSummary } from '../../src/sim/progress';
 import { PT } from '../../src/sim/ragdoll';
 import { PLAYER_X } from '../../src/sim/tuning';
 import { enemyDamageMul, enemyHp, HARD_LATE_LEVEL } from '../../src/sim/waves';
+import { levelForBow } from '../../src/sim/weapons';
 import { advance, BOSS_KINDS, canShoot, createWorld, shoot, ERUPTION_PHASE1, jumpToWave, takeEvents, type GameEvent, type World } from '../../src/sim/world';
 
 function run(w: World, seconds: number): GameEvent[] {
@@ -165,11 +166,30 @@ describe('chapters 5 and 6', () => {
   });
 });
 
+describe('stage features in chapters 5 and 6 (hard)', () => {
+  it('each has armored archers and its own modifier stages; classic plays them as before', () => {
+    for (const c of [4, 5]) {
+      const defs = Array.from({ length: STAGES }, (_, i) => stageDef(chapterStart(c) + i, createRng(1), 'hard'));
+      expect(defs.some((d) => d.enemies.includes('armored')), `chapter ${c + 1}`).toBe(true);
+      expect(defs.filter((d) => d.mod).length, `chapter ${c + 1}`).toBeGreaterThanOrEqual(1);
+      for (let i = 0; i < STAGES; i++) expect(stageDef(chapterStart(c) + i, createRng(1), 'classic')).toBe(CHAPTER_DEFS[c]!.stages[i]);
+    }
+  });
+
+  it('the cave stage keeps every island under its ceiling, with no fifth island up in the rock', () => {
+    const wave = Array.from({ length: STAGES }, (_, i) => chapterStart(4) + i).find((v) => stageDef(v, createRng(1), 'hard').mod === 'lowCeiling')!;
+    const w = createWorld({ seed: 3, difficulty: 'hard' });
+    jumpToWave(w, wave);
+    expect(w.layout.length).toBe(stageDef(wave, createRng(1), 'hard').ledges.length);
+    for (const L of w.layout) expect(L.y - 200).toBeGreaterThan(w.ceiling);
+  });
+});
+
 describe("the 3D build's setting plays through", () => {
   it('hard: a careful scripted player kept alive clears chapters 5 and 6, bosses and bonus rounds included', () => {
     for (const chapter of [4, 5]) {
       const start = chapterStart(chapter);
-      const r = playRun(21 + chapter, createRng(99 + chapter), CAREFUL, { startChapter: chapter, god: true, untilWave: start + 8, maxTime: 900, difficulty: 'hard', meta: { ...NO_META, bow: 15, hp: 8 } });
+      const r = playRun(21 + chapter, createRng(99 + chapter), CAREFUL, { startChapter: chapter, god: true, untilWave: start + 8, maxTime: 900, difficulty: 'hard', meta: { ...NO_META, bow: 15, wlevel: levelForBow(15), hp: 8 } });
       expect(r.reached, `chapter ${chapter}`).toBeGreaterThanOrEqual(start + 8);
       expect(r.bosses).toBeGreaterThanOrEqual(1);
     }
@@ -239,7 +259,7 @@ describe('longer progression', () => {
 
   it('beating the new bosses is banked per chapter and opens their looks', () => {
     const s = freshSave();
-    const bank = { coins: 0, startBest: 0, started: true, bosses: 0, feats: [], startRank: 0 };
+    const bank = { coins: 0, startBest: 0, started: true, bosses: 0, feats: [], startRank: 0, chest: null };
     bankRecords(s, bank, summary({ reached: 43, bossKills: [{ kind: 4, time: 40 }, { kind: 5, time: 55 }], chapterStage: [0, 0, 0, 0, 8, 8] }), '2026-11-20');
     expect(s.bosses).toEqual([0, 0, 0, 0, 1, 1]);
     expect(s.chapter).toBe(6);
@@ -292,5 +312,18 @@ describe('old saves', () => {
     expect(isUnlocked(cosmeticById('laurel'), d.best, d.runs, d.bosses)).toBe(true);
     expect(isUnlocked(cosmeticById('ember'), d.best, d.runs, d.bosses)).toBe(false);
     expect(UPGRADES.hp.max - d.upgrades.hp).toBe(4);
+  });
+});
+
+describe('field widths per chapter (hard, the 3D build)', () => {
+  it('widens from chapter 2, endless 1.3, never narrower than classic, classic unchanged', () => {
+    const want = [1, 1.05, 1.1, 1.15, 1.2, 1.25];
+    for (let c = 0; c < CHAPTERS; c++) expect(fieldSpan(chapterStart(c), 'hard')).toBe(want[c]);
+    expect(fieldSpan(ENDLESS_WAVE, 'hard')).toBe(1.3);
+    expect(fieldSpan(ENDLESS_WAVE + 30, 'hard')).toBe(1.3);
+    for (let wave = 1; wave <= 60; wave++) expect(fieldSpan(wave, 'hard')).toBeGreaterThanOrEqual(fieldSpan(wave));
+    expect(fieldSpan(chapterStart(1))).toBe(1);
+    expect(fieldSpan(chapterStart(4))).toBe(1.15);
+    expect(fieldSpan(chapterStart(5))).toBe(1.22);
   });
 });

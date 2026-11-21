@@ -7,8 +7,15 @@
  *
  * New enemy classes join as the run goes: the volley archer (high arcs of three arrows) from
  * chapter 3, the wizard (a homing hex orb, and it blinks to another ledge when hit) from
- * chapter 4. From chapter 4 on the field grows (see `fieldSpan`): the islands spread wider and
- * higher, a fifth island appears, and both renderers pull the camera back to show it all.
+ * chapter 4. The field grows (see `fieldSpan`; classic from chapter 4, hard from chapter 2):
+ * the islands spread wider and higher, a fifth island appears where there is room, and both
+ * renderers pull the camera back to show it all.
+ *
+ * hard (the 3D build) plays some stages in its own version (`StageDef.hard`): stage features that
+ * favour each weapon, placed by design. Plate-armoured archers from chapter 2 (the spear and the
+ * rocket go through their armour), archers lined up behind a cover wall (the boomerang and the
+ * sling), healers in pairs on close islands (the rocket's burst) and one or two stages a chapter
+ * with a modifier (`StageMod`). Every one of them stays clearable with the bow.
  */
 import type { Rng } from '@oyun/core/pure';
 import type { EnemyType } from './combat';
@@ -38,6 +45,13 @@ export interface LedgeDef {
 
 export type PropDef = { kind: 'barrel'; on: number } | { kind: 'rock'; above: number };
 
+/**
+ * Stage modifiers (hard only): a rock ceiling that stops every projectile above it (no high
+ * lobs), fog that hides the far archers for a while (world.ts FOG), and the player's own ledge
+ * sliding to and fro.
+ */
+export type StageMod = 'lowCeiling' | 'fog' | 'movingBase';
+
 export interface StageDef {
   enemies: EnemyType[];
   ledges: readonly LedgeDef[];
@@ -48,6 +62,9 @@ export interface StageDef {
   gust?: number;
   boss?: BossKind;
   elite?: boolean;
+  mod?: StageMod;
+  /** hard (the 3D build): what this stage changes there (see `stageDef`) */
+  hard?: Partial<Omit<StageDef, 'hard' | 'boss' | 'elite'>>;
 }
 
 export interface ChapterDef {
@@ -99,6 +116,32 @@ const E = [
   { x: 340, y: 380, w: 140 },
 ] as const;
 
+/** a cave: low islands only, under a ceiling (lowCeiling stages) */
+const CAVE = [
+  { x: 470, y: 900, w: 160 },
+  { x: 330, y: 720, w: 140 },
+  { x: 560, y: 660, w: 150 },
+  { x: 420, y: 560, w: 140 },
+] as const;
+/**
+ * three islands in a row, the near one low behind its cover wall, the other two a step up and
+ * in line behind it (the boomerang, the sling and the spear take them together), and a high one.
+ * A flat bolt still clears the wall to the second and third (it passes 25 px over its top).
+ */
+const ROW = [
+  { x: 320, y: 860, w: 120 },
+  { x: 470, y: 730, w: 120 },
+  { x: 610, y: 700, w: 110 },
+  { x: 440, y: 430, w: 150 },
+] as const;
+/** two pairs of close islands: a rocket's burst between them catches both (healer pairs) */
+const PAIRS = [
+  { x: 420, y: 830, w: 110 },
+  { x: 560, y: 810, w: 110 },
+  { x: 390, y: 480, w: 110 },
+  { x: 530, y: 460, w: 110 },
+] as const;
+
 const slide = (l: LedgeDef, amp = 60, speed = 0.9): LedgeDef => ({ ...l, w: Math.min(l.w, 150), slide: { amp, speed } });
 const swing = (l: LedgeDef, amp = 55, speed = 1.1): LedgeDef => ({ ...l, w: Math.min(l.w, 140), swing: { amp, speed } });
 const bob = (l: LedgeDef, amp = 42, speed = 1): LedgeDef => ({ ...l, bob: { amp, speed } });
@@ -115,7 +158,7 @@ export const CHAPTER_DEFS: readonly ChapterDef[] = [
       { enemies: ['archer', 'archer'], ledges: B },
       { enemies: ['shield', 'archer'], ledges: C, props: [{ kind: 'barrel', on: 1 }] },
       { enemies: ['elite'], ledges: A, elite: true, props: [{ kind: 'barrel', on: 0 }] },
-      { enemies: ['jumper', 'healer'], ledges: B },
+      { enemies: ['jumper', 'healer'], ledges: B, hard: { mod: 'movingBase' } },
       { enemies: ['shield', 'healer'], ledges: C, props: [{ kind: 'barrel', on: 0 }, { kind: 'barrel', on: 1 }] },
       { enemies: ['boss'], ledges: BOSS, boss: 'shields' },
     ],
@@ -127,11 +170,16 @@ export const CHAPTER_DEFS: readonly ChapterDef[] = [
     bonus: 'apples',
     stages: [
       { enemies: ['archer', 'archer'], ledges: with_(A, 1, (l) => slide(l)), wind: 150 },
-      { enemies: ['bomber', 'archer'], ledges: B, props: [{ kind: 'rock', above: 1 }], wind: 170 },
-      { enemies: ['shield', 'jumper', 'archer'], ledges: with_(C, 2, (l) => slide(l, 55, 1.1)), wind: 190 },
+      { enemies: ['bomber', 'archer'], ledges: B, props: [{ kind: 'rock', above: 1 }], wind: 170, hard: { mod: 'fog' } },
+      { enemies: ['shield', 'jumper', 'archer'], ledges: with_(C, 2, (l) => slide(l, 55, 1.1)), wind: 190, hard: { enemies: ['shield', 'jumper', 'armored'] } },
       { enemies: ['elite', 'bomber'], ledges: A, elite: true, props: [{ kind: 'rock', above: 0 }], wind: 200 },
-      { enemies: ['archer', 'bomber', 'shield'], ledges: with_(with_(B, 0, (l) => slide(l, 50)), 2, (l) => slide(l, 60, 1.2)), wind: 220 },
-      { enemies: ['jumper', 'archer', 'bomber', 'archer'], ledges: with_(C, 1, (l) => slide(l, 50, 1)), props: [{ kind: 'rock', above: 3 }], wind: 240 },
+      {
+        enemies: ['archer', 'bomber', 'shield'],
+        ledges: with_(with_(B, 0, (l) => slide(l, 50)), 2, (l) => slide(l, 60, 1.2)),
+        wind: 220,
+        hard: { enemies: ['armored', 'bomber', 'archer'], ledges: with_(CAVE, 1, (l) => slide(l, 40)), mod: 'lowCeiling' },
+      },
+      { enemies: ['jumper', 'archer', 'bomber', 'archer'], ledges: with_(C, 1, (l) => slide(l, 50, 1)), props: [{ kind: 'rock', above: 3 }], wind: 240, hard: { enemies: ['jumper', 'armored', 'bomber', 'archer'] } },
       { enemies: ['boss'], ledges: with_(BOSS, 0, (l) => ({ ...l, w: 220, slide: { amp: 70, speed: 0.6 } })), boss: 'giant', wind: 160 },
     ],
   },
@@ -143,10 +191,10 @@ export const CHAPTER_DEFS: readonly ChapterDef[] = [
     stages: [
       { enemies: ['cover', 'archer'], ledges: A },
       { enemies: ['archer', 'archer'], ledges: with_(B, 1, (l) => swing(l)) },
-      { enemies: ['catcher', 'archer'], ledges: C, props: [{ kind: 'barrel', on: 1 }] },
+      { enemies: ['catcher', 'archer'], ledges: C, props: [{ kind: 'barrel', on: 1 }], hard: { enemies: ['catcher', 'armored', 'archer'], ledges: CAVE, mod: 'lowCeiling' } },
       { enemies: ['elite', 'cover', 'archer'], ledges: with_(A, 2, (l) => swing(l, 45)), elite: true },
-      { enemies: ['catcher', 'cover', 'bomber'], ledges: B, props: [{ kind: 'barrel', on: 2 }] },
-      { enemies: ['volley', 'catcher', 'cover', 'archer'], ledges: with_(with_(C, 2, (l) => swing(l, 50, 0.9)), 3, (l) => swing(l, 40, 1.3)) },
+      { enemies: ['catcher', 'cover', 'bomber'], ledges: B, props: [{ kind: 'barrel', on: 2 }], hard: { enemies: ['cover', 'archer', 'armored', 'bomber'], ledges: ROW, props: [] } },
+      { enemies: ['volley', 'catcher', 'cover', 'archer'], ledges: with_(with_(C, 2, (l) => swing(l, 50, 0.9)), 3, (l) => swing(l, 40, 1.3)), hard: { mod: 'fog' } },
       { enemies: ['boss'], ledges: BOSS, boss: 'summoner' },
     ],
   },
@@ -157,11 +205,11 @@ export const CHAPTER_DEFS: readonly ChapterDef[] = [
     bonus: 'gallery',
     stages: [
       { enemies: ['ward', 'archer'], ledges: A },
-      { enemies: ['ward', 'healer', 'mage'], ledges: with_(B, 1, (l) => slide(l)) },
+      { enemies: ['ward', 'healer', 'mage'], ledges: with_(B, 1, (l) => slide(l)), hard: { mod: 'fog' } },
       { enemies: ['catcher', 'ward', 'bomber'], ledges: with_(C, 2, (l) => swing(l)), props: [{ kind: 'rock', above: 1 }] },
       { enemies: ['elite', 'healer', 'ward'], ledges: A, elite: true, props: [{ kind: 'barrel', on: 1 }] },
-      { enemies: ['cover', 'mage', 'jumper', 'volley'], ledges: with_(with_(B, 0, (l) => slide(l, 50)), 1, (l) => swing(l, 50)) },
-      { enemies: ['ward', 'catcher', 'healer', 'bomber'], ledges: C, props: [{ kind: 'rock', above: 0 }, { kind: 'barrel', on: 2 }] },
+      { enemies: ['cover', 'mage', 'jumper', 'volley'], ledges: with_(with_(B, 0, (l) => slide(l, 50)), 1, (l) => swing(l, 50)), hard: { enemies: ['cover', 'mage', 'armored', 'volley'], mod: 'movingBase' } },
+      { enemies: ['ward', 'catcher', 'healer', 'bomber'], ledges: C, props: [{ kind: 'rock', above: 0 }, { kind: 'barrel', on: 2 }], hard: { enemies: ['healer', 'archer', 'healer', 'armored'], ledges: PAIRS, props: [] } },
       { enemies: ['boss'], ledges: BOSS, boss: 'warden' },
     ],
   },
@@ -173,10 +221,20 @@ export const CHAPTER_DEFS: readonly ChapterDef[] = [
     stages: [
       { enemies: ['bomber', 'archer'], ledges: with_(D, 1, (l) => bob(l)) },
       { enemies: ['shield', 'bomber', 'archer'], ledges: with_(D, 0, (l) => bob(l, 36, 1.2)), props: [{ kind: 'rock', above: 2 }] },
-      { enemies: ['volley', 'jumper', 'bomber'], ledges: with_(D, 2, (l) => bob(l, 48, 0.9)), props: [{ kind: 'barrel', on: 1 }] },
+      {
+        enemies: ['volley', 'jumper', 'bomber'],
+        ledges: with_(D, 2, (l) => bob(l, 48, 0.9)),
+        props: [{ kind: 'barrel', on: 1 }],
+        hard: { enemies: ['armored', 'jumper', 'bomber'], ledges: with_(CAVE, 2, (l) => bob(l, 30, 0.9)), mod: 'lowCeiling' },
+      },
       { enemies: ['elite', 'bomber', 'healer'], ledges: with_(D, 2, (l) => bob(l, 40, 1.1)), elite: true, props: [{ kind: 'barrel', on: 0 }] },
-      { enemies: ['catcher', 'bomber', 'cover', 'mage'], ledges: with_(with_(D, 0, (l) => bob(l, 34, 1.3)), 3, (l) => bob(l, 46, 0.8)) },
-      { enemies: ['ward', 'bomber', 'healer', 'jumper'], ledges: with_(with_(D, 1, (l) => bob(l, 44, 1.2)), 2, (l) => slide(l, 50, 1)), props: [{ kind: 'rock', above: 0 }, { kind: 'barrel', on: 1 }] },
+      { enemies: ['catcher', 'bomber', 'cover', 'mage'], ledges: with_(with_(D, 0, (l) => bob(l, 34, 1.3)), 3, (l) => bob(l, 46, 0.8)), hard: { enemies: ['cover', 'archer', 'armored', 'mage'], ledges: with_(ROW, 3, (l) => bob(l, 40, 0.8)) } },
+      {
+        enemies: ['ward', 'bomber', 'healer', 'jumper'],
+        ledges: with_(with_(D, 1, (l) => bob(l, 44, 1.2)), 2, (l) => slide(l, 50, 1)),
+        props: [{ kind: 'rock', above: 0 }, { kind: 'barrel', on: 1 }],
+        hard: { enemies: ['ward', 'armored', 'healer', 'jumper'], mod: 'fog' },
+      },
       { enemies: ['boss'], ledges: with_(with_(BOSS, 1, (l) => bob(l, 40, 0.9)), 2, (l) => bob(l, 36, 1.2)), boss: 'magma' },
     ],
   },
@@ -188,10 +246,17 @@ export const CHAPTER_DEFS: readonly ChapterDef[] = [
     stages: [
       { enemies: ['archer', 'archer', 'catcher'], ledges: E, wind: 170, gust: 6 },
       { enemies: ['shield', 'mage', 'archer'], ledges: with_(E, 0, (l) => slide(l, 45, 1)), wind: 180, gust: 5.5 },
-      { enemies: ['jumper', 'bomber', 'healer', 'volley'], ledges: with_(E, 2, (l) => swing(l, 50)), wind: 190, gust: 5, props: [{ kind: 'rock', above: 0 }] },
+      { enemies: ['jumper', 'bomber', 'healer', 'volley'], ledges: with_(E, 2, (l) => swing(l, 50)), wind: 190, gust: 5, props: [{ kind: 'rock', above: 0 }], hard: { enemies: ['jumper', 'armored', 'healer', 'volley'], mod: 'fog' } },
       { enemies: ['elite', 'ward', 'catcher'], ledges: with_(E, 2, (l) => swing(l, 45, 1.2)), elite: true, wind: 200, gust: 5 },
-      { enemies: ['cover', 'catcher', 'bomber', 'ward'], ledges: with_(with_(E, 0, (l) => slide(l, 45)), 3, (l) => swing(l, 45, 1.3)), wind: 210, gust: 4.5, props: [{ kind: 'barrel', on: 2 }] },
-      { enemies: ['healer', 'shield', 'jumper', 'bomber'], ledges: with_(with_(E, 1, (l) => bob(l, 40)), 2, (l) => swing(l, 50, 1)), wind: 220, gust: 4, props: [{ kind: 'rock', above: 3 }] },
+      { enemies: ['cover', 'catcher', 'bomber', 'ward'], ledges: with_(with_(E, 0, (l) => slide(l, 45)), 3, (l) => swing(l, 45, 1.3)), wind: 210, gust: 4.5, props: [{ kind: 'barrel', on: 2 }], hard: { mod: 'movingBase' } },
+      {
+        enemies: ['healer', 'shield', 'jumper', 'bomber'],
+        ledges: with_(with_(E, 1, (l) => bob(l, 40)), 2, (l) => swing(l, 50, 1)),
+        wind: 220,
+        gust: 4,
+        props: [{ kind: 'rock', above: 3 }],
+        hard: { enemies: ['healer', 'armored', 'healer', 'bomber'], ledges: with_(PAIRS, 0, (l) => bob(l, 30)), props: [] },
+      },
       { enemies: ['boss'], ledges: with_(BOSS, 1, (l) => slide(l, 30, 0.9)), boss: 'tempest', wind: 200 },
     ],
   },
@@ -216,6 +281,18 @@ export function stageOf(wave: number): StagePos {
   const k = w - ENDLESS_WAVE;
   return { chapter: CHAPTERS, stage: (k % STAGES) + 1, endless: true, theme: Math.floor(k / STAGES) % CHAPTERS };
 }
+
+/**
+ * The power (`powerOf`, arsenal.ts) recommended for each chapter, 0 … CHAPTERS − 1. Measured
+ * once (2026-11-21) with the balance tests' player: CAREFUL, 'hard', NO_META but for the bow at
+ * level L, seeds 1 … 8 (rng 1000 + seed), `startChapter` c to `untilWave chapterStart(c + 1)`;
+ * the lowest L (binary search, never below the previous chapter's) at which ≥ 6 of 8 runs clear
+ * the chapter: 1, 4, 8, 14, 14, 14. Chapters 5 and 6 already clear at chapter 4's level, so they
+ * are set one level above the chapter before (15, 16) to keep the ladder rising. The numbers are
+ * powerOf at those levels with no shop levels: round(100 × weaponDamage(L)).
+ */
+export const RECOMMENDED_LEVEL: readonly number[] = [1, 4, 8, 14, 15, 16];
+export const RECOMMENDED_POWER: readonly number[] = [100, 132, 174, 252, 265, 278];
 
 /** First wave of a chapter (CHAPTERS = endless). */
 export function chapterStart(chapter: number): number {
@@ -267,9 +344,13 @@ const ENDLESS_POOL: readonly { type: EnemyType; weight: number }[] = [
   { type: 'mage', weight: 2 },
 ];
 
-function pick(rng: Rng): EnemyType {
-  let roll = rng.next() * ENDLESS_POOL.reduce((s, p) => s + p.weight, 0);
-  for (const p of ENDLESS_POOL) {
+/** hard's endless pool: the same, and the plate-armoured archer */
+const HARD_ENDLESS_POOL: readonly { type: EnemyType; weight: number }[] = [...ENDLESS_POOL, { type: 'armored', weight: 2 }];
+
+function pick(rng: Rng, d: Difficulty): EnemyType {
+  const pool = d === 'hard' ? HARD_ENDLESS_POOL : ENDLESS_POOL;
+  let roll = rng.next() * pool.reduce((s, p) => s + p.weight, 0);
+  for (const p of pool) {
     roll -= p.weight;
     if (roll < 0) return p.type;
   }
@@ -278,21 +359,29 @@ function pick(rng: Rng): EnemyType {
 
 const ENDLESS_BOSSES: readonly BossKind[] = ['shields', 'giant', 'summoner', 'warden', 'magma', 'tempest'];
 
-/** The stage to play at a wave (endless stages are drawn from the wave rng). */
-export function stageDef(wave: number, rng: Rng): StageDef {
+/**
+ * The stage to play at a wave (endless stages are drawn from the wave rng). hard plays a
+ * chapter stage with its `hard` changes laid over it; classic never sees a modifier.
+ */
+export function stageDef(wave: number, rng: Rng, d: Difficulty = 'classic'): StageDef {
   const p = stageOf(wave);
-  if (!p.endless) return CHAPTER_DEFS[p.chapter]!.stages[p.stage - 1]!;
+  if (!p.endless) {
+    const def = CHAPTER_DEFS[p.chapter]!.stages[p.stage - 1]!;
+    if (d !== 'hard' || !def.hard) return def;
+    const { hard, ...rest } = def;
+    return { ...rest, ...hard };
+  }
   const cycle = Math.floor((wave - ENDLESS_WAVE) / STAGES);
   const bases = p.theme === 4 ? [D, B, C] : p.theme === 5 ? [E, A, C] : [A, B, C];
   if (p.stage === STAGES) {
     const boss = ENDLESS_BOSSES[cycle % ENDLESS_BOSSES.length]!;
     const def = CHAPTER_DEFS[ENDLESS_BOSSES.indexOf(boss)]!.stages[STAGES - 1]!;
-    return { ...def, enemies: ['boss', ...(cycle > 0 ? [pick(rng)] : [])] };
+    return { ...def, enemies: ['boss', ...(cycle > 0 ? [pick(rng, d)] : [])] };
   }
   const n = Math.min(4, 3 + Math.floor(cycle / 2));
   const enemies: EnemyType[] = [];
   if (p.stage === 4) enemies.push('elite');
-  while (enemies.length < n) enemies.push(pick(rng));
+  while (enemies.length < n) enemies.push(pick(rng, d));
   let ledges: LedgeDef[] = bases[(wave + cycle) % 3]!.map((l) => ({ ...l }));
   const mover = rng.int(0, 3);
   const r = rng.next();
@@ -326,19 +415,28 @@ export function bonusAfter(wave: number): BonusKind | null {
 
 // ---------------------------------------------------------------- the growing field
 
-/** The field grows from this wave on (chapter 4, the second half of the run). */
+/** classic: the field grows from this wave on (chapter 4, the second half of the run; hard widens from chapter 2, see HARD_SPANS) */
 export const GROW_WAVE = 3 * STAGES + 1;
 /**
- * How much bigger the field is than the 720 × 1280 frame at a wave: 1 for chapters 1 … 3,
- * 1.15 for chapters 4 and 5, 1.22 for chapter 6 and endless. Renderers show a window
+ * How much bigger the field is than the 720 × 1280 frame at a wave. classic: 1 for chapters
+ * 1 … 3, 1.15 for chapters 4 and 5, 1.22 for chapter 6 and endless; hard: HARD_SPANS, a little
+ * wider every chapter from the second. Renderers show a window
  * `span` times the frame (anchored at the bottom left, where the player stands), so on a
  * portrait phone the view reaches x 0 … 720·span and y 1280·(1 − span) … 1280.
  */
-export function fieldSpan(wave: number): number {
+export function fieldSpan(wave: number, d: Difficulty = 'classic'): number {
+  if (d === 'hard') return HARD_SPANS[Math.min(CHAPTERS, stageOf(wave).chapter)]!;
   if (wave < GROW_WAVE) return 1;
   return stageOf(wave).chapter >= 5 ? 1.22 : 1.15;
 }
-/** the biggest span any wave uses (renderers size their bakes for it) */
+/**
+ * hard (the 3D build): the field widens a little every chapter from the second, 1.3 in endless
+ * (never narrower than classic's; classic keeps its own values above).
+ */
+const HARD_SPANS: readonly number[] = [1, 1.05, 1.1, 1.15, 1.2, 1.25, 1.3];
+/** the biggest span a hard wave uses */
+export const HARD_MAX_SPAN = 1.3;
+/** the biggest span any classic wave uses (renderers size their bakes for it) */
 export const MAX_SPAN = 1.22;
 
 /** Logical x of the right edge of the view at `span`. */
@@ -372,7 +470,7 @@ const EXTRA_SPOTS: readonly (readonly [number, number])[] = [0.45, 0.5, 0.4, 0.5
  * movement, plus a fifth island on the far side where there is room for one. Span 1 returns
  * the layout as it is.
  */
-export function growLayout(base: readonly LedgeDef[], span: number): LedgeDef[] {
+export function growLayout(base: readonly LedgeDef[], span: number, extra = true): LedgeDef[] {
   const out = base.map((l) => ({ ...l }));
   if (span <= 1) return out;
   const right = fieldRight(span) - EDGE_PAD;
@@ -410,7 +508,8 @@ export function growLayout(base: readonly LedgeDef[], span: number): LedgeDef[] 
       }
       return false;
     });
-  for (const [fx, fy] of EXTRA_SPOTS) {
+  // (a ceiling stage gets none: nothing may stand up in the rock)
+  for (const [fx, fy] of extra ? EXTRA_SPOTS : []) {
     const m: LedgeDef = { x: Math.round(Math.min(right - W, fieldRight(span) * fx - W / 2)), y: Math.round(Math.max(top, fieldTop(span) + 1280 * span * fy)), w: W };
     if (clear(m) && !inWay(m)) {
       out.push(m);

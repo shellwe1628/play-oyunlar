@@ -144,7 +144,7 @@ describe('permanent upgrades', () => {
     expect(buyUpgrade(s, 'reroll')).toBe(false);
   });
   it('effects: start health, the bow\'s damage, coin gain, rerolls, starting card', () => {
-    const lv = { hp: 2, coins: 1, reroll: 1, starter: 1, bow: 3 };
+    const lv = { hp: 2, coins: 1, reroll: 1, starter: 1, bow: 3, weapon: 'bow' as const, wlevel: 1 };
     const s = statsFor([], lv);
     expect(s.maxHp).toBe(130);
     expect(s.dmgMul).toBeCloseTo(1.24);
@@ -372,6 +372,9 @@ describe('exact values (so a changed number fails a test)', () => {
     expect(bossHp('shields', 0)).toBe(170);
     expect(bossHp('warden', 0)).toBe(520);
     expect(bossHp('giant', 2)).toBe(714);
+    // hard: the first boss is a real fight (×2.4), the others ×1.3
+    expect(bossHp('shields', 0, 'hard')).toBe(408);
+    expect(bossHp('giant', 0, 'hard')).toBe(546);
     expect(enemyDamageMul(1)).toBeCloseTo(0.45, 6);
     expect(enemyDamageMul(5)).toBeCloseTo(0.89 * 1.065 ** 4, 6);
     expect(enemyDamageMul(9)).toBeCloseTo(1.065 ** 8, 6);

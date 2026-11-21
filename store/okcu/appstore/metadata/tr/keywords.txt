@@ -1,1 +1,1 @@
-okçuluk,fizik,3d,patron,nişan,atış,düello,ragdoll,demirci,ada,savaş,hedef,macera,fırlatma
+okçuluk,fizik,3d,patron,nişan,atış,düello,ragdoll,silah,mızrak,ada,savaş,hedef,sandık,fırlatma

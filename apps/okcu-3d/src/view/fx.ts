@@ -20,6 +20,7 @@ import { THEMES, themeIndex } from '@okcu/anim/themes';
 import { STRINGS } from '@okcu/strings';
 import { PALETTE } from '@okcu/textures';
 import { bowGlow } from '@sim/bow';
+import { WEAPONS } from '@sim/weapons';
 import { PT } from '@sim/ragdoll';
 import { type EnemyType } from '@sim/combat';
 import { type GameEvent, type World } from '@sim/world';
@@ -46,6 +47,7 @@ const ENEMY_TINT: Record<EnemyType, number> = {
   imp: PALETTE.imp,
   volley: PALETTE.volley,
   mage: PALETTE.mage,
+  armored: 0x8a94a8,
 };
 
 const BEAMS = 8;
@@ -136,10 +138,52 @@ export function createFx(stage: Stage): FxView {
     if (!overlayOpen) text.callout(label, color, size);
   };
 
+  /** The other weapons' shots: what leaves the hand decides the muzzle. */
+  function shotOf(e: Extract<GameEvent, { t: 'shot' }>, w: World): void {
+    const dir = e.angle;
+    switch (WEAPONS[w.stats.weapon].projectile) {
+      case 'bolt':
+        // the prod snaps: a crack of sparks and fast streaks
+        fx.sparks(e.x, e.y, 4, PALETTE.white, 220);
+        fx.streaks(e.x, e.y, dir, 0.35, 5, PALETTE.cream, 1000 + e.power * 400);
+        fx.flash(e.x, e.y, PALETTE.cream, 90, 0.1, 0.7);
+        break;
+      case 'rocket':
+        // the tube kicks: smoke out of both ends, sparks and a flash at the muzzle
+        for (let i = 0; i < 6; i++) {
+          const back = i % 2 === 1;
+          const a = dir + (back ? Math.PI : 0) + (Math.random() - 0.5) * 0.9;
+          const sp = 140 + Math.random() * 140;
+          fx.spawn('puff', e.x - (back ? Math.cos(dir) * 50 : 0), e.y - (back ? Math.sin(dir) * 50 : 0), Math.cos(a) * sp, Math.sin(a) * sp - 30, { life: 0.6, drag: 4, scale: 0.5, scaleEnd: 1.5, tint: PALETTE.smoke, alpha: 0.85 });
+        }
+        fx.sparks(e.x, e.y, 8, PALETTE.fire, 300);
+        fx.flash(e.x, e.y, PALETTE.fire, 170, 0.14, 0.8);
+        shake(0.12);
+        break;
+      case 'pebble':
+        fx.puffs(e.x, e.y, 2, PALETTE.dust, 60);
+        fx.streaks(e.x, e.y, dir, 0.5, 3, PALETTE.white, 600 + e.power * 300);
+        break;
+      default:
+        // a throw (spear, boomerang): a whoosh off the hand
+        fx.streaks(e.x, e.y, dir, 0.6, 4, PALETTE.white, 520 + e.power * 380);
+        fx.puffs(e.x, e.y, 2, PALETTE.white, 50);
+        break;
+    }
+    if (e.over) {
+      fx.ring(e.x, e.y, PALETTE.focus, 1.2, 0.25);
+      fx.flash(e.x, e.y, PALETTE.focus, 150, 0.16, 0.7);
+    }
+  }
+
   function handle(e: GameEvent, w: World): void {
     const theme = THEMES[themeIndex(w.wave)] ?? THEMES[0]!;
     switch (e.t) {
       case 'shot': {
+        if (w.stats.weapon !== 'bow') {
+          shotOf(e, w);
+          break;
+        }
         // muzzle puff fanning forward + a few string sparks (the forged bow's colour from steel up)
         for (let i = 0; i < 5; i++) {
           const a = e.angle + (Math.random() - 0.5) * 1.1;
@@ -159,6 +203,14 @@ export function createFx(stage: Stage): FxView {
       case 'hit': {
         const dir = Math.atan2(e.vy, e.vx);
         const tint = ENEMY_TINT[e.enemy];
+        if (e.extra && !e.ko) {
+          // a barrage's extra arrow: a small flash and its number, no ring, words, shake or freeze
+          // (a dozen of them a shot hid the archer behind white and shook the screen non-stop)
+          fx.sparks(e.x, e.y, 2, PALETTE.white, 260);
+          fx.flash(e.x, e.y, mixWhite(tint, 0.65), 60, 0.08, 0.5);
+          text.damage(e.id, e.x, e.y, e.dmg, e.crit ? PALETTE.crit : PALETTE.white, false);
+          break;
+        }
         fx.ring(e.x, e.y, PALETTE.white, e.slowmo ? 1.6 : 0.9);
         fx.shards(e.x, e.y, dir, tint, e.slowmo ? 10 : 6);
         fx.sparks(e.x, e.y, e.slowmo ? 8 : 3, PALETTE.white, 320);
@@ -166,6 +218,8 @@ export function createFx(stage: Stage): FxView {
         fx.flash(e.x, e.y, mixWhite(tint, 0.65), e.slowmo ? 170 : e.crit ? 150 : 110, 0.12, 0.75);
         fx.streaks(e.x, e.y, dir + Math.PI, 1.5, e.slowmo ? 9 : 5, mixWhite(tint, 0.55), e.slowmo ? 900 : 700);
         text.damage(e.id, e.x, e.y, e.dmg, e.crit ? PALETTE.crit : e.slowmo ? PALETTE.gold : PALETTE.white, e.slowmo || e.crit);
+        // plate armour: steel sparks fly off it (a spear or a rocket goes through, so the clang is for the rest)
+        if (e.enemy === 'armored') fx.sparks(e.x, e.y, 10, 0xe8f0ff, 380);
         if (e.crit) {
           // a crit: a yellow star burst
           fx.ring(e.x, e.y, PALETTE.crit, 2, 0.3);
@@ -301,9 +355,21 @@ export function createFx(stage: Stage): FxView {
         break;
       }
       case 'blast':
+        if (e.rocket) {
+          // the firework: sized from the simulation's own burst radius
+          fx.firework(e.x, e.y, e.r, CALM);
+          shake(0.4);
+          break;
+        }
         fx.ring(e.x, e.y, e.fire ? PALETTE.fire : PALETTE.white, (e.r / 70) * 1.2, 0.3);
         fx.sparks(e.x, e.y, 10, e.fire ? PALETTE.fire : PALETTE.cream, 380);
         fx.flash(e.x, e.y, e.fire ? PALETTE.fire : PALETTE.cream, e.r * 2.6, 0.2, 0.7);
+        break;
+      case 'boomCatch':
+        // back in the hand: a snap of air and a few glints
+        fx.ring(e.x, e.y, PALETTE.cream, 0.7, 0.18);
+        fx.sparks(e.x, e.y, 5, PALETTE.cream, 200);
+        fx.flash(e.x, e.y, PALETTE.white, 90, 0.12, 0.6);
         break;
       case 'orbPop':
         fx.ring(e.x, e.y, 0xb08bff, 1, 0.2);
@@ -404,6 +470,11 @@ export function createFx(stage: Stage): FxView {
         fx.ring(e.x, e.y, PALETTE.imp, 1.8, 0.4);
         fx.sparks(e.x, e.y, 12, PALETTE.imp, 300);
         fx.flash(e.x, e.y, PALETTE.imp, 200, 0.3, 0.55);
+        break;
+      case 'reveal':
+        // fog: an archer steps out of it
+        fx.puffs(e.x, e.y + 30, 5, PALETTE.white, 90);
+        fx.ring(e.x, e.y, PALETTE.white, 1.3, 0.3);
         break;
       case 'blink':
         // the wizard pops out in a puff of stars and back in on its new ledge

@@ -3,17 +3,21 @@
  * GameScene), builds the view modules and feeds them one Frame per animation frame.
  *
  * URL switches (for development and the screenshot tool):
- *   ?seed=N      fixed run seed            ?bow=N    bow level 0 … 25 (meta.bow)
+ *   ?seed=N      fixed run seed            ?bow=N    old bow +0 … 25 (meta.bow, weapon level from it)
  *   ?wave=N      jump to wave N            ?chapter=N start chapter 0 … 6 (6 = endless)
  *   ?auto=1      the aim bot plays         ?off=a,b  skip modules (stage is never skipped):
  *                                                     arena, archers, arrows, fx, bowglow, ui
  *   ?speed=K     game speed multiplier         ?armor=N  health upgrade level 0 … 12 (meta.hp; shown as armour)
  *   ?calm=1      reduced motion (also on with the system's prefers-reduced-motion): softer shake and zoom
  *   ?difficulty=classic  the 2D game's difficulty (the 3D build plays 'hard')
+ *   ?weapon=ID   force a weapon (bow, crossbow, spear, boomerang, sling, firework) at its saved level
+ *   ?celestial=1 force the celestial weapon look on (0: off), whatever the save says
  *
  * Without switches every run is set up from the save (ui/save.ts) the way the 2D game does it:
- * `metaOf(save)` (shop upgrades + forged bow), the chapter select, the daily run. ?bow, ?armor,
+ * `metaOf3d(save)` (shop upgrades + the selected weapon at its level), the chapter select, the daily run. ?bow, ?armor,
  * ?chapter and ?wave override the save for testing, and such a test run never writes to it.
+ * ?bow=N (debug only) sets the bow-derived weapon level (levelForBow(N)) on whatever weapon the
+ * arsenal has selected, not only the bow.
  *
  * The platform (rewarded ads, haptics) is chosen like core's createGame does it for the Phaser
  * games: VITE_OYUN_PLATFORM at build time (the Play / App Store builds pass "capacitor": AdMob
@@ -34,7 +38,8 @@ import {
 } from '@oyun/core/pure';
 import { CAREFUL, planShot } from '@sim/aimbot';
 import { BOW_MAX } from '@sim/bow';
-import { metaOf, newBank, NO_META, UPGRADES } from '@sim/meta';
+import { bowEquivalent, levelForBow, WEAPON_IDS } from '@sim/weapons';
+import { metaOf3d, newBank, NO_META, UPGRADES } from '@sim/meta';
 import { dailyChallenge } from '@sim/progress';
 import type { Difficulty } from '@sim/waves';
 import {
@@ -110,7 +115,8 @@ platform.onLifecycle(() => {
   held = platform.paused;
 });
 let adShowing = false;
-const testRun = ['bow', 'armor', 'chapter', 'wave'].some((k) => params.has(k));
+const forcedWeapon = WEAPON_IDS.find((id) => id === params.get('weapon')) ?? null;
+const testRun = ['bow', 'armor', 'chapter', 'wave', 'weapon'].some((k) => params.has(k));
 /** the 3D build plays the harder setting; ?difficulty=classic for comparison */
 const difficulty: Difficulty = params.get('difficulty') === 'classic' ? 'classic' : 'hard';
 // Online board (Play Games, adults only): real play only, never test runs or the classic setting.
@@ -126,8 +132,16 @@ function newWorld(seed: number): World {
   const d = save.data;
   const daily = mode.daily;
   const key = todayKey();
-  const meta = daily ? { ...NO_META } : metaOf(d);
-  if (params.has('bow')) meta.bow = Math.max(0, Math.min(BOW_MAX, Math.round(num('bow', 0))));
+  const meta = daily ? { ...NO_META } : metaOf3d(d);
+  if (forcedWeapon) {
+    meta.weapon = forcedWeapon;
+    meta.wlevel = d.arsenal.weapons[forcedWeapon].level;
+    meta.bow = bowEquivalent(meta.wlevel); // the glow follows the weapon in hand
+  }
+  if (params.has('bow')) {
+    meta.bow = Math.max(0, Math.min(BOW_MAX, Math.round(num('bow', 0))));
+    meta.wlevel = levelForBow(meta.bow); // hard reads the weapon level, not the old bow
+  }
   if (params.has('armor')) meta.hp = Math.max(0, Math.min(UPGRADES.hp.max, Math.round(num('armor', 0))));
   chapterPick = Math.max(0, Math.min(d.chapter, chapterPick));
   const startChapter = params.has('chapter') ? Math.round(num('chapter', 0)) : daily ? 0 : chapterPick;
@@ -173,6 +187,9 @@ const game: Game = {
   },
   get save() {
     return save;
+  },
+  get celestial() {
+    return params.has('celestial') ? params.get('celestial') === '1' : save.data.arsenal.celestial;
   },
   get daily() {
     return mode.daily;
@@ -310,7 +327,7 @@ async function start(): Promise<void> {
   const assets = await loadAssets();
   const arena = guard('arena', () => createArena(stage), NOOP);
   const archers = guard<ArchersView>('archers', () => createArchers(stage, assets, game), { update() {}, bowOf: () => null });
-  const arrows = guard('arrows', () => createArrows(stage), NOOP);
+  const arrows = guard('arrows', () => createArrows(stage, game), NOOP);
   const fx = guard<FxView>('fx', () => createFx(stage), { update() {}, timeScale: () => 1 });
   const bowglow = guard('bowglow', () => createBowGlow(stage, archers, game), NOOP);
   const hud = guard('ui', () => createHud(stage, game), NOOP);

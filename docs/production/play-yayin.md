@@ -201,7 +201,7 @@ basış (yalnız uyarı) oyunu durdurmaz. Bu davranış telefonda denenmedi.
 **Reklam düğmeleri (önemli):** Bu dahili test paketleri, telefona elle kurduğunuz test APK'sı
 gibi **web platform bağdaştırıcısıyla** derlenir (`store/apps.json` → `"platform": "web"`):
 ödüllü düğmeler (Fosil "2× şans", "Tozu ikiye katla (reklam)"; Okçular "+1 kart", "canlan",
-"çift para"; Kıvılcım "devam et", "Elmas ×2") reklam göstermeden **ödülü hemen verir**. Neden:
+"çift para", tahta sandığı gümüşe çevirme, Mağaza'da "+altın"; Kıvılcım "devam et", "Elmas ×2") reklam göstermeden **ödülü hemen verir**. Neden:
 Capacitor bağdaştırıcısında bu düğmeler "reklam yok" cevabı alır ve kodu okuyunca görülen şu:
 üç oyunda da düğme basınca hiçbir şey olmaz, hiçbir mesaj çıkmaz, sonra yeniden etkinleşir
 (Fosil, Okçular kart düğmesi, Okçular sonuç ekranı, Kıvılcım). Test edenler bunu "bozuk düğme"

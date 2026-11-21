@@ -20,6 +20,7 @@ import { THEMES, themeIndex } from '@okcu/anim/themes';
 import { STRINGS } from '@okcu/strings';
 import { PALETTE } from '@okcu/textures';
 import { bowGlow } from '@sim/bow';
+import { WEAPONS } from '@sim/weapons';
 import { PT } from '@sim/ragdoll';
 import { type EnemyType } from '@sim/combat';
 import { type GameEvent, type World } from '@sim/world';
@@ -136,10 +137,52 @@ export function createFx(stage: Stage): FxView {
     if (!overlayOpen) text.callout(label, color, size);
   };
 
+  /** The other weapons' shots: what leaves the hand decides the muzzle. */
+  function shotOf(e: Extract<GameEvent, { t: 'shot' }>, w: World): void {
+    const dir = e.angle;
+    switch (WEAPONS[w.stats.weapon].projectile) {
+      case 'bolt':
+        // the prod snaps: a crack of sparks and fast streaks
+        fx.sparks(e.x, e.y, 4, PALETTE.white, 220);
+        fx.streaks(e.x, e.y, dir, 0.35, 5, PALETTE.cream, 1000 + e.power * 400);
+        fx.flash(e.x, e.y, PALETTE.cream, 90, 0.1, 0.7);
+        break;
+      case 'rocket':
+        // the tube kicks: smoke out of both ends, sparks and a flash at the muzzle
+        for (let i = 0; i < 6; i++) {
+          const back = i % 2 === 1;
+          const a = dir + (back ? Math.PI : 0) + (Math.random() - 0.5) * 0.9;
+          const sp = 140 + Math.random() * 140;
+          fx.spawn('puff', e.x - (back ? Math.cos(dir) * 50 : 0), e.y - (back ? Math.sin(dir) * 50 : 0), Math.cos(a) * sp, Math.sin(a) * sp - 30, { life: 0.6, drag: 4, scale: 0.5, scaleEnd: 1.5, tint: PALETTE.smoke, alpha: 0.85 });
+        }
+        fx.sparks(e.x, e.y, 8, PALETTE.fire, 300);
+        fx.flash(e.x, e.y, PALETTE.fire, 170, 0.14, 0.8);
+        shake(0.12);
+        break;
+      case 'pebble':
+        fx.puffs(e.x, e.y, 2, PALETTE.dust, 60);
+        fx.streaks(e.x, e.y, dir, 0.5, 3, PALETTE.white, 600 + e.power * 300);
+        break;
+      default:
+        // a throw (spear, boomerang): a whoosh off the hand
+        fx.streaks(e.x, e.y, dir, 0.6, 4, PALETTE.white, 520 + e.power * 380);
+        fx.puffs(e.x, e.y, 2, PALETTE.white, 50);
+        break;
+    }
+    if (e.over) {
+      fx.ring(e.x, e.y, PALETTE.focus, 1.2, 0.25);
+      fx.flash(e.x, e.y, PALETTE.focus, 150, 0.16, 0.7);
+    }
+  }
+
   function handle(e: GameEvent, w: World): void {
     const theme = THEMES[themeIndex(w.wave)] ?? THEMES[0]!;
     switch (e.t) {
       case 'shot': {
+        if (w.stats.weapon !== 'bow') {
+          shotOf(e, w);
+          break;
+        }
         // muzzle puff fanning forward + a few string sparks (the forged bow's colour from steel up)
         for (let i = 0; i < 5; i++) {
           const a = e.angle + (Math.random() - 0.5) * 1.1;
@@ -301,9 +344,21 @@ export function createFx(stage: Stage): FxView {
         break;
       }
       case 'blast':
+        if (e.rocket) {
+          // the firework: sized from the simulation's own burst radius
+          fx.firework(e.x, e.y, e.r, CALM);
+          shake(0.4);
+          break;
+        }
         fx.ring(e.x, e.y, e.fire ? PALETTE.fire : PALETTE.white, (e.r / 70) * 1.2, 0.3);
         fx.sparks(e.x, e.y, 10, e.fire ? PALETTE.fire : PALETTE.cream, 380);
         fx.flash(e.x, e.y, e.fire ? PALETTE.fire : PALETTE.cream, e.r * 2.6, 0.2, 0.7);
+        break;
+      case 'boomCatch':
+        // back in the hand: a snap of air and a few glints
+        fx.ring(e.x, e.y, PALETTE.cream, 0.7, 0.18);
+        fx.sparks(e.x, e.y, 5, PALETTE.cream, 200);
+        fx.flash(e.x, e.y, PALETTE.white, 90, 0.12, 0.6);
         break;
       case 'orbPop':
         fx.ring(e.x, e.y, 0xb08bff, 1, 0.2);

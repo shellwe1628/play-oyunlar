@@ -98,6 +98,8 @@ export interface Game {
   readonly bowLevel: number;
   /** the persistent progress (coins, upgrades, bow, records, …); mutate only through `update` */
   readonly save: SaveStore<SaveData>;
+  /** the celestial weapon look (`arsenal.celestial`, or ?celestial=1|0) */
+  readonly celestial: boolean;
   /** the current run is the daily run */
   readonly daily: boolean;
   /** the chapter the chapter select starts runs at */

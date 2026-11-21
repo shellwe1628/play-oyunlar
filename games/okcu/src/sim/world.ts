@@ -290,7 +290,10 @@ export type GameEvent =
   | { t: 'rockHit'; x: number; y: number; id: number }
   | { t: 'rockBreak'; x: number; y: number }
   | { t: 'zap'; x0: number; y0: number; x1: number; y1: number; dmg: number }
-  | { t: 'blast'; x: number; y: number; r: number; fire: boolean }
+  /** a burst of radius `r`: the boom card, a blast arrow, or a firework rocket (`rocket`) */
+  | { t: 'blast'; x: number; y: number; r: number; fire: boolean; rocket: boolean }
+  /** the player's boomerang came back to the bow (it ends here) */
+  | { t: 'boomCatch'; x: number; y: number }
   | { t: 'multi'; n: number; x: number; y: number }
   | { t: 'streak'; n: number }
   | { t: 'chain'; n: number; x: number; y: number; coins: number }
@@ -1636,7 +1639,7 @@ function knockOut(w: World, a: Archer, cause: KoCause): void {
 /** The boom card: a knocked-out enemy bursts, hurting (and with inferno burning) its neighbours. */
 function boom(w: World, a: Archer): void {
   const c = targetPoint(a, 'chest');
-  w.events.push({ t: 'blast', x: c.x, y: c.y, r: FX.boomRadius, fire: w.stats.inferno });
+  w.events.push({ t: 'blast', x: c.x, y: c.y, r: FX.boomRadius, fire: w.stats.inferno, rocket: false });
   for (const e of w.enemies) {
     if (!e.alive || e === a) continue;
     const t = targetPoint(e, 'chest');
@@ -1894,9 +1897,9 @@ function chillEnemy(w: World, e: Archer, t: number): void {
 function burst(w: World, a: Arrow, x: number, y: number, struck: Archer | null): void {
   // a firework rocket bursts with its own radius (perk-scaled) and full body damage; the blast card's numbers are for arrows
   const rocket = a.kind === 'rocket';
-  const r = rocket ? ROCKET.radius * (w.difficulty === 'hard' ? weaponPerks('firework', w.meta.wlevel).blastRadiusMul : 1) : w.stats.blastRadius;
+  const r = rocket ? rocketRadius(w) : w.stats.blastRadius;
   const dmg = ENEMY_DAMAGE.body * a.dmgMul * (rocket ? ROCKET.share : w.stats.blastShare);
-  w.events.push({ t: 'blast', x, y, r, fire: false });
+  w.events.push({ t: 'blast', x, y, r, fire: false, rocket });
   for (const e of w.enemies) {
     if (!e.alive || e === struck || e.brain === 'spawn') continue;
     const t = targetPoint(e, 'chest');
@@ -2320,7 +2323,7 @@ function homeOrb(w: World, a: Arrow): void {
 }
 
 /** A sling pebble keeps 70% of its normal speed off ledges, walls and shields. */
-const PEBBLE_REST = 0.7;
+export const PEBBLE_REST = 0.7;
 
 function updateArrows(w: World): void {
   for (const a of w.arrows) {
@@ -2425,9 +2428,11 @@ function turnBoomerang(a: Arrow): void {
   a.vy = 0;
 }
 
+/** Caught: back within BOOM.catchR of the bow. */
 function endBoomerang(w: World, a: Arrow): boolean {
   missed(w, a);
   a.active = false;
+  w.events.push({ t: 'boomCatch', x: a.x, y: a.y });
   return true;
 }
 
@@ -2436,6 +2441,11 @@ export const BOOM = { turnBase: 0.55, turnPower: 0.5, windMul: 0.3, returnAcc: 1
 
 /** Firework rocket: fuse (s; a full draw flies 840 px before it, and its burst reaches the far corner of the widest fields), burst radius (px) and share of a body hit every archer in it takes; it leaves the field this far above it. */
 export const ROCKET = { fuse: 0.48, radius: 145, share: 1, topEdge: 0 } as const;
+
+/** A firework rocket's burst radius in this world (px): ROCKET.radius × the level's perk (hard). */
+export function rocketRadius(w: World): number {
+  return ROCKET.radius * (w.difficulty === 'hard' ? weaponPerks('firework', w.meta.wlevel).blastRadiusMul : 1);
+}
 
 const boomReturning = (a: Arrow): boolean => a.kind === 'boomerang' && a.age >= a.turnT;
 

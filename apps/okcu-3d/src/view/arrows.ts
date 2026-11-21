@@ -6,6 +6,14 @@
  * 2D game's trails.ts (fire embers, piercing glow, bouncy dots, heavy smoke). A glowing bow
  * passes its glow to its arrows; focus shots fly golden. When an arrow lands it stays where the
  * simulation puts it (ledge, body, shield), quivers, and dissolves when its `life` runs out.
+ *
+ * The other weapons' projectiles (weapons.ts models, one InstancedMesh each): the crossbow bolt and
+ * the spear fly and stick like arrows; the boomerang spins on its own clock (the simulation's
+ * angle stops dead at the turn), flies in front of the ledges' faces (drawn where its point
+ * projects, so it reads as arcing over them, never clipping) with a spin blur, a wake and a puff
+ * at the turn; the sling pebble tumbles and kicks up dust; the firework rocket streams flame,
+ * sparks and smoke and flashes as its fuse runs out. Celestial (`game.celestial`): every player
+ * projectile wears the starry material and sheds glints.
  */
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
@@ -13,12 +21,14 @@ import { THEMES, themeIndex } from '@okcu/anim/themes';
 import { PALETTE } from '@okcu/textures';
 import { bowGlow } from '@sim/bow';
 import { TUNING } from '@sim/tuning';
-import { type Arrow } from '@sim/world';
-import { type Module, type Stage } from '../contract';
-import { m, sx, sy } from '../coords';
+import { type Arrow, ROCKET } from '@sim/world';
+import { type Game, type Module, type Stage } from '../contract';
+import { m, PX_PER_M, sx, sy } from '../coords';
+import { LEDGE_DEPTH } from './arena/ledges';
 import { hueColor, TILE } from './fx/atlas';
 import { SpriteBatch } from './fx/batch';
 import { Ribbons } from './fx/ribbons';
+import { boltGeometry, boomerangGeometry, celestial, pebbleGeometry, rocketGeometry, spearGeometry } from './weapons';
 
 const CAP = 96;
 const SPRITES = 320;
@@ -27,6 +37,11 @@ const ORB = 0xb08bff;
 const TRAIL_Z = -0.04;
 const TRAIL_N = 9;
 const TRAIL_T = 0.13;
+/** boomerang: spin (rad/s, its own clock), depth in front of the ledges' faces, wake samples */
+const BOOM_SPIN = 21;
+const BOOM_Z = LEDGE_DEPTH / 2 + 0.18;
+const BOOM_WAKE = 10;
+const CELESTIAL = 0xd8c8ff;
 
 function paint(geo: THREE.BufferGeometry, hex: number): THREE.BufferGeometry {
   const c = new THREE.Color(hex);
@@ -123,17 +138,42 @@ interface Part {
   n: number;
 }
 
-export function createArrows(stage: Stage): Module {
+/** px model → metres */
+const metres = (geo: THREE.BufferGeometry): THREE.BufferGeometry => geo.scale(1 / PX_PER_M, 1 / PX_PER_M, 1 / PX_PER_M);
+
+/** How close (0 … 1) a point is to a ledge or wall box, within `reach` px. */
+function nearBox(x: number, y: number, boxes: readonly { x: number; y: number; w: number; h: number }[], reach: number): number {
+  let best = 0;
+  for (const L of boxes) {
+    const dx = Math.max(L.x - x, 0, x - (L.x + L.w));
+    const dy = Math.max(L.y - y, 0, y - (L.y + L.h));
+    const k = 1 - Math.hypot(dx, dy) / reach;
+    if (k > best) best = k;
+  }
+  return best <= 0 ? 0 : best * best * (3 - 2 * best);
+}
+
+const tumble = new THREE.Vector3();
+/** a fixed, per-pebble tumble axis */
+function q2Axis(seq: number): THREE.Vector3 {
+  return tumble.set(Math.sin(seq * 2.1), Math.cos(seq * 1.3), 1.4).normalize();
+}
+
+export function createArrows(stage: Stage, game: Game): Module {
   const group = new THREE.Group();
   group.name = 'arrows';
   stage.scene.add(group);
 
   const mat = dissolving(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.62, metalness: 0.05 }));
-  const part = (geo: THREE.BufferGeometry): Part => {
+  // the player's arrows in the celestial look; the other weapons' projectiles switch with it
+  const celMat = celestial(dissolving(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.5, metalness: 0.05 })), { value: 1 }, 16);
+  const celOn = { value: 0 };
+  const weaponMat = celestial(dissolving(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.55, metalness: 0.08 })), celOn, 16);
+  const part = (geo: THREE.BufferGeometry, material: THREE.Material = mat): Part => {
     const fade = new THREE.InstancedBufferAttribute(new Float32Array(CAP).fill(1), 1);
     fade.setUsage(THREE.DynamicDrawUsage);
     geo.setAttribute('aFade', fade);
-    const mesh = new THREE.InstancedMesh(geo, mat, CAP);
+    const mesh = new THREE.InstancedMesh(geo, material, CAP);
     mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     mesh.castShadow = true;
     mesh.receiveShadow = false;
@@ -149,7 +189,15 @@ export function createArrows(stage: Stage): Module {
   const heads = part(headGeo());
   const balls = part(ballGeo());
   const needles = part(needleGeo());
-  const parts = [shafts, fletch, heads, balls, needles];
+  const shaftsC = part(shaftGeo(), celMat);
+  const fletchC = part(fletchGeo(), celMat);
+  const headsC = part(headGeo(), celMat);
+  const bolts = part(metres(boltGeometry()), weaponMat);
+  const spears = part(metres(spearGeometry()), weaponMat);
+  const booms = part(metres(boomerangGeometry()), weaponMat);
+  const pebbles = part(metres(pebbleGeometry()), weaponMat);
+  const rockets = part(metres(rocketGeometry()), weaponMat);
+  const parts = [shafts, fletch, heads, balls, needles, shaftsC, fletchC, headsC, bolts, spears, booms, pebbles, rockets];
 
   // bombs and orbs: a handful at most, plain meshes
   const bombGeo = mergeGeometries([
@@ -190,6 +238,22 @@ export function createArrows(stage: Stage): Module {
   const pvy = new Float32Array(CAP);
   /** seconds of clean ballistic flight behind the arrow (the trail may reach back this far) */
   const flown = new Float32Array(CAP);
+  // boomerang: its own spin, the wake (sim px, newest first), the turn
+  const spin = new Float32Array(CAP);
+  const spinDir = new Float32Array(CAP);
+  const wakeX = new Float32Array(CAP * BOOM_WAKE);
+  const wakeY = new Float32Array(CAP * BOOM_WAKE);
+  const wakeN = new Uint8Array(CAP);
+  const turnAt = new Float32Array(CAP);
+  const turnX = new Float32Array(CAP);
+  const turnY = new Float32Array(CAP);
+  const fp = new THREE.Vector3();
+  /** the scene point at depth z that the camera sees where the sim point (x, y) is */
+  const front = (x: number, y: number, z: number, out: THREE.Vector3): THREE.Vector3 => {
+    const c = stage.camera.position;
+    const k = (c.z - z) / c.z;
+    return out.set(c.x + (sx(x) - c.x) * k, c.y + (sy(y) - c.y) * k, z);
+  };
 
   const C = {
     white: new THREE.Color(0xffffff),
@@ -230,6 +294,13 @@ export function createArrows(stage: Stage): Module {
   const spr = (x: number, y: number, w: number, h: number, rot: number, hex: number, alpha: number, tile: number, add: number): void => {
     if (nSprites < SPRITES) sprites.put(nSprites++, sx(x), sy(y), 0, m(w), m(h), rot, hex, alpha, tile, add);
   };
+  /** a sprite at depth z, placed where the sim point projects */
+  const sprZ = (x: number, y: number, z: number, w: number, h: number, rot: number, hex: number, alpha: number, tile: number, add: number): void => {
+    if (nSprites >= SPRITES) return;
+    front(x, y, z, fp);
+    const k = (stage.camera.position.z - z) / stage.camera.position.z;
+    sprites.put(nSprites++, fp.x, fp.y, z, m(w) * k, m(h) * k, rot, hex, alpha, tile, add);
+  };
 
   return {
     update({ w, dt, real }) {
@@ -246,6 +317,8 @@ export function createArrows(stage: Stage): Module {
       const glow = bowGlow(w.meta.bow);
       const glowCol = glow.cycle ? hueColor((skyT * 0.25) % 1) : glow.color;
 
+      const cel = game.celestial;
+      celOn.value = cel ? 1 : 0;
       const n = Math.min(CAP, w.arrows.length);
       for (let i = 0; i < n; i++) {
         const a: Arrow = w.arrows[i]!;
@@ -262,6 +335,10 @@ export function createArrows(stage: Stage): Module {
           pvx[i] = a.vx;
           pvy[i] = a.vy;
           roll[i] = a.seq * 1.7;
+          spin[i] = a.seq * 0.9;
+          spinDir[i] = a.vx < 0 ? 1 : -1;
+          wakeN[i] = 0;
+          turnAt[i] = -10;
         }
         if (a.state !== wasState[i]) {
           if (wasState[i] === 0) stuckAt[i] = clock;
@@ -332,6 +409,132 @@ export function createArrows(stage: Stage): Module {
           continue;
         }
 
+        // ---------------------------------------------------------------- boomerang
+        if (a.kind === 'boomerang') {
+          spin[i] = spin[i]! + spinDir[i]! * dt * BOOM_SPIN;
+          // sampled path, newest first (the flight bends: no ballistic back-trace)
+          if (dt > 0) {
+            const o = i * BOOM_WAKE;
+            const nw = Math.min(BOOM_WAKE, wakeN[i]! + 1);
+            for (let k = nw - 1; k > 0; k--) {
+              wakeX[o + k] = wakeX[o + k - 1]!;
+              wakeY[o + k] = wakeY[o + k - 1]!;
+            }
+            wakeX[o] = a.x;
+            wakeY[o] = a.y;
+            wakeN[i] = nw;
+          }
+          if (a.age >= a.turnT && turnAt[i]! < -5) {
+            turnAt[i] = clock;
+            turnX[i] = a.x;
+            turnY[i] = a.y;
+          }
+          // in front of every ledge face; closer still (and bigger) as it sweeps over one
+          const lift = Math.max(nearBox(a.x, a.y, w.ledges, 80), nearBox(a.x, a.y, w.walls, 80));
+          const z = BOOM_Z + 0.4 * lift;
+          front(a.x, a.y, z, pos);
+          const kz = (stage.camera.position.z - z) / stage.camera.position.z;
+          quat.setFromAxisAngle(AZ, spin[i]!).multiply(q2.setFromAxisAngle(AX, 0.45));
+          mtx2.compose(pos, quat, scl.setScalar(kz * (1 + 0.28 * lift)));
+          put(booms, C.white, 1);
+          // spin blur: two swooshes round the hub and a faint disc
+          const R = 36 * (1 + 0.28 * lift);
+          sprZ(a.x, a.y, z - 0.02, R * 2.3, R * 2.3, 0, cel ? CELESTIAL : PALETTE.white, 0.13, TILE.disc, 0.3);
+          for (let side = 0; side < 2; side++) {
+            const a0 = -spin[i]! + side * Math.PI;
+            trails.strip();
+            for (let s = 0; s <= 6; s++) {
+              const f = s / 6;
+              const th = a0 - spinDir[i]! * f * 1.9;
+              front(a.x + Math.cos(th) * R, a.y + Math.sin(th) * R, z - 0.01, fp);
+              trails.point(fp.x, fp.y, fp.z, m(3.2 * (1 - f) + 0.8) * kz, cel ? CELESTIAL : PALETTE.white, 0.55 * (1 - f), 0.4, 0.4);
+            }
+          }
+          // the wake
+          const nw = wakeN[i]!;
+          if (nw > 2) {
+            trails.strip();
+            for (let k = 0; k < nw; k++) {
+              const f = k / (BOOM_WAKE - 1);
+              front(wakeX[i * BOOM_WAKE + k]!, wakeY[i * BOOM_WAKE + k]!, z - 0.03, fp);
+              trails.point(fp.x, fp.y, fp.z, m(7 * (1 - f) + 1), cel ? CELESTIAL : PALETTE.cream, 0.42 * (1 - f), 0.35, 0.5);
+            }
+          }
+          // the turn: a puff of air where it stopped and started back
+          const st = clock - turnAt[i]!;
+          if (st >= 0 && st < 0.4) {
+            const f = st / 0.4;
+            sprZ(turnX[i]!, turnY[i]!, z - 0.04, 40 + 110 * f, 40 + 110 * f, 0, PALETTE.white, 0.7 * (1 - f), TILE.ring, 0.4);
+            sprZ(turnX[i]!, turnY[i]!, z, 60 * (1 - f), 60 * (1 - f), clock * 4, PALETTE.cream, 0.9 * (1 - f), TILE.glint, 1);
+          }
+          if (cel) sprZ(a.x, a.y, z + 0.02, 30, 30, clock * 3, CELESTIAL, 0.7, TILE.glint, 1);
+          continue;
+        }
+
+        // ---------------------------------------------------------------- sling pebble
+        if (a.kind === 'pebble') {
+          pos.set(sx(a.x), sy(a.y), 0);
+          quat.setFromAxisAngle(q2Axis(a.seq), clock * 17 + a.seq);
+          mtx2.compose(pos, quat, scl.setScalar(1));
+          put(pebbles, C.white, 1);
+          const reach = Math.min(0.1, flown[i]!);
+          if (reach > 0.008) {
+            trails.strip();
+            for (let s = 0; s < 6; s++) {
+              const f = s / 5;
+              const t = f * reach;
+              trails.point(sx(a.x - a.vx * t + 0.5 * ax * t * t), sy(a.y - a.vy * t + 0.5 * ay * t * t), TRAIL_Z, m(6 * (1 - f) + 1), cel ? CELESTIAL : PALETTE.cream, 0.5 * (1 - f), 0.2, 0.6);
+            }
+          }
+          if (cel) spr(a.x, a.y, 26, 26, clock * 3, CELESTIAL, 0.75, TILE.glint, 1);
+          continue;
+        }
+
+        // ---------------------------------------------------------------- firework rocket
+        if (a.kind === 'rocket') {
+          pos.set(sx(a.x), sy(a.y), 0);
+          quat.setFromAxisAngle(AZ, -a.angle).multiply(q2.setFromAxisAngle(AX, clock * 9));
+          mtx2.compose(pos, quat, scl.setScalar(1));
+          put(rockets, C.white, 1);
+          // the motor: a flame tongue streaming back and a hot core
+          const tx = a.x - dx * 24;
+          const ty = a.y - dy * 24;
+          const fl = 10 + Math.sin(clock * 55 + a.seq) * 3;
+          spr(tx - dx * 8, ty - dy * 8, fl * 3.2, fl * 7.5, -a.angle + Math.PI / 2, PALETTE.fire, 0.95, TILE.tongue, 0.7);
+          spr(tx, ty, fl * 4.4, fl * 4.4, 0, PALETTE.fire, 0.7, TILE.blob, 1);
+          spr(tx, ty, fl * 2, fl * 2, 0, PALETTE.fireCore, 1, TILE.blob, 1);
+          const reach = Math.min(0.3, flown[i]!);
+          // smoke puffs left along the arc and a grey wake
+          for (let k = 1; k <= 6; k++) {
+            const t = k * 0.04 + ((clock * 3 + i * 0.37) % 0.04);
+            if (t > reach) break;
+            const f = 1 - t / 0.3;
+            spr(a.x - a.vx * t + 0.5 * ax * t * t - dx * 28, a.y - a.vy * t + 0.5 * ay * t * t - dy * 28 - 8 * (1 - f), 16 + 34 * (1 - f), 16 + 34 * (1 - f), k, PALETTE.smoke, 0.5 * f, TILE.puff, 0);
+          }
+          if (reach > 0.01) {
+            trails.strip();
+            for (let s = 0; s < TRAIL_N; s++) {
+              const f = s / (TRAIL_N - 1);
+              const t = f * reach;
+              trails.point(sx(a.x - a.vx * t + 0.5 * ax * t * t - dx * 26), sy(a.y - a.vy * t + 0.5 * ay * t * t - dy * 26), TRAIL_Z, m(4 + 9 * f), PALETTE.smoke, 0.45 * (1 - f), 0, 1);
+            }
+            // sparks spat out of the motor
+            for (let k = 0; k < 4; k++) {
+              const h = ((a.seq * 7 + k * 13 + Math.floor(clock * 30)) % 17) / 17;
+              const t = (0.02 + 0.05 * k) * Math.min(1, reach / 0.2);
+              spr(a.x - a.vx * t - dx * 26 + (h - 0.5) * 22, a.y - a.vy * t - dy * 26 + ((h * 7) % 1 - 0.5) * 22, 12, 12, clock * 9 + k, k % 2 ? PALETTE.gold : PALETTE.fireCore, 0.9, TILE.star, 0.6);
+            }
+          }
+          // the fuse runs out: the nose flashes faster and faster
+          const left = ROCKET.fuse - a.age;
+          if (left < 0.2) {
+            const blink = 0.5 + 0.5 * Math.sin(clock * (40 + (0.2 - left) * 200));
+            spr(a.x, a.y, 44, 44, clock * 6, PALETTE.white, 0.5 + 0.5 * blink, TILE.glint, 1);
+          }
+          if (cel) spr(a.x - dx * 10, a.y - dy * 10, 34, 34, clock * 3, CELESTIAL, 0.75, TILE.glint, 1);
+          continue;
+        }
+
         // ---------------------------------------------------------------- arrows
         const heavy = mine && a.impulseMul > 1.01;
         // fading: an arrow in a ledge dissolves over its last 1.2 s (and whenever the sim says `fade`)
@@ -359,30 +562,42 @@ export function createArrows(stage: Stage): Module {
         quat.multiply(q2.setFromAxisAngle(AX, roll[i]!));
 
         const focus = mine && a.focus;
-        const lenK = heavy ? 1.12 : 1;
-        const fat = heavy ? 1.45 : 1;
-        mtx2.compose(pos, quat, scl.set(lenK, fat, fat));
-        put(shafts, mine ? (heavy ? C.shaftHeavy : focus ? C.shaftFocus : C.shaftMine) : C.shaftFoe, alpha);
-        mtx2.compose(pos, quat, scl.set(lenK, 1, 1));
-        put(fletch, mine ? (focus ? C.fletchFocus : multi ? C.fletchMulti : C.fletchMine) : C.fletchFoe, alpha);
-        const hk = heavy ? 1.35 : 1;
-        mtx.compose(pos, quat, scl.set(hk, hk, hk));
-        mtx2.copy(mtx);
-        // in a body or a shield the head is buried: only the shaft and feathers stick out
-        if (a.state === 2 || a.state === 3) {
-          // nothing to draw
-        } else if (mine && a.bounces > 0) put(balls, C.white, alpha);
-        else if (mine && a.pierce > 0) put(needles, C.white, alpha);
-        else put(heads, mine && a.blast ? C.headBlast : mine && a.frost ? C.headFrost : heavy ? C.headHeavy : C.white, alpha);
+        if (a.kind === 'bolt' || a.kind === 'spear') {
+          // in a body or a shield the point is buried
+          if (a.state === 2 || a.state === 3) pos.add(fp.set(-dx, dy, 0).multiplyScalar(m(a.kind === 'spear' ? 16 : 9)));
+          mtx2.compose(pos, quat, scl.setScalar(1));
+          put(a.kind === 'bolt' ? bolts : spears, C.white, alpha);
+        } else {
+          const lenK = heavy ? 1.12 : 1;
+          const fat = heavy ? 1.45 : 1;
+          const starry = mine && cel;
+          mtx2.compose(pos, quat, scl.set(lenK, fat, fat));
+          put(starry ? shaftsC : shafts, mine ? (heavy ? C.shaftHeavy : focus ? C.shaftFocus : C.shaftMine) : C.shaftFoe, alpha);
+          mtx2.compose(pos, quat, scl.set(lenK, 1, 1));
+          put(starry ? fletchC : fletch, mine ? (focus ? C.fletchFocus : multi ? C.fletchMulti : C.fletchMine) : C.fletchFoe, alpha);
+          const hk = heavy ? 1.35 : 1;
+          mtx.compose(pos, quat, scl.set(hk, hk, hk));
+          mtx2.copy(mtx);
+          // in a body or a shield the head is buried: only the shaft and feathers stick out
+          if (a.state === 2 || a.state === 3) {
+            // nothing to draw
+          } else if (mine && a.bounces > 0) put(balls, C.white, alpha);
+          else if (mine && a.pierce > 0) put(needles, C.white, alpha);
+          else put(starry ? headsC : heads, mine && a.blast ? C.headBlast : mine && a.frost ? C.headFrost : heavy ? C.headHeavy : C.white, alpha);
+        }
 
         if (!flying) continue;
 
         // ---------------------------------------------------------------- flight dressing
         const reach = Math.min(TRAIL_T, flown[i]!);
         let color: number = PALETTE.white;
-        let width = mine ? 8 : 5;
+        let width = mine ? (a.kind === 'spear' ? 12 : a.kind === 'bolt' ? 6 : 8) : 5;
         let ta = mine ? 0.7 : 0.4;
         let add = 0.25;
+        if (mine && cel) {
+          color = CELESTIAL;
+          add = 0.5;
+        }
         if (mine && a.fire) {
           color = PALETTE.fire;
           width = 8;
@@ -476,6 +691,7 @@ export function createArrows(stage: Stage): Module {
           spr(a.x - dx * 4, a.y - dy * 4, fl * 2, fl * 2, 0, PALETTE.fireCore, 0.9, TILE.blob, 1);
         }
         if (mine && a.pierce > 0) spr(a.x + dx * 14, a.y + dy * 14, 52, 52, 0, PALETTE.bubble, 0.4, TILE.blob, 1);
+        if (mine && cel) spr(a.x - dx * 16, a.y - dy * 16, 30, 30, clock * 3 + a.seq, CELESTIAL, 0.7, TILE.glint, 1);
       }
       for (let i = n; i < CAP; i++) seq[i] = -1;
 

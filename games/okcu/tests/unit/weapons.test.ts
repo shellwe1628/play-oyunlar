@@ -6,7 +6,7 @@ import { CARD_IDS, CARD_WEAPONS, HARD_BOW_POW, cardFits, drawOffer, statsFor, ty
 import { NO_META } from '../../src/sim/meta';
 import { velX } from '../../src/sim/body';
 import { TUNING } from '../../src/sim/tuning';
-import { arrowSpeed, BOOM, createWorld, playerOrigin, ROCKET, shoot, advance, jumpToWave, takeEvents, targetPoint } from '../../src/sim/world';
+import { arrowSpeed, BOOM, createWorld, playerOrigin, ROCKET, rocketRadius, shoot, advance, jumpToWave, takeEvents, targetPoint } from '../../src/sim/world';
 import { WEAPON_IDS, WEAPONS, bowEquivalent, levelForBow, weaponDamage, weaponPerks } from '../../src/sim/weapons';
 
 describe('weapons', () => {
@@ -476,7 +476,46 @@ describe('boomerang', () => {
       expect(Math.hypot(f.b.x - f.o.x, f.b.y - f.o.y)).toBeLessThan(60);
       expect(f.hurt).toBe(0);
       expect(f.ev).not.toContain('playerHit');
+      // the catch is announced exactly once
+      expect(f.ev.filter((t) => t === 'boomCatch')).toHaveLength(1);
     }
+  });
+
+  it('a boomerang that ends any other way is not caught', () => {
+    const w = boomWorld();
+    w.wind = 0;
+    expect(shoot(w, -1.25, 1)).toBe(true);
+    const b = w.arrows.find((x) => x.active && x.owner === 'player')!;
+    takeEvents(w);
+    // out of time before it is back
+    b.life = 0.05;
+    const ev: string[] = [];
+    for (let t = 0; t < 0.5 && b.active; t += 1 / 120) {
+      advance(w, 1 / 120);
+      for (const e of takeEvents(w)) ev.push(e.t);
+    }
+    expect(b.active).toBe(false);
+    expect(ev).not.toContain('boomCatch');
+  });
+
+  it('the blast card burst is not a rocket', () => {
+    const w = createWorld({ seed: 3, difficulty: 'hard', meta: { ...NO_META } });
+    w.cards.push('blast');
+    w.stats = statsFor(w.cards, w.meta, w.difficulty);
+    expect(w.stats.blastShare).toBeGreaterThan(0);
+    w.phase = 'play';
+    w.wind = 0;
+    for (const e of w.enemies) e.timer = 1e9;
+    // straight down into the player's own ledge
+    expect(shoot(w, 1.1, 0.2)).toBe(true);
+    const ev: { t: string; rocket?: boolean }[] = [];
+    for (let t = 0; t < 3; t += 1 / 120) {
+      advance(w, 1 / 120);
+      ev.push(...takeEvents(w));
+    }
+    const blasts = ev.filter((e) => e.t === 'blast');
+    expect(blasts.length).toBeGreaterThan(0);
+    for (const e of blasts) expect(e.rocket).toBe(false);
   });
 
   it('the return perk brings it back sooner', () => {
@@ -728,6 +767,9 @@ describe('firework rocket', () => {
     expect(r.active).toBe(false);
     expect(r.state).toBe(0);
     const b = out.blasts[0]!;
+    // the burst says it is a rocket's (the view sizes its firework from `r`)
+    expect(b.rocket).toBe(true);
+    expect(b.r).toBe(rocketRadius(w));
     expect(out.t).toBeLessThan(ROCKET.fuse + 0.07);
     // every archer within the radius took damage; those clearly outside took none
     let inside = 0;

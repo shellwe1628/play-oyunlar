@@ -626,7 +626,15 @@ export function createHud(stage: Stage, game: Game): Module {
           audio.playPreset(SFX.boom);
           break;
         case 'blast':
-          audio.playPreset(SFX.boom, { volume: 0.6, pitch: 4 });
+          if (e.rocket) {
+            // a firework: a bang and a crackle
+            audio.playPreset(SFX.boom, { volume: 0.8, pitch: 2 });
+            audio.playPreset(SFX.fuse, { volume: 0.7 });
+          } else audio.playPreset(SFX.boom, { volume: 0.6, pitch: 4 });
+          break;
+        case 'boomCatch':
+          audio.playPreset(SFX.thock, { volume: 0.6, pitch: 5 });
+          audio.playPreset(SFX.plink, { volume: 0.5, pitch: 3 });
           break;
         case 'orbPop':
           audio.playPreset(SFX.plink);

@@ -1,7 +1,8 @@
 /**
  * Pooled cosmetic particles: a port of the 2D game's scenes/fx.ts (same kinds, speeds, gravity,
  * drag, lifetimes and sizes, in simulation px) drawn as instanced sprites, plus three kinds the
- * 3D view adds for weight: additive glow flashes, motion streaks and light rays.
+ * 3D view adds for weight: additive glow flashes, motion streaks and light rays, and the firework
+ * rocket's burst (`firework`: confetti that flutters down, smoke, coloured stars, sized by radius).
  * `spawn` reuses a dead slot of the kind's pool (or steals the oldest), so play never allocates.
  * Cosmetic randomness only (Math.random is fine here, never in the simulation).
  */
@@ -11,7 +12,7 @@ import { TILE } from './atlas';
 import { SpriteBatch } from './batch';
 import { type Ribbons } from './ribbons';
 
-export type FxKind = 'puff' | 'feather' | 'shard' | 'ring' | 'spark' | 'glow' | 'streak' | 'rays';
+export type FxKind = 'puff' | 'feather' | 'shard' | 'confetti' | 'ring' | 'spark' | 'glow' | 'streak' | 'rays';
 
 interface KindDef {
   size: number;
@@ -28,13 +29,15 @@ const KINDS: Record<FxKind, KindDef> = {
   puff: { size: 64, tile: TILE.puff, w: 66, h: 66, add: 0 },
   feather: { size: 70, tile: TILE.feather, w: 40, h: 18, add: 0 },
   shard: { size: 96, tile: TILE.shard, w: 18, h: 10, add: 0 },
+  confetti: { size: 120, tile: TILE.disc, w: 15, h: 9, add: 0 },
   ring: { size: 16, tile: TILE.ring, w: 96, h: 96, add: 0.35 },
   glow: { size: 20, tile: TILE.blob, w: 100, h: 100, add: 1 },
   spark: { size: 96, tile: TILE.star, w: 24, h: 24, add: 0.4 },
   streak: { size: 48, tile: TILE.streak, w: 40, h: 14, add: 1 },
 };
 const RING_SEGS = 40;
-const ORDER: readonly FxKind[] = ['rays', 'puff', 'feather', 'shard', 'ring', 'glow', 'spark', 'streak'];
+const ORDER: readonly FxKind[] = ['rays', 'puff', 'feather', 'shard', 'confetti', 'ring', 'glow', 'spark', 'streak'];
+const CONFETTI = [PALETTE.gold, PALETTE.pink, PALETTE.bubble, PALETTE.leaf, PALETTE.danger, PALETTE.white];
 
 export interface SpawnOpts {
   life?: number;
@@ -161,6 +164,39 @@ export class Particles {
     }
   }
 
+  /**
+   * A firework rocket's burst of radius `r` px (the simulation's blast radius): a white flash and
+   * two shockwaves out to `r`, coloured stars and streaks thrown to its edge, paper confetti that
+   * flutters down, and a ring of smoke that swells and drifts up.
+   */
+  firework(x: number, y: number, r: number, calm = false): void {
+    // a ring reaches 40 × 1.4 × size px
+    this.ring(x, y, PALETTE.white, r / 56, 0.32);
+    this.ring(x, y, PALETTE.gold, r / 70, 0.45);
+    this.flash(x, y, PALETTE.white, r * 1.6, 0.12, 0.95);
+    this.flash(x, y, PALETTE.gold, r * 2.6, 0.3, 0.6);
+    const n = calm ? 10 : 18;
+    for (let i = 0; i < n; i++) {
+      const a = (i / n) * Math.PI * 2 + Math.random() * 0.3;
+      const col = CONFETTI[i % 4]!;
+      // stars: drag 3 over ~0.6 s travels ≈ 0.28 × speed: out to the radius
+      const sp = r * (3.2 + Math.random() * 0.6);
+      this.spawn('spark', x, y, Math.cos(a) * sp, Math.sin(a) * sp, { life: 0.55 + Math.random() * 0.25, drag: 3, g: 120, scale: 1 + Math.random() * 0.5, scaleEnd: 0.1, tint: col, vr: 8 });
+      if (i % 2 === 0) this.spawn('streak', x, y, Math.cos(a) * sp * 0.9, Math.sin(a) * sp * 0.9, { life: 0.22 + Math.random() * 0.1, drag: 4.5, g: 200, scale: 1, tint: col });
+    }
+    for (let i = 0; i < (calm ? 18 : 40); i++) {
+      const a = Math.random() * Math.PI * 2;
+      const d = Math.sqrt(Math.random());
+      const sp = r * (1.2 + 2.2 * d);
+      this.spawn('confetti', x, y, Math.cos(a) * sp, Math.sin(a) * sp - r * 0.8, { life: 1.3 + Math.random() * 0.9, g: 420, drag: 3.2, scale: 0.8 + Math.random() * 0.6, tint: CONFETTI[i % CONFETTI.length]!, vr: (Math.random() - 0.5) * 14 });
+    }
+    for (let i = 0; i < 9; i++) {
+      const a = (i / 9) * Math.PI * 2;
+      const k = r / 145;
+      this.spawn('puff', x + Math.cos(a) * r * 0.35, y + Math.sin(a) * r * 0.35, Math.cos(a) * r * 0.9, Math.sin(a) * r * 0.9 - 50, { life: 0.9 + Math.random() * 0.3, drag: 3, scale: 0.9 * k, scaleEnd: 2.4 * k, tint: PALETTE.smoke, alpha: 0.75 });
+    }
+  }
+
   ring(x: number, y: number, tint: number, size = 1, life = 0.25): void {
     this.spawn('ring', x, y, 0, 0, { life, scale: 0.3 * size, scaleEnd: 1.4 * size, tint, alpha: 1 });
   }
@@ -216,6 +252,10 @@ export class Particles {
           // flutter: sideways sway and slow fall
           this.vx[i] = this.vx[i]! + Math.sin(life * 7 + this.born[i]!) * 260 * dt;
           if (this.vy[i]! > 90) this.vy[i] = 90;
+        } else if (kind === 'confetti') {
+          // paper: sways, falls slowly once the burst has spent itself
+          this.vx[i] = this.vx[i]! + Math.sin(life * 9 + this.born[i]!) * 180 * dt;
+          if (this.vy[i]! > 120) this.vy[i] = 120;
         }
         if (kind === 'ring') {
           // a shockwave: bursts out fast, thins as it goes
@@ -244,11 +284,12 @@ export class Particles {
         // rings and flashes burst out fast and settle (the 2D ring grows linearly; this reads heavier)
         const e = kind === 'glow' || kind === 'rays' ? 1 - (1 - t) * (1 - t) : t;
         const sc = this.s0[i]! + (this.s1[i]! - this.s0[i]!) * e;
-        let alpha = kind === 'feather' ? this.a0[i]! * Math.min(1, (1 - t) * 3) : this.a0[i]! * (1 - t);
+        let alpha = kind === 'feather' || kind === 'confetti' ? this.a0[i]! * Math.min(1, (1 - t) * 3) : this.a0[i]! * (1 - t);
         let w = def.w * sc;
         let h = def.h * sc;
         let rot = -this.rot[i]!;
         if (kind === 'feather') rot = -Math.sin(life * 6 + this.born[i]!) * 0.9;
+        else if (kind === 'confetti') h *= 0.25 + 0.75 * Math.abs(Math.cos(life * 11 + this.born[i]!));
         else if (kind === 'streak') {
           const sp = Math.hypot(this.vx[i]!, this.vy[i]!);
           rot = -Math.atan2(this.vy[i]!, this.vx[i]!);

@@ -10,13 +10,15 @@ import * as THREE from 'three';
 import { animate, newAnimOut, posePoints, type AnimInput, type AnimOut, type Kind } from '@okcu/anim/anim';
 import { PALETTE } from '@okcu/textures';
 import { castsSpells } from '@sim/combat';
+import type { WeaponId } from '@sim/weapons';
 import type { Archer, World } from '@sim/world';
 import type { Assets } from '../assets';
 import type { ArchersView, BowHandle, Frame, Game, Stage } from '../contract';
-import { Gear } from './archers/gear';
+import { Gear, recoil } from './archers/gear';
 import { lookFor, type Look } from './archers/looks';
 import { Outfit } from './archers/outfit';
 import { ArcherRig, createRigKit } from './rig';
+import { celestialTime } from './weapons';
 
 interface Puppet {
   rig: ArcherRig;
@@ -64,7 +66,59 @@ const GOLD = new THREE.Color(1, 0.86, 0.35);
 const HURT = new THREE.Color(1, 0.35, 0.35);
 const FROST = new THREE.Color(PALETTE.frost);
 
-export function createArchers(stage: Stage, assets: Assets, _game: Game): ArchersView {
+/**
+ * The player's shot with a new weapon, on top of the bow's own follow-through (px offsets on the
+ * animation layer's hands; drawing only): the crossbow and the firework tube kick the arms back
+ * and up, the spear and the boomerang are cocked behind the head while drawing and thrown with an
+ * overhand swing of the string arm, the slingshot's hand rides forward a touch.
+ */
+function weaponPose(weapon: WeaponId, since: number, draw: number, f: number, s: number, o: AnimOut): void {
+  const r = recoil(since);
+  switch (weapon) {
+    case 'crossbow':
+      o.handFX -= f * r * 12 * s;
+      o.handFY -= r * 8 * s;
+      o.handBX -= f * r * 9 * s;
+      o.handBY -= r * 5 * s;
+      o.lean -= f * r * 0.06;
+      break;
+    case 'firework':
+      o.handFX -= f * r * 16 * s;
+      o.handFY -= r * 15 * s;
+      o.handBX -= f * r * 12 * s;
+      o.handBY -= r * 6 * s;
+      o.lean -= f * r * 0.12;
+      o.dx -= f * r * 5 * s;
+      break;
+    case 'spear':
+    case 'boomerang': {
+      const spear = weapon === 'spear';
+      // cocked: the throwing hand lifts behind the head as the throw is drawn
+      o.handBY -= draw * (spear ? 12 : 24) * s;
+      o.handBX -= f * draw * (spear ? 4 : 8) * s;
+      const dur = spear ? 0.42 : 0.34;
+      if (since >= 0 && since < dur) {
+        // the throw: the arm whips over the top and follows through past the bow hand
+        const k = since / dur;
+        const p = Math.sin(k * Math.PI);
+        const reach = (spear ? 88 : 70) * s;
+        o.handBX += f * reach * Math.sin(Math.min(1, k * 1.6) * (Math.PI / 2)) * (1 - 0.55 * k * k);
+        o.handBY -= (spear ? 22 : 34) * s * Math.sin(Math.min(1, k * 2.2) * Math.PI) - 18 * s * k * (1 - k);
+        o.handFY += p * 10 * s;
+        o.lean += f * p * (spear ? 0.16 : 0.1);
+      }
+      break;
+    }
+    case 'sling': {
+      if (since >= 0 && since < 0.3) o.handFX += f * Math.sin((since / 0.3) * Math.PI) * 6 * s;
+      break;
+    }
+    default:
+      break;
+  }
+}
+
+export function createArchers(stage: Stage, assets: Assets, game: Game): ArchersView {
   const kit = createRigKit(assets);
   const puppets = new Map<number, Puppet>();
   const spare: Puppet[] = [];
@@ -140,6 +194,9 @@ export function createArchers(stage: Stage, assets: Assets, _game: Game): Archer
     inp.title = w.phase === 'title' && a.type === 'player';
     inp.mood = 0;
     animate(inp, p.out);
+    // the player's weapon (enemies always shoot bows)
+    const weapon: WeaponId = a.type === 'player' ? w.stats.weapon : 'bow';
+    if (weapon !== 'bow') weaponPose(weapon, inp.sinceRelease, a.alive ? (p.out.drawOverride >= 0 ? p.out.drawOverride : a.draw) : 0, a.facing >= 0 ? 1 : -1, a.scale, p.out);
     posePoints(a.body.x, a.body.y, a.body.n, p.out, p.vx, p.vy);
 
     const draw = p.out.drawOverride >= 0 ? p.out.drawOverride : a.draw;
@@ -153,8 +210,9 @@ export function createArchers(stage: Stage, assets: Assets, _game: Game): Archer
     const bulge = p.hitK > 0 ? 1 + 0.17 * p.hitK * Math.cos((1 - p.hitK) * 15) : 1;
     rig.pose({ x: p.vx, y: p.vy, facing: a.facing, scale: a.scale * bulge, flat: p.flat, aim: a.aim, aimed: nocked ? Math.min(1, draw * 4) : 0 });
 
-    const ready = a.type === 'player' ? w.reload <= 0 : a.brain === 'draw' && a.type !== 'bomber';
-    p.gear.update({ facing: a.facing, scale: a.scale, gx: rig.hand.x, gy: rig.hand.y, gz: rig.hand.z, angle: rig.hand.angle, draw: nocked ? draw : 0, nocked, nx: rig.pinch.x, ny: rig.pinch.y, arrow: a.alive && ready && (nocked || a.type === 'player'), visible: !castsSpells(a.type) });
+    // a boomerang is in the hand only once the last one is back
+    const ready = a.type === 'player' ? w.reload <= 0 && (weapon !== 'boomerang' || !w.arrows.some((x) => x.active && x.owner === 'player' && x.kind === 'boomerang')) : a.brain === 'draw' && a.type !== 'bomber';
+    p.gear.update({ facing: a.facing, scale: a.scale, gx: rig.hand.x, gy: rig.hand.y, gz: rig.hand.z, angle: rig.hand.angle, draw: nocked ? draw : 0, nocked, nx: rig.pinch.x, ny: rig.pinch.y, arrow: a.alive && ready && (nocked || a.type === 'player'), visible: !castsSpells(a.type), weapon, since: inp.sinceRelease, celestial: a.type === 'player' && game.celestial });
     const f = a.facing >= 0 ? 1 : -1;
     p.handle.grip.position.set(f * rig.hand.x, rig.hand.y, rig.hand.z);
     p.handle.grip.rotation.z = f < 0 ? Math.PI - rig.hand.angle : rig.hand.angle;
@@ -178,6 +236,7 @@ export function createArchers(stage: Stage, assets: Assets, _game: Game): Archer
   function update(frame: Frame): void {
     const { w, real, events } = frame;
     animT += real;
+    celestialTime.value += real;
     if (w !== lastWorld) {
       // a restart swapped the world: ids start over, so every puppet is stale
       for (const [id, p] of puppets) retire(id, p);

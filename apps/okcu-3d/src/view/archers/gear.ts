@@ -1,6 +1,8 @@
 /**
  * What the archer holds: a chunky recurve bow that bends as the string is drawn, the string and
- * the nocked arrow. The Mixamo bow and arrow are true to life, which at phone size means a hair:
+ * the nocked arrow; or the player's selected weapon (weapons.ts models): a crossbow that kicks
+ * on the shot, a spear or boomerang in the throwing hand, a slingshot whose bands stretch to the
+ * fingers and snap, a firework tube that kicks muzzle-up. The Mixamo bow and arrow are true to life, which at phone size means a hair:
  * these are modelled at the 2D game's proportions instead (bow 80 px tall, 7 px limbs).
  *
  * Authored in simulation px at scale 1, in the bow's own frame: +x is where the arrow leaves,
@@ -9,62 +11,26 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { PALETTE } from '@okcu/textures';
+import type { WeaponId } from '@sim/weapons';
 import { PX_PER_M } from '../../coords';
+import {
+  boltGeometry,
+  boomerangGeometry,
+  celestial,
+  sweep,
+  crossbowGeometry,
+  pebbleGeometry,
+  slingGeometry,
+  spearGeometry,
+  tubeGeometry,
+  tubeLoadGeometry,
+  type CrossbowParts,
+  type SlingParts,
+} from '../weapons';
 
 const HALF = 40; // limb tip height above the hand
 const PIVOT = 7; // where a limb starts to bend
 const TIP_X = -10;
-const AROUND = 8;
-
-/** A tube swept along a curve in the xy plane with an elliptical section (a across, b in depth). */
-export function sweep(n: number, at: (t: number) => readonly [number, number], radii: (t: number) => readonly [number, number], color?: (t: number) => THREE.Color): THREE.BufferGeometry {
-  const pos: number[] = [];
-  const col: number[] = [];
-  const idx: number[] = [];
-  for (let i = 0; i <= n; i++) {
-    const t = i / n;
-    const [x, y] = at(t);
-    const [x0, y0] = at(Math.max(0, t - 0.01));
-    const [x1, y1] = at(Math.min(1, t + 0.01));
-    const l = Math.hypot(x1 - x0, y1 - y0) || 1;
-    const nx = -(y1 - y0) / l;
-    const ny = (x1 - x0) / l;
-    const [a, b] = radii(t);
-    const c = color?.(t);
-    for (let k = 0; k < AROUND; k++) {
-      const th = (k / AROUND) * Math.PI * 2;
-      pos.push(x + nx * a * Math.cos(th), y + ny * a * Math.cos(th), b * Math.sin(th));
-      if (c) col.push(c.r, c.g, c.b);
-    }
-  }
-  for (let i = 0; i < n; i++) {
-    for (let k = 0; k < AROUND; k++) {
-      const a = i * AROUND + k;
-      const b = i * AROUND + ((k + 1) % AROUND);
-      idx.push(a, b, a + AROUND, b, b + AROUND, a + AROUND);
-    }
-  }
-  // caps
-  const first = pos.length / 3;
-  const [sx0, sy0] = at(0);
-  const [sx1, sy1] = at(1);
-  pos.push(sx0, sy0, 0, sx1, sy1, 0);
-  if (color) {
-    const c0 = color(0);
-    const c1 = color(1);
-    col.push(c0.r, c0.g, c0.b, c1.r, c1.g, c1.b);
-  }
-  for (let k = 0; k < AROUND; k++) {
-    idx.push(first, (k + 1) % AROUND, k);
-    idx.push(first + 1, n * AROUND + k, n * AROUND + ((k + 1) % AROUND));
-  }
-  const g = new THREE.BufferGeometry();
-  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-  if (color) g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
-  g.setIndex(idx);
-  g.computeVertexNormals();
-  return g;
-}
 
 const smooth = (a: number, b: number, x: number): number => {
   const t = Math.min(1, Math.max(0, (x - a) / (b - a)));
@@ -139,7 +105,9 @@ interface Shared {
   arrowEnemy: THREE.BufferGeometry;
   string: THREE.BufferGeometry;
   stringMat: THREE.Material;
+  bandMat: THREE.Material;
   arrowMat: THREE.Material;
+  arrowMatCelestial: THREE.Material;
   identity: THREE.Matrix4[];
 }
 let shared: Shared | null = null;
@@ -150,10 +118,38 @@ function assets(): Shared {
     arrowEnemy: arrowGeometry(0x9a6a40, 0xb48cff),
     string: new THREE.CylinderGeometry(1, 1, 1, 5, 1, true).rotateZ(-Math.PI / 2).translate(0.5, 0, 0),
     stringMat: new THREE.MeshBasicMaterial({ color: PALETTE.string }),
+    bandMat: new THREE.MeshLambertMaterial({ color: 0xc8463a, emissive: 0x3a1010 }),
     arrowMat: new THREE.MeshLambertMaterial({ vertexColors: true, emissive: 0x2a2018 }),
+    arrowMatCelestial: celestial(new THREE.MeshLambertMaterial({ vertexColors: true, emissive: 0x2a2018 }), { value: 1 }, 1 / 5),
     identity: [new THREE.Matrix4(), new THREE.Matrix4(), new THREE.Matrix4()],
   };
   return shared;
+}
+
+/** The held models of the five new weapons (built on first use, shared by every archer). */
+interface Held {
+  crossbow: CrossbowParts;
+  spear: THREE.BufferGeometry;
+  boomerang: THREE.BufferGeometry;
+  sling: SlingParts;
+  tube: THREE.BufferGeometry;
+  tubeLoad: THREE.BufferGeometry;
+  bolt: THREE.BufferGeometry;
+  pebble: THREE.BufferGeometry;
+}
+let held: Held | null = null;
+function heldModels(): Held {
+  held ??= {
+    crossbow: crossbowGeometry(),
+    spear: spearGeometry(),
+    boomerang: boomerangGeometry(),
+    sling: slingGeometry(),
+    tube: tubeGeometry(),
+    tubeLoad: tubeLoadGeometry(),
+    bolt: boltGeometry(),
+    pebble: pebbleGeometry(),
+  };
+  return held;
 }
 
 export interface GearInput {
@@ -173,15 +169,34 @@ export interface GearInput {
   nocked: boolean;
   nx: number;
   ny: number;
+  /** loaded: the arrow (bolt, pebble, rocket nose; the spear or boomerang in the hand) shows */
   arrow: boolean;
   visible: boolean;
+  /** what is held (enemies: always the bow) */
+  weapon: WeaponId;
+  /** seconds since the last shot (recoil, the sling's snap) */
+  since: number;
+  /** the celestial look */
+  celestial: boolean;
 }
 
 const m1 = new THREE.Matrix4();
 const m2 = new THREE.Matrix4();
 const v = new THREE.Vector3();
+const v2 = new THREE.Vector3();
+const v3 = new THREE.Vector3();
+const q = new THREE.Quaternion();
+const AX = new THREE.Vector3(1, 0, 0);
 const TIP_TOP = new THREE.Vector3(TIP_X, HALF - 1, 0);
 const TIP_BOTTOM = new THREE.Vector3(TIP_X, -HALF + 1, 0);
+/** the sling's pouch at rest, between the fork's tips and a little behind (bow frame px) */
+const POUCH_REST = new THREE.Vector3(-5, 16, 0);
+
+/** Recoil envelope after a shot: a sharp kick (≈35 ms) that settles over a quarter second. */
+export function recoil(since: number): number {
+  if (since < 0 || since > 0.5) return 0;
+  return Math.sin(Math.min(1, since / 0.035) * (Math.PI / 2)) * Math.exp(-since * 13);
+}
 
 export class Gear {
   readonly group = new THREE.Group();
@@ -192,6 +207,13 @@ export class Gear {
   private readonly strings: THREE.Mesh[] = [];
   private readonly arrow: THREE.Mesh;
   private readonly bowMat: THREE.MeshPhongMaterial;
+  /** this archer's celestial switch (bow and weapon materials) */
+  private readonly cel = { value: 0 };
+  /** a new weapon's model, its load (bolt, pebble, rocket nose) and the sling's pouch */
+  private weaponMat: THREE.MeshPhongMaterial | null = null;
+  private body: THREE.Mesh | null = null;
+  private load: THREE.Mesh | null = null;
+  private pouch: THREE.Mesh | null = null;
 
   constructor() {
     const s = assets();
@@ -203,7 +225,7 @@ export class Gear {
       this.group.add(b);
     }
     this.skeleton = new THREE.Skeleton(this.bones, s.identity);
-    this.bowMat = new THREE.MeshPhongMaterial({ vertexColors: true, shininess: 30, specular: 0x554433 });
+    this.bowMat = celestial(new THREE.MeshPhongMaterial({ vertexColors: true, shininess: 30, specular: 0x554433 }), this.cel, 1 / 5);
     this.bow = new THREE.SkinnedMesh(s.bow, this.bowMat);
     this.bow.bind(this.skeleton, s.identity[0]);
     this.bow.frustumCulled = false;
@@ -233,11 +255,25 @@ export class Gear {
   dispose(): void {
     this.skeleton.dispose();
     this.bowMat.dispose();
+    this.weaponMat?.dispose();
+  }
+
+  private part(): THREE.Mesh {
+    this.weaponMat ??= celestial(new THREE.MeshPhongMaterial({ vertexColors: true, shininess: 40, specular: 0x444444, emissive: 0x1c140e }), this.cel, 1 / 5);
+    const mesh = new THREE.Mesh(undefined, this.weaponMat);
+    mesh.matrixAutoUpdate = false;
+    mesh.frustumCulled = false;
+    mesh.castShadow = true;
+    this.group.add(mesh);
+    return mesh;
   }
 
   update(g: GearInput): void {
     this.group.visible = g.visible;
     if (!g.visible) return;
+    const s = assets();
+    this.cel.value = g.celestial ? 1 : 0;
+    this.arrow.material = g.celestial ? s.arrowMatCelestial : s.arrowMat;
     const k = g.scale / PX_PER_M;
     const f = g.facing >= 0 ? 1 : -1;
     // bow frame → world (mirrored for facing −1)
@@ -254,6 +290,21 @@ export class Gear {
     }
     this.tips[0].copy(TIP_TOP).applyMatrix4(this.bones[1]!.matrixWorld);
     this.tips[1].copy(TIP_BOTTOM).applyMatrix4(this.bones[2]!.matrixWorld);
+
+    const bow = g.weapon === 'bow';
+    this.bow.visible = bow;
+    for (const line of this.strings) {
+      line.visible = true;
+      line.material = g.weapon === 'sling' ? s.bandMat : s.stringMat;
+    }
+    if (!bow) {
+      this.arrow.visible = false;
+      this.weapon(g, base, k, f);
+      return;
+    }
+    if (this.body) this.body.visible = false;
+    if (this.load) this.load.visible = false;
+    if (this.pouch) this.pouch.visible = false;
 
     // the string meets at the fingers, or rests straight between the tips
     let nx: number;
@@ -281,6 +332,113 @@ export class Gear {
       this.arrow.matrix.makeRotationZ(a).scale(v.set(k, k, k)).setPosition(nx, ny, nz + k * 4);
     }
   }
+
+  /** The five new weapons: the model in the bow hand (thrown ones in the string hand). */
+  private weapon(g: GearInput, base: THREE.Matrix4, k: number, f: number): void {
+    const h = heldModels();
+    this.body ??= this.part();
+    this.load ??= this.part();
+    const body = this.body;
+    const load = this.load;
+    body.visible = true;
+    load.visible = false;
+    if (this.pouch) this.pouch.visible = false;
+    const r = recoil(g.since);
+    // the frame the model sits in
+    const F = body.matrix;
+    if (g.weapon === 'crossbow' || g.weapon === 'firework' || g.weapon === 'sling') {
+      // the bow hand's, kicked back and muzzle-up by the recoil
+      const kickRot = g.weapon === 'crossbow' ? 0.24 : g.weapon === 'firework' ? 0.34 : 0;
+      const kickBack = g.weapon === 'crossbow' ? 7 : g.weapon === 'firework' ? 10 : 0;
+      F.copy(base).multiply(m1.makeRotationZ(kickRot * r)).multiply(m2.makeTranslation(-kickBack * r, 0, 0));
+    } else {
+      // thrown weapons ride the string hand, along the aim, a little toward the camera
+      // (the boomerang cocked up over the shoulder, a touch smaller than in flight)
+      const boom = g.weapon === 'boomerang';
+      const kk = boom ? k * 0.82 : k;
+      F.makeRotationZ(g.angle + (boom ? 2.75 : -0.1))
+        .scale(v.set(kk, kk, kk))
+        .setPosition(g.nx, g.ny, g.gz + k * 12);
+      if (f < 0) flipX(F);
+      // the spear's grip, the boomerang's near arm in the fist
+      F.multiply(boom ? m1.makeTranslation(22, 22, 0) : m1.makeTranslation(66, 0, 0));
+    }
+    const strings = this.strings;
+    switch (g.weapon) {
+      case 'crossbow': {
+        body.geometry = h.crossbow.body;
+        // spanned back to the nut while loaded; slack straight across the prod once loosed
+        const t0 = v.copy(h.crossbow.tips[0]).applyMatrix4(F);
+        const t1 = v2.copy(h.crossbow.tips[1]).applyMatrix4(F);
+        if (g.arrow) v3.copy(h.crossbow.nut).applyMatrix4(F);
+        else v3.copy(t0).add(t1).multiplyScalar(0.5);
+        segment(strings[0]!, t0, v3, k * 0.9);
+        segment(strings[1]!, t1, v3, k * 0.9);
+        if (g.arrow) {
+          load.visible = true;
+          load.geometry = h.bolt;
+          load.matrix.copy(F).multiply(m1.makeTranslation(16, 9.5, 0));
+        }
+        break;
+      }
+      case 'firework': {
+        body.geometry = h.tube;
+        for (const line of strings) line.visible = false;
+        if (g.arrow) {
+          load.visible = true;
+          load.geometry = h.tubeLoad;
+          load.matrix.copy(F);
+        }
+        break;
+      }
+      case 'sling': {
+        body.geometry = h.sling.body;
+        this.pouch ??= this.part();
+        const pouch = this.pouch;
+        pouch.visible = true;
+        pouch.geometry = h.sling.pouch;
+        const t0 = v.copy(h.sling.tips[0]).applyMatrix4(F);
+        const t1 = v2.copy(h.sling.tips[1]).applyMatrix4(F);
+        if (g.nocked) v3.set(f * g.nx, g.ny, (t0.z + t1.z) / 2);
+        else {
+          // let go: the pouch snaps through the fork and wobbles back to rest
+          const snap = g.since >= 0 && g.since < 0.45 ? Math.cos(g.since * 34) * Math.exp(-g.since * 10) : 0;
+          v3.copy(POUCH_REST).setX(POUCH_REST.x + 16 * snap).applyMatrix4(F);
+        }
+        segment(strings[0]!, t0, v3, k * 1.6);
+        segment(strings[1]!, t1, v3, k * 1.6);
+        pouch.matrix.makeRotationZ(f < 0 ? Math.PI - g.angle : g.angle).scale(v.set(k, k, k)).setPosition(v3.x, v3.y, v3.z);
+        if (g.arrow) {
+          load.visible = true;
+          load.geometry = h.pebble;
+          load.matrix.copy(pouch.matrix).multiply(m1.makeTranslation(2, 0, 3));
+        }
+        break;
+      }
+      case 'spear':
+      case 'boomerang':
+        for (const line of strings) line.visible = false;
+        body.geometry = g.weapon === 'spear' ? h.spear : h.boomerang;
+        // in the hand only while one is ready
+        body.visible = g.arrow;
+        break;
+      default:
+        break;
+    }
+  }
+}
+
+/** A string mesh (a unit cylinder along +x) stretched from a to b, `thick` across. */
+function segment(line: THREE.Mesh, a: THREE.Vector3, b: THREE.Vector3, thick: number): void {
+  const d = new THREE.Vector3().subVectors(b, a);
+  const len = d.length();
+  if (len < 1e-6) {
+    line.visible = false;
+    return;
+  }
+  line.visible = true;
+  q.setFromUnitVectors(AX, d.divideScalar(len));
+  line.matrix.compose(a, q, d.set(len, thick, thick));
 }
 
 function flipX(w: THREE.Matrix4): void {

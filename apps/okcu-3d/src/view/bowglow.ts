@@ -13,7 +13,8 @@
  * - cycle: at the top band the colour runs through the rainbow, along the limbs and in time.
  *
  * It flares on every shot and surges on headshots, multi-kills, streaks and focus, as in
- * GameScene. Only the player's bow glows (enemies and bosses never do in the 2D game either).
+ * GameScene. Only the player's weapon glows (enemies and bosses never do in the 2D game either):
+ * the bow, or the selected weapon's model (the 3D build's level, `bowEquivalent`, picks the band).
  * Everything follows `archers.bowOf(player)`: the limb tips and the grip, every frame.
  */
 import * as THREE from 'three';

@@ -33,6 +33,14 @@ import { FRAME_H, FRAME_W, LOGICAL_H, LOGICAL_W, PX_PER_M } from '../coords';
 export const FOV = 22;
 /** eye height above the frame centre, metres */
 export const EYE_LIFT = 4.2;
+/**
+ * The main menu's framing (`Stage.menu`): the player's archer (its middle, MENU_LIFT logical px
+ * over the ledge) lands at MENU_AT on the logical frame, MENU_ZOOM times closer, in the free band
+ * between the chapter card and PLAY, right of the side buttons. Checked with tools/menu-shots.mjs.
+ */
+export const MENU_ZOOM = 1.32;
+export const MENU_LIFT = 92;
+export const MENU_AT = { x: 330, y: 760 } as const;
 /** distance from the resting eye to the gameplay plane, metres */
 export const REST_DIST = FRAME_H / 2 / Math.tan((FOV / 2) * (Math.PI / 180));
 const NEAR = 2;
@@ -108,6 +116,9 @@ export function createStage(root: HTMLElement): Stage {
   /** the field's size as shown (eases to the world's span) */
   let span = 1;
   let spanWorld: unknown = null;
+  /** the menu framing: wanted (Stage.menu) and how far in it is, 0 … 1 */
+  let menuOn = false;
+  let menuK = 0;
 
   /** Aim the frustum: the plane-z=0 window centred on logical (cx, cy), 1 / z of the frame in size. */
   function frameCamera(cx: number, cy: number, z: number, roll: number, swayX: number, swayY: number): void {
@@ -244,6 +255,9 @@ export function createStage(root: HTMLElement): Stage {
       const py = camera.position.y + dir.y * t;
       return { x: px * PX_PER_M + LOGICAL_W / 2, y: LOGICAL_H / 2 - py * PX_PER_M };
     },
+    menu(on) {
+      menuOn = on;
+    },
     shake(strength) {
       trauma = Math.min(1, Math.max(0, trauma + strength * (CALM ? 0.35 : 1)));
     },
@@ -296,7 +310,23 @@ export function createStage(root: HTMLElement): Stage {
       // a slow idle sway of the eye: the gameplay plane stays put, depth gets parallax
       const swayX = Math.sin(clock * 0.23) * 0.5 + Math.sin(clock * 0.11 + 1.7) * 0.22;
       const swayY = Math.sin(clock * 0.17 + 0.6) * 0.16;
-      frameCamera(cx, cy, z * base, roll, swayX, swayY);
+      // the menu's framing: ease in on the player's archer (reduced motion: a cut)
+      const goalK = menuOn && frame.w.phase === 'title' ? 1 : 0;
+      menuK = CALM ? goalK : menuK + (goalK - menuK) * Math.min(1, real * 2.6);
+      if (Math.abs(goalK - menuK) < 1e-3) menuK = goalK;
+      let mx = cx;
+      let my = cy;
+      let mz = z * base;
+      if (menuK > 0) {
+        const e = menuK * menuK * (3 - 2 * menuK);
+        const zm = mz * MENU_ZOOM;
+        const px = frame.w.player.anchorX;
+        const py = PLAYER_LEDGE.y - MENU_LIFT;
+        mx += (px - (MENU_AT.x - LOGICAL_W / 2) / zm - cx) * e;
+        my += (py - (MENU_AT.y - LOGICAL_H / 2) / zm - cy) * e;
+        mz += (zm - mz) * e;
+      }
+      frameCamera(mx, my, mz, roll, swayX, swayY);
 
       renderer.render(scene, camera);
     },

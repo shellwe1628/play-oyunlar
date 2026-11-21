@@ -252,6 +252,12 @@ export class Gear {
     this.arrow.geometry = player ? s.arrowPlayer : s.arrowEnemy;
   }
 
+  /** what the player's glow lights up: the bow, or the selected weapon's model while it is in hand */
+  glowMesh(): THREE.Mesh {
+    if (this.bow.visible || !this.body) return this.bow;
+    return this.body;
+  }
+
   dispose(): void {
     this.skeleton.dispose();
     this.bowMat.dispose();
@@ -429,8 +435,10 @@ export class Gear {
 }
 
 /** A string mesh (a unit cylinder along +x) stretched from a to b, `thick` across. */
+/** segment()'s scratch vector (one at a time: no allocation per string per frame) */
+const seg = new THREE.Vector3();
 function segment(line: THREE.Mesh, a: THREE.Vector3, b: THREE.Vector3, thick: number): void {
-  const d = new THREE.Vector3().subVectors(b, a);
+  const d = seg.subVectors(b, a);
   const len = d.length();
   if (len < 1e-6) {
     line.visible = false;

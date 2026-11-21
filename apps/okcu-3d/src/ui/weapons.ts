@@ -79,6 +79,7 @@ const STYLE = `
 .ok-w-wc.lock{background:${rgba(mix(INK, 0x000000, 0.25), 0.84)};box-shadow:inset 0 0 0 3px rgba(255,255,255,.05)}
 .ok-w-wc.lock::before{content:'';position:absolute;inset:5px;border-radius:19px;border:4px dashed rgba(255,243,214,.38);pointer-events:none}
 .ok-w-wc.lock.on::before{border-color:${rgba(PALETTE.gold, 0.9)}}
+.ok-w-new{position:absolute;right:-8px;top:-12px;height:34px;padding:0 12px;border-radius:17px;background:${css(PALETTE.danger)};border:4px solid ${css(INK)};color:#fff;font-size:19px;line-height:26px;white-space:nowrap;pointer-events:none;transform:rotate(8deg)}
 .ok-w-lv{position:absolute;left:10px;top:10px;height:30px;padding:0 11px;border-radius:15px;background:${css(INK)};color:${css(PALETTE.gold)};font-size:20px;line-height:30px;white-space:nowrap}
 .ok-w-eq{position:absolute;right:8px;top:8px}
 .ok-w-name{font-size:24px;line-height:1;color:${css(PALETTE.cream)};white-space:nowrap;margin-bottom:8px}
@@ -164,7 +165,7 @@ export function perkSteps(id: WeaponId, t: Ui['t']): { level: number; text: stri
   return out;
 }
 
-export function createWeaponsPane(ui: Ui, pane: HTMLElement, top: number, bot: number, hooks: WeaponsHooks, quiet: boolean): WeaponsPane {
+export function createWeaponsPane(ui: Ui, pane: HTMLElement, top: number, bot: number, hooks: WeaponsHooks, quiet: boolean, fresh: readonly WeaponId[] = []): WeaponsPane {
   injectStyle();
   const t = ui.t;
   const save = ui.game.save;
@@ -254,6 +255,11 @@ export function createWeaponsPane(ui: Ui, pane: HTMLElement, top: number, bot: n
     const ic = iconCanvas(c, 150, ih, (g) => drawWeaponIcon(g, id, 75, ih / 2 + 2, Math.min(0.9, ih / 100), { level: w.level, silhouette: locked }), 'ic');
     ic.style.top = '6px';
     if (!locked) el('div', 'ok-w-lv', c).textContent = t('weapons.lv', { n: w.level });
+    if (!locked && fresh.includes(id)) {
+      const nw = el('div', 'ok-w-new', c);
+      nw.dataset.testid = `weapon-new-${id}`;
+      nw.textContent = t('chest.newTag');
+    }
     if (!locked && d.arsenal.selected === id) {
       const eq = iconCanvas(c, 36, 36, (g) => drawCheck(g, 18, 18));
       eq.classList.add('ok-w-eq');

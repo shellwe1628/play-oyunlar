@@ -26,7 +26,7 @@
 import { drawBadge } from '@okcu/scenes/gear';
 import { drawCoin } from '@okcu/scenes/icons';
 import { PALETTE } from '@okcu/textures';
-import { powerOf } from '@sim/arsenal';
+import { markWeaponsSeen, powerOf } from '@sim/arsenal';
 import { chestRng, claimFreeChest, freeChestWait, openChest, openQueuedChest } from '@sim/chests';
 import type { ChestKind } from '@sim/arsenal';
 import type { SaveData } from '@sim/meta';
@@ -642,7 +642,19 @@ export function createShell(ui: Ui, parent: HTMLElement, hooks: ShellHooks): She
       hooks.rebuild(next);
       return;
     }
-    if (next === 'weapons' && weapons && !weaponsPane) weaponsPane = createWeaponsPane(ui, weapons, paneTop, paneBot, weaponsHooks, !animate);
+    if (next === 'weapons') {
+      // the new weapons are seen now: their badge goes, their cards say "new" this once
+      const fresh = [...ui.game.save.data.arsenal.unseen];
+      if (fresh.length > 0) {
+        ui.game.save.update((d) => {
+          markWeaponsSeen(d);
+        });
+        hooks.changed();
+        weaponsPane?.destroy();
+        weaponsPane = null;
+      }
+      if (weapons && !weaponsPane) weaponsPane = createWeaponsPane(ui, weapons, paneTop, paneBot, weaponsHooks, !animate, fresh);
+    }
     if (next === 'shop' && shop) {
       if (!shopPane) shopPane = createShopPane(ui, shop, paneTop, paneBot, shopHooks, !animate);
       else shopPane.refresh();

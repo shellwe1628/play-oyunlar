@@ -18,7 +18,7 @@ import { bowTier } from '@sim/bow';
 import { CHAPTERS, stageOf, STAGES } from '@sim/chapters';
 import { openQueuedChest } from '@sim/chests';
 import { progressScore, rankOf } from '@sim/progress';
-import { boughtToday } from '@sim/shop';
+import { boughtToday, peekOffers } from '@sim/shop';
 import { WEAPON_IDS, WEAPON_MAX } from '@sim/weapons';
 import type { GameEvent, World } from '@sim/world';
 import type { Frame, Game, Module, Stage } from '../contract';
@@ -330,20 +330,33 @@ export function createHud(stage: Stage, game: Game): Module {
       },
       title: t('chest.welcome'),
       sub: t('chest.welcomeSub'),
-      done: (before) => shell.opened(before),
+      done: (before) => {
+        shell.opened(before);
+        owedReveals();
+      },
     });
   }
+  /** weapons a boss unlocked (and the celestial look) not revealed yet: shown full-screen when the menu comes up */
+  function owedReveals(): void {
+    if (game.save.data.arsenal.reveals.length === 0 || chests.shown || game.testRun || !shell.shown) return;
+    chests.reveals(() => syncBadges());
+  }
 
+  /** the day the badges were last worked out for (a menu left open past midnight works them out again) */
+  let badgeDay = '';
+  let badgeCheck = 0;
   /** the tab bar's red badges, from the save */
   function syncBadges(): void {
     const d = game.save.data;
-    // today's offers still to buy that the coins cover (a new day's offers count once they are drawn)
+    badgeDay = todayKey();
+    // today's offers still to buy that the coins cover (a new day's offers are read without being stored)
     const key = todayKey();
     const got = boughtToday(d, key);
-    const offers = d.arsenal.shopDay === key ? d.arsenal.shopOffers : [];
+    const offers = peekOffers(key, d).offers;
     shell.badge('shop', offers.filter((o, i) => !got.includes(i) && d.coins >= o.coins && d.arsenal.weapons[o.weapon].level < WEAPON_MAX).length);
-    // a weapon ready to level up (the archer card marks its own affordable upgrades)
-    shell.badge('weapons', WEAPON_IDS.some((id) => canUpgrade(d, id)) ? '!' : 0);
+    // new weapons not looked at yet (their count), else a weapon ready to level up (the archer card marks its own affordable upgrades)
+    const fresh = d.arsenal.unseen.length;
+    shell.badge('weapons', fresh > 0 ? fresh : WEAPON_IDS.some((id) => canUpgrade(d, id)) ? '!' : 0);
     shell.badge('ranks', rankOf(progressScore(d).total) > d.rank ? '!' : 0);
     shell.badge('events', !game.daily && d.dailyDone !== todayKey() ? '!' : 0);
   }
@@ -945,13 +958,19 @@ export function createHud(stage: Stage, game: Game): Module {
       } else if (title.shown) title.hide();
       // the tab shell frames the title's menu state; away in the ready state, in play and under the result
       const wantShell = w.phase === 'title' && title.shown && !title.ready && !result.shown;
+      stage.menu(wantShell);
       if (wantShell && !shell.shown) {
         shell.show(shellTab, { quiet: shellQuiet });
         shellQuiet = false;
         shellTab = 'home';
         syncBadges();
         if (game.save.data.arsenal.welcome) later(0.7, () => welcome());
+        else if (game.save.data.arsenal.reveals.length > 0) later(0.7, () => owedReveals());
       } else if (!wantShell && shell.shown) shell.hide();
+      else if (shell.shown && (badgeCheck += real) > 1) {
+        badgeCheck = 0;
+        if (todayKey() !== badgeDay) syncBadges();
+      }
       // a menu screen replaces the title (the 2D game switches scenes)
       const vis = menus.open ? 'hidden' : '';
       if (titleGroup.style.visibility !== vis) titleGroup.style.visibility = vis;

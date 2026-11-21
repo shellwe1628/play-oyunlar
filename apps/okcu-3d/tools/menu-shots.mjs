@@ -18,7 +18,10 @@
 // the boomerang, ready to level up; weapons-locked: the sling's shards; weapons-archer: the
 // archer's upgrades), the screen the Ranks tab opens, and the chest opening (chest-*: frames of the
 // pile's gold chest frozen mid-way: chest-shake, chest-lid, chest-coins, chest-shards, chest-summary;
-// chest-reveal: the welcome gift unlocking the sling; chest-calm*: ?fx=0, the instant summary).
+// chest-reveal: the welcome gift unlocking the sling; chest-calm*: ?fx=0, the instant summary), the
+// reveals a boss leaves owed (reveal-weapon: the firework; reveal-celestial: the look; weapons-new:
+// the Weapons tab after them, the firework marked new) and a boss chest with every weapon maxed
+// (chest-maxed: its shards come as coins).
 // PNGs go to <repo>/build/menu-shots/okcu3d-<tab>-<size>-<lang>.png. One browser, one page at a time.
 import { mkdirSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
@@ -161,6 +164,23 @@ const done = structuredClone(progressed);
   d.dailyBest = 9;
   d.dailyStreak = 3;
 }
+/** the chapter 4 boss beaten last run: the firework and the celestial look still owed their reveals */
+const owed = structuredClone(progressed);
+{
+  const d = owed.data;
+  d.bosses[3] = 1;
+  d.arsenal.weapons.firework = { owned: true, level: 1, shards: 0 };
+  d.arsenal.celestial = true;
+  d.arsenal.reveals = ['firework', 'celestial'];
+  d.arsenal.unseen = ['firework'];
+}
+/** every owned weapon at the top level, a boss chest in the line: its shards turn into coins */
+const maxed = structuredClone(progressed);
+{
+  const d = maxed.data;
+  for (const id of ['bow', 'crossbow', 'spear', 'boomerang', 'sling']) d.arsenal.weapons[id] = { owned: true, level: 20, shards: 0 };
+  d.arsenal.chests = ['boss'];
+}
 /** today's key in local time (the app's todayKey), or `dd` days away */
 function today(dd = 0) {
   const n = new Date();
@@ -199,6 +219,12 @@ const plan = [
   { tab: 'chest-calm', save: progressed, query: { fx: '0' }, go: ['shell-pile'], wait: 300 },
   { tab: 'chest-calm-reveal', save: reveal, query: { fx: '0' }, wait: 1500 },
   { tab: 'chest-calm-summary', save: reveal, query: { fx: '0' }, wait: 1500, then: ['chest-reveal-ok'] },
+  // reveals owed by a boss (arsenal.reveals): the menu shows them, one after the other; then the Weapons tab marks the new one
+  { tab: 'reveal-weapon', save: owed, wait: 2600 },
+  { tab: 'reveal-celestial', save: owed, wait: 2600, then: ['chest-reveal-ok'], thenWait: 2000 },
+  { tab: 'weapons-new', save: owed, wait: 2600, then: ['chest-reveal-ok', 'chest-reveal-ok', 'tab-weapons'], thenWait: 1500 },
+  // every weapon maxed: the boss chest's shards come as coins
+  { tab: 'chest-maxed', save: maxed, go: ['shell-pile'], wait: 7000 },
 ].filter((p) => !ONLY || ONLY.includes(p.tab));
 
 for (const size of SIZES) {
@@ -213,7 +239,7 @@ for (const size of SIZES) {
       if (!p.go && p.wait) await page.waitForTimeout(p.wait);
       for (const id of p.then ?? []) {
         await tap(page, id);
-        await page.waitForTimeout(400);
+        await page.waitForTimeout(p.thenWait ?? 400);
       }
       await shot(page, p.tab, size, lang);
       await context.close();

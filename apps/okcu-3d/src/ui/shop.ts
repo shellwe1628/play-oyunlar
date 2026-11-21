@@ -22,7 +22,7 @@ import { powerOf, type ChestKind } from '@sim/arsenal';
 import { CHEST_ODDS, openQueuedChest, SLING_UNLOCK_SHARDS } from '@sim/chests';
 import { COSMETICS, cosmeticById, isUnlocked, type SaveData } from '@sim/meta';
 import { unlockFeats } from '@sim/progress';
-import { adCoins, AD_COINS_PER_DAY, boughtToday, buyChest, buyCosmetic, buyOffer, CHEST_PRICE, COSMETIC_PRICE, dailyOffers, grantAdCoins } from '@sim/shop';
+import { adCoins, AD_COINS_PER_DAY, boughtToday, buyChest, buyCosmetic, buyOffer, CHEST_PRICE, COSMETIC_PRICE, dailyOffers, grantAdCoins, peekOffers, storedDayHolds } from '@sim/shop';
 import { WEAPON_MAX } from '@sim/weapons';
 import { BOSS_KINDS } from '@sim/world';
 import type { ChestTake } from './chest';
@@ -207,11 +207,15 @@ export function createShopPane(ui: Ui, pane: HTMLElement, top: number, bot: numb
 
   function renderOffers(d: SaveData): void {
     const key = shownDay;
-    let offers: ReturnType<typeof dailyOffers> = [];
-    // a new day snapshots its offers into the save: persist that at once
-    save.update((s) => {
-      offers = dailyOffers(key, s);
-    });
+    // a new day snapshots its offers into the save: persist that at once (only then: a redraw on
+    // the same day reads them without writing the save)
+    const peek = peekOffers(key, save.data);
+    let offers = peek.offers;
+    if (peek.fresh && !(save.data.arsenal.shopDay === key && offers.length === 0)) {
+      save.update((s) => {
+        offers = dailyOffers(key, s);
+      });
+    }
     const bought = boughtToday(save.data, key);
     const fixed = 48 * 2 + 100;
     const offerH = Math.round(Math.max(236, Math.min(330, (avail - 72 - fixed - 6 * 16) * 0.58)));
@@ -299,7 +303,7 @@ export function createShopPane(ui: Ui, pane: HTMLElement, top: number, bot: numb
     // ---- the rewarded coins: three a day, gone after that
     const n = adCoins(d, key);
     if (n !== null) {
-      const used = d.arsenal.adCoinsDay === key ? d.arsenal.adCoinsUsed : 0;
+      const used = storedDayHolds(d.arsenal.adCoinsDay, key) ? d.arsenal.adCoinsUsed : 0;
       const ad = el('div', `ok-sh-ad${adBusy ? ' off' : ''}`, body);
       ad.dataset.testid = 'shop-ad-coins';
       const b = el('b', '', ad);

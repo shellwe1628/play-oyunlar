@@ -6,7 +6,9 @@
  * Sequence: the chest drops in and shakes (three knocks, each harder), the lid pops off with a burst
  * of light and sparkles, the coins count up, then each shard flies from the chest into its weapon's
  * card one by one (the card's bar fills, "+n", "upgrade ready" when it now can level up). A newly
- * unlocked weapon (the sling) gets a full-screen reveal. A tap skips to the summary; reduced motion
+ * unlocked weapon (the sling) gets a full-screen reveal; so do the weapons a boss unlocked and the
+ * sky boss's celestial look (`arsenal.reveals`, queued by the run's bank): after a boss chest, or
+ * on their own (`reveals`) when the menu comes up with some still owed. A tap skips to the summary; reduced motion
  * (`calmMotion`: prefers-reduced-motion, ?fx=0, ?calm=1) shows the summary at once, without movement.
  * The chest's odds line under its name is printed straight from `CHEST_ODDS` (as the shop's sheet).
  *
@@ -22,7 +24,7 @@
 import { drawCoin } from '@okcu/scenes/icons';
 import { SFX } from '@okcu/sfx';
 import { PALETTE } from '@okcu/textures';
-import { canUpgrade, powerOf, upgradeCost, type ChestKind, type WeaponState } from '@sim/arsenal';
+import { canUpgrade, powerOf, takeReveal, upgradeCost, type ChestKind, type Reveal, type WeaponState } from '@sim/arsenal';
 import { CHEST_ODDS, SLING_UNLOCK_SHARDS, type ChestLoot } from '@sim/chests';
 import type { SaveData } from '@sim/meta';
 import { unlockFeats } from '@sim/progress';
@@ -54,6 +56,11 @@ export interface ChestScreen {
   play(p: ChestPlay): boolean;
   /** away at once (no `done`) */
   close(): void;
+  /**
+   * the reveals still owed (`arsenal.reveals`: a weapon a boss unlocked, the celestial look), one
+   * full-screen moment each, then `done`; false, with nothing shown, when none is owed or a chest is up
+   */
+  reveals(done?: () => void): boolean;
 }
 
 export interface ChestHooks {
@@ -251,7 +258,8 @@ export function createChestScreen(ui: Ui, parent: HTMLElement, hooks: ChestHooks
     const o2 = el('span', '', odds);
     iconCanvas(o2, 22, 24, (g) => drawShard(g, 11, 12, 0.72));
     el('em', '', o2).textContent = `${od.shards[0]}–${od.shards[1]}`;
-    el('span', '', odds).textContent = `${t('odds.sling')} ${t('odds.pct', { n: Math.round(od.newWeaponChance * 1000) / 10 })}`;
+    // the sling chance only applies while the sling is locked and chapter 2 has been reached
+    if (ui.game.save.data.chapter >= 1 && !o.before.sling.owned) el('span', '', odds).textContent = `${t('odds.sling')} ${t('odds.pct', { n: Math.round(od.newWeaponChance * 1000) / 10 })}`;
 
     // ---- the chest: light behind it, the body, the lid (a canvas of its own, so it can fly off)
     const c = el('div', 'ok-c-p', r);
@@ -280,6 +288,13 @@ export function createChestScreen(ui: Ui, parent: HTMLElement, hooks: ChestHooks
     const cards = el('div', 'ok-c-cards', r);
     cards.style.top = `${cy + 228}px`;
     const stacks = o.loot.shards.map((s) => card(cards, o, s.weapon, s.n));
+    if (o.loot.fromShards > 0) {
+      // every weapon is at the top level: the shards came as coins
+      const note = el('div', 'ok-c-sub', r);
+      note.dataset.testid = 'chest-shards-coins';
+      note.style.top = `${cy + 250}px`;
+      note.textContent = t('chest.shardsToCoins', { n: o.loot.fromShards });
+    }
 
     // ---- the buttons (once it has played)
     const btnY = Math.min(bot - 96, cy + 228 + 250 + 110);
@@ -298,8 +313,7 @@ export function createChestScreen(ui: Ui, parent: HTMLElement, hooks: ChestHooks
       coins.style.visibility = '';
       coinN.textContent = `+${o.loot.coins}`;
       for (const k of stacks) k.final();
-      if (o.loot.unlocked) reveal(r, o.loot.unlocked, false, () => buttons(r, btnY));
-      else buttons(r, btnY);
+      afterLoot(r, o, false, () => buttons(r, btnY));
     };
 
     if (!anim) {
@@ -391,9 +405,30 @@ export function createChestScreen(ui: Ui, parent: HTMLElement, hooks: ChestHooks
       for (const k of stacks) k.final();
       running = false;
       skip.remove();
-      if (o.loot.unlocked) reveal(r, o.loot.unlocked, true, () => buttons(r, btnY));
-      else buttons(r, btnY);
+      afterLoot(r, o, true, () => buttons(r, btnY));
     });
+  }
+
+  /** the chest's own unlock (the sling), then, after a boss chest, every reveal still owed; then `next` */
+  function afterLoot(r: HTMLElement, o: Opening, animate: boolean, next: () => void): void {
+    const owed = (): void => (o.kind === 'boss' ? revealOwed(r, animate, next) : next());
+    if (o.loot.unlocked) reveal(r, o.loot.unlocked, animate, owed);
+    else owed();
+  }
+
+  /** the reveals in `arsenal.reveals`, one after the other (each leaves the save as it comes up), then `next` */
+  function revealOwed(r: HTMLElement, animate: boolean, next: () => void): void {
+    if (root !== r) return;
+    let got: Reveal | null = null;
+    ui.game.save.update((d) => {
+      got = takeReveal(d);
+    });
+    const id = got as Reveal | null;
+    if (id === null) {
+      next();
+      return;
+    }
+    reveal(r, id, animate, () => revealOwed(r, animate, next));
   }
 
   /** a weapon's card: plate, name, the shard bar (counts up as shards land), "+n", "upgrade ready" / "new" */
@@ -546,11 +581,13 @@ export function createChestScreen(ui: Ui, parent: HTMLElement, hooks: ChestHooks
     }
   }
 
-  /** a new weapon: the full-screen reveal, then `next` */
-  function reveal(r: HTMLElement, id: WeaponId, animate: boolean, next: () => void): void {
-    const tint = WEAPON_TINT[id];
+  /** a new weapon (or the celestial look): the full-screen reveal, then `next` */
+  function reveal(r: HTMLElement, id: Reveal, animate: boolean, next: () => void): void {
+    const cel = id === 'celestial';
+    const tint = cel ? CELESTIAL_TINT : WEAPON_TINT[id];
     const m = el('div', 'ok-c-rev', r);
     m.dataset.testid = 'chest-reveal';
+    m.dataset.reveal = id;
     const sc = el('div', 'ok-c-scrim', m);
     sc.dataset.ui = '1';
     sc.addEventListener('pointerdown', (e) => e.stopPropagation());
@@ -568,17 +605,24 @@ export function createChestScreen(ui: Ui, parent: HTMLElement, hooks: ChestHooks
     glow.style.background = `radial-gradient(circle,${rgba(0xffffff, 0.8)} 0%,${rgba(tint, 0.5)} 40%,transparent 70%)`;
     const orb = el('div', 'ok-c-orb', p);
     orb.style.background = `radial-gradient(circle at 34% 28%,${css(mix(tint, 0xffffff, 0.5))},${css(tint)} 58%,${css(mix(tint, INK, 0.3))})`;
-    iconCanvas(orb, 300, 300, (g) => drawWeaponIcon(g, id, 150, 150, 1.75, { level: 1 }));
+    if (cel) {
+      // the weapon in hand, starlit
+      const sel = ui.game.save.data.arsenal.selected;
+      iconCanvas(orb, 300, 300, (g) => {
+        drawWeaponIcon(g, sel, 150, 150, 1.75, { level: ui.game.save.data.arsenal.weapons[sel].level });
+        drawStars(g, 150, 150);
+      });
+    } else iconCanvas(orb, 300, 300, (g) => drawWeaponIcon(g, id, 150, 150, 1.75, { level: 1 }));
     const h = el('div', 'ok-c-h', m);
     h.style.top = `${oy - 300}px`;
-    fitText(h, t('chest.newWeapon'), 64, 640);
+    fitText(h, t(cel ? 'chest.newLook' : 'chest.newWeapon'), 64, 640);
     const name = el('div', 'ok-c-h', m);
     name.style.top = `${oy + 180}px`;
     name.style.color = '#fff';
-    fitText(name, t(`weapon.${id}`), 56, 640);
+    fitText(name, t(cel ? 'chest.celestial' : `weapon.${id}`), 56, 640);
     const desc = el('div', 'ok-c-desc', m);
     desc.style.top = `${oy + 260}px`;
-    desc.textContent = t(`weapon.desc.${id}`);
+    desc.textContent = t(cel ? 'chest.celestialDesc' : `weapon.desc.${id}`);
     const ok = button(m, CX, Math.min(bot - 110, oy + 420), t('chest.great'), ui.unlock, () => {
       ui.audio.play('tap');
       m.remove();
@@ -648,7 +692,51 @@ export function createChestScreen(ui: Ui, parent: HTMLElement, hooks: ChestHooks
       return true;
     },
     close,
+    reveals(done) {
+      if (root || ui.game.save.data.arsenal.reveals.length === 0) return false;
+      stop();
+      const r = el('div', 'ok-c', parent);
+      if (calmMotion()) r.classList.add('ok-c-calm');
+      r.dataset.testid = 'reveal-screen';
+      root = r;
+      play = done ? { take: () => null, done: () => done() } : null;
+      power = powerOf(ui.game.save.data);
+      feats = [];
+      revealOwed(r, !calmMotion(), finish);
+      return true;
+    },
   };
+}
+
+/** the celestial look's colour (the reveal's light and orb) */
+const CELESTIAL_TINT = 0x6f7dff;
+
+/** a few four-point stars over the celestial reveal's weapon */
+function drawStars(g: Gfx, cx: number, cy: number): void {
+  const c = g.ctx;
+  const stars: [number, number, number][] = [
+    [-92, -70, 22],
+    [88, -84, 16],
+    [100, 60, 24],
+    [-78, 86, 14],
+    [8, -112, 12],
+  ];
+  c.save();
+  for (const [x, y, r] of stars) {
+    c.beginPath();
+    for (let i = 0; i < 8; i++) {
+      const a = (i * Math.PI) / 4 - Math.PI / 2;
+      const d = i % 2 === 0 ? r : r * 0.32;
+      c.lineTo(cx + x + Math.cos(a) * d, cy + y + Math.sin(a) * d);
+    }
+    c.closePath();
+    c.fillStyle = '#fff6c8';
+    c.strokeStyle = css(INK);
+    c.lineWidth = 4;
+    c.stroke();
+    c.fill();
+  }
+  c.restore();
 }
 
 // ---------------------------------------------------------------------------- drawings

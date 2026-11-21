@@ -38,7 +38,7 @@ import {
 } from '@oyun/core/pure';
 import { CAREFUL, planShot } from '@sim/aimbot';
 import { BOW_MAX } from '@sim/bow';
-import { levelForBow, WEAPON_IDS } from '@sim/weapons';
+import { bowEquivalent, levelForBow, WEAPON_IDS } from '@sim/weapons';
 import { metaOf3d, newBank, NO_META, UPGRADES } from '@sim/meta';
 import { dailyChallenge } from '@sim/progress';
 import type { Difficulty } from '@sim/waves';
@@ -136,6 +136,7 @@ function newWorld(seed: number): World {
   if (forcedWeapon) {
     meta.weapon = forcedWeapon;
     meta.wlevel = d.arsenal.weapons[forcedWeapon].level;
+    meta.bow = bowEquivalent(meta.wlevel); // the glow follows the weapon in hand
   }
   if (params.has('bow')) {
     meta.bow = Math.max(0, Math.min(BOW_MAX, Math.round(num('bow', 0))));

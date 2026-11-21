@@ -219,6 +219,8 @@ export function createArchers(stage: Stage, assets: Assets, game: Game): Archers
     const ready = a.type === 'player' ? w.reload <= 0 && (weapon !== 'boomerang' || !w.arrows.some((x) => x.active && x.owner === 'player' && x.kind === 'boomerang')) : a.brain === 'draw' && a.type !== 'bomber';
     p.gear.update({ facing: a.facing, scale: a.scale, gx: rig.hand.x, gy: rig.hand.y, gz: rig.hand.z, angle: rig.hand.angle, draw: nocked ? draw : 0, nocked, nx: rig.pinch.x, ny: rig.pinch.y, arrow: a.alive && ready && (nocked || a.type === 'player'), visible: !castsSpells(a.type) && !hidden, weapon, since: inp.sinceRelease, celestial: a.type === 'player' && game.celestial });
     const f = a.facing >= 0 ? 1 : -1;
+    // the glow rides the weapon in hand (the bow, or the selected weapon's model)
+    p.handle.meshes[0] = p.gear.glowMesh();
     p.handle.grip.position.set(f * rig.hand.x, rig.hand.y, rig.hand.z);
     p.handle.grip.rotation.z = f < 0 ? Math.PI - rig.hand.angle : rig.hand.angle;
 

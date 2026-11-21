@@ -7,7 +7,7 @@
  * chapter boss beaten the first time, a gold chest for the daily goal instead of its coins.
  */
 import type { ChestKind } from '@sim/arsenal';
-import { stageOf } from '@sim/chapters';
+import { chapterStart, stageOf } from '@sim/chapters';
 import { bankProgress, bankStart, runOutcome } from '@sim/meta';
 import { bankRecords, FEATS, unlockFeats } from '@sim/progress';
 import { bankDailyChest, grantFirstBossRewards, grantRunChest } from '@sim/rewards';
@@ -106,8 +106,9 @@ export function createTracker(game: Game, onFeat: (id: string, coins: number) =>
       const b = w.bank;
       if (b) {
         game.save.update((d) => {
-          // the run-end chest: once per run (a revived run that gets further upgrades it, RunBank.chest)
-          grantRunChest(d, b, w.wave);
+          // the run-end chest: once per run (a revived run that gets further upgrades it, RunBank.chest),
+          // and only for a run that played: an arrow fired or a wave cleared
+          if (w.run.shots > 0 || w.wave > chapterStart(w.startChapter)) grantRunChest(d, b, w.wave);
           if (!game.daily) return;
           dailyChest = bankDailyChest(d, key, w.wave);
           dailyStreak = d.dailyStreak;

@@ -770,7 +770,7 @@ function spawnWave(w: World, wave: number, instant: boolean): void {
   w.theme = pos.theme;
   w.level = levelOf(wave, w.difficulty);
   const def = stageDef(wave, w.waveRng);
-  w.span = fieldSpan(wave);
+  w.span = fieldSpan(wave, w.difficulty);
   const defs: LedgeDef[] = growLayout(def.ledges, w.span);
   if (wave === 1) nudgeFirst(w, defs);
   const pivotY = ropeTop(w.span);

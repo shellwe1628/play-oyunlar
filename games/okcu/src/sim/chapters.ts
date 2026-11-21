@@ -346,11 +346,19 @@ export const GROW_WAVE = 3 * STAGES + 1;
  * `span` times the frame (anchored at the bottom left, where the player stands), so on a
  * portrait phone the view reaches x 0 … 720·span and y 1280·(1 − span) … 1280.
  */
-export function fieldSpan(wave: number): number {
+export function fieldSpan(wave: number, d: Difficulty = 'classic'): number {
+  if (d === 'hard') return HARD_SPANS[Math.min(CHAPTERS, stageOf(wave).chapter)]!;
   if (wave < GROW_WAVE) return 1;
   return stageOf(wave).chapter >= 5 ? 1.22 : 1.15;
 }
-/** the biggest span any wave uses (renderers size their bakes for it) */
+/**
+ * hard (the 3D build): the field widens a little every chapter from the second, 1.3 in endless
+ * (never narrower than classic's; classic keeps its own values above).
+ */
+const HARD_SPANS: readonly number[] = [1, 1.05, 1.1, 1.15, 1.2, 1.25, 1.3];
+/** the biggest span a hard wave uses */
+export const HARD_MAX_SPAN = 1.3;
+/** the biggest span any classic wave uses (renderers size their bakes for it) */
 export const MAX_SPAN = 1.22;
 
 /** Logical x of the right edge of the view at `span`. */

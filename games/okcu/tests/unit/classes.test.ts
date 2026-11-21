@@ -246,7 +246,7 @@ describe('the field grows from chapter 4', () => {
         const w = createWorld({ seed: wave, difficulty });
         jumpToWave(w, wave);
         const span = w.span;
-        expect(span).toBe(fieldSpan(wave));
+        expect(span).toBe(fieldSpan(wave, difficulty));
         const def = stageOf(wave);
         const base = !def.endless ? CHAPTER_DEFS[def.chapter]!.stages[def.stage - 1]!.ledges : null;
         if (span > 1) {

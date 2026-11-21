@@ -9,7 +9,7 @@ import { repairSave, saveOptions } from '../../src/save';
 import { CAREFUL, planShot, playRun } from '../../src/sim/aimbot';
 import { BOW_MAX, bowCost, bowDamage } from '../../src/sim/bow';
 import { HARD_BOW_POW } from '../../src/sim/cards';
-import { CHAPTER_DEFS, CHAPTERS, chapterStart, ENDLESS_WAVE, levelOf, stageOf } from '../../src/sim/chapters';
+import { CHAPTER_DEFS, CHAPTERS, chapterStart, ENDLESS_WAVE, fieldSpan, levelOf, stageOf } from '../../src/sim/chapters';
 import { cosmeticById, freshSave, isUnlocked, NO_META, UPGRADES } from '../../src/sim/meta';
 import { bankRecords, FEATS, progressScore, RANKS, rankOf, unlockFeats, type RunSummary } from '../../src/sim/progress';
 import { PT } from '../../src/sim/ragdoll';
@@ -293,5 +293,18 @@ describe('old saves', () => {
     expect(isUnlocked(cosmeticById('laurel'), d.best, d.runs, d.bosses)).toBe(true);
     expect(isUnlocked(cosmeticById('ember'), d.best, d.runs, d.bosses)).toBe(false);
     expect(UPGRADES.hp.max - d.upgrades.hp).toBe(4);
+  });
+});
+
+describe('field widths per chapter (hard, the 3D build)', () => {
+  it('widens from chapter 2, endless 1.3, never narrower than classic, classic unchanged', () => {
+    const want = [1, 1.05, 1.1, 1.15, 1.2, 1.25];
+    for (let c = 0; c < CHAPTERS; c++) expect(fieldSpan(chapterStart(c), 'hard')).toBe(want[c]);
+    expect(fieldSpan(ENDLESS_WAVE, 'hard')).toBe(1.3);
+    expect(fieldSpan(ENDLESS_WAVE + 30, 'hard')).toBe(1.3);
+    for (let wave = 1; wave <= 60; wave++) expect(fieldSpan(wave, 'hard')).toBeGreaterThanOrEqual(fieldSpan(wave));
+    expect(fieldSpan(chapterStart(1))).toBe(1);
+    expect(fieldSpan(chapterStart(4))).toBe(1.15);
+    expect(fieldSpan(chapterStart(5))).toBe(1.22);
   });
 });

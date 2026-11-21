@@ -6,13 +6,16 @@
  *                 the daily (a red "!" while today's daily is not done; opens the Events tab)
  * - tab bar:      Shop · Weapons · Home (centre, larger) · Ranks · Events, with red badges
  *
- * Home is title.ts's layer (`ShellHooks.home`), Weapons is weapons.ts's pane (the archer card, the
- * weapon grid and the detail card), Events is the shell's own pane (the daily card and its toggle);
- * they slide sideways on a switch. Shop and Ranks still open the full screens of menus.ts (the
- * looks, the ranks); closing one comes back to the tab that was up before it (`returnTab`).
+ * Home is title.ts's layer (`ShellHooks.home`), Shop is shop.ts's pane (the day's offers, chests,
+ * ad coins and the looks), Weapons is weapons.ts's pane (the archer card, the weapon grid and the
+ * detail card), Events is events.ts's pane (the daily challenge); they slide sideways on a switch.
+ * Ranks still opens the full screen of menus.ts; closing it comes back to the tab that was up
+ * before it (`returnTab`).
  * A change made in the Weapons pane (an upgrade, a selection) needs a new world before the next run
  * (its levels are fixed when the world is made): leaving the tab asks for one (`ShellHooks.rebuild`).
- * Tabs switch with a tap or a horizontal swipe on the tab bar (and on the Weapons and Events panes); a drag on
+ * The free chest side button offers the wooden chest at once, or a silver one for a rewarded ad
+ * (`ui.rewarded('free_chest')`; no ad, or a cancelled one, still gives the wooden chest).
+ * Tabs switch with a tap or a horizontal swipe on the tab bar (and on the panes); a drag on
  * the open sky of the Home tab still draws the bow, as before.
  *
  * Everything lives in the HUD's logical 720 × 1280 layer and follows the real screen edges and
@@ -26,11 +29,12 @@ import { powerOf } from '@sim/arsenal';
 import { claimFreeChest, freeChestWait } from '@sim/chests';
 import type { ChestKind } from '@sim/arsenal';
 import type { SaveData } from '@sim/meta';
-import { dailyChallenge, liveStreak, progressScore, RANKS, rankOf } from '@sim/progress';
-import { button, calmMotion, EASE, el, fitText, iconCanvas, Label, mix, pressable, roundButton, TAB_BAR_H } from './dom';
+import { progressScore, RANKS, rankOf } from '@sim/progress';
+import { calmMotion, EASE, el, fitText, iconCanvas, mix, pressable, roundButton, TAB_BAR_H } from './dom';
+import { createEventsPane, type EventsPane } from './events';
 import { css, Gfx, rgba } from './gfx';
-import { todayKey } from './save';
 import type { Ui } from './screens';
+import { clock, createShopPane, drawChestIcon, setShopView, type ShopPane } from './shop';
 import { drawCalendarGlyph } from './title';
 import { createWeaponsPane, drawWeaponIcon, type WeaponsPane } from './weapons';
 
@@ -40,16 +44,15 @@ export const TAB_IDS: readonly TabId[] = ['shop', 'weapons', 'home', 'ranks', 'e
 export interface ShellHooks {
   /** the Home tab's layer (title.ts draws into it); the shell slides it with the tabs */
   home: HTMLElement;
-  /** the tabs that still open a full screen of menus.ts */
-  shop: () => void;
+  /** the tab that still opens a full screen of menus.ts */
   ranks: () => void;
   /** the Weapons pane changed the save: a new world (its levels), then the shell back on `tab` */
   rebuild: (tab: TabId) => void;
-  /** the daily run on / off (the Events tab's button) */
+  /** the daily run on / off (the Events tab's button); the shell comes back on Home */
   daily: () => void;
   /** a small piece of good news at the top (the HUD's toast) */
   toast: (head: string, sub: string) => void;
-  /** the shell changed the save (a free chest claimed, a weapon levelled): the badges again */
+  /** the shell changed the save (a free chest claimed, a weapon levelled, a buy): the badges again */
   changed: () => void;
 }
 
@@ -64,11 +67,10 @@ export interface Shell {
   hide(instant?: boolean): void;
   /** the same shell laid out again (resize, fonts), on the same tab, without the entrance */
   relayout(): void;
-  /** the tab that was up before a full-screen tab (Shop, Ranks) opened: where closing it returns */
+  /** the tab that was up before the full-screen tab (Ranks) opened: where closing it returns */
   readonly returnTab: TabId;
 }
 
-const CX = 360;
 const INK = PALETTE.ink;
 const W = 720;
 /** tab widths: four side tabs and the larger centre (Home) */
@@ -122,6 +124,16 @@ const STYLE = `
 .ok-s-scrim{position:absolute;left:-2000px;top:-2000px;width:${W + 4000}px;height:${1280 + 4000}px;background:${rgba(INK, 0.5)};pointer-events:auto;touch-action:none}
 .ok-s-board{position:absolute;border-radius:30px;border:6px solid ${css(INK)};background:${WOOD};box-shadow:0 12px 0 ${rgba(INK, 0.45)},inset 0 5px 0 rgba(255,236,190,.35),inset 0 -8px 0 rgba(60,25,8,.35)}
 .ok-s-sheet{position:absolute;border-radius:24px;background:${rgba(INK, 0.78)};box-shadow:inset 0 0 0 3px rgba(255,255,255,.14)}
+.ok-s-fc{position:absolute;left:60px;width:600px;border-radius:30px;border:6px solid ${css(INK)};background:${WOOD};box-shadow:0 12px 0 ${rgba(INK, 0.45)},inset 0 5px 0 rgba(255,236,190,.35);padding:18px 24px 30px;display:flex;flex-direction:column;align-items:center;gap:10px;pointer-events:auto}
+.ok-s-fc>h2{margin:0;font-size:52px;line-height:1.1;font-weight:inherit;color:${css(PALETTE.gold)};-webkit-text-stroke:11px ${css(INK)};paint-order:stroke fill}
+.ok-s-fc>p{margin:0 0 8px;text-align:center;font-size:23px;line-height:1.25;color:#fff;-webkit-text-stroke:6px ${css(INK)};paint-order:stroke fill}
+.ok-s-fc .row{display:flex;gap:16px;align-self:stretch}
+.ok-s-fb{position:relative;flex:1;min-width:0;height:150px;border-radius:30px;border:5px solid ${css(INK)};display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;font-size:32px;line-height:1;white-space:nowrap;pointer-events:auto;cursor:pointer;touch-action:none;transition:transform .09s ease-out,opacity .15s;box-shadow:0 8px 0 ${rgba(INK, 0.55)},inset 0 4px 0 rgba(255,255,255,.4)}
+.ok-s-fb.w{background:linear-gradient(180deg,#ffe27a,#ffc93c 55%,#f7a823);color:${css(INK)}}
+.ok-s-fb.a{background:linear-gradient(180deg,#8fe597,#5fd36a 55%,#3fae4d);color:${css(INK)}}
+.ok-s-fb.down{transform:scale(.95)}
+.ok-s-fb.off{opacity:.5;cursor:default}
+.ok-s-fb>.ok-ad{right:10px;top:-16px}
 .ok-calm .ok-s-dot,.ok-calm .ok-s-side.ready .ok-s-plank{animation:none}
 `;
 
@@ -134,15 +146,6 @@ function injectShellStyle(): void {
   document.head.appendChild(s);
 }
 
-/** h:mm:ss (or m:ss under an hour) */
-function clock(ms: number): string {
-  const s = Math.ceil(ms / 1000);
-  const h = Math.floor(s / 3600);
-  const m = Math.floor((s % 3600) / 60);
-  const ss = String(s % 60).padStart(2, '0');
-  return h > 0 ? `${h}:${String(m).padStart(2, '0')}:${ss}` : `${m}:${ss}`;
-}
-
 export function createShell(ui: Ui, parent: HTMLElement, hooks: ShellHooks): Shell {
   injectShellStyle();
   const calm = calmMotion();
@@ -150,14 +153,18 @@ export function createShell(ui: Ui, parent: HTMLElement, hooks: ShellHooks): She
   const home = hooks.home;
   let root: HTMLElement | null = null;
   let tab: TabId = 'home';
-  let labels: Label[] = [];
   let intervals: number[] = [];
   const badges = new Map<TabId, number | '!'>();
   let tabEls = new Map<TabId, HTMLElement>();
   let sel: HTMLElement | null = null;
   let events: HTMLElement | null = null;
+  let eventsPane: EventsPane | null = null;
   let weapons: HTMLElement | null = null;
   let weaponsPane: WeaponsPane | null = null;
+  let shop: HTMLElement | null = null;
+  let shopPane: ShopPane | null = null;
+  /** the free chest's choice (wood now, or silver for an ad) */
+  let chestSheet: HTMLElement | null = null;
   /** the Weapons pane changed the save since this world was made */
   let dirty = false;
   /** where a full-screen tab returns */
@@ -182,8 +189,6 @@ export function createShell(ui: Ui, parent: HTMLElement, hooks: ShellHooks): She
   function drop(): void {
     for (const i of intervals) window.clearInterval(i);
     intervals = [];
-    for (const l of labels) l.destroy();
-    labels = [];
     tabEls = new Map();
     dropRefs();
     root?.remove();
@@ -194,8 +199,12 @@ export function createShell(ui: Ui, parent: HTMLElement, hooks: ShellHooks): She
   function dropRefs(): void {
     weaponsPane?.destroy();
     weaponsPane = null;
+    shopPane?.destroy();
+    shopPane = null;
+    eventsPane?.destroy();
+    eventsPane = null;
     window.cancelAnimationFrame(countUp);
-    sel = events = weapons = dailyDot = powerEl = coinsEl = chipEl = weaponsMed = null;
+    sel = events = weapons = shop = dailyDot = powerEl = coinsEl = chipEl = weaponsMed = chestSheet = null;
     sideParts = [];
   }
 
@@ -263,15 +272,17 @@ export function createShell(ui: Ui, parent: HTMLElement, hooks: ShellHooks): She
     if (calm) root.classList.add('ok-calm');
     const rank = rankOf(progressScore(save).total);
 
-    // ---- Weapons and Events panes (under the bars, hidden until their tab; Weapons is built on first use)
+    // ---- the Shop, Weapons and Events panes (under the bars, hidden until their tab, built on first use)
     paneTop = top;
     paneBot = bot;
+    shop = el('div', 'ok-s-pane', root);
+    shop.style.display = 'none';
+    swipeable(shop);
     weapons = el('div', 'ok-s-pane', root);
     weapons.style.display = 'none';
     swipeable(weapons);
     events = el('div', 'ok-s-pane', root);
     events.style.display = 'none';
-    buildEvents(events, top, bot);
     swipeable(events);
 
     // ---- top bar: rank chip (opens the ranks) with the power, coins, sound
@@ -316,7 +327,7 @@ export function createShell(ui: Ui, parent: HTMLElement, hooks: ShellHooks): She
     const chest = el('div', 'ok-s-side', chestP);
     chest.dataset.testid = 'shell-chest';
     const chestPlank = el('div', 'ok-s-plank', chest);
-    iconCanvas(chestPlank, 112, 112, (g) => drawChest(g, 56, 60));
+    iconCanvas(chestPlank, 112, 112, (g) => drawChestIcon(g, 'wood', 56, 60, 1));
     const chestLbl = el('span', '', el('div', 'lbl', chest));
     const refreshChest = (): void => {
       const wait = freeChestWait(ui.game.save.data.arsenal, Date.now());
@@ -326,24 +337,14 @@ export function createShell(ui: Ui, parent: HTMLElement, hooks: ShellHooks): She
     };
     refreshChest();
     intervals.push(window.setInterval(refreshChest, 500));
-    pressable(chest, () => root !== null, ui.unlock, () => {
-      const got: { kind: ChestKind | null; n: number } = { kind: null, n: 0 };
-      // claimFreeChest may move the timer even when it says no (a clock moved back): persist either way
-      ui.game.save.update((d) => {
-        got.kind = claimFreeChest(d, Date.now(), false);
-        if (got.kind) d.arsenal.chests.push(got.kind);
-        got.n = d.arsenal.chests.length;
-      });
-      refreshChest();
-      if (got.kind) {
-        ui.audio.playPreset(SFX.loot);
-        chestPlank.animate([{ transform: 'scale(1.35) rotate(-8deg)' }, { transform: 'scale(0.9) rotate(4deg)', offset: 0.5 }, { transform: 'none' }], { duration: 520, easing: EASE.backOut });
-        hooks.toast(t('shell.chestGot'), t('shell.chestQueued', { n: got.n }));
-        hooks.changed();
-      } else {
-        ui.audio.play('tap');
-        chestPlank.animate([{ transform: 'rotate(-7deg)' }, { transform: 'rotate(6deg)' }, { transform: 'rotate(-3deg)' }, { transform: 'none' }], { duration: 360 });
+    pressable(chest, () => root !== null && chestSheet === null, ui.unlock, () => {
+      ui.audio.play('tap');
+      if (freeChestWait(ui.game.save.data.arsenal, Date.now()) === 0) {
+        openChestSheet(chestPlank, refreshChest);
+        return;
       }
+      // not yet: a shake (the label shows the time left)
+      chestPlank.animate([{ transform: 'rotate(-7deg)' }, { transform: 'rotate(6deg)' }, { transform: 'rotate(-3deg)' }, { transform: 'none' }], { duration: 360 });
     });
 
     const dailyP = part(root, 76, sideY + 176, 'translateX(-200px)', 200, quiet);
@@ -405,47 +406,77 @@ export function createShell(ui: Ui, parent: HTMLElement, hooks: ShellHooks): She
     for (const [id, n] of badges) paintBadge(id, n);
   }
 
-  function buildEvents(pane: HTMLElement, top: number, bot: number): void {
-    const game = ui.game;
-    const save = game.save.data;
-    const scrim = el('div', 'ok-s-scrim', pane);
-    scrim.dataset.ui = '1';
-    const y0 = top + 150;
-    const y1 = bot - TAB_BAR_H - 40;
-    const h = Math.min(760, y1 - y0);
-    const cy = y0 + (y1 - y0) / 2;
-    const board = el('div', 'ok-s-board', pane);
-    board.style.cssText = `left:${CX - 320}px;top:${cy - h / 2}px;width:640px;height:${h}px`;
-    const L = (l: Label): Label => {
-      labels.push(l);
-      return l;
+  /** the free chest is ready: open the wooden one now, or watch an ad for a silver one */
+  function openChestSheet(plank: HTMLElement, refresh: () => void): void {
+    if (!root || chestSheet) return;
+    const view = ui.view?.() ?? { top: 0, bottom: 1280 };
+    const m = el('div', 'ok-s-part', root);
+    m.style.cssText = 'left:0;top:0';
+    chestSheet = m;
+    const sc = el('div', 'ok-s-scrim', m);
+    sc.style.background = rgba(INK, 0.62);
+    let busy = false;
+    const close = (): void => {
+      if (chestSheet === m) chestSheet = null;
+      m.remove();
     };
-    const head = cy - h / 2;
-    L(new Label(pane, CX, head + 62, t('events.title'), { size: 60, color: PALETTE.gold, stroke: 16, shadowY: 6, shadowColor: 0x5a2d12 }));
-    const sheet = el('div', 'ok-s-sheet', pane);
-    const sh = Math.min(400, h - 250);
-    sheet.style.cssText = `left:${CX - 280}px;top:${head + 118}px;width:560px;height:${sh}px`;
-    const ch = dailyChallenge(todayKey());
-    const sy = head + 118;
-    const cal = iconCanvas(pane, 96, 96, (g) => drawCalendarGlyph(g, 48, 50, false));
-    cal.style.cssText += `;position:absolute;left:${CX - 48}px;top:${sy + 14}px`;
-    L(new Label(pane, CX, sy + 140, t('events.daily'), { size: 38, color: PALETTE.cream, stroke: 9 }));
-    const d1 = L(new Label(pane, CX, sy + 186, todayKey(), { size: 26, color: PALETTE.gold, stroke: 6 }));
-    void d1;
-    const goal = L(new Label(pane, CX, sy + 238, t('title.dailyGoal', { n: ch.goal, m: t(`mod.${ch.mod}`) }), { size: 28, color: PALETTE.cream, stroke: 7 }));
-    if (goal.width > 520) goal.setScale(520 / goal.width);
-    const info = L(new Label(pane, CX, sy + 282, t('title.dailyInfo'), { size: 24, color: PALETTE.cream, stroke: 6 }));
-    if (info.width > 520) info.setScale(520 / info.width);
-    const done = save.dailyDone === todayKey();
-    const streak = L(new Label(pane, CX, sy + 330, done ? t('events.done') : t('title.dailyStreak', { n: liveStreak(save, todayKey()) }), { size: 26, color: done ? PALETTE.heal : PALETTE.gold, stroke: 7 }));
-    if (streak.width > 520) streak.setScale(520 / streak.width);
-    const by = head + 118 + sh + 70;
-    const b = button(pane, CX, by, game.daily ? t('events.exit') : t('events.play'), ui.unlock, () => {
-      ui.audio.play('tap');
-      hooks.daily();
-    }, { width: 460, height: 100, fontSize: 40 });
-    b.el.dataset.testid = 'events-daily';
-    if (by + 80 < head + h) L(new Label(pane, CX, Math.min(head + h - 36, by + 92), t('events.more'), { size: 24, color: PALETTE.cream, stroke: 6 })).el.style.opacity = '0.75';
+    sc.addEventListener('pointerdown', (e) => e.stopPropagation());
+    sc.addEventListener('pointerup', (e) => {
+      e.stopPropagation();
+      if (!busy) close();
+    });
+    const board = el('div', 'ok-s-fc', m);
+    board.dataset.testid = 'free-chest-sheet';
+    board.dataset.ui = '1';
+    board.addEventListener('pointerdown', (e) => e.stopPropagation());
+    board.addEventListener('pointerup', (e) => e.stopPropagation());
+    const mid = (Math.max(-400, view.top) + Math.min(1680, view.bottom)) / 2;
+    board.style.top = `${mid - 260}px`;
+    iconCanvas(board, 200, 150, (g) => drawChestIcon(g, 'wood', 100, 80, 1.9));
+    el('h2', '', board).textContent = t('free.title');
+    el('p', '', board).textContent = t('free.sub');
+    const row = el('div', 'row', board);
+    const choice = (cls: string, kind: ChestKind, label: string, testid: string, ad: boolean): HTMLElement => {
+      const b = el('div', `ok-s-fb ${cls}`, row);
+      b.dataset.testid = testid;
+      iconCanvas(b, 96, 74, (g) => drawChestIcon(g, kind, 48, 40, 0.95));
+      fitText(el('span', '', b), label, 32, 250);
+      if (ad) el('div', 'ok-ad', b).textContent = t('core.ad');
+      pressable(b, () => !busy, ui.unlock, () => {
+        ui.audio.play('tap');
+        void claim(ad);
+      });
+      return b;
+    };
+    const wood = choice('w', 'wood', t('free.open'), 'free-chest-open', false);
+    const silver = choice('a', 'silver', t('free.ad'), 'free-chest-ad', true);
+    if (!calm) board.animate([{ transform: 'scale(0.8)', opacity: 0 }, { transform: 'none', opacity: 1 }], { duration: 280, easing: EASE.backOut });
+
+    async function claim(ad: boolean): Promise<void> {
+      busy = true;
+      wood.classList.add('off');
+      silver.classList.add('off');
+      // no ad (none to show, or cancelled): the wooden chest all the same
+      const watched = ad ? await ui.rewarded('free_chest') : false;
+      busy = false;
+      wood.classList.remove('off');
+      silver.classList.remove('off');
+      const got: { kind: ChestKind | null; n: number } = { kind: null, n: 0 };
+      // claimFreeChest may move the timer even when it says no (a clock moved back): persist either way
+      ui.game.save.update((d) => {
+        got.kind = claimFreeChest(d, Date.now(), watched);
+        if (got.kind) d.arsenal.chests.push(got.kind);
+        got.n = d.arsenal.chests.length;
+      });
+      close();
+      if (root) refresh();
+      if (!got.kind) return;
+      // the chest opening comes with its own screen; until then the chest waits in the line
+      ui.audio.playPreset(SFX.loot);
+      if (root && !calm) plank.animate([{ transform: 'scale(1.35) rotate(-8deg)' }, { transform: 'scale(0.9) rotate(4deg)', offset: 0.5 }, { transform: 'none' }], { duration: 520, easing: EASE.backOut });
+      hooks.toast(t('shell.chestGot'), t('shell.chestQueued', { k: t(`chest.${got.kind}`), n: got.n }));
+      hooks.changed();
+    }
   }
 
   function paintBadge(id: TabId, n: number | '!'): void {
@@ -459,7 +490,7 @@ export function createShell(ui: Ui, parent: HTMLElement, hooks: ShellHooks): She
   }
 
   function paneOf(id: TabId): HTMLElement | null {
-    return id === 'home' ? home : id === 'events' ? events : id === 'weapons' ? weapons : null;
+    return id === 'home' ? home : id === 'events' ? events : id === 'weapons' ? weapons : id === 'shop' ? shop : null;
   }
 
   function moveSel(id: TabId, animate: boolean): void {
@@ -472,7 +503,7 @@ export function createShell(ui: Ui, parent: HTMLElement, hooks: ShellHooks): She
     for (const [k, e] of tabEls) e.classList.toggle('on', k === id);
   }
 
-  /** slide the content panes from `a` to `b` (Home and Events have content of their own) */
+  /** slide the content panes from `a` to `b` (every tab but Ranks has a pane of its own) */
   function slide(a: TabId, b: TabId, animate: boolean): void {
     const pa = paneOf(a);
     const pb = paneOf(b);
@@ -496,7 +527,7 @@ export function createShell(ui: Ui, parent: HTMLElement, hooks: ShellHooks): She
     };
   }
 
-  /** the side buttons in (Home) or out (Events) */
+  /** the side buttons in (Home) or out (the other tabs) */
   function sides(on: boolean, animate: boolean): void {
     sideParts.forEach((p, i) => {
       for (const a of p.getAnimations()) a.cancel();
@@ -519,11 +550,11 @@ export function createShell(ui: Ui, parent: HTMLElement, hooks: ShellHooks): She
     const prev = tab;
     tab = next;
     moveSel(next, animate);
-    // the full-screen tabs: the highlight shows where we went; the screen covers the rest, and closing
+    // the full-screen tab: the highlight shows where we went; the screen covers the rest, and closing
     // it builds a new world (so a change made in the Weapons pane is picked up there too)
-    if (next === 'shop' || next === 'ranks') {
+    if (next === 'ranks') {
       if (paneOf(prev)) ret = prev;
-      (next === 'shop' ? hooks.shop : hooks.ranks)();
+      hooks.ranks();
       return;
     }
     // leaving the Weapons pane after a change: a new world first, then the shell on `next`
@@ -533,6 +564,11 @@ export function createShell(ui: Ui, parent: HTMLElement, hooks: ShellHooks): She
       return;
     }
     if (next === 'weapons' && weapons && !weaponsPane) weaponsPane = createWeaponsPane(ui, weapons, paneTop, paneBot, weaponsHooks, !animate);
+    if (next === 'shop' && shop) {
+      if (!shopPane) shopPane = createShopPane(ui, shop, paneTop, paneBot, shopHooks, !animate);
+      else shopPane.refresh();
+    }
+    if (next === 'events' && events && !eventsPane) eventsPane = createEventsPane(ui, events, paneTop, paneBot, { daily: () => hooks.daily() }, !animate);
     const from = paneOf(prev) ? prev : ret;
     sides(next === 'home', animate);
     slide(from, next, animate);
@@ -546,7 +582,24 @@ export function createShell(ui: Ui, parent: HTMLElement, hooks: ShellHooks): She
     },
     looks: () => {
       ui.audio.play('tap');
+      setShopView('looks');
+      shopPane?.destroy();
+      shopPane = null;
       select('shop', true);
+    },
+    toast: (head: string, sub: string) => hooks.toast(head, sub),
+  };
+
+  const shopHooks = {
+    // coins, shards or a look changed: the top bar now; the Weapons pane draws again on its next visit
+    changed: (before: number) => {
+      bump(before);
+      // (an ad that ended after a switch to the Weapons tab leaves the pane up: only its coins moved)
+      if (tab !== 'weapons') {
+        weaponsPane?.destroy();
+        weaponsPane = null;
+      }
+      hooks.changed();
     },
     toast: (head: string, sub: string) => hooks.toast(head, sub),
   };
@@ -615,8 +668,6 @@ export function createShell(ui: Ui, parent: HTMLElement, hooks: ShellHooks): She
       if (!r) return;
       for (const i of intervals) window.clearInterval(i);
       intervals = [];
-      const gone = labels;
-      labels = [];
       tabEls = new Map();
       dropRefs();
       root = null;
@@ -626,17 +677,13 @@ export function createShell(ui: Ui, parent: HTMLElement, hooks: ShellHooks): She
       dirty = false;
       resetHome();
       if (instant || calm) {
-        for (const l of gone) l.destroy();
         r.remove();
         return;
       }
       r.style.pointerEvents = 'none';
       for (const e of Array.from(r.querySelectorAll<HTMLElement>('[data-ui]'))) e.removeAttribute('data-ui');
       const a = r.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 220, easing: EASE.cubicIn, fill: 'forwards' });
-      a.onfinish = () => {
-        for (const l of gone) l.destroy();
-        r.remove();
-      };
+      a.onfinish = () => r.remove();
     },
     relayout() {
       if (!root) return;
@@ -645,7 +692,7 @@ export function createShell(ui: Ui, parent: HTMLElement, hooks: ShellHooks): She
       tab = 'home';
       build(true);
       moveSel('home', false);
-      if (keep === 'events' || keep === 'weapons') select(keep, false);
+      if (keep === 'events' || keep === 'weapons' || keep === 'shop') select(keep, false);
     },
   };
 }
@@ -680,19 +727,6 @@ function drawHouse(g: Gfx, x: number, y: number, k: number): void {
   g.fillStyle(INK, 1).fillRoundedRect(x - 8 * k, y + 6 * k, 16 * k, 20 * k, 7 * k);
   g.fillStyle(PALETTE.bowLight, 1).fillRoundedRect(x - 5 * k, y + 9 * k, 10 * k, 17 * k, 5 * k);
   g.fillStyle(0xffffff, 0.45).fillTriangle(x - 18 * k, y - 5 * k, x - 4 * k, y - 5 * k, x - 4 * k, y - 18 * k);
-}
-
-/** The free chest: a wooden chest with a gold band and lock. */
-function drawChest(g: Gfx, x: number, y: number): void {
-  g.fillStyle(INK, 1).fillRoundedRect(x - 40, y - 30, 80, 62, 12);
-  g.fillStyle(0x8a4f22, 1).fillRoundedRect(x - 35, y - 4, 70, 31, 7);
-  g.fillStyle(0xc47e3e, 1).fillRoundedRect(x - 35, y - 26, 70, 22, 10);
-  g.fillStyle(0xffffff, 0.25).fillRoundedRect(x - 30, y - 23, 40, 6, 3);
-  g.fillStyle(INK, 1).fillRect(x - 38, y - 6, 76, 6);
-  g.fillStyle(PALETTE.gold, 1).fillRect(x - 25, y - 26, 9, 53).fillRect(x + 16, y - 26, 9, 53);
-  g.fillStyle(INK, 1).fillRoundedRect(x - 11, y - 12, 22, 24, 6);
-  g.fillStyle(PALETTE.gold, 1).fillRoundedRect(x - 8, y - 9, 16, 18, 4);
-  g.fillStyle(INK, 1).fillCircle(x, y - 2, 3).fillRect(x - 1.5, y - 1, 3, 6);
 }
 
 /** The power bolt beside POWER. */

@@ -14,6 +14,14 @@ import { reachedWave, summarize, type World } from '@sim/world';
 import type { Game } from '../contract';
 import { todayKey } from './save';
 
+const FEAT_COINS = new Map(FEATS.map((f) => [f.id, f.coins]));
+
+/** An achievement's toast line: its name and the coins it paid (the run's toasts and the menu's). */
+export function featLine(t: (key: string, p?: Record<string, string | number>) => string, id: string): string {
+  const coins = FEAT_COINS.get(id);
+  return coins ? `${t(`feat.${id}.name`)} · +${coins}` : t(`feat.${id}.name`);
+}
+
 /** What the result screen shows (the 2D `RunResult`). */
 export interface RunResult {
   wave: number;

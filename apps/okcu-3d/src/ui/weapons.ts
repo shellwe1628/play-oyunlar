@@ -32,13 +32,14 @@ import { BOSS_KINDS } from '@sim/world';
 import { calmMotion, EASE, el, fitText, iconCanvas, mix, pressable, TAB_BAR_H } from './dom';
 import { css, Gfx, rgba } from './gfx';
 import type { Ui } from './screens';
+import { featLine } from './progress';
 
 export type Focus = WeaponId | 'archer';
 
 export interface WeaponsHooks {
   /** the save changed here: `power` is the POWER before the change (the shell counts up from it) */
   changed: (power: number) => void;
-  /** the looks (the Shop tab's screen) */
+  /** the looks (the Shop tab's looks view) */
   looks: () => void;
   /** a small piece of good news (an achievement earned by a level) */
   toast: (head: string, sub: string) => void;
@@ -471,7 +472,7 @@ export function createWeaponsPane(ui: Ui, pane: HTMLElement, top: number, bot: n
   }
 
   function feats(got: string[]): void {
-    for (const f of got) hooks.toast(t('feat.title'), t(`feat.${f}.name`));
+    for (const f of got) hooks.toast(t('feat.title'), featLine(t, f));
   }
 
   function upgrade(id: WeaponId): void {

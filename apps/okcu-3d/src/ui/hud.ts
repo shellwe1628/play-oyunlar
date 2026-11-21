@@ -17,7 +17,8 @@ import { canUpgrade } from '@sim/arsenal';
 import { bowTier } from '@sim/bow';
 import { CHAPTERS, stageOf, STAGES } from '@sim/chapters';
 import { progressScore, rankOf } from '@sim/progress';
-import { WEAPON_IDS } from '@sim/weapons';
+import { boughtToday } from '@sim/shop';
+import { WEAPON_IDS, WEAPON_MAX } from '@sim/weapons';
 import type { GameEvent, World } from '@sim/world';
 import type { Frame, Game, Module, Stage } from '../contract';
 import { EASE, el, injectStyle, Label, rerenderLabels, roundButton, setLabelRes, Timers } from './dom';
@@ -272,10 +273,13 @@ export function createHud(stage: Stage, game: Game): Module {
   let shellQuiet = false;
   /** the tab the next shell comes back on (Home, or where a full-screen tab or a new world left off) */
   let shellTab: TabId = 'home';
+  /** our own rebuild keeps the good news already queued (an achievement earned in a pane) */
+  let keepToasts = false;
   /** a new world for the title, the shell back on `tab` without its entrance (the menu stays where it was) */
-  const titleOn = (tab: TabId): void => {
+  const titleOn = (tab: TabId, keep = false): void => {
     shellTab = tab;
     shellQuiet = true;
+    keepToasts = keep;
     game.startRun({ daily: game.daily });
   };
   const title = createTitle(ui, homePane, {
@@ -287,14 +291,19 @@ export function createHud(stage: Stage, game: Game): Module {
       game.startRun({ chapter: c > last ? 0 : c < 0 ? last : c });
     },
   });
-  // the main menu's tabs: Shop (the looks) and Ranks open the full screens of menus.ts for now
+  // the main menu's tabs: Ranks still opens the full screen of menus.ts
   const shell = createShell(ui, shellGroup, {
     home: homePane,
-    shop: () => menus.openShop('title'),
     ranks: () => menus.openRanks('title'),
     // the Weapons pane changed the save: the run's levels are fixed when its world is made
-    rebuild: (tab) => titleOn(tab),
-    daily: () => game.startRun({ daily: !game.daily }),
+    rebuild: (tab) => titleOn(tab, true),
+    // the Events tab's daily switch: a new world, the menu back on Home without the entrances
+    daily: () => {
+      shellQuiet = true;
+      keepToasts = true;
+      title.quiet();
+      game.startRun({ daily: !game.daily });
+    },
     toast: (head, sub) => queueToast(head, sub, PALETTE.gold),
     changed: () => syncBadges(),
   });
@@ -302,8 +311,11 @@ export function createHud(stage: Stage, game: Game): Module {
   /** the tab bar's red badges, from the save */
   function syncBadges(): void {
     const d = game.save.data;
-    // the shop sells looks only for now (its offers and chests come with its own tab)
-    shell.badge('shop', 0);
+    // today's offers still to buy that the coins cover (a new day's offers count once they are drawn)
+    const key = todayKey();
+    const got = boughtToday(d, key);
+    const offers = d.arsenal.shopDay === key ? d.arsenal.shopOffers : [];
+    shell.badge('shop', offers.filter((o, i) => !got.includes(i) && d.coins >= o.coins && d.arsenal.weapons[o.weapon].level < WEAPON_MAX).length);
     // a weapon ready to level up (the archer card marks its own affordable upgrades)
     shell.badge('weapons', WEAPON_IDS.some((id) => canUpgrade(d, id)) ? '!' : 0);
     shell.badge('ranks', rankOf(progressScore(d).total) > d.rank ? '!' : 0);
@@ -333,7 +345,7 @@ export function createHud(stage: Stage, game: Game): Module {
       return amount;
     },
     upgrades: () => titleOn('weapons'),
-    shop: () => menus.openShop('result'),
+    shop: () => titleOn('shop'),
     home: () => game.toTitle(),
     ranks: () => {
       if (!menus.ceremonyOpen) menus.openRanks('result');
@@ -397,7 +409,8 @@ export function createHud(stage: Stage, game: Game): Module {
     world = w;
     timers.clear();
     clearTransients();
-    clearToasts();
+    if (!keepToasts) clearToasts();
+    keepToasts = false;
     tracker.reset(w);
     menus.closeAll();
     cancelDrag();

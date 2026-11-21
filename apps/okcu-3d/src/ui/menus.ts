@@ -1,23 +1,19 @@
 /**
  * The menu screens of the 2D game as DOM overlays over the 3D scene: the pause menu (core
- * PauseScene), the shop's looks (ShopScene's looks tab), ranks / records / achievements
+ * PauseScene), ranks / records / achievements
  * (RanksScene) and the rank-up ceremony (ResultScene.playRankUp). Same layout (logical px),
  * texts, numbers, sounds and drawings (the game's own `drawBadge`, `drawHeadIcon`, `drawCoin` run
  * on canvases through Gfx). Every rule is the game's: isUnlocked, progressScore …
  *
  * The 3D build plays 'hard', where the forge is retired (weapons level up instead) and the four
  * permanent upgrades live on the Weapons tab's archer card (weapons.ts); so there is no forge
- * screen here and the shop is its looks.
+ * screen here. The shop (offers, chests, looks) is the main menu's Shop tab (shop.ts).
  */
-import { drawHeadIcon } from '@okcu/scenes/art';
 import { drawBadge } from '@okcu/scenes/gear';
-import { drawCoin } from '@okcu/scenes/icons';
 import { SFX } from '@okcu/sfx';
 import { PALETTE } from '@okcu/textures';
 import { CHAPTERS } from '@sim/chapters';
-import { COSMETICS, isUnlocked } from '@sim/meta';
 import { FEATS, progressScore, RANKS, rankOf, SCORE, toNextRank } from '@sim/progress';
-import { BOSS_KINDS } from '@sim/world';
 import { button, EASE, el, Label, roundButton, Sketch, type ButtonHandle, type LabelOpts } from './dom';
 import { rgba } from './gfx';
 import { openOnline } from './online';
@@ -51,12 +47,10 @@ interface Screen {
 }
 
 export interface Menus {
-  /** a full-screen menu (the shop's looks, the ranks) is up */
+  /** a full-screen menu (the ranks) is up */
   readonly open: boolean;
   readonly pauseOpen: boolean;
   readonly ceremonyOpen: boolean;
-  /** the shop: the looks (cosmetics) */
-  openShop(from: From): void;
   openRanks(from: From): void;
   openPause(): void;
   closePause(): void;
@@ -70,7 +64,7 @@ export interface MenuHooks {
   resume: () => void;
   quit: () => void;
   restart: () => void;
-  /** a menu screen was closed with Back (2D: `goTo(SCENES.game, {})`, a fresh title) */
+  /** the ranks were closed with Back (2D: `goTo(SCENES.game, {})`, a fresh title) */
   back: () => void;
 }
 
@@ -127,118 +121,6 @@ export function createMenus(ui: Ui, parent: HTMLElement, hooks: MenuHooks): Menu
     pauseLabels = [];
     pause.remove();
     pause = null;
-  }
-
-  // ---------------------------------------------------------------- shop (ShopScene, its looks tab)
-
-  function shop(): Screen {
-    const root = screenRoot(parent, rgba(PALETTE.ink, 0.45));
-    const labels: Label[] = [];
-    const L = (l: Label): Label => {
-      labels.push(l);
-      return l;
-    };
-    let clock = 0;
-    L(text(root, CX, TOP + 70, t('tab.shop'), 60, PALETTE.cream, { stroke: 14 }));
-    const coinG = new Sketch(root, CX - 76, TOP + 114, 52, 52);
-    drawCoin(coinG.begin().phaser, CX - 50, TOP + 140, 20);
-    const coinText = L(text(root, CX - 20, TOP + 140, '', 46, PALETTE.coin, { originX: 0, stroke: 10 }));
-    L(text(root, CX, TOP + 225, t('shop.tabLooks'), 44, PALETTE.gold, { stroke: 10 }));
-
-    // the looks: the preview (the 2D game's animated archer is a head portrait here) + a 4×3 grid
-    const lookUi = el('div', 'ok-group', root);
-    const footY = TOP + 480;
-    const preview = new Sketch(lookUi, CX - 130, footY - 250, 260, 260);
-    const previewName = L(text(lookUi, CX, footY + 95, '', 44, PALETTE.cream, { stroke: 10 }));
-    const previewNote = L(text(lookUi, CX, footY + 142, '', 34, PALETTE.white, { stroke: 8 }));
-    // four columns; a fourth row (16 looks since chapters 5 and 6) packs the grid a little tighter
-    const lookRows = Math.ceil(COSMETICS.length / 4);
-    const tight = lookRows > 3;
-    const step = tight ? 114 : 136;
-    const half = tight ? 52 : 59;
-    const tiles = new Sketch(lookUi, 60, BOTTOM - 640, 600, 520);
-    const tilePos = (i: number): { x: number; y: number } => ({ x: 135 + (i % 4) * 150, y: (tight ? BOTTOM - 560 : BOTTOM - 520) + Math.floor(i / 4) * step });
-    let previewIdx = Math.max(0, COSMETICS.findIndex((c) => c.id === save.data.cosmetic));
-    let bounce = 0;
-    COSMETICS.forEach((_c, i) => {
-      const p = tilePos(i);
-      const z = el('div', '', lookUi);
-      z.dataset.ui = '1';
-      z.style.cssText = `position:absolute;left:${p.x - half}px;top:${p.y - half}px;width:${half * 2}px;height:${half * 2}px;pointer-events:auto;cursor:pointer`;
-      z.addEventListener('pointerdown', (e) => {
-        e.stopPropagation();
-        ui.unlock();
-      });
-      z.addEventListener('pointerup', (e) => {
-        e.stopPropagation();
-        wear(i);
-      });
-    });
-
-    const back = button(root, CX, BOTTOM - 70, t('shop.back'), ui.unlock, () => {
-      ui.audio.play('tap');
-      hooks.back();
-    }, { width: 360, height: 100, variant: 'secondary' });
-    back.el.dataset.testid = 'shop-back';
-
-    function refresh(): void {
-      const d = save.data;
-      coinText.setText(String(d.coins));
-      const tg = tiles.begin();
-      COSMETICS.forEach((cos, i) => {
-        const { x, y } = tilePos(i);
-        const unlocked = isUnlocked(cos, d.best, d.runs, d.bosses, d.arsenal.boughtLooks);
-        const worn = d.cosmetic === cos.id;
-        const sel = i === previewIdx;
-        tg.fillStyle(PALETTE.ink, 1).fillRoundedRect(x - half, y - half, half * 2, half * 2, 24);
-        tg.fillStyle(worn ? PALETTE.gold : sel ? PALETTE.cream : unlocked ? PALETTE.cardIcon : PALETTE.pipOff, 1).fillRoundedRect(x - half + 7, y - half + 7, half * 2 - 14, half * 2 - 14, 20);
-        drawHeadIcon(tg.phaser, x, y + 6, tight ? 23 : 26, cos, unlocked);
-        if (!unlocked) {
-          tg.fillStyle(PALETTE.ink, 1).fillRoundedRect(x + 18, y + 18, 28, 24, 6);
-          tg.lineStyle(5, PALETTE.ink, 1).beginPath().arc(x + 32, y + 18, 9, Math.PI, 0, false).strokePath();
-          tg.fillStyle(PALETTE.coin, 1).fillCircle(x + 32, y + 29, 4);
-        }
-      });
-      const cos = COSMETICS[previewIdx]!;
-      const unlocked = isUnlocked(cos, d.best, d.runs, d.bosses, d.arsenal.boughtLooks);
-      previewName.setText(t(`cos.${cos.id}`));
-      previewNote.setText(d.cosmetic === cos.id ? t('shop.worn') : unlocked ? '' : cos.boss !== undefined ? t('shop.boss', { b: t(`boss.${BOSS_KINDS[cos.boss]!}`) }) : cos.runs > 0 ? t('shop.runs', { n: cos.runs }) : t('shop.unlock', { n: cos.wave }));
-    }
-
-    function wear(i: number): void {
-      const cos = COSMETICS[i];
-      if (!cos) return;
-      previewIdx = i;
-      if (!isUnlocked(cos, save.data.best, save.data.runs, save.data.bosses, save.data.arsenal.boughtLooks)) {
-        ui.audio.playPreset(SFX.cancel);
-        refresh();
-        return;
-      }
-      save.update((d) => {
-        d.cosmetic = cos.id;
-      });
-      ui.audio.play('pop');
-      bounce = 1;
-      refresh();
-    }
-
-    refresh();
-    return {
-      root,
-      update(real) {
-        clock += real;
-        bounce = Math.max(0, bounce - real * 2);
-        const g = preview.begin();
-        const cos = COSMETICS[previewIdx]!;
-        const hop = Math.abs(Math.sin(bounce * Math.PI * 2)) * 18 * bounce;
-        g.fillStyle(PALETTE.ink, 0.35).fillEllipse(CX, footY - 8, 170, 26);
-        drawHeadIcon(g.phaser, CX, footY - 110 - hop + Math.sin(clock * 2) * 4, 72, cos, isUnlocked(cos, save.data.best, save.data.runs, save.data.bosses, save.data.arsenal.boughtLooks));
-      },
-      destroy() {
-        for (const l of labels) l.destroy();
-        root.remove();
-      },
-    };
   }
 
   // ---------------------------------------------------------------- ranks (RanksScene)
@@ -448,9 +330,6 @@ export function createMenus(ui: Ui, parent: HTMLElement, hooks: MenuHooks): Menu
     },
     get ceremonyOpen() {
       return ceremony !== null;
-    },
-    openShop() {
-      swap(shop());
     },
     openRanks() {
       swap(ranks());

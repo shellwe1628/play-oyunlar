@@ -38,6 +38,8 @@ export interface TitleScreen {
   relayout(): void;
   /** a tap instead of a drag: the hint (or the PLAY button) jumps */
   nudge(): void;
+  /** the next show answers a switch made elsewhere (the Events tab's daily): no entrance */
+  quiet(): void;
   clear(): void;
 }
 
@@ -442,6 +444,9 @@ export function createTitle(ui: Ui, parent: HTMLElement, hooks: TitleHooks): Tit
     },
     relayout() {
       if (root && world) show(world, true, true);
+    },
+    quiet() {
+      softUntil = performance.now() + 600;
     },
     hide() {
       const r = root;

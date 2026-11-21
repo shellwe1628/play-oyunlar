@@ -10,10 +10,13 @@
 // - progressed: chapter 4 reached, coins, a levelled bow, the three weapons of the bosses beaten
 //               (the boomerang ready to level up), sling shards, chests waiting, the free chest
 //               counting down, upgrades bought
-// Shots: home (progressed), home-fresh, events, the Weapons tab (weapons: the selected bow;
-// weapons-fresh; weapons-detail: the crossbow; weapons-up: the boomerang, ready to level up;
-// weapons-locked: the sling's shards; weapons-archer: the archer's upgrades) and the screens the
-// Shop / Ranks tabs open.
+// - done:       the progressed save with today's daily already done (a streak of 3)
+// Shots: home (progressed), home-fresh, the Shop tab (shop: today's offers, chests, ad coins;
+// shop-fresh; shop-odds: the odds sheet; shop-looks: the looks; shop-buy: the first offer bought),
+// the Events tab (events; events-fresh; events-done), the free chest's choice (free-chest), the
+// Weapons tab (weapons: the selected bow; weapons-fresh; weapons-detail: the crossbow; weapons-up:
+// the boomerang, ready to level up; weapons-locked: the sling's shards; weapons-archer: the
+// archer's upgrades) and the screen the Ranks tab opens.
 // PNGs go to <repo>/build/menu-shots/okcu3d-<tab>-<size>-<lang>.png. One browser, one page at a time.
 import { mkdirSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
@@ -104,6 +107,27 @@ const progressed = structuredClone(fresh);
   d.arsenal.weapons.sling = { owned: false, level: 1, shards: 4 };
   d.arsenal.chests = ['gold', 'wood'];
   d.arsenal.freeChestAt = Date.now() + 2 * 3600_000 + 17 * 60_000;
+  // one of today's three ad top-ups used
+  d.arsenal.adCoinsDay = today();
+  d.arsenal.adCoinsUsed = 1;
+  d.dailyDate = today();
+  d.dailyBest = 4;
+  // a streak of 2 that today can extend
+  d.dailyDone = today(-1);
+  d.dailyStreak = 2;
+}
+const done = structuredClone(progressed);
+{
+  const d = done.data;
+  d.dailyDone = today();
+  d.dailyBest = 9;
+  d.dailyStreak = 3;
+}
+/** today's key in local time (the app's todayKey), or `dd` days away */
+function today(dd = 0) {
+  const n = new Date();
+  n.setDate(n.getDate() + dd);
+  return `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, '0')}-${String(n.getDate()).padStart(2, '0')}`;
 }
 
 const plan = [
@@ -111,7 +135,14 @@ const plan = [
   // the chapter card's ‹ wraps round to the last chapter reached (chapter 4)
   { tab: 'home', save: progressed, go: ['title-chapter-prev'] },
   { tab: 'events', save: progressed, go: ['tab-events'] },
+  { tab: 'events-fresh', save: fresh, go: ['tab-events'] },
+  { tab: 'events-done', save: done, go: ['tab-events'] },
   { tab: 'shop', save: progressed, go: ['tab-shop'] },
+  { tab: 'shop-fresh', save: fresh, go: ['tab-shop'] },
+  { tab: 'shop-odds', save: progressed, go: ['tab-shop', 'shop-odds'] },
+  { tab: 'shop-looks', save: progressed, go: ['tab-shop', 'shop-seg-looks'] },
+  { tab: 'shop-buy', save: progressed, go: ['tab-shop', 'shop-offer-0'] },
+  { tab: 'free-chest', save: fresh, go: ['shell-chest'] },
   { tab: 'weapons', save: progressed, go: ['tab-weapons'] },
   { tab: 'weapons-fresh', save: fresh, go: ['tab-weapons'] },
   { tab: 'weapons-detail', save: progressed, go: ['tab-weapons', 'weapon-card-crossbow'] },

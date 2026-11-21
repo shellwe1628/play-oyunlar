@@ -84,8 +84,6 @@ export function createEventsPane(ui: Ui, pane: HTMLElement, top: number, bot: nu
   injectStyle();
   const t = ui.t;
   const calm = calmMotion();
-  const save: SaveData = ui.game.save.data;
-  const key = todayKey();
 
   const scrim = el('div', 'ok-s-scrim', pane);
   scrim.dataset.ui = '1';
@@ -99,78 +97,90 @@ export function createEventsPane(ui: Ui, pane: HTMLElement, top: number, bot: nu
   // on a short screen the cards sit closer
   const tight = y1 - y0 < 1000;
 
-  // ---- the daily challenge
-  const ch = dailyChallenge(key);
-  const done = save.dailyDone === key;
-  const best = save.dailyDate === key ? save.dailyBest : 0;
-  const streak = liveStreak(save, key);
-  const card = el('div', 'ok-ev-card ok-ev-day', wrap);
-  card.dataset.testid = 'events-daily-card';
-  if (tight) card.style.gap = '13px';
-  const head = el('div', 'ok-ev-head', card);
-  const plate = el('div', 'ok-ev-plate', head);
-  iconCanvas(plate, 100, 100, (g) => g.at(50, 52, 1.2, 1.2, 0, () => drawCalendarGlyph(g, 0, 0, false)));
-  const tt = el('div', 't', head);
-  fitText(el('div', 'ok-ev-big', tt), t('events.daily'), 38, 480);
-  const sub = el('div', 'ok-ev-sub', tt);
-  el('i', '', sub).textContent = key;
-  const left = el('span', '', sub);
-  const tick = (): void => {
-    left.textContent = t('events.endsIn', { t: clock(msToMidnight()) });
-  };
-  tick();
-  const timer = window.setInterval(tick, 1000);
+  /** the day the card shows: a new local day (midnight passed with the pane up) draws it again */
+  let key = '';
+  let left: HTMLElement | null = null;
 
-  const goal = el('div', 'ok-ev-goal', card);
-  iconCanvas(goal, 64, 64, (g) => drawTarget(g, 32, 31, 25));
-  const gx = el('div', 'tx', goal);
-  fitText(el('b', '', gx), t('title.dailyGoal', { n: ch.goal, m: t(`mod.${ch.mod}`) }), 26, 540);
-  const bar = el('div', 'ok-ev-bar', gx);
-  const fill = el('i', '', bar);
-  const k = done ? 1 : Math.min(1, best / ch.goal);
-  fill.style.width = `${Math.max(k > 0 ? 8 : 0, k * 100)}%`;
-  el('em', '', bar).textContent = `${Math.min(done ? Math.max(best, ch.goal) : best, ch.goal)} / ${ch.goal}`;
-  el('span', '', gx).textContent = t('title.dailyInfo');
+  function render(animate: boolean): void {
+    wrap.replaceChildren();
+    key = todayKey();
+    // read fresh: the save may have changed (or been replaced) since the pane was made
+    const save: SaveData = ui.game.save.data;
+    // ---- the daily challenge
+    const ch = dailyChallenge(key);
+    const done = save.dailyDone === key;
+    const best = save.dailyDate === key ? save.dailyBest : 0;
+    const streak = liveStreak(save, key);
+    const card = el('div', 'ok-ev-card ok-ev-day', wrap);
+    card.dataset.testid = 'events-daily-card';
+    if (tight) card.style.gap = '13px';
+    const head = el('div', 'ok-ev-head', card);
+    const plate = el('div', 'ok-ev-plate', head);
+    iconCanvas(plate, 100, 100, (g) => g.at(50, 52, 1.2, 1.2, 0, () => drawCalendarGlyph(g, 0, 0, false)));
+    const tt = el('div', 't', head);
+    fitText(el('div', 'ok-ev-big', tt), t('events.daily'), 38, 480);
+    const sub = el('div', 'ok-ev-sub', tt);
+    el('i', '', sub).textContent = key;
+    el('span', '', sub).textContent = t('events.endsIn', { t: clock(msToMidnight()) });
 
-  const st = el('div', 'ok-ev-streak', card);
-  fitText(el('b', '', st), t('events.streak'), 22, 80);
-  const pips = el('div', 'ok-ev-pips', st);
-  // the week so far: a full week starts a new row of pips; today's slot is outlined until it is done
-  const filled = streak === 0 ? 0 : ((streak - 1) % WEEK) + 1;
-  for (let i = 0; i < WEEK; i++) {
-    const p = el('i', i < filled ? 'on' : '', pips);
-    if (!done && i === filled && filled < WEEK) p.classList.add('today');
+    const goal = el('div', 'ok-ev-goal', card);
+    iconCanvas(goal, 64, 64, (g) => drawTarget(g, 32, 31, 25));
+    const gx = el('div', 'tx', goal);
+    fitText(el('b', '', gx), t('title.dailyGoal', { n: ch.goal, m: t(`mod.${ch.mod}`) }), 26, 540);
+    const bar = el('div', 'ok-ev-bar', gx);
+    const fill = el('i', '', bar);
+    const k = done ? 1 : Math.min(1, best / ch.goal);
+    fill.style.width = `${Math.max(k > 0 ? 8 : 0, k * 100)}%`;
+    el('em', '', bar).textContent = `${Math.min(done ? Math.max(best, ch.goal) : best, ch.goal)} / ${ch.goal}`;
+    el('span', '', gx).textContent = t('title.dailyInfo');
+
+    const st = el('div', 'ok-ev-streak', card);
+    fitText(el('b', '', st), t('events.streak'), 22, 80);
+    const pips = el('div', 'ok-ev-pips', st);
+    // the week so far: a full week starts a new row of pips; today's slot is outlined until it is done
+    const filled = streak === 0 ? 0 : ((streak - 1) % WEEK) + 1;
+    for (let i = 0; i < WEEK; i++) {
+      const p = el('i', i < filled ? 'on' : '', pips);
+      if (!done && i === filled && filled < WEEK) p.classList.add('today');
+    }
+    el('span', '', st).textContent = t('events.days', { n: streak });
+
+    const rw = el('div', `ok-ev-reward${done ? ' done' : ''}`, card);
+    if (done) {
+      iconCanvas(rw, 56, 56, (g) => drawTick(g, 28, 28));
+      fitText(el('span', '', rw), t('events.done'), 26, 520);
+    } else {
+      iconCanvas(rw, 80, 64, (g) => drawChestIcon(g, 'gold', 40, 34, 0.78));
+      fitText(el('span', '', rw), t('events.reward'), 26, 500);
+    }
+
+    const play = el('div', `ok-ev-play${ui.game.daily ? ' s' : ''}`, card);
+    play.dataset.testid = 'events-daily-play';
+    if (!ui.game.daily) iconCanvas(play, 44, 48, (g) => drawPlay(g, 22, 24));
+    const pl = el('span', '', play);
+    fitText(pl, ui.game.daily ? t('events.exit') : t('events.play'), 42, 470);
+    if (tight) play.style.height = '92px';
+    pressable(play, () => true, ui.unlock, () => {
+      ui.audio.play('tap');
+      hooks.daily();
+    });
+
+    // ---- what is still to come
+    const more = el('div', 'ok-ev-card ok-ev-more', wrap);
+    iconCanvas(more, 70, 70, (g) => drawSparkle(g, 35, 35));
+    fitText(el('span', '', more), t('events.more'), 25, 520);
+
+    if (animate && !calm) {
+      [card, more].forEach((e, i) => e.animate([{ transform: 'scale(0.9)', opacity: 0 }, { transform: 'none', opacity: 1 }], { delay: 40 + i * 60, duration: 320, easing: EASE.backOut, fill: 'backwards' }));
+    }
+    left = sub.lastElementChild as HTMLElement;
   }
-  el('span', '', st).textContent = t('events.days', { n: streak });
 
-  const rw = el('div', `ok-ev-reward${done ? ' done' : ''}`, card);
-  if (done) {
-    iconCanvas(rw, 56, 56, (g) => drawTick(g, 28, 28));
-    fitText(el('span', '', rw), t('events.done'), 26, 520);
-  } else {
-    iconCanvas(rw, 80, 64, (g) => drawChestIcon(g, 'gold', 40, 34, 0.78));
-    fitText(el('span', '', rw), t('events.reward'), 26, 500);
-  }
-
-  const play = el('div', `ok-ev-play${ui.game.daily ? ' s' : ''}`, card);
-  play.dataset.testid = 'events-daily-play';
-  if (!ui.game.daily) iconCanvas(play, 44, 48, (g) => drawPlay(g, 22, 24));
-  const pl = el('span', '', play);
-  fitText(pl, ui.game.daily ? t('events.exit') : t('events.play'), 42, 470);
-  if (tight) play.style.height = '92px';
-  pressable(play, () => true, ui.unlock, () => {
-    ui.audio.play('tap');
-    hooks.daily();
-  });
-
-  // ---- what is still to come
-  const more = el('div', 'ok-ev-card ok-ev-more', wrap);
-  iconCanvas(more, 70, 70, (g) => drawSparkle(g, 35, 35));
-  fitText(el('span', '', more), t('events.more'), 25, 520);
-
-  if (!quiet && !calm) {
-    [card, more].forEach((e, i) => e.animate([{ transform: 'scale(0.9)', opacity: 0 }, { transform: 'none', opacity: 1 }], { delay: 40 + i * 60, duration: 320, easing: EASE.backOut, fill: 'backwards' }));
-  }
+  render(!quiet);
+  const timer = window.setInterval(() => {
+    if (todayKey() !== key) render(false);
+    else if (left) left.textContent = t('events.endsIn', { t: clock(msToMidnight()) });
+  }, 1000);
   return {
     destroy() {
       window.clearInterval(timer);

@@ -141,7 +141,7 @@ function injectStyle(): void {
 
 /** h:mm:ss (or m:ss under an hour) */
 export function clock(ms: number): string {
-  const s = Math.max(0, Math.ceil(ms / 1000));
+  const s = Math.max(0, Math.floor(ms / 1000));
   const h = Math.floor(s / 3600);
   const m = Math.floor((s % 3600) / 60);
   const ss = String(s % 60).padStart(2, '0');
@@ -203,8 +203,7 @@ export function createShopPane(ui: Ui, pane: HTMLElement, top: number, bot: numb
   // ---------------------------------------------------------------- offers
 
   function renderOffers(d: SaveData): void {
-    const key = todayKey();
-    shownDay = key;
+    const key = shownDay;
     let offers: ReturnType<typeof dailyOffers> = [];
     // a new day snapshots its offers into the save: persist that at once
     save.update((s) => {
@@ -311,8 +310,14 @@ export function createShopPane(ui: Ui, pane: HTMLElement, top: number, bot: numb
   }
 
   function buyOfferAt(i: number, card: HTMLElement): void {
+    // the card belongs to the day on screen: after midnight it may be another day's offer, so draw the new day instead
+    if (todayKey() !== shownDay) {
+      ui.audio.playPreset(SFX.cancel);
+      render(false);
+      return;
+    }
     const before = powerOf(save.data);
-    const key = todayKey();
+    const key = shownDay;
     let ok = false;
     let got: string[] = [];
     let offer: { weapon: string; shards: number } | null = null;
@@ -612,6 +617,8 @@ export function createShopPane(ui: Ui, pane: HTMLElement, top: number, bot: numb
     for (const [v, s] of segs) s.classList.toggle('on', v === view);
     body.replaceChildren();
     resetEl = null;
+    // the day this draw shows (the tick draws again once when local midnight passes)
+    shownDay = todayKey();
     if (view === 'offers') renderOffers(d);
     else renderLooks(d);
     if (animate && !calm) Array.from(body.children).forEach((e, i) => (e as HTMLElement).animate([{ transform: 'translateY(16px)', opacity: 0 }, { transform: 'none', opacity: 1 }], { delay: i * 35, duration: 260, easing: EASE.cubicOut, fill: 'backwards' }));

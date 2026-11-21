@@ -1,10 +1,12 @@
 import { createRng } from '@oyun/core/pure';
 import { appendFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { CAREFUL, playRun, type Profile, type RunReport } from '../../src/sim/aimbot';
-import { chapterStart } from '../../src/sim/chapters';
+import { CAREFUL, playRun, SLOW_HUMAN, STARTER, type Profile, type RunReport } from '../../src/sim/aimbot';
+import { POWER_BASE } from '../../src/sim/arsenal';
+import { statsFor, type CardId } from '../../src/sim/cards';
+import { chapterStart, CHAPTERS, RECOMMENDED_POWER, STAGES } from '../../src/sim/chapters';
 import { NO_META } from '../../src/sim/meta';
-import { WEAPON_IDS, type WeaponId } from '../../src/sim/weapons';
+import { WEAPON_IDS, WEAPON_MAX, weaponDamage, type WeaponId } from '../../src/sim/weapons';
 
 /**
  * Spec 8 (the 3D build, 'hard'): a careful scripted player with each weapon, fresh save
@@ -32,28 +34,122 @@ describe('weapon balance (careful player, hard)', { timeout: 600_000 }, () => {
     }
   });
 
-  it("chapter 1's boss takes a careful level-1 player several shots, not one or two", () => {
-    // it fell to a single crit to the head (408 hp) before; the boss is wave 7
-    const shots: number[] = [];
-    for (let seed = 1; seed <= 8; seed++) {
-      let s0 = -1;
-      let n = -1;
-      playRun(seed, createRng(1000 + seed), CAREFUL, {
+  it("chapter 1's boss falls to the starting weapon, though not to everyone", () => {
+    // fresh save, level-1 bow, healed up to the boss (wave 7) so only the boss fight counts
+    const wins = (p: Profile) => {
+      let n = 0;
+      for (let seed = 1; seed <= 16; seed++) {
+        const r = playRun(seed, createRng(3000 + seed), p, { difficulty: 'hard', meta: { ...NO_META, weapon: 'bow', wlevel: 1 }, untilWave: CH2, maxTime: 1200, each: (w) => { if (w.wave < 7) w.player.hp = w.player.maxHp; } });
+        if (r.reached > 7) n++;
+      }
+      return n;
+    };
+    const starter = wins(STARTER);
+    const slow = wins(SLOW_HUMAN);
+    note(`ch1 boss L1 wins starter ${starter}/16 slow ${slow}/16`);
+    // a new player usually wins, a clumsy one sometimes: hard, but not a wall and not a formality
+    expect(starter).toBeGreaterThanOrEqual(9);
+    expect(starter).toBeLessThanOrEqual(15);
+    expect(slow).toBeGreaterThanOrEqual(3);
+    expect(slow).toBeLessThanOrEqual(12);
+  });
+
+  it('later bosses need the recommended power: the starting weapon loses, the recommended level wins', () => {
+    // each chapter from its own start (drafted hand), healed until its boss begins; only runs that
+    // reach the boss count
+    const levelFor = (power: number) => {
+      for (let L = 1; L <= WEAPON_MAX; L++) if (Math.round(POWER_BASE * weaponDamage(L)) >= power) return L;
+      return WEAPON_MAX;
+    };
+    const fight = (p: Profile, c: number, wlevel: number, seed: number): 'win' | 'lose' | 'none' => {
+      const boss = chapterStart(c) + STAGES - 1;
+      let started = false;
+      const r = playRun(seed, createRng(2000 + seed), p, {
         difficulty: 'hard',
-        meta: { ...NO_META, weapon: 'bow', wlevel: 1 },
-        untilWave: CH2,
-        god: true,
-        maxTime: 600,
+        meta: { ...NO_META, weapon: 'bow', wlevel },
+        startChapter: c,
+        untilWave: boss + 1,
+        maxTime: 1200,
         each: (w) => {
-          if (w.wave === 7 && w.phase === 'play' && s0 < 0) s0 = w.run.shots;
-          if (s0 >= 0 && n < 0 && (w.wave > 7 || w.phase !== 'play')) n = w.run.shots - s0;
+          if (w.wave === boss && w.phase === 'play') started = true;
+          if (!started) w.player.hp = w.player.maxHp;
         },
       });
-      shots.push(n);
+      return r.reached > boss ? 'win' : started ? 'lose' : 'none';
+    };
+    let lowWins = 0;
+    let lowFights = 0;
+    let recWins = 0;
+    let recFights = 0;
+    for (let c = 1; c < CHAPTERS; c++) {
+      const rec = levelFor(RECOMMENDED_POWER[c]!);
+      for (let seed = 1; seed <= 8; seed++) {
+        const low = fight(STARTER, c, 1, seed);
+        if (low !== 'none') lowFights++;
+        if (low === 'win') lowWins++;
+        const at = fight(STARTER, c, rec, seed);
+        if (at !== 'none') recFights++;
+        if (at === 'win') recWins++;
+        // a careful player at the recommended level never loses a boss fight it reaches
+        expect(fight(CAREFUL, c, rec, seed), `careful at the recommended level ${rec}, chapter ${c + 1} seed ${seed}`).not.toBe('lose');
+      }
     }
-    note(`ch1 boss shots L1 ${JSON.stringify(shots)}`);
-    expect(Math.min(...shots)).toBeGreaterThanOrEqual(3);
-    expect(mean(shots)).toBeGreaterThanOrEqual(5);
+    note(`ch2-6 bosses starter L1 ${lowWins}/${lowFights}, at recommended ${recWins}/${recFights}`);
+    expect(lowFights).toBeGreaterThanOrEqual(15);
+    expect(lowWins / lowFights).toBeLessThanOrEqual(0.15);
+    expect(recWins / recFights).toBeGreaterThanOrEqual(0.75);
+  });
+
+  it('a multi-arrow barrage does not stun-lock archers: they still loose their shots', () => {
+    // the strongest stack (double ×2 + split ×2) against chapter 2 (god, level 4). Counted: archers
+    // that lived 2.5 s past the start of their first draw; nearly all of them must have shot,
+    // and about as often as without the cards
+    const measure = (stack: CardId[]) => {
+      let lived = 0;
+      let fired = 0;
+      let shots = 0;
+      let life = 0;
+      for (let seed = 1; seed <= 6; seed++) {
+        let injected = false;
+        const seen = new Map<object, { t0: number; t1: number; shots: number }>();
+        playRun(seed, createRng(4000 + seed), { ...CAREFUL, prefer: ['vitality'] }, {
+          difficulty: 'hard',
+          meta: { ...NO_META, weapon: 'bow', wlevel: 4 },
+          startChapter: 1,
+          god: true,
+          maxTime: 150,
+          each: (w) => {
+            if (!injected) {
+              injected = true;
+              w.cards.length = 0;
+              w.cards.push(...stack);
+              w.stats = statsFor(w.cards, w.meta);
+            }
+            for (const e of w.enemies) {
+              if (e.brain !== 'draw' && !seen.has(e)) continue;
+              let s = seen.get(e);
+              if (!s) seen.set(e, (s = { t0: w.time, t1: w.time, shots: 0 }));
+              if (e.alive) s.t1 = w.time;
+              s.shots = e.shotsFired;
+            }
+          },
+        });
+        for (const s of seen.values()) {
+          if (s.t1 - s.t0 < 2.5) continue;
+          lived++;
+          if (s.shots > 0) fired++;
+          shots += s.shots;
+          life += s.t1 - s.t0;
+        }
+      }
+      return { lived, fired, rate: shots / life };
+    };
+    const none = measure([]);
+    const barrage = measure(['double', 'double', 'split', 'split']);
+    note(`barrage fired ${barrage.fired}/${barrage.lived} rate ${barrage.rate.toFixed(2)} vs none ${none.fired}/${none.lived} ${none.rate.toFixed(2)}`);
+    expect(barrage.lived).toBeGreaterThanOrEqual(15);
+    expect(barrage.fired / barrage.lived).toBeGreaterThanOrEqual(0.9);
+    expect(barrage.rate).toBeGreaterThanOrEqual(none.rate * 0.75);
   });
 
   it('levels make chapter 2 faster for a body-shooting player', () => {

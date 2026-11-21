@@ -9,14 +9,14 @@
  *
  * Camera feel mirrors the 2D game's GameScene.updateCamera: a kick against each shot, a small
  * punch, a zoom toward headshots / boss knockouts / the player's fall that holds through the slow
- * motion, and trauma shake with the same numbers as `@oyun/core` juice (trauma², decay 1.6 / s,
+ * motion, and trauma shake with the same numbers as `@oyun/core` juice (trauma², decay 2.4 / s here, capped at 0.75, one per frame,
  * 22 px, 0.035 rad). `toScreen` / `toLogical` go through the camera matrices, so they stay right
  * during all of it.
  *
  * On top of the 2D game's camera: a boss's entrance (the camera eases in on the boss as it lands
  * and holds, then glides back), the wave's finishing knockout (a slow push-in on the last enemy
  * that falls), a nudge with each gust and a small punch at a stage clear. Reduced motion (the
- * system's prefers-reduced-motion, or ?calm=1) keeps a third of the shake and half the zooms.
+ * system's prefers-reduced-motion, or ?calm=1) keeps a quarter of the shake and half the zooms.
  * All of it reads the frame's events and the world; none of it feeds back into the simulation.
  *
  * A grown field (hard: from chapter 2, the sim's `w.span`, chapters.ts `fieldSpan`) widens the resting
@@ -53,7 +53,10 @@ export const HEMI_NAME = 'okcu-hemi';
 export const CALM =
   (typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches) || new URLSearchParams(location.search).get('calm') === '1';
 
-const SHAKE_DECAY = 1.6;
+/** trauma fades this much a second (the 2D game's 1.6 kept a barrage shaking non-stop) */
+const SHAKE_DECAY = 2.4;
+/** the most trauma there can be (a quarter less than juice's 1) */
+const TRAUMA_MAX = 0.75;
 const SHAKE_OFFSET = 22;
 const SHAKE_ROLL = 0.035;
 
@@ -109,6 +112,8 @@ export function createStage(root: HTMLElement): Stage {
   let introT = 0;
   let introZoom = 0;
   let trauma = 0;
+  /** the strongest shake asked for since the last frame */
+  let shakeAsk = 0;
   let shakeT = 0;
   let clock = 0;
   let cssW = 1;
@@ -173,7 +178,7 @@ export function createStage(root: HTMLElement): Stage {
           break;
         }
         case 'hit':
-          if (e.slowmo) {
+          if (e.slowmo && !e.extra) {
             slowT = 0.25;
             zoom = 0.26;
             focusX = e.x;
@@ -259,12 +264,17 @@ export function createStage(root: HTMLElement): Stage {
       menuOn = on;
     },
     shake(strength) {
-      trauma = Math.min(1, Math.max(0, trauma + strength * (CALM ? 0.35 : 1)));
+      // shakes asked for in one frame do not stack: the strongest one counts (a barrage's dozen hits)
+      shakeAsk = Math.max(shakeAsk, strength);
     },
     render(frame) {
       const real = frame.real;
       clock += real;
       readEvents(frame);
+      if (shakeAsk > 0) {
+        trauma = Math.min(TRAUMA_MAX, Math.max(0, trauma + shakeAsk * (CALM ? 0.25 : 1)));
+        shakeAsk = 0;
+      }
 
       // zoom holds through the slow motion (or eases in during a camera move), then eases back; the push springs back
       slowT = Math.max(0, slowT - real);

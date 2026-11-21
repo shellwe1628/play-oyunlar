@@ -263,8 +263,12 @@ export function createArchers(stage: Stage, assets: Assets, game: Game): Archers
         if (p) {
           // a headshot or crit lands harder and flashes gold; a knockout hardest
           const hard = e.t === 'hit' && (e.slowmo || e.crit || e.ko);
-          p.hitK = hard ? 1 : 0.7;
-          p.hitCol.copy(e.t === 'playerHit' ? HURT : hard ? GOLD : WHITE);
+          // a barrage's extra arrow only nudges a bulge already running, never restarts it
+          if (e.t === 'hit' && e.extra && !e.ko) p.hitK = Math.max(p.hitK, 0.35);
+          else {
+            p.hitK = hard ? 1 : 0.7;
+            p.hitCol.copy(e.t === 'playerHit' ? HURT : hard ? GOLD : WHITE);
+          }
         }
       }
     }

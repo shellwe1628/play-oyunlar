@@ -203,6 +203,14 @@ export function createFx(stage: Stage): FxView {
       case 'hit': {
         const dir = Math.atan2(e.vy, e.vx);
         const tint = ENEMY_TINT[e.enemy];
+        if (e.extra && !e.ko) {
+          // a barrage's extra arrow: a small flash and its number, no ring, words, shake or freeze
+          // (a dozen of them a shot hid the archer behind white and shook the screen non-stop)
+          fx.sparks(e.x, e.y, 2, PALETTE.white, 260);
+          fx.flash(e.x, e.y, mixWhite(tint, 0.65), 60, 0.08, 0.5);
+          text.damage(e.id, e.x, e.y, e.dmg, e.crit ? PALETTE.crit : PALETTE.white, false);
+          break;
+        }
         fx.ring(e.x, e.y, PALETTE.white, e.slowmo ? 1.6 : 0.9);
         fx.shards(e.x, e.y, dir, tint, e.slowmo ? 10 : 6);
         fx.sparks(e.x, e.y, e.slowmo ? 8 : 3, PALETTE.white, 320);

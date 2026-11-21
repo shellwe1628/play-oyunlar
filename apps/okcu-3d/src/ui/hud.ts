@@ -604,6 +604,11 @@ export function createHud(stage: Stage, game: Game): Module {
           audio.playPreset(SFX.whistle, { volume: 0.6 + e.power * 0.4, pitch: e.power * 2 });
           break;
         case 'hit':
+          if (e.extra && !e.ko) {
+            // a barrage's extra arrow: a soft thunk only
+            audio.playPreset(SFX.thunk, { volume: 0.45, pitch: e.part === 'head' ? 3 : 0 });
+            break;
+          }
           audio.playPreset(SFX.thunk, { pitch: e.part === 'head' ? 3 : 0 });
           if (e.crit) audio.playPreset(SFX.crit);
           if (e.slowmo) audio.playPreset(SFX.ping);
@@ -689,7 +694,7 @@ export function createHud(stage: Stage, game: Game): Module {
           break;
         case 'bossPhase':
           audio.playPreset(SFX.roar);
-          showBanner(t('hud.phase2'), null);
+          showBanner(t(e.rage ? 'hud.rage' : 'hud.phase2'), null);
           break;
         case 'summon':
           audio.playPreset(SFX.summon);

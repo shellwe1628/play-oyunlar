@@ -186,7 +186,7 @@ export function createBowGlow(stage: Stage, archers: ArchersView, game: Game): M
       // a shot (≈ 1) or a headshot / streak / focus (≈ 2): the aura flares and throws off sparks
       for (const e of events) {
         if (e.t === 'shot') pendingFlare = Math.max(pendingFlare, e.over ? 1.4 : 1);
-        else if (e.t === 'hit' && e.slowmo) pendingFlare = Math.max(pendingFlare, 2);
+        else if (e.t === 'hit' && e.slowmo && !e.extra) pendingFlare = Math.max(pendingFlare, 2);
         else if (e.t === 'multi') pendingFlare = Math.max(pendingFlare, 2);
         else if (e.t === 'streak') pendingFlare = Math.max(pendingFlare, 2.2);
         else if (e.t === 'focus' && e.on) pendingFlare = Math.max(pendingFlare, 2.5);

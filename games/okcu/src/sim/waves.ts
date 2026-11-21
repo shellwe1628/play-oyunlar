@@ -79,8 +79,8 @@ export const BOSS_HP: Record<BossKind, number> = { shields: 170, giant: 420, sum
 export const HARD_HP_GROWTH = 1.2;
 /** hard: how much heavier (harder to shove, whip and knock off) enemies get per difficulty level */
 export const HARD_WEIGHT_GROWTH = 1.12;
-/** hard: coins earned in a run, as a share of classic (the forged bow is the long climb) */
-export const HARD_COIN_MUL = 0.6;
+/** hard: coins earned in a run, as a share of classic (the forged bow is the long climb; raised from 0.6 when bosses began to ask for the recommended power and barrage chains stopped paying, to keep level 10 at 3–4 h and level 14 within 8 h) */
+export const HARD_COIN_MUL = 0.8;
 
 /**
  * hard: from this level on (chapter 5 starts at 23.5) health, damage and weight climb more
@@ -123,7 +123,7 @@ export function enemyHp(type: EnemyType, level: number, d: Difficulty = 'classic
  * hard: boss health over the classic table. The first boss gets more: its shield ring alone went
  * down in five arrows and four seconds, the chapter's finale a formality.
  */
-export const HARD_BOSS_HP: Record<BossKind, number> = { shields: 5, giant: 1.3, summoner: 1.3, warden: 1.3, magma: 1.3, tempest: 1.3 };
+export const HARD_BOSS_HP: Record<BossKind, number> = { shields: 2.4, giant: 1.3, summoner: 1.3, warden: 1.3, magma: 1.3, tempest: 1.3 };
 
 export function bossHp(kind: BossKind, lap: number, d: Difficulty = 'classic'): number {
   return Math.round(BOSS_HP[kind] * (d === 'hard' ? HARD_BOSS_HP[kind] : 1) * (1 + 0.35 * lap));

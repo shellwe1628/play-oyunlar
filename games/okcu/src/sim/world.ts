@@ -13,7 +13,7 @@ import { createRng, type Rng } from '@oyun/core/pure';
 import { flyArrow, hitParts, sweepCapsule } from './arrow';
 import { addVelocity, createBody, stepBody, translateBody, type Body, type Ledge } from './body';
 import { draftPick, drawOffer, statsFor, type CardId, type PlayerStats } from './cards';
-import { bonusAfter, CHAPTERS, chapterStart, ENDLESS_WAVE, fieldSpan, fieldTop, growLayout, levelOf, objectiveFor, STAGES, stageDef, stageEnemies, stageOf, type BonusKind, type BossKind, type LedgeDef, type ObjectiveKind, type StageMod } from './chapters';
+import { bonusAfter, CHAPTERS, chapterStart, ENDLESS_WAVE, fieldSpan, fieldTop, growLayout, levelOf, objectiveFor, RECOMMENDED_POWER, STAGES, stageDef, stageEnemies, stageOf, type BonusKind, type BossKind, type LedgeDef, type ObjectiveKind, type StageMod } from './chapters';
 import { armourShare, ENEMY_DAMAGE, resolveHit, type EnemyType, type HitPart } from './combat';
 import { clamp, solveLaunchAngle, sweepAabb } from './geom';
 import { NO_META, type MetaLevels, type RunBank } from './meta';
@@ -21,6 +21,7 @@ import type { DailyMod, RunSummary } from './progress';
 import { BOSS_PARTS, bowOrigin, createRagdoll, LEG_HEIGHT, PARTS, PT, setPose, type Part } from './ragdoll';
 import { PLAYER_LEDGE, PLAYER_SCALE, PLAYER_X, TUNING } from './tuning';
 import { bossHp, enemyAccuracy, enemyDamageMul, enemyHp, enemyScale, enemyTiming, enemyWeight, graceStep, HARD_COIN_MUL, helmetChance, waveGrace, type Difficulty } from './waves';
+import { POWER_BASE } from './arsenal';
 import { WEAPONS, weaponDamage, weaponPerks, type Projectile } from './weapons';
 
 export type Phase = 'title' | 'play' | 'clear' | 'bonus' | 'cards' | 'dying' | 'over';
@@ -54,6 +55,8 @@ export interface Archer {
   aimGoal: number;
   speedGoal: number;
   aimPenalty: number;
+  /** hard: this draw was already broken once by a hit; it is not broken again before it is loosed */
+  steady: boolean;
   stagger: number;
   wobble: number;
   burn: number;
@@ -88,6 +91,8 @@ export interface Archer {
   /** chapter boss: which one, its phase (1, 2) and its special-move timer */
   bossKind: BossKind | null;
   bossPhase: number;
+  /** hard: a chapter boss still standing after BOSS_RAGE_AFTER s aims true, draws twice as fast, hits twice as hard */
+  rage: boolean;
   special: number;
   /** arrow-catcher: seconds until it can catch again */
   catchCd: number;
@@ -264,7 +269,7 @@ export type GameEvent =
   | { t: 'reveal'; id: number; x: number; y: number }
   /** a frost arrow (or a shatter burst) chilled an archer */
   | { t: 'chill'; id: number; x: number; y: number }
-  | { t: 'hit'; id: number; part: HitPart; x: number; y: number; dmg: number; ko: boolean; slowmo: boolean; vx: number; vy: number; fire: boolean; enemy: EnemyType; crit: boolean }
+  | { t: 'hit'; id: number; part: HitPart; x: number; y: number; dmg: number; ko: boolean; slowmo: boolean; vx: number; vy: number; fire: boolean; enemy: EnemyType; crit: boolean; extra?: boolean }
   | { t: 'bodyThunk'; id: number; x: number; y: number }
   | { t: 'playerHit'; part: HitPart; x: number; y: number; dmg: number; vx: number; vy: number; by: number }
   | { t: 'blocked'; x: number; y: number }
@@ -285,7 +290,7 @@ export type GameEvent =
   | { t: 'ward'; id: number; x: number; y: number; up: boolean }
   | { t: 'healBeam'; from: number; to: number; x0: number; y0: number; x1: number; y1: number; amount: number }
   | { t: 'plate'; x: number; y: number }
-  | { t: 'bossPhase'; id: number; kind: BossKind; x: number; y: number }
+  | { t: 'bossPhase'; id: number; kind: BossKind; x: number; y: number; rage?: boolean }
   | { t: 'summon'; id: number; x: number; y: number }
   /** the cinder king calls lava rocks down on the player (one event per rock, at its spawn point) */
   | { t: 'eruption'; id: number; x: number; y: number }
@@ -564,6 +569,7 @@ function makeArcher(w: World, type: ArcherType, x: number, ledgeTop: number, fac
     aimGoal: 0,
     speedGoal: 0,
     aimPenalty: 0,
+    steady: false,
     stagger: 0,
     wobble: 0,
     burn: 0,
@@ -593,6 +599,7 @@ function makeArcher(w: World, type: ArcherType, x: number, ledgeTop: number, fac
     bob: (w.nextId * 1.7) % 6.28,
     bossKind: null,
     bossPhase: 1,
+    rage: false,
     special: 0,
     catchCd: 0,
     wardUp: type === 'ward',
@@ -765,10 +772,54 @@ const HARD_SIDE_ARROW = 0.25;
 const SPLIT_ANGLE = 0.065;
 const HARD_SPLIT_ANGLE = 0.15;
 const HARD_EXTRA_VOLLEY = 0.6;
-/** hard: how many times a body hit on the first boss counts (classic 4) */
-const HARD_SHIELDS_BODY = 2;
-/** hard: the first boss's shield ring turns this much faster */
-const HARD_RING_SPIN = 1.25;
+
+/**
+ * hard: a chapter boss fought below the chapter's recommended power (RECOMMENDED_POWER, shown on
+ * the chapter card) is a wall: the player's hits on it shrink and its hits on the player grow,
+ * both by (recommended / power)^BOSS_POWER_GATE (its hits at most ×BOSS_POWER_HURT_MAX). At or
+ * above the recommendation nothing changes. Chapter 1 recommends the starting weapon, so it never
+ * applies there; endless bosses are not gated.
+ */
+export const BOSS_POWER_GATE = 4;
+const BOSS_POWER_HURT_MAX = 50;
+
+/** the player's power as the chapter card counts it (the selected weapon's level) */
+const weaponPower = (w: World): number => Math.round(POWER_BASE * weaponDamage(w.meta.wlevel));
+
+/** how far below the chapter's recommended power the player is: 1 = not below, else need / power */
+function powerGap(w: World): number {
+  if (w.difficulty !== 'hard') return 1;
+  const p = stageOf(w.wave);
+  if (p.endless) return 1;
+  const need = RECOMMENDED_POWER[p.chapter] ?? 0;
+  const power = weaponPower(w);
+  return power >= need ? 1 : need / power;
+}
+
+/** damage multiplier on the player's hits on a chapter boss (see BOSS_POWER_GATE) */
+export function underPower(w: World): number {
+  return powerGap(w) ** -BOSS_POWER_GATE;
+}
+
+/**
+ * hard: a chapter boss (chapter 2 on; not endless) still standing this long into its stage
+ * enrages (Archer.rage): fought at the recommended power it falls in a few seconds, so only a
+ * fight dragged out by an under-powered weapon ever sees it.
+ */
+export const BOSS_RAGE_AFTER = 20;
+
+function updateRage(w: World, a: Archer): void {
+  if (a.rage || a.type !== 'boss' || !a.alive || w.difficulty !== 'hard' || w.phase !== 'play') return;
+  const p = stageOf(w.wave);
+  if (p.endless || p.chapter < 1 || w.time - w.waveT0 < BOSS_RAGE_AFTER) return;
+  a.rage = true;
+  w.events.push({ t: 'bossPhase', id: a.id, kind: a.bossKind ?? 'shields', x: a.body.x[PT.head]!, y: a.body.y[PT.head]!, rage: true });
+}
+
+/** damage multiplier on a chapter boss's hits on the player (see BOSS_POWER_GATE) */
+export function bossHurtMul(w: World): number {
+  return Math.min(BOSS_POWER_HURT_MAX, powerGap(w) ** BOSS_POWER_GATE);
+}
 
 function coinMul(w: World): number {
   return w.stats.coinMul * (w.mod === 'giants' ? 1.5 : 1) * (w.difficulty === 'hard' ? HARD_COIN_MUL : 1);
@@ -1015,13 +1066,15 @@ export function shoot(w: World, angle: number, power: number): boolean {
   w.volleyAngle = a;
   w.volleyPower = power;
   const o = playerOrigin(w, a);
-  w.events.push({ t: 'shot', x: o.x, y: o.y, angle: a, power, arrows: w.stats.volleys * (1 + 2 * w.stats.splitPairs), over: power >= OVERDRAW_POWER && w.stats.overdraw > 1 });
+  w.events.push({ t: 'shot', x: o.x, y: o.y, angle: a, power, arrows: w.difficulty === 'hard' ? w.stats.volleys + 2 * w.stats.splitPairs : w.stats.volleys * (1 + 2 * w.stats.splitPairs), over: power >= OVERDRAW_POWER && w.stats.overdraw > 1 });
   return true;
 }
 
 function fireVolley(w: World, angle: number, power: number, first: boolean): void {
   const speed = arrowSpeed(power) * w.stats.speedMul;
-  const pairs = w.stats.splitPairs;
+  // hard: split's side arrows fly with the first volley only (double + split was up to 15
+  // arrows a shot; now at most 5 + 2)
+  const pairs = w.difficulty === 'hard' && !first ? 0 : w.stats.splitPairs;
   const over = power >= OVERDRAW_POWER && w.stats.overdraw > 1;
   const focus = w.focusT > 0;
   for (let k = -pairs; k <= pairs; k++) {
@@ -1784,6 +1837,7 @@ function checkBossPhase(w: World, e: Archer): void {
 }
 
 function brain(w: World, a: Archer): void {
+  updateRage(w, a);
   const active = w.phase === 'play' || w.phase === 'clear';
   if (a.chill > 0) a.chill = Math.max(0, a.chill - DT);
   if (a.blinkCd > 0) a.blinkCd -= DT;
@@ -1839,10 +1893,11 @@ function brain(w: World, a: Archer): void {
     if (a.veil === 0) w.events.push({ t: 'reveal', id: a.id, x: a.body.x[PT.neck]!, y: a.body.y[PT.neck]! });
     return;
   }
-  if (a.stagger > 0 && a.brain === 'draw') {
+  if (a.stagger > 0 && a.brain === 'draw' && !(w.difficulty === 'hard' && a.steady)) {
     a.brain = 'cool';
     a.timer = 0.5;
     a.draw = 0;
+    if (w.difficulty === 'hard') a.steady = true;
   }
   // frost arrows: a chilled archer's clock runs slow (draw, cool-down, hops)
   const slow = a.chill > 0 ? w.stats.frostSlow : 1;
@@ -1878,6 +1933,7 @@ function brain(w: World, a: Archer): void {
       a.aim += (a.aimGoal - a.aim) * Math.min(1, DT * 8);
       if (a.timer <= 0) {
         release(w, a);
+        a.steady = false;
         a.brain = 'cool';
         a.timer = timing.cool + w.brainRng.range(0, 0.6);
       }
@@ -2087,9 +2143,7 @@ function updatePlates(w: World): void {
     return;
   }
   const n = boss.bossPhase === 2 ? 3 : 2;
-  // hard: a quicker ring (the head has to be timed, not just aimed); not more plates: a fourth
-  // walled off the crossbow's flat bolts
-  const om = (boss.bossPhase === 2 ? 1.9 : 1.25) * (w.difficulty === 'hard' ? HARD_RING_SPIN : 1);
+  const om = boss.bossPhase === 2 ? 1.9 : 1.25;
   const b = boss.body;
   const cx = (b.x[PT.neck]! + b.x[PT.pelvis]!) / 2;
   const cy = (b.y[PT.neck]! + b.y[PT.pelvis]!) / 2 - 10;
@@ -2222,7 +2276,7 @@ function beginDraw(w: World, a: Archer, drawTime: number): void {
   if (a.bossKind === 'warden') {
     // the warden aims its orb fan straight at the player (orbs fly without gravity)
     const o = bowOrigin(a.stanceX, a.anchorY, a.aim, a.scale);
-    a.aimGoal = Math.atan2(playerPelvisY() - 30 - o.y, playerX(w) - o.x) + gauss(w.brainRng) * acc.angle * 0.3;
+    a.aimGoal = Math.atan2(playerPelvisY() - 30 - o.y, playerX(w) - o.x) + gauss(w.brainRng) * acc.angle * 0.3 * (a.rage ? 0 : 1);
     a.speedGoal = FX.orbSpeed;
   } else if (a.type === 'mage') {
     // the wizard's staff points at the player while the hex gathers (aimed for real on release)
@@ -2231,11 +2285,13 @@ function beginDraw(w: World, a: Archer, drawTime: number): void {
     a.speedGoal = FX.mageSpeed;
   } else {
     const sol = enemyAimSolution(w, a);
-    a.aimGoal = sol.angle + gauss(w.brainRng) * (acc.angle + a.aimPenalty);
-    a.speedGoal = sol.speed * (1 + gauss(w.brainRng) * acc.speed);
+    // an enraged boss aims true (the noise is still drawn, so the rng stream stays in step)
+    const true_ = a.rage ? 0 : 1;
+    a.aimGoal = sol.angle + gauss(w.brainRng) * (acc.angle + a.aimPenalty) * true_;
+    a.speedGoal = sol.speed * (1 + gauss(w.brainRng) * acc.speed * true_);
   }
   a.brain = 'draw';
-  a.timer = drawTime;
+  a.timer = drawTime * (a.rage ? 0.5 : 1);
   w.events.push({ t: 'enemyDraw', id: a.id });
 }
 
@@ -2873,18 +2929,22 @@ function hitEnemy(w: World, a: Arrow, e: Archer, part: Part, hx: number, hy: num
   w.run.hits += 1;
   const crit = w.critRng.chance(w.stats.crit + (a.focus ? FX.focusCrit : 0));
   // the first chapter's boss relies on its shields, not its armour: body hits count four times
-  // (hard: twice, the ring has to be beaten with aimed shots, not out-traded)
-  const armourK = e.bossKind === 'shields' && part.kind !== 'weak' ? (w.difficulty === 'hard' ? HARD_SHIELDS_BODY : 4) : 1;
+  const armourK = e.bossKind === 'shields' && part.kind !== 'weak' ? 4 : 1;
   const out = resolveHit(e.type, part.kind, a.dmgMul * (part.kind === 'head' && a.owner === 'player' ? w.stats.headMul : 1) * (crit ? w.stats.critMul : 1) * armourK, e.helmet, w.difficulty === 'hard', playerKind(a));
   if (crit) w.run.crits += 1;
   e.hurt = 0;
   e.body.muscle = Math.min(e.body.muscle, e.type === 'boss' ? 0.35 : TUNING.hitMuscle);
   e.aimPenalty += out.aimPenalty;
-  if (out.stagger > 0) e.stagger = Math.max(e.stagger, out.stagger);
-  if (e.brain === 'draw' && e.type !== 'boss' && e.type !== 'elite') {
+  // hard: a barrage (double's later volleys, split's side arrows) does not stun-lock: only a
+  // shot's main arrow staggers, and a draw is broken at most once (the next one is loosed)
+  const hard = w.difficulty === 'hard';
+  const jolt = !hard || a.owner !== 'player' || a.primary;
+  if (out.stagger > 0 && jolt) e.stagger = Math.max(e.stagger, out.stagger);
+  if (e.brain === 'draw' && e.type !== 'boss' && e.type !== 'elite' && !(hard && e.steady)) {
     e.brain = 'cool';
     e.timer = 0.6;
     e.draw = 0;
+    if (hard) e.steady = true;
   }
   // shove the stance; off the edge means a fall
   const shove = ((out.shove + (part.kind === 'body' ? 0.35 : 0) * (a.impulseMul > 1.2 ? 1 : 0)) * TUNING.legShove * a.impulseMul) / weight;
@@ -2902,19 +2962,26 @@ function hitEnemy(w: World, a: Arrow, e: Archer, part: Part, hx: number, hy: num
   if (a.fire) {
     // fire lit by a fire arrow: plate armour keeps most of it off (not a spear's or rocket's)
     e.burn = w.stats.fireTime;
-    e.burnDps = w.stats.fireDps * armourShare(e.type, playerKind(a));
+    e.burnDps = w.stats.fireDps * armourShare(e.type, playerKind(a)) * (e.type === 'boss' ? underPower(w) : 1);
     e.burnTick = 0.5;
   }
   if (w.stats.frostTime > 0) chillEnemy(w, e, w.stats.frostTime);
+  if (e.type === 'boss') out.damage = Math.round(out.damage * underPower(w) * 100) / 100;
   e.hp -= out.damage;
   checkBossPhase(w, e);
   const ko = out.ko || e.hp <= 0;
   const head = part.kind === 'head' || part.kind === 'weak';
   if (head) w.run.headshots += 1;
-  w.events.push({ t: 'hit', id: e.id, part: part.kind, x: hx, y: hy, dmg: out.ko ? Math.max(out.damage, e.hp + out.damage) : out.damage, ko, slowmo: out.slowmo || (ko && e.type === 'boss'), vx, vy, fire: a.fire, enemy: e.type as EnemyType, crit });
-  // headshot chain: consecutive headshots, each one paying a little more
+  // hard: a barrage's extra arrows (double's later volleys, split's side arrows) hit quietly:
+  // the views keep the big flashes, words and shake for a shot's main arrow
+  const extra = hard && a.owner === 'player' && !a.primary;
+  w.events.push({ t: 'hit', id: e.id, part: part.kind, x: hx, y: hy, dmg: out.ko ? Math.max(out.damage, e.hp + out.damage) : out.damage, ko, slowmo: out.slowmo || (ko && e.type === 'boss'), vx, vy, fire: a.fire, enemy: e.type as EnemyType, crit, extra });
+  // headshot chain: consecutive headshots, each one paying a little more (hard: main arrows only,
+  // so a barrage neither pays a chain per arrow nor breaks one)
   const r = w.run;
-  if (head) {
+  if (extra) {
+    // no change
+  } else if (head) {
     r.chain += 1;
     r.chainBest = Math.max(r.chainBest, r.chain);
     if (r.chain >= 2) {
@@ -2997,6 +3064,9 @@ function stickOrPierce(w: World, a: Arrow, e: Archer, part: Part, hx: number, hy
 function damagePlayer(w: World, part: HitPart, dmg: number, x: number, y: number, vx: number, vy: number, by = -1): void {
   const p = w.player;
   const out = resolveHit('player', part, 1);
+  // under the recommended power a chapter boss hits harder (BOSS_POWER_GATE)
+  const boss = by >= 0 ? w.enemies.find((e) => e.id === by && e.type === 'boss') : undefined;
+  if (boss) dmg *= bossHurtMul(w) * (boss.rage ? 2 : 1);
   // a bonus round never knocks the player out
   const amount = w.phase === 'bonus' ? Math.min(dmg, Math.max(0, p.hp - 1)) : dmg;
   p.hp -= amount;

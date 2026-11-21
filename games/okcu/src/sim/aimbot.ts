@@ -38,6 +38,8 @@ export interface Profile {
 export const CARELESS: Profile = { angleError: 0.08, powerError: 0.25, heads: false, think: 0.6, loft: 1.18, prefer: [], wind: 0.6, tactics: false };
 /** A clumsy first-timer: one shot every 2.5–3 s, rough aim, no dodging. */
 export const SLOW_HUMAN: Profile = { angleError: 0.08, powerError: 0.15, heads: false, think: 2.0, thinkJitter: 0.5, loft: 1.18, prefer: [], wind: 0.5, tactics: false };
+/** A typical new player: aims at heads, a fair hand, about one shot a second, no tactics. */
+export const STARTER: Profile = { angleError: 0.05, powerError: 0.08, heads: true, think: 1.2, thinkJitter: 0.4, loft: 1.12, prefer: [], wind: 0.5, tactics: false };
 export const CAREFUL: Profile = {
   angleError: 0.012,
   powerError: 0.02,

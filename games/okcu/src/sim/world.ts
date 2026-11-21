@@ -2,8 +2,10 @@
  * The whole game as a deterministic fixed-step simulation: the player and enemy archers
  * (ragdolls with muscles), arrows, bombs, orbs, apples, ledges (some slide or swing on ropes),
  * props (barrels, hanging rocks), chapters, bosses, bonus rounds, cards, focus and coins.
- * From chapter 4 on the field grows (chapters.ts `fieldSpan`): `w.span` tells the renderers how
- * far to pull their cameras back.
+ * The field grows (chapters.ts `fieldSpan`; classic from chapter 4, hard from chapter 2): `w.span`
+ * tells the renderers how far to pull their cameras back. hard stages may carry a modifier
+ * (`w.stageMod`): a rock ceiling (`w.ceiling`), fog that hides far archers (`Archer.veil`) or the
+ * player's ledge sliding (`w.baseX`).
  * Scenes call `advance`, `aimAt`, `shoot`, `pickCard`, `unleash`, … and draw the state; they
  * hold no rules.
  */
@@ -11,15 +13,15 @@ import { createRng, type Rng } from '@oyun/core/pure';
 import { flyArrow, hitParts, sweepCapsule } from './arrow';
 import { addVelocity, createBody, stepBody, translateBody, type Body, type Ledge } from './body';
 import { draftPick, drawOffer, statsFor, type CardId, type PlayerStats } from './cards';
-import { bonusAfter, CHAPTERS, chapterStart, ENDLESS_WAVE, fieldSpan, fieldTop, growLayout, levelOf, objectiveFor, STAGES, stageDef, stageEnemies, stageOf, type BonusKind, type BossKind, type LedgeDef, type ObjectiveKind } from './chapters';
-import { ENEMY_DAMAGE, resolveHit, type EnemyType, type HitPart } from './combat';
+import { bonusAfter, CHAPTERS, chapterStart, ENDLESS_WAVE, fieldSpan, fieldTop, growLayout, levelOf, objectiveFor, STAGES, stageDef, stageEnemies, stageOf, type BonusKind, type BossKind, type LedgeDef, type ObjectiveKind, type StageMod } from './chapters';
+import { armourShare, ENEMY_DAMAGE, resolveHit, type EnemyType, type HitPart } from './combat';
 import { clamp, solveLaunchAngle, sweepAabb } from './geom';
 import { NO_META, type MetaLevels, type RunBank } from './meta';
 import type { DailyMod, RunSummary } from './progress';
 import { BOSS_PARTS, bowOrigin, createRagdoll, LEG_HEIGHT, PARTS, PT, setPose, type Part } from './ragdoll';
 import { PLAYER_LEDGE, PLAYER_SCALE, PLAYER_X, TUNING } from './tuning';
 import { bossHp, enemyAccuracy, enemyDamageMul, enemyHp, enemyScale, enemyTiming, enemyWeight, graceStep, HARD_COIN_MUL, helmetChance, waveGrace, type Difficulty } from './waves';
-import { WEAPONS, weaponDamage, weaponPerks } from './weapons';
+import { WEAPONS, weaponDamage, weaponPerks, type Projectile } from './weapons';
 
 export type Phase = 'title' | 'play' | 'clear' | 'bonus' | 'cards' | 'dying' | 'over';
 export type ArcherType = EnemyType | 'player';
@@ -96,6 +98,8 @@ export interface Archer {
   chill: number;
   /** wizard: seconds until it can blink to another ledge again */
   blinkCd: number;
+  /** fog stage: seconds until it comes out of the fog (0 = seen); unseen, it cannot be hit and keeps still */
+  veil: number;
 }
 
 export interface Arrow {
@@ -256,6 +260,8 @@ export type GameEvent =
   | { t: 'enemyShot'; id: number; kind: 'arrow' | 'bomb' | 'orb'; x: number; y: number }
   /** a wizard that was hit vanishes from one ledge and appears on another */
   | { t: 'blink'; id: number; x0: number; y0: number; x1: number; y1: number }
+  /** fog: an archer comes out of the fog (it can be hit from now on) */
+  | { t: 'reveal'; id: number; x: number; y: number }
   /** a frost arrow (or a shatter burst) chilled an archer */
   | { t: 'chill'; id: number; x: number; y: number }
   | { t: 'hit'; id: number; part: HitPart; x: number; y: number; dmg: number; ko: boolean; slowmo: boolean; vx: number; vy: number; fire: boolean; enemy: EnemyType; crit: boolean }
@@ -366,8 +372,16 @@ export interface World {
   ledges: Ledge[];
   /** the enemy ledges of the current stage (indices into `ledges` start at 1) */
   layout: readonly Ledge[];
-  /** field size against the 720 x 1280 frame (1, then bigger from chapter 4: chapters.ts fieldSpan) */
+  /** field size against the 720 x 1280 frame (1, then bigger: classic from chapter 4, hard from chapter 2; chapters.ts fieldSpan) */
   span: number;
+  /** hard: this stage's modifier (chapters.ts StageMod), null on a plain stage and always in classic */
+  stageMod: StageMod | null;
+  /** lowCeiling: projectiles above this y are stopped by the rock (−Infinity: no ceiling) */
+  ceiling: number;
+  /** movingBase: how far the player's ledge (and the player) stands from its usual x, px */
+  baseX: number;
+  /** movingBase: the slide's phase (rad); it glides home on the next plain stage */
+  baseTheta: number;
   /** cover walls: block arrows only (bodies pass); `on` is the ledge they stand on */
   walls: (Ledge & { on: number })[];
   movers: Mover[];
@@ -518,6 +532,11 @@ function playerPelvisY(): number {
   return PLAYER_LEDGE.y - LEG_HEIGHT * PLAYER_SCALE;
 }
 
+/** Where the player stands (PLAYER_X, moved by a sliding base). */
+export function playerX(w: World): number {
+  return PLAYER_X + w.baseX;
+}
+
 function makeArcher(w: World, type: ArcherType, x: number, ledgeTop: number, facing: number, ledge: number): Archer {
   const scale = type === 'player' ? PLAYER_SCALE : enemyScale(type);
   const ay = ledgeTop - LEG_HEIGHT * scale;
@@ -580,6 +599,7 @@ function makeArcher(w: World, type: ArcherType, x: number, ledgeTop: number, fac
     wardT: 0,
     chill: 0,
     blinkCd: 0,
+    veil: 0,
   };
   if (type === 'shield') {
     const sx = x + facing * 30;
@@ -672,6 +692,10 @@ export function createWorld(opts: WorldOptions): World {
     ledges: [{ ...PLAYER_LEDGE }],
     layout: [],
     span: 1,
+    stageMod: null,
+    ceiling: -Infinity,
+    baseX: 0,
+    baseTheta: 0,
     walls: [],
     movers: [],
     props: Array.from({ length: 6 }, () => ({ active: false, kind: 'barrel', x: 0, y: 0, vy: 0, w: 0, h: 0, hanging: false, pivotY: PIVOT_Y })),
@@ -769,9 +793,10 @@ function spawnWave(w: World, wave: number, instant: boolean): void {
   w.stage = pos.stage;
   w.theme = pos.theme;
   w.level = levelOf(wave, w.difficulty);
-  const def = stageDef(wave, w.waveRng);
+  const def = stageDef(wave, w.waveRng, w.difficulty);
+  w.stageMod = w.difficulty === 'hard' ? def.mod ?? null : null;
   w.span = fieldSpan(wave, w.difficulty);
-  const defs: LedgeDef[] = growLayout(def.ledges, w.span);
+  const defs: LedgeDef[] = growLayout(def.ledges, w.span, w.stageMod !== 'lowCeiling');
   if (wave === 1) nudgeFirst(w, defs);
   const pivotY = ropeTop(w.span);
   // leftover bodies of the last wave poof now
@@ -788,7 +813,11 @@ function spawnWave(w: World, wave: number, instant: boolean): void {
   }
   clearProps(w);
   w.layout = defs.map((l) => ({ x: l.x, y: l.y, w: l.w, h: l.h ?? 58 }));
-  w.ledges = [{ ...PLAYER_LEDGE }, ...w.layout.map((l) => ({ ...l }))];
+  // (a sliding base stays where it is: it glides home from there, see updateBase)
+  w.ledges = [{ ...PLAYER_LEDGE, x: PLAYER_LEDGE.x + w.baseX }, ...w.layout.map((l) => ({ ...l }))];
+  if (w.stageMod === 'movingBase') w.baseTheta = Math.asin(clamp(w.baseX / BASE_SLIDE.amp, -1, 1));
+  // the rock ceiling hangs CEILING_ROOM above the highest island (its bob included)
+  w.ceiling = w.stageMod === 'lowCeiling' ? Math.max(fieldTop(w.span) + 60, Math.min(...defs.map((l) => l.y - (l.bob?.amp ?? 0))) - CEILING_ROOM) : -Infinity;
   defs.forEach((l, i) => {
     if (l.slide) w.movers.push({ index: i + 1, kind: 'slide', x0: l.x, y0: l.y, amp: l.slide.amp, speed: l.slide.speed, theta: w.waveRng.range(0, Math.PI * 2), pivotX: 0, pivotY, len: 0, cut: false, vy: 0 });
     if (l.swing) w.movers.push({ index: i + 1, kind: 'swing', x0: l.x, y0: l.y, amp: l.swing.amp, speed: l.swing.speed, theta: w.waveRng.range(0, Math.PI * 2), pivotX: l.x + l.w / 2, pivotY, len: l.y - pivotY, cut: false, vy: 0 });
@@ -817,6 +846,7 @@ function spawnWave(w: World, wave: number, instant: boolean): void {
       w.walls.push({ x: L.x + L.w / 2 - 46, y: L.y - 118, w: 26, h: 118, on: i + 1 });
     }
     if (type === 'catcher') e.catchCd = 0.6;
+    if (w.stageMod === 'fog') e.veil = fogVeil(w, L);
     if (!instant) {
       e.brain = 'spawn';
       e.spawnT = 0;
@@ -842,6 +872,22 @@ function spawnWave(w: World, wave: number, instant: boolean): void {
   w.waveT0 = w.time;
   // the title's wave is announced by startRun when the first arrow flies
   if (!instant) pushWaveStart(w);
+}
+
+/** lowCeiling: px between the highest island's top and the ceiling (an archer's head, and a flat shot over it) */
+export const CEILING_ROOM = 250;
+/** movingBase: the player's ledge slides ±amp px at `speed` rad/s; between stages it glides at `home` px/s */
+export const BASE_SLIDE = { amp: 34, speed: 0.75, home: 60 } as const;
+/**
+ * fog: an archer further than `near` px (straight line from the player's bow to its ledge's
+ * centre) stays hidden for (distance − near) / pxPerS seconds after it lands, at most `max`.
+ */
+export const FOG = { near: 260, pxPerS: 110, max: 3.5 } as const;
+
+function fogVeil(w: World, L: Ledge): number {
+  const o = playerOrigin(w, -0.4);
+  const d = Math.hypot(L.x + L.w / 2 - o.x, L.y - 100 - o.y);
+  return Math.round(clamp((d - FOG.near) / FOG.pxPerS, 0, FOG.max) * 100) / 100;
 }
 
 function pushWaveStart(w: World): void {
@@ -934,7 +980,7 @@ export function arrowSpeed(power: number): number {
 }
 
 export function playerOrigin(w: World, angle: number): { x: number; y: number } {
-  return bowOrigin(PLAYER_X, playerPelvisY(), angle, PLAYER_SCALE);
+  return bowOrigin(playerX(w), playerPelvisY(), angle, PLAYER_SCALE);
 }
 
 export function canShoot(w: World): boolean {
@@ -1116,7 +1162,7 @@ export function revive(w: World): boolean {
   if (w.phase !== 'over' || w.revived) return false;
   w.revived = true;
   const old = w.player;
-  w.player = makeArcher(w, 'player', PLAYER_X, PLAYER_LEDGE.y, 1, 0);
+  w.player = makeArcher(w, 'player', playerX(w), PLAYER_LEDGE.y, 1, 0);
   w.player.maxHp = w.stats.maxHp;
   w.player.hp = Math.ceil(w.stats.maxHp / 2);
   for (const a of w.arrows) {
@@ -1188,6 +1234,7 @@ function tick(w: World): void {
     }
   }
   updateMovers(w);
+  updateBase(w);
   if (w.gustEvery > 0 && w.phase === 'play') updateGust(w);
   updateArcher(w, w.player);
   for (let i = 0; i < w.enemies.length; i++) updateArcher(w, w.enemies[i]!);
@@ -1349,6 +1396,29 @@ function updateMovers(w: World): void {
         a.y += dy;
       }
     }
+  }
+}
+
+/** movingBase: the player's ledge slides to and fro; on any other stage it glides home. The player and arrows stuck in it ride along. */
+function updateBase(w: World): void {
+  if (w.stageMod !== 'movingBase' && w.baseX === 0) return;
+  let goal = 0;
+  if (w.stageMod === 'movingBase') {
+    w.baseTheta += BASE_SLIDE.speed * DT;
+    goal = BASE_SLIDE.amp * Math.sin(w.baseTheta);
+  }
+  const step = w.stageMod === 'movingBase' ? Infinity : BASE_SLIDE.home * DT;
+  const dx = clamp(goal - w.baseX, -step, step);
+  if (dx === 0) return;
+  w.baseX += dx;
+  const L = w.ledges[0]!;
+  L.x = PLAYER_LEDGE.x + w.baseX;
+  const p = w.player;
+  p.anchorX += dx;
+  p.stanceX += dx;
+  translateBody(p.body, dx, 0);
+  for (const a of w.arrows) {
+    if (a.active && a.state === 1 && a.host === 0) a.x += dx;
   }
 }
 
@@ -1656,6 +1726,11 @@ function setBurn(w: World, e: Archer): void {
 }
 
 /** Damage from a blast, rock or chain (no part, no slow motion). Returns true on a knockout. */
+/** The weapon projectile an arrow is (plate armour cares), or undefined for enemy missiles. */
+function playerKind(a: Arrow): Projectile | undefined {
+  return a.kind === 'bomb' || a.kind === 'orb' ? undefined : a.kind;
+}
+
 function damageEnemy(w: World, e: Archer, dmg: number, cause: KoCause): boolean {
   if (!e.alive) return false;
   e.hp -= dmg;
@@ -1741,6 +1816,14 @@ function brain(w: World, a: Archer): void {
     return;
   }
   if (a.type === 'boss') bossSpecial(w, a);
+  if (a.veil > 0) {
+    // fog: an unseen archer keeps still, then gets a beat before its first draw
+    a.veil = Math.max(0, a.veil - DT);
+    a.timer = Math.max(a.timer, FOG_BEAT);
+    a.draw = 0;
+    if (a.veil === 0) w.events.push({ t: 'reveal', id: a.id, x: a.body.x[PT.neck]!, y: a.body.y[PT.neck]! });
+    return;
+  }
   if (a.stagger > 0 && a.brain === 'draw') {
     a.brain = 'cool';
     a.timer = 0.5;
@@ -1790,6 +1873,9 @@ function brain(w: World, a: Archer): void {
   }
 }
 
+/** fog: seconds an archer waits after it comes out of the fog before it draws */
+const FOG_BEAT = 0.6;
+
 function drawTimeOf(a: Archer, draw: number): number {
   switch (a.type) {
     case 'boss':
@@ -1834,7 +1920,7 @@ export function staffTip(a: Archer): { x: number; y: number } {
 function castOrb(w: World, a: Archer, speed: number, share: number, homing: number): void {
   const acc = enemyAccuracy(w.level, w.difficulty);
   const o = staffTip(a);
-  const ang = Math.atan2(playerPelvisY() - 30 - o.y, PLAYER_X - o.x) + gauss(w.brainRng) * (acc.angle + a.aimPenalty) * 0.3;
+  const ang = Math.atan2(playerPelvisY() - 30 - o.y, playerX(w) - o.x) + gauss(w.brainRng) * (acc.angle + a.aimPenalty) * 0.3;
   const ar = spawnArrow(w, 'enemy', 'orb', o.x, o.y, Math.cos(ang) * speed, Math.sin(ang) * speed);
   if (ar) {
     ar.by = a.id;
@@ -1901,10 +1987,11 @@ function burst(w: World, a: Arrow, x: number, y: number, struck: Archer | null):
   const dmg = ENEMY_DAMAGE.body * a.dmgMul * (rocket ? ROCKET.share : w.stats.blastShare);
   w.events.push({ t: 'blast', x, y, r, fire: false, rocket });
   for (const e of w.enemies) {
-    if (!e.alive || e === struck || e.brain === 'spawn') continue;
+    if (!e.alive || e === struck || e.brain === 'spawn' || e.veil > 0) continue;
     const t = targetPoint(e, 'chest');
     if (Math.hypot(t.x - x, t.y - y) > r + 20 * e.scale) continue;
-    damageEnemy(w, e, dmg * (e.type === 'boss' ? 0.5 : 1), 'blast');
+    // plate armour shrugs off a blast arrow's burst, not a rocket's
+    damageEnemy(w, e, dmg * (e.type === 'boss' ? 0.5 : 1) * armourShare(e.type, rocket ? 'rocket' : 'arrow'), 'blast');
     if (rocket) a.scored = true;
     if (w.stats.shatter) chillEnemy(w, e, w.stats.frostTime);
   }
@@ -1954,7 +2041,7 @@ function eruption(w: World, a: Archer): void {
   const row = a.bossPhase === 2 ? ERUPTION_PHASE2 : ERUPTION_PHASE1;
   const jitter = w.brainRng.range(-24, 24);
   for (let i = 0; i < row.length; i++) {
-    const x = PLAYER_X + row[i]! + jitter;
+    const x = playerX(w) + row[i]! + jitter;
     const y = -70 - i * 45;
     const ar = spawnArrow(w, 'enemy', 'bomb', x, y, w.brainRng.range(-25, 25), 120);
     if (ar) {
@@ -2035,6 +2122,7 @@ function enemySpeed(a: Archer): number {
 }
 
 function blocksArc(w: World, x: number, y: number): boolean {
+  if (y < w.ceiling) return true;
   for (const L of w.ledges) if (x > L.x - 4 && x < L.x + L.w + 4 && y > L.y - 4 && y < L.y + L.h) return true;
   for (const L of w.walls) if (x > L.x - 4 && x < L.x + L.w + 4 && y > L.y - 4 && y < L.y + L.h) return true;
   return false;
@@ -2088,7 +2176,7 @@ export function solveWithWind(ox: number, oy: number, tx: number, ty: number, sp
 /** Aim solve for an enemy: an unblocked arc to the player's chest (before the wave's error). */
 export function enemyAimSolution(w: World, a: Archer): { angle: number; speed: number } {
   const base = enemySpeed(a);
-  const tx = PLAYER_X;
+  const tx = playerX(w);
   const ty = playerPelvisY() - 24;
   let first: { angle: number; speed: number } | null = null;
   // the volley archer lobs: its arrows come down from above, over walls and ledges
@@ -2117,12 +2205,12 @@ function beginDraw(w: World, a: Archer, drawTime: number): void {
   if (a.bossKind === 'warden') {
     // the warden aims its orb fan straight at the player (orbs fly without gravity)
     const o = bowOrigin(a.stanceX, a.anchorY, a.aim, a.scale);
-    a.aimGoal = Math.atan2(playerPelvisY() - 30 - o.y, PLAYER_X - o.x) + gauss(w.brainRng) * acc.angle * 0.3;
+    a.aimGoal = Math.atan2(playerPelvisY() - 30 - o.y, playerX(w) - o.x) + gauss(w.brainRng) * acc.angle * 0.3;
     a.speedGoal = FX.orbSpeed;
   } else if (a.type === 'mage') {
     // the wizard's staff points at the player while the hex gathers (aimed for real on release)
     const o = staffTip(a);
-    a.aimGoal = Math.atan2(playerPelvisY() - 30 - o.y, PLAYER_X - o.x);
+    a.aimGoal = Math.atan2(playerPelvisY() - 30 - o.y, playerX(w) - o.x);
     a.speedGoal = FX.mageSpeed;
   } else {
     const sol = enemyAimSolution(w, a);
@@ -2284,7 +2372,7 @@ function steer(w: World, a: Arrow): void {
   let tx = 0;
   let ty = 0;
   for (const e of w.enemies) {
-    if (!e.alive || e.brain === 'spawn' || e.id === a.ignore) continue;
+    if (!e.alive || e.brain === 'spawn' || e.veil > 0 || e.id === a.ignore) continue;
     const dx = e.body.x[PT.head]! - a.x;
     const dy = e.body.y[PT.head]! - a.y;
     if (dx * a.vx + dy * a.vy <= 0) continue; // only what lies ahead
@@ -2309,7 +2397,7 @@ function steer(w: World, a: Arrow): void {
 /** The wizard's hex turns toward the player's chest while it is still in front of the player. */
 function homeOrb(w: World, a: Arrow): void {
   const p = w.player;
-  if (!p.alive || a.x < PLAYER_X + 30) return;
+  if (!p.alive || a.x < playerX(w) + 30) return;
   const tx = (p.body.x[PT.neck]! + p.body.x[PT.pelvis]!) / 2 - a.x;
   const ty = (p.body.y[PT.neck]! + p.body.y[PT.pelvis]!) / 2 - a.y;
   const cur = Math.atan2(a.vy, a.vx);
@@ -2370,7 +2458,8 @@ function updateArrows(w: World): void {
       a.active = false;
       continue;
     }
-    if (a.life <= 0 || a.x < -300 || a.x > 1020 || a.y > 1600 || (a.kind === 'rocket' && a.y < ROCKET.topEdge)) {
+    // a low ceiling stops anything that climbs into the rock
+    if (a.life <= 0 || a.x < -300 || a.x > 1020 || a.y > 1600 || a.y < w.ceiling || (a.kind === 'rocket' && a.y < ROCKET.topEdge)) {
       missed(w, a);
       a.active = false;
       continue;
@@ -2574,8 +2663,8 @@ function playerArrowHits(w: World, a: Arrow, x0: number, y0: number): void {
   let hx = 0;
   let hy = 0;
   for (const e of w.enemies) {
-    // archers dropping in cannot be hit until they land
-    if (e.gone || e.id === a.ignore || (e.alive && e.brain === 'spawn')) continue;
+    // archers dropping in cannot be hit until they land, nor ones still hidden in the fog
+    if (e.gone || e.id === a.ignore || (e.alive && (e.brain === 'spawn' || e.veil > 0))) continue;
     if (a.hitIds.length > 0 && a.hitIds.includes(e.id)) continue;
     if (e.shield) {
       const h = hitParts(e.shield, 1, SHIELD_PARTS, x0, y0, a.x, a.y);
@@ -2768,7 +2857,7 @@ function hitEnemy(w: World, a: Arrow, e: Archer, part: Part, hx: number, hy: num
   const crit = w.critRng.chance(w.stats.crit + (a.focus ? FX.focusCrit : 0));
   // the first chapter's boss relies on its shields, not its armour: body hits count four times
   const armourK = e.bossKind === 'shields' && part.kind !== 'weak' ? 4 : 1;
-  const out = resolveHit(e.type, part.kind, a.dmgMul * (part.kind === 'head' && a.owner === 'player' ? w.stats.headMul : 1) * (crit ? w.stats.critMul : 1) * armourK, e.helmet, w.difficulty === 'hard');
+  const out = resolveHit(e.type, part.kind, a.dmgMul * (part.kind === 'head' && a.owner === 'player' ? w.stats.headMul : 1) * (crit ? w.stats.critMul : 1) * armourK, e.helmet, w.difficulty === 'hard', playerKind(a));
   if (crit) w.run.crits += 1;
   e.hurt = 0;
   e.body.muscle = Math.min(e.body.muscle, e.type === 'boss' ? 0.35 : TUNING.hitMuscle);
@@ -2843,7 +2932,7 @@ function zap(w: World, from: Archer, dmg: number, jumps: number): void {
     let best: Archer | null = null;
     let bd = 260;
     for (const e of w.enemies) {
-      if (!e.alive || hit.has(e.id) || e.brain === 'spawn') continue;
+      if (!e.alive || hit.has(e.id) || e.brain === 'spawn' || e.veil > 0) continue;
       const t = targetPoint(e, 'chest');
       const d = Math.hypot(t.x - s.x, t.y - s.y);
       if (d < bd) {
@@ -2996,7 +3085,7 @@ function spawnTarget(w: World, kind: Target['kind']): Target | null {
     t.x = 770;
     t.y = r.range(320, 760);
     t.baseY = t.y;
-    const tx = PLAYER_X;
+    const tx = playerX(w);
     const ty = playerPelvisY() - 30;
     const sp = r.range(300, 380);
     const d = Math.hypot(tx - t.x, ty - t.y) || 1;

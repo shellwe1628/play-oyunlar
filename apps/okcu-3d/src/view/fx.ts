@@ -47,6 +47,7 @@ const ENEMY_TINT: Record<EnemyType, number> = {
   imp: PALETTE.imp,
   volley: PALETTE.volley,
   mage: PALETTE.mage,
+  armored: 0x8a94a8,
 };
 
 const BEAMS = 8;
@@ -209,6 +210,8 @@ export function createFx(stage: Stage): FxView {
         fx.flash(e.x, e.y, mixWhite(tint, 0.65), e.slowmo ? 170 : e.crit ? 150 : 110, 0.12, 0.75);
         fx.streaks(e.x, e.y, dir + Math.PI, 1.5, e.slowmo ? 9 : 5, mixWhite(tint, 0.55), e.slowmo ? 900 : 700);
         text.damage(e.id, e.x, e.y, e.dmg, e.crit ? PALETTE.crit : e.slowmo ? PALETTE.gold : PALETTE.white, e.slowmo || e.crit);
+        // plate armour: steel sparks fly off it (a spear or a rocket goes through, so the clang is for the rest)
+        if (e.enemy === 'armored') fx.sparks(e.x, e.y, 10, 0xe8f0ff, 380);
         if (e.crit) {
           // a crit: a yellow star burst
           fx.ring(e.x, e.y, PALETTE.crit, 2, 0.3);
@@ -459,6 +462,11 @@ export function createFx(stage: Stage): FxView {
         fx.ring(e.x, e.y, PALETTE.imp, 1.8, 0.4);
         fx.sparks(e.x, e.y, 12, PALETTE.imp, 300);
         fx.flash(e.x, e.y, PALETTE.imp, 200, 0.3, 0.55);
+        break;
+      case 'reveal':
+        // fog: an archer steps out of it
+        fx.puffs(e.x, e.y + 30, 5, PALETTE.white, 90);
+        fx.ring(e.x, e.y, PALETTE.white, 1.3, 0.3);
         break;
       case 'blink':
         // the wizard pops out in a puff of stars and back in on its new ledge

@@ -10,10 +10,10 @@ import { CHAPTERS, ENDLESS_WAVE, stageOf } from './chapters';
 import { clamp, minLaunchSpeed, sweepAabb } from './geom';
 import { NO_META, type MetaLevels } from './meta';
 import { PARTS, PT } from './ragdoll';
-import { PLAYER_X, TUNING } from './tuning';
+import { TUNING } from './tuning';
 import type { Difficulty } from './waves';
 import { WEAPONS, weaponPerks, type Projectile, type WeaponId } from './weapons';
-import { advance, aliveEnemies, arcClear, arrowSpeed, BOOM, canShoot, createWorld, pickCard, playerOrigin, reachedWave, ROCKET, shoot, solveWithWind, SPEAR_LIFE, takeEvents, targetPoint, unleash, type Archer, type World } from './world';
+import { advance, aliveEnemies, arcClear, arrowSpeed, BOOM, canShoot, createWorld, pickCard, playerOrigin, playerX, reachedWave, ROCKET, shoot, solveWithWind, SPEAR_LIFE, takeEvents, targetPoint, unleash, type Archer, type World } from './world';
 
 export interface Profile {
   /** std dev of the launch angle error, radians */
@@ -51,7 +51,8 @@ export const CAREFUL: Profile = {
 
 /** Enemies in the order the player would shoot them: healers first (tactics), then the one drawing (about to shoot), then the nearest. */
 function targetOrder(w: World, p: Profile): Archer[] {
-  const list = aliveEnemies(w).filter((e) => e.brain !== 'spawn');
+  // (an archer still hidden in a fog stage cannot be seen, nor hit)
+  const list = aliveEnemies(w).filter((e) => e.brain !== 'spawn' && e.veil <= 0);
   const healer = p.tactics ? list.find((e) => e.type === 'healer') : undefined;
   list.sort((a, b) => (b.draw - a.draw) * 2 + (a.body.x[2]! - b.body.x[2]!) / 400);
   if (healer) list.unshift(...list.splice(list.indexOf(healer), 1));
@@ -164,7 +165,7 @@ function solve(w: World, x: number, y: number, loft: number, windK: number, who?
  */
 function solveRocket(w: World, x: number, y: number, windK: number, f: Flight): Solved {
   const speed = TUNING.speedMax * f.speedMul;
-  let angle = Math.atan2(y - playerOrigin(w, -0.3).y, x - PLAYER_X);
+  let angle = Math.atan2(y - playerOrigin(w, -0.3).y, x - playerX(w));
   for (let i = 0; i < 3; i++) {
     const o = playerOrigin(w, angle);
     const sol = solveWithWind(o.x, o.y, x, y, speed, w.wind * windK * f.windMul, false, f.g);
@@ -187,7 +188,7 @@ function boomerangReach(power: number, f: Flight): number {
 function solveBoomerang(w: World, x: number, y: number, windK: number, f: Flight): Solved {
   const wind = w.wind * windK * BOOM.windMul;
   let aimX = x;
-  let angle = Math.atan2(y - playerOrigin(w, -0.3).y, x - PLAYER_X);
+  let angle = Math.atan2(y - playerOrigin(w, -0.3).y, x - playerX(w));
   let power = 1;
   for (let i = 0; i < 3; i++) {
     const o = playerOrigin(w, angle);
@@ -300,7 +301,7 @@ function rocketMiss(w: World, goals: readonly Goal[], scale: number, angle: numb
     if (gap(goals, px, py, nx, ny) < 0) return contactOk ? -1 : Infinity;
     const c = contact(w, px, py, nx, ny);
     if (c) return Math.hypot(c.x - chest.x, c.y - chest.y) - burstR;
-    if (ny < ROCKET.topEdge) return Infinity;
+    if (ny < ROCKET.topEdge || ny < w.ceiling) return Infinity;
     px = nx;
     py = ny;
   }
@@ -365,7 +366,7 @@ function tacticalPoint(w: World): { x: number; y: number } | null {
 function fallingRock(w: World): { x: number; y: number } | null {
   for (const a of w.arrows) {
     if (!a.active || a.owner !== 'enemy' || a.kind !== 'bomb' || a.state !== 0 || a.vy <= 0) continue;
-    if (Math.abs(a.x - PLAYER_X) > 70 || a.y < -60 || a.y > 520) continue;
+    if (Math.abs(a.x - playerX(w)) > 70 || a.y < -60 || a.y > 520) continue;
     const o = playerOrigin(w, -Math.PI / 2);
     let t = 0.2;
     let x = a.x;

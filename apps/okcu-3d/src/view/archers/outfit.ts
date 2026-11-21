@@ -514,7 +514,16 @@ export class Outfit {
     // --- enemies
     const h = hat(k, look.hat, look.accent);
     if (h) this.wear('Head', h);
-    if (a.type !== 'player' && a.type !== 'boss' && look.hat !== 'lantern' && look.hat !== 'plume') {
+    if (look.armour) {
+      // plate from head to shin, in steel: a crested helm, cuirass, pauldrons, tassets, greaves, bracers
+      this.wear('Head', helmet(k, k.steel, true));
+      this.wear('Spine1', cuirass(k, k.steel));
+      this.wear('Spine2', gorget(k));
+      this.pair(2, () => pauldron(k, k.steel));
+      this.wear('Hips', tassets(k));
+      this.pair(1, () => greave(k));
+      this.pair(0, () => bracer(k));
+    } else if (a.type !== 'player' && a.type !== 'boss' && look.hat !== 'lantern' && look.hat !== 'plume') {
       // veterans (and every shield-bearer, as in the 2D game) wear a steel cap
       this.cap = this.wear('Head', helmet(k, k.steel, false));
     }

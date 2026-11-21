@@ -7,7 +7,7 @@ import { createRng } from '@oyun/core/pure';
 import { describe, expect, it } from 'vitest';
 import { solveShot } from '../../src/sim/aimbot';
 import { CARD_IDS, cardOpen, drawOffer, statsFor, type CardId } from '../../src/sim/cards';
-import { CHAPTER_DEFS, chapterStart, fieldRight, fieldSpan, fieldTop, GROW_WAVE, MAX_SPAN, stageOf } from '../../src/sim/chapters';
+import { CHAPTER_DEFS, chapterStart, fieldRight, fieldSpan, fieldTop, GROW_WAVE, MAX_SPAN, stageDef, stageOf } from '../../src/sim/chapters';
 import { NO_META } from '../../src/sim/meta';
 import { LEG_HEIGHT } from '../../src/sim/ragdoll';
 import { advance, createWorld, enemyAimSolution, jumpToWave, shoot, takeEvents, targetPoint, type Archer, type GameEvent, type World } from '../../src/sim/world';
@@ -242,21 +242,28 @@ describe('the field grows from chapter 4', () => {
     let grown = 0;
     let fifth = 0;
     for (const difficulty of ['classic', 'hard'] as const) {
-      for (let wave = GROW_WAVE - 1; wave <= chapterStart(6) + 7; wave++) {
+      // classic grows from chapter 4; hard (the 3D build) from chapter 2
+      for (let wave = difficulty === 'hard' ? chapterStart(1) : GROW_WAVE - 1; wave <= chapterStart(6) + 7; wave++) {
         const w = createWorld({ seed: wave, difficulty });
         jumpToWave(w, wave);
         const span = w.span;
         expect(span).toBe(fieldSpan(wave, difficulty));
         const def = stageOf(wave);
-        const base = !def.endless ? CHAPTER_DEFS[def.chapter]!.stages[def.stage - 1]!.ledges : null;
+        const base = !def.endless ? stageDef(wave, createRng(1), difficulty).ledges : null;
         if (span > 1) {
-          if (w.layout.length > (base?.length ?? 4)) fifth += 1;
-          grown += 1;
+          // the fifth island needs the room of a 1.15 field (chapter 4 on)
+          if (span >= 1.15) {
+            if (w.layout.length > (base?.length ?? 4)) fifth += 1;
+            grown += 1;
+          }
           if (base) {
             // the stage's own islands sit further out on average, the highest one higher up
             const mean = (ls: readonly { x: number; y: number }[], k: 'x' | 'y') => ls.reduce((t, l) => t + l[k], 0) / ls.length;
-            expect(mean(w.layout.slice(0, base.length), 'x'), `wave ${wave}`).toBeGreaterThan(mean(base, 'x') + 12);
-            expect(Math.min(...w.layout.slice(0, base.length).map((l) => l.y)), `wave ${wave}`).toBeLessThan(Math.min(...base.map((l) => l.y)) - 25);
+            // (hard's first widenings, 1.05 and 1.1, have little room: a slide near the edge can
+            // hold the spread back, but nothing ever comes closer)
+            const small = span < 1.15;
+            expect(mean(w.layout.slice(0, base.length), 'x'), `wave ${wave}`).toBeGreaterThan(mean(base, 'x') + (small ? -0.5 : 12));
+            expect(Math.min(...w.layout.slice(0, base.length).map((l) => l.y)), `wave ${wave}`).toBeLessThan(Math.min(...base.map((l) => l.y)) + (small ? 0.5 : -25));
           }
         } else if (base) expect(w.layout.length).toBe(base.length);
         // every island (and how far it slides or swings) stays inside a portrait view of the field

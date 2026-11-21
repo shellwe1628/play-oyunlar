@@ -434,6 +434,8 @@ export function createHud(stage: Stage, game: Game): Module {
   let lastTeach = -9;
   let lastCreak = 0;
   const seen = new Set<string>();
+  /** "the field grows" toasts this run (at most two) */
+  let growTips = 0;
   const brains = new Map<number, string>();
 
   function resetRun(w: World): void {
@@ -452,6 +454,7 @@ export function createHud(stage: Stage, game: Game): Module {
     // a new world: the shell comes back on Home (quietly after our own chapter switch)
     shell.hide(true);
     seen.clear();
+    growTips = 0;
     brains.clear();
     for (const e of w.enemies) seen.add(e.type);
     coinShown = w.run.coins;
@@ -513,7 +516,7 @@ export function createHud(stage: Stage, game: Game): Module {
   }
 
   const hasIntro = (type: string): boolean =>
-    type === 'shield' || type === 'jumper' || type === 'bomber' || type === 'healer' || type === 'cover' || type === 'catcher' || type === 'ward' || type === 'elite' || type === 'volley' || type === 'mage';
+    type === 'shield' || type === 'jumper' || type === 'bomber' || type === 'healer' || type === 'cover' || type === 'catcher' || type === 'ward' || type === 'elite' || type === 'volley' || type === 'mage' || type === 'armored';
 
   function onWaveStart(w: World, e: Extract<GameEvent, { t: 'waveStart' }>): void {
     const wave = e.wave;
@@ -539,9 +542,14 @@ export function createHud(stage: Stage, game: Game): Module {
     tip('rock', w.props.some((p) => p.active && p.kind === 'rock'), 'hud.rockTip');
     tip('bob', w.movers.some((m) => m.kind === 'bob'), 'hud.bobTip');
     tip('gust', w.gustEvery > 0, 'hud.gustTip');
+    tip('fog', w.stageMod === 'fog', 'hud.fogTip');
+    tip('ceiling', w.stageMod === 'lowCeiling', 'hud.ceilingTip');
+    tip('base', w.stageMod === 'movingBase', 'hud.baseTip');
     const obj = e.objective ? objectiveText(e.objective, e.limit) : null;
-    // a grown field (chapter 4, and again chapter 6): said once a run, after the banner
-    if (w.span > 1) {
+    // a grown field (hard widens it every chapter from the second): said at the first two
+    // widenings of a run, after the banner
+    if (w.span > 1 && !seen.has(`tip-grow-${w.span}`) && growTips < 2) {
+      growTips += 1;
       const key = `grow-${w.span}`;
       later(1.7, () => teach(key, t('hud.fieldGrows')));
     }

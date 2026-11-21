@@ -1,7 +1,9 @@
 /** The damage and effect table: what a hit on each body part does (pure). */
 import type { PartKind } from './ragdoll';
+import type { Projectile } from './weapons';
 
-export type EnemyType = 'archer' | 'shield' | 'jumper' | 'bomber' | 'boss' | 'healer' | 'cover' | 'catcher' | 'ward' | 'elite' | 'imp' | 'volley' | 'mage';
+/** 'armored' (plate armour, the 3D build only, chapter 2 on): see ARMORED_RESIST. */
+export type EnemyType = 'archer' | 'shield' | 'jumper' | 'bomber' | 'boss' | 'healer' | 'cover' | 'catcher' | 'ward' | 'elite' | 'imp' | 'volley' | 'mage' | 'armored';
 
 /** Enemies that carry a staff and cast orbs instead of loosing arrows (no bow drawn). */
 export function castsSpells(type: TargetKind): boolean {
@@ -42,7 +44,19 @@ export const HELMET_HEAD_MUL = 1.6;
  */
 export const HARD_HEAD_MUL = 3;
 
-export function resolveHit(target: TargetKind, part: HitPart, dmgMul: number, helmet = false, hard = false): HitOutcome {
+/**
+ * The plate-armoured archer takes this share of the damage of arrows, bolts, pebbles and
+ * boomerangs on every part; a spear punches through and a firework rocket bursts on it, both
+ * at full damage. It stays clearable with a bow: just three times the arrows.
+ */
+export const ARMORED_RESIST = 0.35;
+
+/** Damage share an enemy takes from a projectile kind (1 but for the armored archer). */
+export function armourShare(target: TargetKind, kind: Projectile | undefined): number {
+  return target === 'armored' && kind !== undefined && kind !== 'spear' && kind !== 'rocket' ? ARMORED_RESIST : 1;
+}
+
+export function resolveHit(target: TargetKind, part: HitPart, dmgMul: number, helmet = false, hard = false, kind?: Projectile): HitOutcome {
   const out: HitOutcome = { damage: 0, ko: false, slowmo: false, aimPenalty: 0, wobble: 0, stagger: 0, shove: 0 };
   if (target === 'player') {
     out.damage = PLAYER_DAMAGE[part] * dmgMul;
@@ -58,6 +72,8 @@ export function resolveHit(target: TargetKind, part: HitPart, dmgMul: number, he
     out.ko = !helmet && !hard;
     out.slowmo = true;
   }
+  const share = armourShare(target, kind);
+  if (share !== 1) out.damage = Math.round(out.damage * share * 100) / 100;
   if (part === 'weak') out.slowmo = true;
   if (part === 'arm') out.aimPenalty = 0.05;
   if (part === 'leg') {

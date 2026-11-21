@@ -1,12 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import { bowDamage } from '../../src/sim/bow';
-import { ENEMY_DAMAGE, HARD_HEAD_MUL } from '../../src/sim/combat';
+import { ARMORED_RESIST, ENEMY_DAMAGE, HARD_HEAD_MUL, resolveHit } from '../../src/sim/combat';
 import { createRng } from '@oyun/core/pure';
 import { CARD_IDS, CARD_WEAPONS, HARD_BOW_POW, cardFits, drawOffer, statsFor, type CardId } from '../../src/sim/cards';
 import { NO_META } from '../../src/sim/meta';
+import { CAREFUL, playRun, solveShot } from '../../src/sim/aimbot';
+import { CHAPTERS, chapterStart, ENDLESS_WAVE, STAGES, stageDef, stageEnemies } from '../../src/sim/chapters';
 import { velX } from '../../src/sim/body';
-import { TUNING } from '../../src/sim/tuning';
-import { arrowSpeed, BOOM, createWorld, playerOrigin, ROCKET, rocketRadius, shoot, advance, jumpToWave, takeEvents, targetPoint } from '../../src/sim/world';
+import { PLAYER_LEDGE, PLAYER_X, TUNING } from '../../src/sim/tuning';
+import { arrowSpeed, BOOM, createWorld, playerOrigin, ROCKET, rocketRadius, shoot, advance, jumpToWave, takeEvents, targetPoint, type World } from '../../src/sim/world';
 import { WEAPON_IDS, WEAPONS, bowEquivalent, levelForBow, weaponDamage, weaponPerks } from '../../src/sim/weapons';
 
 describe('weapons', () => {
@@ -955,6 +957,189 @@ describe('cards per weapon', () => {
         const w = createWorld({ seed, meta: { ...hardMeta(weapon), starter: 1 }, difficulty: 'hard', startChapter: 1 + (seed % 5) });
         expect(w.cards.length).toBeGreaterThan(1);
         for (const c of w.cards) expect(cardFits(c, weapon), `${c} drafted for ${weapon}`).toBe(true);
+      }
+    }
+  });
+});
+
+describe('stage features (hard)', () => {
+  const rng = () => createRng(7);
+  const WAVES = Array.from({ length: CHAPTERS * STAGES }, (_, i) => i + 1);
+  /** the chapter waves whose hard stage carries `mod` */
+  const modWaves = (mod: string) => WAVES.filter((wave) => stageDef(wave, rng(), 'hard').mod === mod);
+  const hold = (w: World) => {
+    for (const e of w.enemies) e.timer = 999;
+    w.player.hp = w.player.maxHp = 1e9;
+  };
+
+  it('armored resists arrows, not spears', () => {
+    expect(ARMORED_RESIST).toBe(0.35);
+    for (const part of ['head', 'body', 'arm', 'leg'] as const) {
+      const plain = resolveHit('archer', part, 1.5, false, true).damage;
+      for (const kind of ['arrow', 'bolt', 'pebble', 'boomerang'] as const) expect(resolveHit('armored', part, 1.5, false, true, kind).damage).toBeCloseTo(plain * 0.35, 1);
+      for (const kind of ['spear', 'rocket'] as const) expect(resolveHit('armored', part, 1.5, false, true, kind).damage).toBeCloseTo(plain, 6);
+    }
+    // in the world: the same chest shot with an arrow and with a spear
+    const hitWith = (weapon: 'bow' | 'spear') => {
+      const w = createWorld({ seed: 2, difficulty: 'hard', meta: { ...NO_META, weapon, wlevel: 5 } });
+      const wave = WAVES.find((v) => stageEnemies(v, stageDef(v, rng(), 'hard'), 9, 'hard').includes('armored'))!;
+      jumpToWave(w, wave);
+      hold(w);
+      const e = w.enemies.find((x) => x.type === 'armored')!;
+      expect(e).toBeDefined();
+      for (let i = 0; i < 60; i++) advance(w, 1 / 60);
+      takeEvents(w);
+      e.hp = e.maxHp = 1e6;
+      // nothing else in the way, and its ledge holds still
+      for (const x of w.enemies) if (x !== e) x.gone = true;
+      w.movers.length = 0;
+      w.wind = 0;
+      const c = targetPoint(e, 'chest');
+      const s = solveShot(w, c.x, c.y, 1.04);
+      w.reload = 0;
+      expect(shoot(w, s.angle, s.power)).toBe(true);
+      for (let i = 0; i < 120; i++) {
+        advance(w, 1 / 60);
+        for (const ev of takeEvents(w)) if (ev.t === 'hit' && ev.id === e.id) return ev.dmg / w.stats.dmgMul;
+      }
+      return 0;
+    };
+    const arrow = hitWith('bow');
+    const spear = hitWith('spear');
+    expect(arrow).toBeGreaterThan(0);
+    expect(spear).toBeGreaterThan(2.5 * arrow);
+  });
+
+  it('armored enemies join from chapter 2, only in hard; the endless pool has them', () => {
+    const has = (wave: number, d: 'classic' | 'hard') => stageEnemies(wave, stageDef(wave, rng(), d), 9, d).includes('armored');
+    for (let wave = 1; wave < chapterStart(1); wave++) expect(has(wave, 'hard')).toBe(false);
+    for (let c = 1; c < CHAPTERS; c++) expect(Array.from({ length: STAGES }, (_, i) => has(chapterStart(c) + i, 'hard')).some(Boolean), `chapter ${c + 1}`).toBe(true);
+    const classic = createRng(3);
+    for (let wave = 1; wave < ENDLESS_WAVE + 70; wave++) expect(stageDef(wave, classic, 'classic').enemies.includes('armored'), `classic wave ${wave}`).toBe(false);
+    const r = createRng(3);
+    let seen = false;
+    for (let wave = ENDLESS_WAVE; wave < ENDLESS_WAVE + 70 && !seen; wave++) seen = stageDef(wave, r, 'hard').enemies.includes('armored');
+    expect(seen).toBe(true);
+  });
+
+  it('one or two designed stages per chapter carry a modifier, only in hard', () => {
+    for (let c = 0; c < CHAPTERS; c++) {
+      const mods = Array.from({ length: STAGES }, (_, i) => stageDef(chapterStart(c) + i, rng(), 'hard').mod).filter(Boolean);
+      expect(mods.length, `chapter ${c + 1}`).toBeGreaterThanOrEqual(1);
+      expect(mods.length, `chapter ${c + 1}`).toBeLessThanOrEqual(2);
+      // never on the boss stage
+      expect(stageDef(chapterStart(c) + STAGES - 1, rng(), 'hard').mod).toBeUndefined();
+    }
+    for (const mod of ['lowCeiling', 'fog', 'movingBase']) expect(modWaves(mod).length, mod).toBeGreaterThanOrEqual(2);
+    for (const wave of WAVES) expect(stageDef(wave, rng(), 'classic').mod, `classic wave ${wave}`).toBeUndefined();
+    const w = createWorld({ seed: 1, difficulty: 'classic' });
+    for (const wave of modWaves('fog')) {
+      jumpToWave(w, wave);
+      expect(w.stageMod).toBeNull();
+    }
+  });
+
+  it('low ceiling blocks high arcs', () => {
+    const wave = modWaves('lowCeiling')[0]!;
+    const w = createWorld({ seed: 4, difficulty: 'hard' });
+    jumpToWave(w, wave);
+    hold(w);
+    expect(w.stageMod).toBe('lowCeiling');
+    expect(Number.isFinite(w.ceiling)).toBe(true);
+    // every archer's head is under it, with room for a flat shot
+    for (const e of w.enemies) expect(targetPoint(e, 'head').y).toBeGreaterThan(w.ceiling + 40);
+    // a steep lob: the arrow is gone as soon as it climbs above the ceiling
+    expect(shoot(w, -1.25, 1)).toBe(true);
+    const a = w.arrows.find((x) => x.active && x.owner === 'player')!;
+    let top = Infinity;
+    for (let i = 0; i < 120 && a.active; i++) {
+      advance(w, 1 / 60);
+      if (a.active) top = Math.min(top, a.y);
+    }
+    expect(a.active).toBe(false);
+    expect(top).toBeGreaterThanOrEqual(w.ceiling);
+    // a flat aimed shot still reaches every archer under it
+    for (const e of w.enemies) {
+      const h = targetPoint(e, 'head');
+      expect(solveShot(w, h.x, h.y, 1.04).power).toBeLessThanOrEqual(1);
+    }
+    // the same lob with no ceiling flies on
+    const open = createWorld({ seed: 4, difficulty: 'hard' });
+    jumpToWave(open, wave);
+    hold(open);
+    open.ceiling = -Infinity;
+    shoot(open, -1.25, 1);
+    const b = open.arrows.find((x) => x.active && x.owner === 'player')!;
+    for (let i = 0; i < 30; i++) advance(open, 1 / 60);
+    expect(b.active).toBe(true);
+  });
+
+  it('fog: far archers appear late; until then they cannot be hit and do not shoot', () => {
+    const wave = modWaves('fog')[0]!;
+    const w = createWorld({ seed: 6, difficulty: 'hard' });
+    jumpToWave(w, wave);
+    w.player.hp = w.player.maxHp = 1e9;
+    expect(w.stageMod).toBe('fog');
+    const veiled = w.enemies.filter((e) => e.veil > 0);
+    expect(veiled.length).toBeGreaterThan(0);
+    // the farthest is veiled longest
+    const far = [...veiled].sort((p, q) => q.veil - p.veil)[0]!;
+    const e = far;
+    const shots0 = w.run.enemyShots;
+    const h = targetPoint(e, 'chest');
+    const s = solveShot(w, h.x, h.y, 1.04);
+    expect(shoot(w, s.angle, s.power)).toBe(true);
+    let hitVeiled = false;
+    let revealed = false;
+    let shotVeiled = false;
+    for (let i = 0; i < 60 * 8; i++) {
+      const veiledNow = e.veil > 0;
+      advance(w, 1 / 60);
+      for (const ev of takeEvents(w)) {
+        if (ev.t === 'hit' && ev.id === e.id && veiledNow) hitVeiled = true;
+        if (ev.t === 'reveal' && ev.id === e.id) revealed = true;
+      }
+      if (w.enemies.every((x) => x.veil > 0) && w.run.enemyShots > shots0) shotVeiled = true;
+    }
+    expect(hitVeiled).toBe(false);
+    expect(shotVeiled).toBe(false);
+    expect(revealed).toBe(true);
+    expect(e.veil).toBe(0);
+  });
+
+  it('moving base: the player ledge slides, the player and the aim origin ride it', () => {
+    const wave = modWaves('movingBase')[0]!;
+    const w = createWorld({ seed: 8, difficulty: 'hard' });
+    jumpToWave(w, wave);
+    hold(w);
+    expect(w.stageMod).toBe('movingBase');
+    const o0 = playerOrigin(w, -0.5).x;
+    const xs: number[] = [];
+    for (let i = 0; i < 60 * 6; i++) {
+      advance(w, 1 / 60);
+      const dx = w.ledges[0]!.x - PLAYER_LEDGE.x;
+      xs.push(dx);
+      expect(w.baseX).toBeCloseTo(dx, 6);
+      expect(playerOrigin(w, -0.5).x).toBeCloseTo(o0 + dx, 6);
+    }
+    expect(Math.max(...xs) - Math.min(...xs)).toBeGreaterThan(30);
+    // the player stands on it the whole time
+    expect(Math.abs(w.player.anchorX - (PLAYER_X + w.baseX))).toBeLessThan(1e-6);
+    // the next stage without the modifier glides it home
+    jumpToWave(w, wave + 1);
+    hold(w);
+    for (let i = 0; i < 60 * 4; i++) advance(w, 1 / 60);
+    expect(w.ledges[0]!.x).toBeCloseTo(PLAYER_LEDGE.x, 6);
+    expect(w.baseX).toBeCloseTo(0, 6);
+  });
+
+  it('every stage is clearable with the bow', { timeout: 600_000 }, () => {
+    // CAREFUL, bow level 10, god mode: each chapter's stages up to its boss
+    for (let c = 0; c < CHAPTERS; c++) {
+      const boss = chapterStart(c) + STAGES - 1;
+      for (const seed of [1, 2]) {
+        const r = playRun(seed, createRng(500 + seed), CAREFUL, { difficulty: 'hard', meta: { ...NO_META, weapon: 'bow', wlevel: 10 }, startChapter: c, untilWave: boss, god: true, maxTime: 900 });
+        expect(r.reached, `chapter ${c + 1} seed ${seed}`).toBeGreaterThanOrEqual(boss);
       }
     }
   });

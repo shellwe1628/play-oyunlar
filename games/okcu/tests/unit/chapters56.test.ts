@@ -9,7 +9,7 @@ import { repairSave, saveOptions } from '../../src/save';
 import { CAREFUL, planShot, playRun } from '../../src/sim/aimbot';
 import { BOW_MAX, bowCost, bowDamage } from '../../src/sim/bow';
 import { HARD_BOW_POW } from '../../src/sim/cards';
-import { CHAPTER_DEFS, CHAPTERS, chapterStart, ENDLESS_WAVE, fieldSpan, levelOf, stageOf } from '../../src/sim/chapters';
+import { CHAPTER_DEFS, CHAPTERS, chapterStart, ENDLESS_WAVE, fieldSpan, levelOf, STAGES, stageDef, stageOf } from '../../src/sim/chapters';
 import { cosmeticById, freshSave, isUnlocked, NO_META, UPGRADES } from '../../src/sim/meta';
 import { bankRecords, FEATS, progressScore, RANKS, rankOf, unlockFeats, type RunSummary } from '../../src/sim/progress';
 import { PT } from '../../src/sim/ragdoll';
@@ -163,6 +163,25 @@ describe('chapters 5 and 6', () => {
       for (const e of w.enemies) expect(Number.isFinite(e.body.x[0]!) && Number.isFinite(e.body.y[0]!)).toBe(true);
       expect(stageOf(wave).chapter).toBe(wave < 36 ? 4 : 5);
     }
+  });
+});
+
+describe('stage features in chapters 5 and 6 (hard)', () => {
+  it('each has armored archers and its own modifier stages; classic plays them as before', () => {
+    for (const c of [4, 5]) {
+      const defs = Array.from({ length: STAGES }, (_, i) => stageDef(chapterStart(c) + i, createRng(1), 'hard'));
+      expect(defs.some((d) => d.enemies.includes('armored')), `chapter ${c + 1}`).toBe(true);
+      expect(defs.filter((d) => d.mod).length, `chapter ${c + 1}`).toBeGreaterThanOrEqual(1);
+      for (let i = 0; i < STAGES; i++) expect(stageDef(chapterStart(c) + i, createRng(1), 'classic')).toBe(CHAPTER_DEFS[c]!.stages[i]);
+    }
+  });
+
+  it('the cave stage keeps every island under its ceiling, with no fifth island up in the rock', () => {
+    const wave = Array.from({ length: STAGES }, (_, i) => chapterStart(4) + i).find((v) => stageDef(v, createRng(1), 'hard').mod === 'lowCeiling')!;
+    const w = createWorld({ seed: 3, difficulty: 'hard' });
+    jumpToWave(w, wave);
+    expect(w.layout.length).toBe(stageDef(wave, createRng(1), 'hard').ledges.length);
+    for (const L of w.layout) expect(L.y - 200).toBeGreaterThan(w.ceiling);
   });
 });
 

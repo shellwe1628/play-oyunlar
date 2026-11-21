@@ -29,6 +29,9 @@ export function lookFor(a: Archer, cosmetic: Cosmetic): Look {
       return { body: PALETTE.player, shade: PALETTE.playerShade, hat: cosmetic.hat, scarf: cosmetic.scarf, bow: cosmetic.bow };
     case 'archer':
       return { body: PALETTE.archer, shade: PALETTE.archerShade, hat: 'hood', scarf: PALETTE.archerScarf, bow: 'wood' };
+    // the 3D build's plate-armoured archer (never spawned in the 2D game): a helmeted archer
+    case 'armored':
+      return { body: PALETTE.archer, shade: PALETTE.archerShade, hat: 'helmet', scarf: PALETTE.archerScarf, bow: 'wood' };
     case 'shield':
       return { body: PALETTE.shield, shade: PALETTE.shieldShade, hat: 'helmet', scarf: PALETTE.shieldScarf, bow: 'wood' };
     case 'jumper':

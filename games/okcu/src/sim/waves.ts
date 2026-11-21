@@ -68,6 +68,8 @@ export const BASE_HP: Record<EnemyType, number> = {
   // a volley archer is a plain archer that hangs back; the wizard is frail and blinks away instead
   volley: 42,
   mage: 34,
+  // plate armour: a little more health, and arrows do a third (combat.ts ARMORED_RESIST)
+  armored: 50,
 };
 
 /** Each chapter boss's health at its own chapter (endless cycles add 35 % per lap). */

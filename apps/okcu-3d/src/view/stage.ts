@@ -19,13 +19,13 @@
  * system's prefers-reduced-motion, or ?calm=1) keeps a third of the shake and half the zooms.
  * All of it reads the frame's events and the world; none of it feeds back into the simulation.
  *
- * A grown field (from chapter 4, the sim's `w.span`, chapters.ts `fieldSpan`) widens the resting
+ * A grown field (hard: from chapter 2, the sim's `w.span`, chapters.ts `fieldSpan`) widens the resting
  * window to `span` times the frame, anchored at the bottom left where the player stands, so the
  * farthest island still fits a portrait phone; the camera glides out to it as the wave drops in.
  * Every effect above works on top of that base view, in its screen space.
  */
 import * as THREE from 'three';
-import { PLAYER_LEDGE, PLAYER_X } from '@sim/tuning';
+import { PLAYER_LEDGE } from '@sim/tuning';
 import type { Frame, Stage } from '../contract';
 import { FRAME_H, FRAME_W, LOGICAL_H, LOGICAL_W, PX_PER_M } from '../coords';
 
@@ -213,7 +213,8 @@ export function createStage(root: HTMLElement): Stage {
         case 'dying':
           slowT = 0.35;
           zoom = 0.12;
-          focusX = PLAYER_X;
+          // (a sliding base carries the player: follow it)
+          focusX = frame.w.player.anchorX;
           focusY = PLAYER_LEDGE.y - 150;
           break;
         default:

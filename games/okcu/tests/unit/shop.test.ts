@@ -141,6 +141,49 @@ describe('daily offers', () => {
   });
 });
 
+describe('stale stored days', () => {
+  it('a stored day 30 days ahead resets on the next call', () => {
+    const s = rich();
+    s.arsenal.shopDay = '2026-12-20';
+    s.arsenal.shopBought = [0, 1, 2];
+    s.arsenal.shopOffers = [{ weapon: 'bow', shards: 3, coins: 90 }];
+    s.arsenal.adCoinsDay = '2026-12-20';
+    s.arsenal.adCoinsUsed = 3;
+    expect(adCoins(s, DAY)).toBe(AD_COINS);
+    expect(grantAdCoins(s, DAY)).toBe(true);
+    expect(s.arsenal.adCoinsDay).toBe(DAY);
+    expect(s.arsenal.adCoinsUsed).toBe(1);
+    expect(dailyOffers(DAY, s)).toHaveLength(3);
+    expect(s.arsenal.shopDay).toBe(DAY);
+    expect(s.arsenal.shopBought).toEqual([]);
+  });
+  it("'zzzz' resets", () => {
+    const s = rich();
+    s.arsenal.adCoinsDay = 'zzzz';
+    s.arsenal.adCoinsUsed = 3;
+    s.arsenal.shopDay = 'zzzz';
+    s.arsenal.shopBought = [0];
+    expect(grantAdCoins(s, DAY)).toBe(true);
+    expect(buyOffer(s, DAY, 0)).toBe(true);
+    expect(s.arsenal.shopDay).toBe(DAY);
+  });
+  it('a stored day 1 day ahead still holds, a 2-day-ahead one too, 3 does not', () => {
+    const s = rich();
+    for (let i = 0; i < 3; i++) grantAdCoins(s, '2026-11-21');
+    expect(grantAdCoins(s, DAY)).toBe(false);
+    expect(grantAdCoins(s, '2026-11-19')).toBe(false);
+    expect(grantAdCoins(s, '2026-11-18')).toBe(true);
+  });
+  it('repairArsenal clears a malformed day string', () => {
+    const bad = { ...freshSave(), arsenal: { ...freshArsenal(), shopDay: 'zzzz', adCoinsDay: '2026-1-5', adCoinsUsed: 3 } };
+    const r = repairSave(bad).arsenal;
+    expect(r.shopDay).toBe('');
+    expect(r.adCoinsDay).toBe('');
+    const ok = repairSave({ ...freshSave(), arsenal: { ...freshArsenal(), shopDay: DAY } }).arsenal;
+    expect(ok.shopDay).toBe(DAY);
+  });
+});
+
 describe('chests', () => {
   it('buyChest queues the chest and takes the price', () => {
     const s = rich();

@@ -5,7 +5,7 @@
  * Prices are retuned against the economy simulation in Task 14.
  */
 import { createRng, hashSeed } from '@oyun/core/pure';
-import type { ChestKind } from './arsenal';
+import { DAY_FORMAT, type ChestKind } from './arsenal';
 import { SLING_UNLOCK_SHARDS } from './chests';
 import { COSMETICS, isUnlocked, type SaveData } from './meta';
 import { WEAPON_IDS, WEAPON_MAX, type WeaponId } from './weapons';
@@ -22,6 +22,35 @@ export const OFFERS_PER_DAY = 3;
 export const OFFER_SHARDS: readonly [number, number] = [3, 6];
 export const OFFER_COINS_PER_SHARD = 30;
 
+/** Days since 1970-01-01 for a `YYYY-MM-DD` key (civil-date arithmetic, no Date). */
+function dayNumber(key: string): number {
+  const y0 = Number(key.slice(0, 4));
+  const m = Number(key.slice(5, 7));
+  const d = Number(key.slice(8, 10));
+  const y = m <= 2 ? y0 - 1 : y0;
+  const era = Math.floor(y / 400);
+  const yoe = y - era * 400;
+  const doy = Math.floor((153 * (m + (m > 2 ? -3 : 9)) + 2) / 5) + d - 1;
+  const doe = yoe * 365 + Math.floor(yoe / 4) - Math.floor(yoe / 100) + doy;
+  return era * 146097 + doe - 719468;
+}
+
+/** How far ahead of `dayKey` a stored day may be and still count (a timezone or one-day clock slip). */
+export const DAY_SKEW_TOLERANCE = 2;
+
+/**
+ * Does the stored day still govern `dayKey`? True when it is `dayKey` itself or a little ahead
+ * (clock skew: going back a day must not reset the caps). False for an earlier day (a new day),
+ * an empty or malformed string, or one more than DAY_SKEW_TOLERANCE days ahead (a clock set far
+ * ahead must not lock the shop out): those are stale and the day restarts. One helper for both
+ * `shopDay` and `adCoinsDay`.
+ */
+export function storedDayHolds(stored: string, dayKey: string): boolean {
+  if (!DAY_FORMAT.test(stored) || !DAY_FORMAT.test(dayKey)) return false;
+  const ahead = dayNumber(stored) - dayNumber(dayKey);
+  return ahead >= 0 && ahead <= DAY_SKEW_TOLERANCE;
+}
+
 /**
  * The day's offers (up to three). Seeded from the day key, then SNAPSHOT into `arsenal.shopOffers`
  * the first time a new day is seen, so unlocks, chests or a chapter change later that day never
@@ -29,8 +58,8 @@ export const OFFER_COINS_PER_SHARD = 30;
  * change the save (persist it). Pool: owned weapons below WEAPON_MAX, plus the sling once chapter 2
  * is reached (`save.chapter >= 1`) while it is not maxed. With fewer than three such weapons the
  * list repeats (sizes may coincide); with none (everything maxed) there are no offers that day.
- * Clock skew: a day key not later than the stored day returns the stored offers; only a later key
- * starts a new day (ISO date strings compare in date order).
+ * Clock skew: a day key up to DAY_SKEW_TOLERANCE days before the stored day keeps the stored offers
+ * (see `storedDayHolds`); a stored day further ahead, or malformed, is stale and the day restarts.
  */
 export function dailyOffers(dayKey: string, save: SaveData): ShopOffer[] {
   const { offers, fresh } = resolveDay(dayKey, save);
@@ -55,7 +84,7 @@ function generateOffers(dayKey: string, save: SaveData): ShopOffer[] {
 /** The offers valid for `dayKey` without touching the save; `fresh` = a new day that still has to be stored. */
 function resolveDay(dayKey: string, save: SaveData): { offers: ShopOffer[]; fresh: boolean } {
   const a = save.arsenal;
-  if (a.shopDay !== '' && dayKey <= a.shopDay && (a.shopDay !== dayKey || a.shopOffers.length > 0)) return { offers: a.shopOffers, fresh: false };
+  if (storedDayHolds(a.shopDay, dayKey) && (a.shopDay !== dayKey || a.shopOffers.length > 0)) return { offers: a.shopOffers, fresh: false };
   return { offers: generateOffers(dayKey, save), fresh: true };
 }
 
@@ -127,8 +156,7 @@ export const AD_COINS_PER_DAY = 3;
 
 /** The coins one more rewarded ad would give today, or null once all 3 are used. */
 export function adCoins(save: SaveData, dayKey: string): number | null {
-  // a day key not later than the stored one (clock skew) keeps the stored counter
-  const used = dayKey > save.arsenal.adCoinsDay ? 0 : save.arsenal.adCoinsUsed;
+  const used = storedDayHolds(save.arsenal.adCoinsDay, dayKey) ? save.arsenal.adCoinsUsed : 0;
   return used >= AD_COINS_PER_DAY ? null : AD_COINS;
 }
 
@@ -137,7 +165,7 @@ export function grantAdCoins(save: SaveData, dayKey: string): boolean {
   const n = adCoins(save, dayKey);
   if (n === null) return false;
   const a = save.arsenal;
-  if (dayKey > a.adCoinsDay) {
+  if (!storedDayHolds(a.adCoinsDay, dayKey)) {
     a.adCoinsDay = dayKey;
     a.adCoinsUsed = 0;
   }

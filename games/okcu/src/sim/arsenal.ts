@@ -42,6 +42,9 @@ export interface Arsenal {
   chestsOpened: number;
 }
 
+/** A day key: `YYYY-MM-DD`. */
+export const DAY_FORMAT = /^\d{4}-\d{2}-\d{2}$/;
+
 export function freshArsenal(): Arsenal {
   const weapons = {} as Record<WeaponId, WeaponState>;
   for (const id of WEAPON_IDS) weapons[id] = { owned: id === 'bow', level: 1, shards: 0 };
@@ -50,7 +53,7 @@ export function freshArsenal(): Arsenal {
 
 const obj = (v: unknown): Record<string, unknown> => (typeof v === 'object' && v !== null && !Array.isArray(v) ? (v as Record<string, unknown>) : {});
 const nat = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) && v >= 0 ? Math.floor(v) : 0);
-const str = (v: unknown): string => (typeof v === 'string' ? v : '');
+const dayStr = (v: unknown): string => (typeof v === 'string' && DAY_FORMAT.test(v) ? v : '');
 
 /**
  * Any stored value → a valid arsenal: unknown weapon ids and chest kinds dropped, levels clamped
@@ -71,9 +74,9 @@ export function repairArsenal(v: unknown): Arsenal {
   base.selected = WEAPON_IDS.includes(sel) && base.weapons[sel].owned ? sel : 'bow';
   base.chests = Array.isArray(a.chests) ? a.chests.filter((c): c is ChestKind => CHEST_KINDS.includes(c as ChestKind)) : [];
   base.freeChestAt = nat(a.freeChestAt);
-  base.adCoinsDay = str(a.adCoinsDay);
+  base.adCoinsDay = dayStr(a.adCoinsDay);
   base.adCoinsUsed = nat(a.adCoinsUsed);
-  base.shopDay = str(a.shopDay);
+  base.shopDay = dayStr(a.shopDay);
   base.shopBought = Array.isArray(a.shopBought) ? a.shopBought.filter((n): n is number => Number.isInteger(n) && (n as number) >= 0) : [];
   base.shopOffers = Array.isArray(a.shopOffers)
     ? a.shopOffers

@@ -20,6 +20,7 @@
 // With APPLE_DIST_P12_PATH + APPLE_DIST_P12_PASS (an Apple Distribution .p12) it signs manually:
 // a throwaway keychain and an App Store profile fetched or created through the API. Without them
 // Xcode signs automatically (needs a registered device on the team).
+// Optional: OYUN_IOS_VERSION=<x.y.z> overrides ios.version (a separate TestFlight train).
 // Optional: OYUN_BUILD_NUMBER=<n> overrides CFBundleVersion (default: minutes since 2026-01-01,
 // the same rule as Android's versionCode).
 import { execFileSync, spawnSync } from 'node:child_process';
@@ -99,7 +100,8 @@ function loadApp(slug) {
   const ios = app.ios ?? {};
   const bundleId = ios.bundleId ?? app.applicationId;
   if (!/^[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)+$/.test(bundleId)) fail(`${slug}: bundle id "${bundleId}" is not valid`);
-  const version = ios.version ?? '1.0.0';
+  // OYUN_IOS_VERSION: a TestFlight-only version train while the store version is in App Review
+  const version = process.env.OYUN_IOS_VERSION || ios.version || '1.0.0';
   if (!/^\d+\.\d+(\.\d+)?$/.test(version)) fail(`${slug}: ios.version must look like 1.0 or 1.0.0, not "${version}"`);
   const source = app.source ?? join('games', slug);
   if (!existsSync(join(ROOT, source, 'index.html'))) fail(`${slug}: ${source} is missing`);

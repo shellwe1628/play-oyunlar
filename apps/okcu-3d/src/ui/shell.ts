@@ -58,6 +58,8 @@ export interface ShellHooks {
   changed: () => void;
   /** open a chest (chest.ts): false when there was nothing to open */
   chest: (p: ChestPlay) => boolean;
+  /** the chest screen is up (no free chest sheet, no ad, over it) */
+  chestBusy: () => boolean;
 }
 
 export interface Shell {
@@ -346,7 +348,7 @@ export function createShell(ui: Ui, parent: HTMLElement, hooks: ShellHooks): She
     };
     refreshChest();
     intervals.push(window.setInterval(refreshChest, 500));
-    pressable(chest, () => root !== null && chestSheet === null, ui.unlock, () => {
+    pressable(chest, () => root !== null && chestSheet === null && !hooks.chestBusy(), ui.unlock, () => {
       ui.audio.play('tap');
       if (freeChestWait(ui.game.save.data.arsenal, Date.now()) === 0) {
         openChestSheet(chestPlank, refreshChest);
@@ -504,6 +506,22 @@ export function createShell(ui: Ui, parent: HTMLElement, hooks: ShellHooks): She
       wood.classList.remove('off');
       silver.classList.remove('off');
       close();
+      // the chest screen came up meanwhile (the welcome gift): the chest is claimed into the line in
+      // one update instead (the pile opens it later), so a watched ad is never lost
+      if (hooks.chestBusy()) {
+        let kind: ChestKind | null = null;
+        let n = 0;
+        ui.game.save.update((d) => {
+          kind = claimFreeChest(d, Date.now(), watched);
+          if (kind) d.arsenal.chests.push(kind);
+          n = d.arsenal.chests.length;
+        });
+        if (root) refresh();
+        refreshPile?.();
+        if (kind) hooks.toast(t('shell.chestGot'), t('shell.chestQueued', { k: t(`chest.${kind as ChestKind}`), n }));
+        hooks.changed();
+        return;
+      }
       // claimed and opened in one go (never queued); claimFreeChest may move the timer even when it
       // says no (a clock moved back), and the chest screen's update persists either way
       const opened = hooks.chest({
@@ -514,7 +532,10 @@ export function createShell(ui: Ui, parent: HTMLElement, hooks: ShellHooks): She
         done: (before) => afterChest(before),
       });
       if (root) refresh();
-      if (!opened) return;
+      if (!opened) {
+        refreshPile?.();
+        return;
+      }
       if (root && !calm) plank.animate([{ transform: 'scale(1.35) rotate(-8deg)' }, { transform: 'scale(0.9) rotate(4deg)', offset: 0.5 }, { transform: 'none' }], { duration: 520, easing: EASE.backOut });
     }
   }

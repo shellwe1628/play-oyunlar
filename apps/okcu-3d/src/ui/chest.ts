@@ -146,6 +146,8 @@ export function createChestScreen(ui: Ui, parent: HTMLElement, hooks: ChestHooks
   let play: ChestPlay | null = null;
   let power = 0;
   let timers: number[] = [];
+  /** shard flights in the air */
+  const flights = new Set<Animation>();
   let raf = 0;
   /** the animation is running (a tap skips to the summary) */
   let running = false;
@@ -158,6 +160,9 @@ export function createChestScreen(ui: Ui, parent: HTMLElement, hooks: ChestHooks
   function stop(): void {
     for (const id of timers) window.clearTimeout(id);
     timers = [];
+    // shards still in the air: cancelled (no onfinish, so no late landing on a card that is gone)
+    for (const a of flights) a.cancel();
+    flights.clear();
     window.cancelAnimationFrame(raf);
     running = false;
   }
@@ -417,7 +422,8 @@ export function createChestScreen(ui: Ui, parent: HTMLElement, hooks: ChestHooks
       fill.style.width = `${need === null ? 100 : Math.min(100, (shards / need) * 100)}%`;
       txt.textContent = '';
       txt.appendChild(iconCanvas(txt, 20, 22, (g) => drawShard(g, 10, 11, 0.66)));
-      txt.append(need === null ? `${shards}` : `${shards}/${need}`);
+      // enough for the next step (a level, or the unlock): say so instead of "4/2"
+      txt.append(need === null ? `${shards}` : shards >= need ? t('chest.enough', { n: shards }) : `${shards}/${need}`);
     };
     let plus: HTMLElement | null = null;
     const tags = (): void => {
@@ -487,7 +493,9 @@ export function createChestScreen(ui: Ui, parent: HTMLElement, hooks: ChestHooks
     }
     s.style.transform = String(frames[0]!.transform);
     const a = s.animate(frames, { duration: ms, easing: 'cubic-bezier(.45,0,.75,1)', fill: 'forwards' });
+    flights.add(a);
     a.onfinish = () => {
+      flights.delete(a);
       s.remove();
       land();
     };

@@ -310,6 +310,7 @@ export function createHud(stage: Stage, game: Game): Module {
     toast: (head, sub) => queueToast(head, sub, PALETTE.gold),
     changed: () => syncBadges(),
     chest: (p) => chests.play(p),
+    chestBusy: () => chests.shown,
   });
   // the chest opening (chest.ts): over the menu and the result card, under the toasts
   const chests = createChestScreen(ui, chestGroup, { toast: (head, sub) => queueToast(head, sub, PALETTE.gold) });

@@ -46,6 +46,7 @@ const MENU_STRINGS = defineStrings({
     'chest.pile': 'Chests',
     'chest.pileAria': '{n} chests waiting',
     'chest.openRun': 'Open!',
+    'chest.enough': '{n} · enough!',
     // the Shop tab (shop.ts)
     'shop.tabOffers': 'Offers',
     'shop.offers': 'Daily offers',
@@ -177,6 +178,7 @@ const MENU_STRINGS = defineStrings({
     'chest.pile': 'Sandıklar',
     'chest.pileAria': '{n} sandık bekliyor',
     'chest.openRun': 'Aç!',
+    'chest.enough': '{n} · yeterli!',
     'shop.tabOffers': 'Teklifler',
     'shop.offers': 'Günün teklifleri',
     'shop.resetIn': 'Yenilenme {t}',

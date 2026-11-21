@@ -1,5 +1,5 @@
 Geri çek, bırak ve sallanan okçuları uçan adalarından düşür, artık 3D.
-Altı dünyayı ve altı patronu geç, yayını demircide güçlendir; önce eflatun, sonra gökkuşağı renkleriyle alev alsın.
+Altı dünyayı ve altı patronu geç, altı silahı aç ve sandıklardan çıkan parçalarla güçlendir.
 
 Sallanan Okçular, yandan görünümlü 3D, ragdoll fiziğiyle zıplayan, rengârenk bir okçuluk oyunu. İlk okun saniyeler içinde havada: nişan almak için ekranın herhangi bir yerinden sürükle, noktalı yayı izle, bırakınca ok fırlasın.
 
@@ -11,16 +11,21 @@ NASIL OYNANIR
 • Her okçu ragdoll üstünde bir 3D karakter: ok çarpınca sendeler, nakavt olunca uçup gider.
 
 ALTI BÖLÜM
-• Güneşli Çayır, Donuk Zirveler, Gün Batımı Kumulları ve Fener Gecesi; her biri yedi aşama, ardından bitmeyen dalgalar.
+• Güneşli Çayır, Donuk Zirveler, Gün Batımı Kumulları, Fener Gecesi, Kor Kazanı ve Gök Kalesi; her biri yedi aşama, ardından bitmeyen dalgalar.
 • Her bölümün ortasında ganimet bırakan seçkin bir rakip, sonunda bir patron: Diken Baronu, Buz Devi, Kum Sultanı, Gece Bekçisi, Kor Kral ve Fırtına Çağıran. Canı yarıya inince hepsi taktik değiştirir.
 • Her bölümden sonra madalyalı bir bonus turu: hedef galerisi, elma yağmuru ya da çıkıntını savun.
 • Kayan platformlar, ipini kesebileceğin asılı platformlar, düşürülecek kayalar, patlayan variller ve hesaba katman gereken rüzgâr.
 • Yeni rakipler: şifacılar, siper arkasındaki okçular, ok yakalayanlar ve fener şövalyeleri.
 
-YAYINI GÜÇLENDİR
-• Demircide yayını +0'dan +20'ye kadar yükselt. Her seviye hasarı artırır.
-• Sade tahtadan efsaneviye altı yay görünümü ve seviyeyle renk değiştiren bir parıltı: ayaz, yeşil, altın alev, safir, eflatun cehennem ve en sonunda gökkuşağı.
-• +1 ile +6 arası her zaman tutar. Sonraki seviyelerin şansı denemeden önce açıkça yazar; tutmazsa yalnızca altın gider ve ocak ısınır, bir sonraki denemenin şansı artar.
+ALTI SİLAH
+• Yay, arbalet, mızrak, bumerang, sapan ve fişek atar; her birinin uçuşu farklı: dümdüz giden arbalet cıvataları, delip geçen mızraklar, dönüşte de vuran bumerang, seken çakıllar ve kalabalığın üstünde patlayan fişekler.
+• Bir bölümün patronunu yen, o bölümün silahı açılsın; sapanı sandıklardan çıkan parçalarla topla.
+• Her silahı parça ve altınla 1'den 20'ye kadar yükselt. Her seviye hasarı artırır, bazıları yeni bir özellik ekler.
+
+SANDIKLAR
+• Her 4 saatte bir açabileceğin tahta sandık; isteğe bağlı bir reklam izlersen gümüş olur.
+• Koşulardan, patronlardan ve günlük görevden sandıklar, bir de altınla alabileceğin sandıklar.
+• Her sandığın olasılıkları ekranda, çekilişte kullanıldığı gibi yazar.
 
 BÜYÜK ANLAR
 • Kafadan vuruş serileri, tek okla çoklu nakavt, hasar almadan seriler ve kritik vuruşlar; her birinin kendi coşkulu yazısı var.
@@ -28,12 +33,13 @@ BÜYÜK ANLAR
 • Her aşamadan sonra üç numara kartından birini seç: yelpaze ve ateşli oktan arayıcı oka ve kıvılcıma 18 numara, iki numara buluşunca açılan beş uyum.
 
 İLERLEMEN
-• Acemi'den Destansı Okçu'ya, sana özel 12 rütbelik bir merdivende yüksel.
-• Tarihleriyle kendi rekorlarının tutulduğu bir tablo ve altın kazandıran 19 başarım.
+• Acemi'den Ölümsüz Okçu'ya, sana özel 14 rütbelik bir merdivende yüksel.
+• Tarihleriyle kendi rekorlarının tutulduğu bir tablo ve altın kazandıran başarımlar.
 • Her gün farklı bir kuralı ve hedefi olan günlük görev; her gün dönersen serin büyür.
 • Dört kalıcı geliştirme. Can geliştirmeleri okçunu zırhla donatır.
-• Ulaştığın her bölüme giriş ekranından doğrudan başla.
+• Sekmeli ana menü: Mağaza, Silahlar, Ana Sayfa, Rütbeler ve Etkinlik. Ulaştığın her bölüme Ana Sayfa’dan doğrudan başla.
 
 BİLMEKTE FAYDA VAR
 • İnternetsiz oynanır. Hesap gerekmez.
+• Gerçek parayla satın alma yok: her şey altınla kazanılır. Reklamlar isteğe bağlıdır, yalnızca izlemeyi seçersen ödül verir.
 • Türkçe ve İngilizce.

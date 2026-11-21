@@ -17,16 +17,21 @@ keeps the player alive; a lost run is retried with the next seed.
 
 | # | id | What it shows | How it is reached |
 |---|---|---|---|
-| 1 | `aim` | Chapter 1 (Sunny Meadow), stage 3: the archer drawing the bow (Gilded Bow +10) at an archer on a floating island, the dotted arc on screen | played to wave 3, then a real touch drag held at the solver's aim |
-| 2 | `headshot` | Chapter 2 (Frozen Peaks), stage 3: a headshot knockout in slow motion, "HEADSHOT!" / "KAFADAN!", coins flying | played to wave 10, then a real drag-and-release at the head; frames step until the sim's own headshot `hit` event |
-| 3 | `glow` | Chapter 4 (Lantern Night), stage 2: the fully armoured archer (health upgrades maxed) drawing the Mythic Bow +20 with its prismatic glow | end-of-career save, played to wave 23, drag held |
-| 4 | `forge` | The forge: Mythic Bow +19 → +20, damage ×2.70 → ×2.80, the printed chance (15 %), the bow rising and blazing magenta during the strike | taps on Forge and on "Forge N" with the save from just before the career's +20 strike |
-| 5 | `boss` | Chapter 3 (Sunset Dunes), stage 7: the boss with its weak spot (the ringed head) as the archer draws on it | played from the chapter select up to the boss, drag held at the head |
-| 6 | `bonus` | The target-gallery bonus round after Chapter 1: arrows striking balloon targets, "3 hits · +12" | played through chapter 1 and its boss; the scripted player's bonus aim until a `bonusHit` event |
-| 7 | `ranks` | The ranks ladder (Legend, progress breakdown, 12 ranks) | tap on Ranks with the end-of-career save |
+| 1 | `aim` | Chapter 1 (Sunny Meadow), stage 3: the archer drawing the bow at an archer on a floating island, the dotted arc on screen | welcome chest collected, played to wave 3, then a real touch drag held at the solver's aim |
+| 2 | `headshot` | Chapter 2 (Frozen Peaks), stage 3: a headshot knockout in slow motion, "HEADSHOT!" / "KAFADAN!" | played to wave 10, then a real drag-and-release at the head; frames step until the sim's own headshot `hit` event |
+| 3 | `home` | The tabbed main menu (Shop · Weapons · Home · Ranks · Events) over the live 3D scene: rank and POWER, coins, chapter card, chest and daily buttons, Play | end-of-career save; the welcome gold chest tapped through (skip, Collect) like a player |
+| 4 | `weapons` | The Weapons tab: the archer card and the six weapons with levels and shard bars | the same, then a tap on Weapons |
+| 5 | `chest` | The welcome gold chest opening: lid off, "+1778" coins, sling shards flying to the Sling card | the save after the career's run that reached bow +12; the app moves it to the arsenal on load and presents the chest (`hud.ts` welcome), rolled by `chestRng` from the save; frames stepped to mid-animation |
+| 6 | `spear` | Chapter 4 (Lantern Night), stage 2: a volley of spears in flight | end-of-career save, Spear picked on the Weapons tab (card tap, Select), a run played to wave 23, a real drag-and-release; caught 0.6 s into the flight |
+| 7 | `firework` | Chapter 5 (Ember Caldera), stage 1: a firework rocket streaking at an archer | Firework Tube picked the same way, played to wave 29, a real drag-and-release; caught 0.1 s into the flight |
+| 8 | `boss` | Chapter 3 (Sunset Dunes), stage 7: the boss with its weak spot (the ringed head) as the archer draws on it | played from the chapter select up to the boss, drag held at the head |
+
+The staged saves are 2D saves from before the arsenal (save v3): the app moves them over on load
+(`sim/arsenal.ts migrateArsenal`: the bow's level from the forged bow, the beaten bosses' weapons
+unlocked, one gold welcome chest), exactly as for a player updating from the forge build.
 
 The feature graphic (`art.mjs`) is code-drawn (backdrop, the game's name and tagline in Nunito)
-around two crops of captures 3 and 2 above. The icon set is code-drawn (`store/tools/lib/icons.mjs`,
+around two crops of captures 7 and 2 above. The icon set is code-drawn (`store/tools/lib/icons.mjs`,
 bow-and-arrow emblem) and unchanged from the 2D listing.
 
 ## Characters and art
@@ -34,8 +39,8 @@ bow-and-arrow emblem) and unchanged from the 2D listing.
 - The archers in the 3D scenes are the Mixamo character **"Erika Archer"** (with her bow and
   arrow, and Mixamo animation clips), loaded from `apps/okcu-3d/public/assets/*.fbx`. Check
   Mixamo's licence terms before publishing a build or images that contain them.
-- Everything else is code-drawn: the islands, skies, props, effects, HUD, menus and forge of the
-  3D app, and the screenshot frames, captions, feature graphic and icons of the store pipeline.
+- Everything else is code-drawn: the islands, skies, props, effects, HUD, menus, weapons and chests of
+  the 3D app, and the screenshot frames, captions, feature graphic and icons of the store pipeline.
   Apart from the Mixamo character and its animations, no third-party or AI-generated art is used
   (text is set in Nunito, OFL).
 
@@ -46,5 +51,5 @@ bow-and-arrow emblem) and unchanged from the 2D listing.
   listing config sets `htmlLang: true`, so the English captures give the page `lang="en"`
   (what an English page should show). In the app as built, those call-outs are Turkish for
   everyone until fx.ts follows the UI language.
-- The 3D app's DOM animations run on real time, not on Playwright's fake clock; the forge shot
-  slows them (`g.animRate`) so they keep pace with the stepped frames.
+- The 3D app's DOM animations run on real time, not on Playwright's fake clock; the menu and
+  chest shots slow them (`g.animRate`) so they keep pace with the stepped frames.

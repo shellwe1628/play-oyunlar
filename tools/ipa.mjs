@@ -240,7 +240,9 @@ function patchNative(app, work, info, sign) {
     SWIFT_VERSION: '5.0',
   };
   if (gc) settings.CODE_SIGN_ENTITLEMENTS = 'App/App.entitlements';
-  if (sign.team) Object.assign(settings, { DEVELOPMENT_TEAM: sign.team, CODE_SIGN_STYLE: 'Automatic' });
+  // Archive straight with the distribution identity: automatic signing with "Apple Development"
+  // needs a registered device for its development profile, which a CI-only team never has.
+  if (sign.team) Object.assign(settings, { DEVELOPMENT_TEAM: sign.team, CODE_SIGN_STYLE: 'Automatic', CODE_SIGN_IDENTITY: 'Apple Distribution', 'CODE_SIGN_IDENTITY[sdk=iphoneos*]': 'Apple Distribution' });
   const plan = { sources, resources: ['PrivacyInfo.xcprivacy'], plain: gc ? ['App.entitlements'] : [], settings };
   const planFile = join(work, 'project-plan.json');
   writeFileSync(planFile, JSON.stringify(plan, null, 2));

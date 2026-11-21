@@ -151,7 +151,8 @@ export function buyCosmetic(save: SaveData, id: string): boolean {
   return true;
 }
 
-export const AD_COINS = 60;
+/** About one average careful run's coins: three a day (a day = `DAY_PLAY_MIN` of play in economy.ts) make the bow's level 10 come about 30 % sooner. */
+export const AD_COINS = 2000;
 export const AD_COINS_PER_DAY = 3;
 
 /** The coins one more rewarded ad would give today, or null once all 3 are used. */

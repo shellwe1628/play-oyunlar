@@ -114,12 +114,17 @@ export function migrateArsenal(save: SaveData): void {
   a.migrated = true;
 }
 
-/** Upgrade cost curve (retuned against the economy simulation in Task 14). */
+/**
+ * Upgrade cost curve, tuned against the economy simulation (src/sim/economy.ts, tests/unit/
+ * economy.test.ts): a careful player reaches level 10 after about 3.4 h of play without ads.
+ * Shards grow by one a level (2, 3, … 10 up to level 10); coins grow mostly with the square
+ * (50, 600, 2170, … 33 010 for 9 → 10), since a careful run already earns hundreds to thousands.
+ */
 export const UPGRADE_SHARDS_BASE = 2;
-export const UPGRADE_SHARDS_PER_LEVEL = 3 / 2;
+export const UPGRADE_SHARDS_PER_LEVEL = 1;
 export const UPGRADE_COINS_BASE = 50;
 export const UPGRADE_COINS_LINEAR = 40;
-export const UPGRADE_COINS_QUAD = 5;
+export const UPGRADE_COINS_QUAD = 510;
 
 /** What going from `level` to `level + 1` costs; null at WEAPON_MAX (or beyond). */
 export function upgradeCost(level: number): { shards: number; coins: number } | null {

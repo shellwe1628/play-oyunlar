@@ -1,0 +1,119 @@
+/**
+ * Chests (pure): fixed odds that the UI prints verbatim, the free chest timer and the run reward
+ * chest. Deterministic: time is a `now` (ms) argument, randomness comes from a seeded `Rng`.
+ *
+ * API choice: `openChest(save, kind, rng)` applies the loot of one chest of that kind and does NOT
+ * touch `arsenal.chests` (the free chest and the run chest are opened straight away and were never
+ * queued). To open a chest waiting in the queue use `openQueuedChest(save, index)`, which removes it
+ * and opens it with `chestRng`.
+ */
+import { createRng, hashSeed, type Rng } from '@oyun/core/pure';
+import type { Arsenal, ChestKind } from './arsenal';
+import type { SaveData } from './meta';
+import type { WeaponId } from './weapons';
+import { WEAPON_IDS } from './weapons';
+
+export interface ChestOdds {
+  /** coins, inclusive range */
+  coins: [number, number];
+  /** shards in one stack, inclusive range */
+  shards: [number, number];
+  /**
+   * chance (0 … 1) that the shard stack goes to the sling instead of a random owned weapon, while
+   * the sling is still locked and chapter 2 has been reached (`save.chapter ≥ 1`)
+   */
+  newWeaponChance: number;
+}
+
+/** Retuned against the economy simulation in Task 14. */
+export const CHEST_ODDS: Record<ChestKind, ChestOdds> = {
+  wood: { coins: [20, 40], shards: [1, 2], newWeaponChance: 0.05 },
+  silver: { coins: [60, 120], shards: [2, 4], newWeaponChance: 0.15 },
+  gold: { coins: [150, 300], shards: [4, 8], newWeaponChance: 0.3 },
+  boss: { coins: [300, 500], shards: [6, 12], newWeaponChance: 0.5 },
+};
+
+export const SLING_UNLOCK_SHARDS = 10;
+export const FREE_CHEST_MS = 4 * 3600_000;
+
+export interface ChestLoot {
+  coins: number;
+  shards: { weapon: WeaponId; n: number }[];
+  /** the weapon this chest unlocked (the sling), or null */
+  unlocked: WeaponId | null;
+}
+
+/** The chest an ended run earns: wood below wave 8, silver from 8, gold from 22. */
+export function runChest(reached: number): ChestKind {
+  return reached >= 22 ? 'gold' : reached >= 8 ? 'silver' : 'wood';
+}
+
+/** Deterministic rng for a save state: same runs, queue length and kind → same loot. */
+export function chestRng(save: SaveData, kind: ChestKind): Rng {
+  return createRng(hashSeed(`okcu-chest-${save.runs}-${save.arsenal.chests.length}-${kind}`));
+}
+
+/** Rolls and applies one chest of `kind` to the save (coins, shards, a possible sling unlock). */
+export function openChest(save: SaveData, kind: ChestKind, rng: Rng): ChestLoot {
+  const odds = CHEST_ODDS[kind];
+  const a = save.arsenal;
+  const coins = rng.int(odds.coins[0], odds.coins[1]);
+  const n = rng.int(odds.shards[0], odds.shards[1]);
+  const slingOpen = save.chapter >= 1 && !a.weapons.sling.owned;
+  let weapon: WeaponId;
+  if (slingOpen && rng.chance(odds.newWeaponChance)) weapon = 'sling';
+  else weapon = rng.pick(WEAPON_IDS.filter((id) => a.weapons[id].owned));
+  save.coins += coins;
+  const w = a.weapons[weapon];
+  w.shards += n;
+  let unlocked: WeaponId | null = null;
+  if (weapon === 'sling' && !w.owned && w.shards >= SLING_UNLOCK_SHARDS) {
+    w.shards -= SLING_UNLOCK_SHARDS;
+    w.owned = true;
+    unlocked = 'sling';
+  }
+  return { coins, shards: [{ weapon, n }], unlocked };
+}
+
+/** Opens (and removes) the queued chest at `index` (default the oldest); null if there is none. */
+export function openQueuedChest(save: SaveData, index = 0): { kind: ChestKind; loot: ChestLoot } | null {
+  const kind = save.arsenal.chests[index];
+  if (kind === undefined) return null;
+  const loot = openChest(save, kind, chestRng(save, kind));
+  save.arsenal.chests.splice(index, 1);
+  return { kind, loot };
+}
+
+/**
+ * Clock skew guard: a `freeChestAt` more than FREE_CHEST_MS ahead of `now` can only come from a clock
+ * moved back, so the timer restarts at now + FREE_CHEST_MS. Returns true if it was reset.
+ */
+export function syncFreeChest(a: Arsenal, now: number): boolean {
+  if (a.freeChestAt - now > FREE_CHEST_MS) {
+    a.freeChestAt = now + FREE_CHEST_MS;
+    return true;
+  }
+  return false;
+}
+
+/** Ms until the free chest is ready: 0 … FREE_CHEST_MS, never negative. Does not change the save. */
+export function freeChestWait(a: Arsenal, now: number): number {
+  return Math.max(0, Math.min(FREE_CHEST_MS, a.freeChestAt - now));
+}
+
+export function freeChestReady(a: Arsenal, now: number): boolean {
+  return freeChestWait(a, now) === 0;
+}
+
+/**
+ * Takes the free chest if ready: wood, or silver when the rewarded ad was watched; the next one is
+ * FREE_CHEST_MS later (a long absence banks one chest, not one per 4 h). Null if not ready.
+ * Returns the kind only; open it with `openChest(save, kind, chestRng(save, kind))`.
+ */
+export function claimFreeChest(save: SaveData, now: number, adWatched: boolean): ChestKind | null {
+  const a = save.arsenal;
+  syncFreeChest(a, now);
+  if (!freeChestReady(a, now)) return null;
+  a.freeChestAt = now + FREE_CHEST_MS;
+  return adWatched ? 'silver' : 'wood';
+}

@@ -107,6 +107,12 @@ describe('arsenal', () => {
     expect(metaOf3d(b)).toMatchObject({ weapon: 'spear', wlevel: 7 });
   });
 
+  it('repair keeps a valid chestsOpened and floors a fractional one', () => {
+    const keep = repairSave({ ...freshSave(), arsenal: { ...freshArsenal(), chestsOpened: 7.9 } }).arsenal;
+    expect(keep.chestsOpened).toBe(7);
+    expect(freshArsenal().chestsOpened).toBe(0);
+  });
+
   it('repairSave fills a missing or corrupt arsenal', () => {
     const missing = repairSave({ best: 2, coins: 5, upgrades: { hp: 0, coins: 0, reroll: 0, starter: 0 } });
     expect({ ...missing.arsenal, migrated: true }).toEqual(freshArsenal());
@@ -132,6 +138,7 @@ describe('arsenal', () => {
       shopDay: '2026-11-21',
       shopBought: [1, 'two', 3.5, -1, 2],
       rankFloor: NaN,
+      chestsOpened: -4,
       migrated: true,
     };
     const r = repairSave({ ...freshSave(), arsenal: bad as unknown as SaveData['arsenal'] }).arsenal;
@@ -148,6 +155,7 @@ describe('arsenal', () => {
     expect(r.shopDay).toBe('2026-11-21');
     expect(r.shopBought).toEqual([1, 2]);
     expect(r.rankFloor).toBe(0);
+    expect(r.chestsOpened).toBe(0);
     expect(r.migrated).toBe(true);
 
     // a selected weapon that is not owned falls back to the bow

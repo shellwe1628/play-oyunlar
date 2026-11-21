@@ -48,9 +48,9 @@ export function runChest(reached: number): ChestKind {
   return reached >= 22 ? 'gold' : reached >= 8 ? 'silver' : 'wood';
 }
 
-/** Deterministic rng for a save state: same runs, queue length and kind → same loot. */
+/** Deterministic rng for a save state: same runs, queue length, chests opened and kind → same loot. */
 export function chestRng(save: SaveData, kind: ChestKind): Rng {
-  return createRng(hashSeed(`okcu-chest-${save.runs}-${save.arsenal.chests.length}-${kind}`));
+  return createRng(hashSeed(`okcu-chest-${save.runs}-${save.arsenal.chests.length}-${save.arsenal.chestsOpened}-${kind}`));
 }
 
 /** Rolls and applies one chest of `kind` to the save (coins, shards, a possible sling unlock). */
@@ -64,6 +64,7 @@ export function openChest(save: SaveData, kind: ChestKind, rng: Rng): ChestLoot 
   if (slingOpen && rng.chance(odds.newWeaponChance)) weapon = 'sling';
   else weapon = rng.pick(WEAPON_IDS.filter((id) => a.weapons[id].owned));
   save.coins += coins;
+  a.chestsOpened += 1;
   const w = a.weapons[weapon];
   w.shards += n;
   let unlocked: WeaponId | null = null;
@@ -108,6 +109,7 @@ export function freeChestReady(a: Arsenal, now: number): boolean {
 /**
  * Takes the free chest if ready: wood, or silver when the rewarded ad was watched; the next one is
  * FREE_CHEST_MS later (a long absence banks one chest, not one per 4 h). Null if not ready.
+ * May change `freeChestAt` even when it returns null (clock-skew reset), so persist the save either way.
  * Returns the kind only; open it with `openChest(save, kind, chestRng(save, kind))`.
  */
 export function claimFreeChest(save: SaveData, now: number, adWatched: boolean): ChestKind | null {

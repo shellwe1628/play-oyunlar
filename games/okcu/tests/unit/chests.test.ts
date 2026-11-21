@@ -43,6 +43,26 @@ describe('chests', () => {
     expect(a.arsenal.weapons.bow.shards).toBe(la.shards.reduce((t, x) => t + x.n, 0));
   });
 
+  it('consecutive free wood chests from the same state roll differently', () => {
+    const s = freshSave();
+    const seen = new Set<string>();
+    for (let i = 0; i < 6; i++) {
+      const kind = claimFreeChest(s, (i + 1) * FREE_CHEST_MS * 2, false)!;
+      expect(kind).toBe('wood');
+      const loot = openChest(s, kind, chestRng(s, kind));
+      seen.add(JSON.stringify(loot));
+    }
+    expect(s.arsenal.chestsOpened).toBe(6);
+    expect(seen.size).toBeGreaterThan(1);
+    // the seed itself differs after each open, and is still deterministic per state
+    const a = freshSave();
+    const b = freshSave();
+    expect(chestRng(a, 'wood').next()).toBe(chestRng(b, 'wood').next());
+    const before = chestRng(a, 'wood').next();
+    openChest(a, 'wood', chestRng(a, 'wood'));
+    expect(chestRng(a, 'wood').next()).not.toBe(before);
+  });
+
   it('openQueuedChest removes the chest from the queue', () => {
     const s = freshSave();
     s.arsenal.chests.push('wood', 'gold');

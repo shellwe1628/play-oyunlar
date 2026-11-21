@@ -17,7 +17,9 @@
 //   ASC_KEY_ID           App Store Connect API key id
 //   ASC_ISSUER_ID        its issuer id
 //   ASC_KEY_PATH         path to the AuthKey_<id>.p8 file (outside the repository)
-// Xcode's automatic signing uses the key to create the App ID, certificate and profile itself.
+// With APPLE_DIST_P12_PATH + APPLE_DIST_P12_PASS (an Apple Distribution .p12) it signs manually:
+// a throwaway keychain and an App Store profile fetched or created through the API. Without them
+// Xcode signs automatically (needs a registered device on the team).
 // Optional: OYUN_BUILD_NUMBER=<n> overrides CFBundleVersion (default: minutes since 2026-01-01,
 // the same rule as Android's versionCode).
 import { execFileSync, spawnSync } from 'node:child_process';
@@ -124,7 +126,72 @@ function preflight() {
   if (!existsSync(key)) fail('ASC_KEY_PATH points to a file that does not exist');
   if (!relative(ROOT, key).startsWith('..')) fail('the App Store Connect key must live outside the repository');
   if (!/^[A-Z0-9]{10}$/.test(process.env.APPLE_TEAM_ID)) fail('APPLE_TEAM_ID must be the 10-character team id');
-  return { key, team: process.env.APPLE_TEAM_ID, keyId: process.env.ASC_KEY_ID, issuer: process.env.ASC_ISSUER_ID };
+  const sign = { key, team: process.env.APPLE_TEAM_ID, keyId: process.env.ASC_KEY_ID, issuer: process.env.ASC_ISSUER_ID };
+  // Manual signing (CI): an Apple Distribution certificate as .p12 + its password. Automatic
+  // signing cannot work on a team with no registered devices (it wants a development profile).
+  if (process.env.APPLE_DIST_P12_PATH) {
+    if (!process.env.APPLE_DIST_P12_PASS) fail('APPLE_DIST_P12_PATH needs APPLE_DIST_P12_PASS');
+    if (!existsSync(process.env.APPLE_DIST_P12_PATH)) fail('APPLE_DIST_P12_PATH points to a file that does not exist');
+    sign.p12 = resolve(process.env.APPLE_DIST_P12_PATH);
+  }
+  return sign;
+}
+
+// ---------------------------------------------------------------- App Store Connect API (manual signing)
+async function ascApi(sign, method, path, payload) {
+  const { createPrivateKey, sign: es } = await import('node:crypto');
+  const b64 = (o) => Buffer.from(JSON.stringify(o)).toString('base64url');
+  const now = Math.floor(Date.now() / 1000);
+  const head = b64({ alg: 'ES256', kid: sign.keyId, typ: 'JWT' });
+  const body = b64({ iss: sign.issuer, iat: now, exp: now + 600, aud: 'appstoreconnect-v1' });
+  const jwt = `${head}.${body}.${es('sha256', Buffer.from(`${head}.${body}`), { key: createPrivateKey(readFileSync(sign.key)), dsaEncoding: 'ieee-p1363' }).toString('base64url')}`;
+  const r = await globalThis.fetch(`https://api.appstoreconnect.apple.com${path}`, { method, headers: { Authorization: `Bearer ${jwt}`, 'Content-Type': 'application/json' }, body: payload ? JSON.stringify(payload) : undefined });
+  const j = await r.json().catch(() => ({}));
+  if (r.status >= 300) fail(`App Store Connect ${method} ${path.split('?')[0]}: ${r.status} ${JSON.stringify(j.errors ?? j).slice(0, 600)}`);
+  return j;
+}
+
+const profileName = (app) => `play-oyunlar ${app.bundleId} App Store`;
+
+/** The App Store profile for this app (created when missing or stale), installed for Xcode. */
+async function installProfile(app, sign) {
+  const ids = await ascApi(sign, 'GET', `/v1/bundleIds?filter[identifier]=${app.bundleId}&filter[platform]=IOS`);
+  const bundle = ids.data.find((b) => b.attributes.identifier === app.bundleId);
+  if (!bundle) fail(`bundle id ${app.bundleId} is not registered in the developer account`);
+  const certs = (await ascApi(sign, 'GET', '/v1/certificates?filter[certificateType]=DISTRIBUTION&limit=50')).data;
+  if (!certs.length) fail('no Apple Distribution certificate in the account');
+  const name = profileName(app);
+  const existing = (await ascApi(sign, 'GET', `/v1/profiles?filter[name]=${encodeURIComponent(name)}&include=certificates&limit=10`)).data;
+  const certIds = new Set(certs.map((c) => c.id));
+  let profile = existing.find((p) => p.attributes.profileState === 'ACTIVE' && p.relationships?.certificates?.data?.some((c) => certIds.has(c.id)));
+  for (const p of existing) if (p !== profile) await ascApi(sign, 'DELETE', `/v1/profiles/${p.id}`);
+  if (!profile) {
+    profile = (
+      await ascApi(sign, 'POST', '/v1/profiles', {
+        data: { type: 'profiles', attributes: { name, profileType: 'IOS_APP_STORE' }, relationships: { bundleId: { data: { type: 'bundleIds', id: bundle.id } }, certificates: { data: certs.map((c) => ({ type: 'certificates', id: c.id })) } } },
+      })
+    ).data;
+  }
+  const dir = join(process.env.HOME, 'Library', 'MobileDevice', 'Provisioning Profiles');
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, `${profile.attributes.uuid}.mobileprovision`), Buffer.from(profile.attributes.profileContent, 'base64'));
+  console.log(`profile "${name}" (${profile.attributes.uuid}) installed`);
+}
+
+/** A throwaway keychain holding the distribution certificate, first in the search list. */
+function installCertificate(sign, work) {
+  const kc = join(work, 'signing.keychain-db');
+  const pw = `kc-${Date.now()}`;
+  rmSync(kc, { force: true });
+  run('security', ['create-keychain', '-p', pw, kc]);
+  run('security', ['set-keychain-settings', '-lut', '21600', kc]);
+  run('security', ['unlock-keychain', '-p', pw, kc]);
+  const r = spawnSync('security', ['import', sign.p12, '-k', kc, '-P', process.env.APPLE_DIST_P12_PASS, '-T', '/usr/bin/codesign', '-T', '/usr/bin/security', '-f', 'pkcs12'], { encoding: 'utf8' });
+  if (r.status !== 0) fail(`security import failed: ${r.stderr}`);
+  run('security', ['set-key-partition-list', '-S', 'apple-tool:,apple:,codesign:', '-s', '-k', pw, kc], { capture: true });
+  const list = run('security', ['list-keychains', '-d', 'user'], { capture: true }).split('\n').map((s) => s.trim().replace(/"/g, '')).filter(Boolean);
+  run('security', ['list-keychains', '-d', 'user', '-s', kc, ...list.filter((k) => k !== kc)]);
+  console.log(run('security', ['find-identity', '-v', '-p', 'codesigning', kc], { capture: true }).trim());
 }
 
 // ---------------------------------------------------------------- web
@@ -242,7 +309,8 @@ function patchNative(app, work, info, sign) {
   if (gc) settings.CODE_SIGN_ENTITLEMENTS = 'App/App.entitlements';
   // Archive straight with the distribution identity: automatic signing with "Apple Development"
   // needs a registered device for its development profile, which a CI-only team never has.
-  if (sign.team) Object.assign(settings, { DEVELOPMENT_TEAM: sign.team, CODE_SIGN_STYLE: 'Automatic', CODE_SIGN_IDENTITY: 'Apple Distribution', 'CODE_SIGN_IDENTITY[sdk=iphoneos*]': 'Apple Distribution' });
+  if (sign.team && sign.p12) Object.assign(settings, { DEVELOPMENT_TEAM: sign.team, CODE_SIGN_STYLE: 'Manual', CODE_SIGN_IDENTITY: 'Apple Distribution', 'CODE_SIGN_IDENTITY[sdk=iphoneos*]': 'Apple Distribution', PROVISIONING_PROFILE_SPECIFIER: profileName(app) });
+  else if (sign.team) Object.assign(settings, { DEVELOPMENT_TEAM: sign.team, CODE_SIGN_STYLE: 'Automatic' });
   const plan = { sources, resources: ['PrivacyInfo.xcprivacy'], plain: gc ? ['App.entitlements'] : [], settings };
   const planFile = join(work, 'project-plan.json');
   writeFileSync(planFile, JSON.stringify(plan, null, 2));
@@ -307,7 +375,7 @@ function verifyAdMob(app, appPath, p) {
 }
 
 // ---------------------------------------------------------------- build
-function xcode(app, work, sign) {
+async function xcode(app, work, sign) {
   const proj = join(work, 'ios', 'App', 'App.xcodeproj');
   const dd = join(work, 'dd');
   const common = ['-project', proj, '-scheme', 'App', '-configuration', 'Release', '-destination', 'generic/platform=iOS', '-derivedDataPath', dd];
@@ -318,12 +386,17 @@ function xcode(app, work, sign) {
   }
   const auth = ['-allowProvisioningUpdates', '-authenticationKeyPath', sign.key, '-authenticationKeyID', sign.keyId, '-authenticationKeyIssuerID', sign.issuer];
   const archive = join(work, 'App.xcarchive');
-  step('xcodebuild archive (automatic signing with the App Store Connect key)');
+  if (sign.p12) {
+    step('signing: distribution certificate + App Store profile');
+    installCertificate(sign, work);
+    await installProfile(app, sign);
+  }
+  step(`xcodebuild archive (${sign.p12 ? 'manual signing, Apple Distribution' : 'automatic signing with the App Store Connect key'})`);
   run('xcodebuild', [...common, ...auth, '-archivePath', archive, 'archive'], { cwd: work });
   const opts = join(work, 'ExportOptions.plist');
   writeFileSync(
     opts,
-    `<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n<plist version="1.0"><dict>\n<key>method</key><string>app-store-connect</string>\n<key>destination</key><string>${UPLOAD ? 'upload' : 'export'}</string>\n<key>teamID</key><string>${sign.team}</string>\n<key>signingStyle</key><string>automatic</string>\n<key>uploadSymbols</key><true/>\n<key>manageAppVersionAndBuildNumber</key><false/>\n</dict></plist>\n`,
+    `<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n<plist version="1.0"><dict>\n<key>method</key><string>app-store-connect</string>\n<key>destination</key><string>${UPLOAD ? 'upload' : 'export'}</string>\n<key>teamID</key><string>${sign.team}</string>\n${sign.p12 ? `<key>signingStyle</key><string>manual</string>\n<key>signingCertificate</key><string>Apple Distribution</string>\n<key>provisioningProfiles</key><dict><key>${app.bundleId}</key><string>${profileName(app)}</string></dict>` : '<key>signingStyle</key><string>automatic</string>'}\n<key>uploadSymbols</key><true/>\n<key>manageAppVersionAndBuildNumber</key><false/>\n</dict></plist>\n`,
   );
   step(UPLOAD ? 'export + upload to App Store Connect' : 'export .ipa');
   const exportDir = join(work, 'export');
@@ -371,7 +444,7 @@ mkdirSync(work, { recursive: true });
 buildWeb(app, work);
 capacitor(app, work);
 patchNative(app, work, info, sign);
-const { appPath, exportDir } = xcode(app, work, sign);
+const { appPath, exportDir } = await xcode(app, work, sign);
 verify(app, appPath, info);
 if (exportDir && !UPLOAD) {
   const ipa = readdirSync(exportDir).find((f) => f.endsWith('.ipa'));

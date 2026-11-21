@@ -94,3 +94,45 @@ export function migrateArsenal(save: SaveData): void {
   a.rankFloor = Math.max(a.rankFloor, progressScore(save).total);
   a.migrated = true;
 }
+
+/** Upgrade cost curve (retuned against the economy simulation in Task 14). */
+export const UPGRADE_SHARDS_BASE = 2;
+export const UPGRADE_SHARDS_PER_LEVEL = 3 / 2;
+export const UPGRADE_COINS_BASE = 50;
+export const UPGRADE_COINS_LINEAR = 40;
+export const UPGRADE_COINS_QUAD = 5;
+
+/** What going from `level` to `level + 1` costs; null at WEAPON_MAX (or beyond). */
+export function upgradeCost(level: number): { shards: number; coins: number } | null {
+  if (!(level >= 1) || level >= WEAPON_MAX) return null;
+  const n = Math.floor(level) - 1;
+  return {
+    shards: UPGRADE_SHARDS_BASE + Math.floor(n * UPGRADE_SHARDS_PER_LEVEL),
+    coins: UPGRADE_COINS_BASE + UPGRADE_COINS_LINEAR * n + UPGRADE_COINS_QUAD * n * n,
+  };
+}
+
+export function canUpgrade(save: SaveData, id: WeaponId): boolean {
+  const w = save.arsenal.weapons[id];
+  if (!w || !w.owned) return false;
+  const c = upgradeCost(w.level);
+  return c !== null && w.shards >= c.shards && save.coins >= c.coins;
+}
+
+/** Guaranteed level-up: spends shards and coins. Returns false (nothing changed) if it cannot. */
+export function upgradeWeapon(save: SaveData, id: WeaponId): boolean {
+  if (!canUpgrade(save, id)) return false;
+  const w = save.arsenal.weapons[id];
+  const c = upgradeCost(w.level)!;
+  w.shards -= c.shards;
+  save.coins -= c.coins;
+  w.level += 1;
+  return true;
+}
+
+/** Selects an owned weapon; false for a locked one. */
+export function selectWeapon(save: SaveData, id: WeaponId): boolean {
+  if (!WEAPON_IDS.includes(id) || !save.arsenal.weapons[id].owned) return false;
+  save.arsenal.selected = id;
+  return true;
+}

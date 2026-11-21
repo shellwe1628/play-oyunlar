@@ -1,7 +1,7 @@
 import { createSaveStore, memoryStorage } from '@oyun/core/pure';
 import { describe, expect, it } from 'vitest';
 import { repairSave, saveOptions, SAVE_VERSION } from '../../src/save';
-import { freshArsenal, migrateArsenal } from '../../src/sim/arsenal';
+import { canUpgrade, freshArsenal, migrateArsenal, selectWeapon, upgradeCost, upgradeWeapon } from '../../src/sim/arsenal';
 import { freshSave, metaOf3d, type SaveData } from '../../src/sim/meta';
 import { progressScore } from '../../src/sim/progress';
 import { WEAPON_IDS, WEAPON_MAX } from '../../src/sim/weapons';
@@ -153,5 +153,66 @@ describe('arsenal', () => {
     // a selected weapon that is not owned falls back to the bow
     const notOwned = repairSave({ ...freshSave(), arsenal: { ...freshArsenal(), selected: 'spear' } }).arsenal;
     expect(notOwned.selected).toBe('bow');
+  });
+});
+
+describe('weapon upgrades', () => {
+  const rich = (): SaveData => {
+    const s = freshSave();
+    s.coins = 100000;
+    s.arsenal.weapons.bow.shards = 1000;
+    return s;
+  };
+
+  it('upgrade spends and always succeeds', () => {
+    expect(upgradeCost(1)).toEqual({ shards: 2, coins: 50 });
+    const s = freshSave();
+    s.coins = 120;
+    s.arsenal.weapons.bow.shards = 5;
+    expect(canUpgrade(s, 'bow')).toBe(true);
+    expect(upgradeWeapon(s, 'bow')).toBe(true);
+    expect(s.arsenal.weapons.bow).toEqual({ owned: true, level: 2, shards: 3 });
+    expect(s.coins).toBe(70);
+    // every level up to the cap succeeds with enough resources, costs grow, null at the cap
+    const r = rich();
+    let prev = upgradeCost(1)!;
+    for (let l = 1; l < WEAPON_MAX; l++) {
+      const c = upgradeCost(l)!;
+      if (l > 1) {
+        expect(c.shards).toBeGreaterThan(prev.shards);
+        expect(c.coins).toBeGreaterThan(prev.coins);
+      }
+      prev = c;
+      expect(upgradeWeapon(r, 'bow')).toBe(true);
+      expect(r.arsenal.weapons.bow.level).toBe(l + 1);
+    }
+    expect(upgradeCost(WEAPON_MAX)).toBeNull();
+  });
+
+  it('cannot upgrade without shards or coins or past 20', () => {
+    const noShards = freshSave();
+    noShards.coins = 1000;
+    const noCoins = freshSave();
+    noCoins.arsenal.weapons.bow.shards = 50;
+    const locked = rich();
+    locked.arsenal.weapons.spear.shards = 50;
+    const maxed = rich();
+    maxed.arsenal.weapons.bow.level = WEAPON_MAX;
+    for (const s of [noShards, noCoins, locked, maxed]) {
+      const id = s === locked ? 'spear' : 'bow';
+      const before = JSON.stringify(s);
+      expect(canUpgrade(s, id)).toBe(false);
+      expect(upgradeWeapon(s, id)).toBe(false);
+      expect(JSON.stringify(s)).toBe(before);
+    }
+  });
+
+  it('cannot select a locked weapon', () => {
+    const s = freshSave();
+    expect(selectWeapon(s, 'spear')).toBe(false);
+    expect(s.arsenal.selected).toBe('bow');
+    s.arsenal.weapons.spear.owned = true;
+    expect(selectWeapon(s, 'spear')).toBe(true);
+    expect(s.arsenal.selected).toBe('spear');
   });
 });

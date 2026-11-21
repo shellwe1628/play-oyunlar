@@ -80,8 +80,12 @@ export function openChest(save: SaveData, kind: ChestKind, rng: Rng): ChestLoot 
 export function openQueuedChest(save: SaveData, index = 0): { kind: ChestKind; loot: ChestLoot } | null {
   const kind = save.arsenal.chests[index];
   if (kind === undefined) return null;
+  const a = save.arsenal;
   const loot = openChest(save, kind, chestRng(save, kind));
-  save.arsenal.chests.splice(index, 1);
+  a.chests.splice(index, 1);
+  // the run chest marker follows the queue: gone if it was this chest, one down if it sat behind it
+  if (a.runChest === index) a.runChest = -1;
+  else if (a.runChest > index) a.runChest -= 1;
   return { kind, loot };
 }
 

@@ -62,6 +62,7 @@ describe('arsenal', () => {
     expect(s.feats).toEqual(['forge25']);
     expect(s.bow.level).toBe(25); // the 2D game's bow stays as it was
     expect(s.arsenal.chests).toEqual(['gold']);
+    expect(s.arsenal.welcome).toBe(true); // the menu presents the welcome chest once
     expect(s.arsenal.selected).toBe('bow');
     expect(s.arsenal.rankFloor).toBe(before);
     expect(s.arsenal.migrated).toBe(true);
@@ -124,6 +125,16 @@ describe('arsenal', () => {
     expect(freshArsenal().chestsOpened).toBe(0);
   });
 
+  it('repair keeps a run chest marker inside the line and the welcome flag while its gold chest waits', () => {
+    const keep = repairSave({ ...freshSave(), arsenal: { ...freshArsenal(), chests: ['gold', 'wood'], runChest: 1, welcome: true } }).arsenal;
+    expect(keep.runChest).toBe(1);
+    expect(keep.welcome).toBe(true);
+    const frac = repairSave({ ...freshSave(), arsenal: { ...freshArsenal(), chests: ['wood'], runChest: 0.5 } }).arsenal;
+    expect(frac.runChest).toBe(-1);
+    expect(freshArsenal().runChest).toBe(-1);
+    expect(freshArsenal().welcome).toBe(false);
+  });
+
   it('repairSave fills a missing or corrupt arsenal', () => {
     const missing = repairSave({ best: 2, coins: 5, upgrades: { hp: 0, coins: 0, reroll: 0, starter: 0 } });
     expect({ ...missing.arsenal, migrated: true }).toEqual(freshArsenal());
@@ -150,6 +161,8 @@ describe('arsenal', () => {
       shopBought: [1, 'two', 3.5, -1, 2],
       rankFloor: NaN,
       chestsOpened: -4,
+      runChest: 5,
+      welcome: true,
       migrated: true,
     };
     const r = repairSave({ ...freshSave(), arsenal: bad as unknown as SaveData['arsenal'] }).arsenal;
@@ -167,6 +180,8 @@ describe('arsenal', () => {
     expect(r.shopBought).toEqual([1, 2]);
     expect(r.rankFloor).toBe(0);
     expect(r.chestsOpened).toBe(0);
+    expect(r.runChest).toBe(-1); // past the end of the line
+    expect(r.welcome).toBe(false); // no gold chest left to present
     expect(r.migrated).toBe(true);
 
     // a selected weapon that is not owned falls back to the bow

@@ -13,14 +13,16 @@ import { CORE_STRINGS, createAudio, createI18n, pickLanguage, webStorage } from 
 import { DRAG_DEAD } from '@okcu/scenes/keys';
 import { SFX } from '@okcu/sfx';
 import { PALETTE } from '@okcu/textures';
-import { canUpgrade } from '@sim/arsenal';
+import { canUpgrade, type ChestKind } from '@sim/arsenal';
 import { bowTier } from '@sim/bow';
 import { CHAPTERS, stageOf, STAGES } from '@sim/chapters';
+import { openQueuedChest } from '@sim/chests';
 import { progressScore, rankOf } from '@sim/progress';
 import { boughtToday } from '@sim/shop';
 import { WEAPON_IDS, WEAPON_MAX } from '@sim/weapons';
 import type { GameEvent, World } from '@sim/world';
 import type { Frame, Game, Module, Stage } from '../contract';
+import { createChestScreen } from './chest';
 import { EASE, el, injectStyle, Label, rerenderLabels, roundButton, setLabelRes, Timers } from './dom';
 import { css, rgba } from './gfx';
 import { createMenus } from './menus';
@@ -58,6 +60,7 @@ export function createHud(stage: Stage, game: Game): Module {
   const cardGroup = el('div', 'ok-group', layer);
   const resultGroup = el('div', 'ok-group', layer);
   const menuGroup = el('div', 'ok-group', layer);
+  const chestGroup = el('div', 'ok-group', layer);
   const toastGroup = el('div', 'ok-group', layer);
   const cornerGroup = el('div', 'ok-group', layer);
 
@@ -306,7 +309,29 @@ export function createHud(stage: Stage, game: Game): Module {
     },
     toast: (head, sub) => queueToast(head, sub, PALETTE.gold),
     changed: () => syncBadges(),
+    chest: (p) => chests.play(p),
   });
+  // the chest opening (chest.ts): over the menu and the result card, under the toasts
+  const chests = createChestScreen(ui, chestGroup, { toast: (head, sub) => queueToast(head, sub, PALETTE.gold) });
+  /** the run chest the result card offers: still where `grantRunChest` put it, unopened */
+  const runChestWaiting = (): ChestKind | null => {
+    const a = game.save.data.arsenal;
+    return a.runChest >= 0 ? (a.chests[a.runChest] ?? null) : null;
+  };
+  /** the migration's welcome gold chest, presented once when the menu first comes up */
+  function welcome(): void {
+    if (!game.save.data.arsenal.welcome || chests.shown || game.testRun || !shell.shown) return;
+    chests.play({
+      take: (d) => {
+        d.arsenal.welcome = false;
+        const i = d.arsenal.chests.indexOf('gold');
+        return i >= 0 ? openQueuedChest(d, i) : null;
+      },
+      title: t('chest.welcome'),
+      sub: t('chest.welcomeSub'),
+      done: (before) => shell.opened(before),
+    });
+  }
 
   /** the tab bar's red badges, from the save */
   function syncBadges(): void {
@@ -346,6 +371,11 @@ export function createHud(stage: Stage, game: Game): Module {
     },
     upgrades: () => titleOn('weapons'),
     shop: () => titleOn('shop'),
+    runChest: runChestWaiting,
+    openRunChest: () => {
+      if (!runChestWaiting()) return false;
+      return chests.play({ take: (d) => (d.arsenal.runChest >= 0 ? openQueuedChest(d, d.arsenal.runChest) : null) });
+    },
     home: () => game.toTitle(),
     ranks: () => {
       if (!menus.ceremonyOpen) menus.openRanks('result');
@@ -895,6 +925,7 @@ export function createHud(stage: Stage, game: Game): Module {
         shellQuiet = false;
         shellTab = 'home';
         syncBadges();
+        if (game.save.data.arsenal.welcome) later(0.7, () => welcome());
       } else if (!wantShell && shell.shown) shell.hide();
       // a menu screen replaces the title (the 2D game switches scenes)
       const vis = menus.open ? 'hidden' : '';

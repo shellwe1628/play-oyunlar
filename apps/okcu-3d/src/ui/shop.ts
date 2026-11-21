@@ -3,7 +3,7 @@
  *
  * - offers: the day's three weapon-shard offers (`dailyOffers`, snapshotted for the day; bought ones
  *   show "Bought") with the time left until they change at local midnight; the two chests sold for
- *   coins (`buyChest`, queued like every chest) with the odds sheet that prints `CHEST_ODDS` exactly
+ *   coins (`buyChest` queues one, which then opens at once on the chest screen) with the odds sheet that prints `CHEST_ODDS` exactly
  *   as the roll uses them; and "▶ AD: +X coins" (`ui.rewarded('shop_coins')`, `grantAdCoins`), gone
  *   once the day's three are used
  * - looks: the archer's looks (the old full-screen shop's): a preview with wear / buy, and the grid;
@@ -19,12 +19,13 @@ import { drawCoin } from '@okcu/scenes/icons';
 import { SFX } from '@okcu/sfx';
 import { PALETTE } from '@okcu/textures';
 import { powerOf, type ChestKind } from '@sim/arsenal';
-import { CHEST_ODDS, SLING_UNLOCK_SHARDS } from '@sim/chests';
+import { CHEST_ODDS, openQueuedChest, SLING_UNLOCK_SHARDS } from '@sim/chests';
 import { COSMETICS, cosmeticById, isUnlocked, type SaveData } from '@sim/meta';
 import { unlockFeats } from '@sim/progress';
 import { adCoins, AD_COINS_PER_DAY, boughtToday, buyChest, buyCosmetic, buyOffer, CHEST_PRICE, COSMETIC_PRICE, dailyOffers, grantAdCoins } from '@sim/shop';
 import { WEAPON_MAX } from '@sim/weapons';
 import { BOSS_KINDS } from '@sim/world';
+import type { ChestTake } from './chest';
 import { calmMotion, EASE, el, fitText, iconCanvas, mix, pressable, TAB_BAR_H } from './dom';
 import { css, type Gfx, rgba } from './gfx';
 import { todayKey } from './save';
@@ -37,8 +38,10 @@ export type ShopView = 'offers' | 'looks';
 export interface ShopHooks {
   /** the save changed here: `power` is the POWER before the change (the shell updates the top bar from it) */
   changed: (power: number) => void;
-  /** good news at the top (a chest bought, ad coins, an achievement) */
+  /** good news at the top (an offer bought, ad coins, an achievement) */
   toast: (head: string, sub: string) => void;
+  /** open a chest now (chest.ts): `take` applies it to the save; false when it gave nothing */
+  chest: (take: ChestTake) => boolean;
 }
 
 export interface ShopPane {
@@ -288,7 +291,7 @@ export function createShopPane(ui: Ui, pane: HTMLElement, top: number, bot: numb
       iconCanvas(c2, 22, 24, (g) => drawShard(g, 11, 12, 0.72));
       el('em', '', c2).textContent = `${od.shards[0]}–${od.shards[1]}`;
       const cost = CHEST_PRICE[kind];
-      const b = btn(c, 'p', d.coins >= cost, () => buyChestKind(kind, c));
+      const b = btn(c, 'p', d.coins >= cost, () => buyChestKind(kind));
       b.dataset.testid = `shop-chest-${kind}`;
       price(b, cost, d.coins >= cost, 28);
     }
@@ -346,26 +349,14 @@ export function createShopPane(ui: Ui, pane: HTMLElement, top: number, bot: numb
     feats(got);
   }
 
-  function buyChestKind(kind: 'silver' | 'gold', card: HTMLElement): void {
-    const before = powerOf(save.data);
-    let ok = false;
-    let n = 0;
-    save.update((d) => {
-      ok = buyChest(d, kind);
-      n = d.arsenal.chests.length;
-    });
-    if (!ok) {
+  function buyChestKind(kind: 'silver' | 'gold'): void {
+    // paid for and opened in one go: the chest the buy queued (the last in the line) opens on the chest screen
+    const opened = hooks.chest((d) => (buyChest(d, kind) ? openQueuedChest(d, d.arsenal.chests.length - 1) : null));
+    if (!opened) {
       ui.audio.playPreset(SFX.cancel);
       return;
     }
-    ui.audio.playPreset(SFX.loot);
     render(false);
-    void card;
-    const again = body.querySelector<HTMLElement>(`[data-testid="shop-chest-${kind}"]`)?.parentElement;
-    if (again) pulse(again);
-    hooks.changed(before);
-    // the chest opening comes with its own screen; until then the chest waits in the line
-    hooks.toast(t('shop.chestGot'), t('shell.chestQueued', { k: t(`chest.${kind}`), n }));
   }
 
   async function watchAd(ad: HTMLElement): Promise<void> {
@@ -641,7 +632,7 @@ export function createShopPane(ui: Ui, pane: HTMLElement, top: number, bot: numb
 
 // ---------------------------------------------------------------------------- drawings
 
-const CHEST_LOOK: Record<ChestKind, { lid: number; body: number; band: number; lock: number }> = {
+export const CHEST_LOOK: Record<ChestKind, { lid: number; body: number; band: number; lock: number }> = {
   wood: { lid: 0xc47e3e, body: 0x8a4f22, band: PALETTE.gold, lock: PALETTE.gold },
   silver: { lid: 0xd3dcec, body: 0x8f9bb8, band: 0xf6f9ff, lock: 0x58a6ff },
   gold: { lid: 0xffd84f, body: 0xe39a1c, band: 0xfff4c2, lock: 0xff6f9a },

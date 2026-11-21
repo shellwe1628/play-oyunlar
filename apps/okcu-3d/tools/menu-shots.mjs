@@ -16,7 +16,9 @@
 // the Events tab (events; events-fresh; events-done), the free chest's choice (free-chest), the
 // Weapons tab (weapons: the selected bow; weapons-fresh; weapons-detail: the crossbow; weapons-up:
 // the boomerang, ready to level up; weapons-locked: the sling's shards; weapons-archer: the
-// archer's upgrades) and the screen the Ranks tab opens.
+// archer's upgrades), the screen the Ranks tab opens, and the chest opening (chest-*: frames of the
+// pile's gold chest frozen mid-way: chest-shake, chest-lid, chest-coins, chest-shards, chest-summary;
+// chest-reveal: the welcome gift unlocking the sling; chest-calm*: ?fx=0, the instant summary).
 // PNGs go to <repo>/build/menu-shots/okcu3d-<tab>-<size>-<lang>.png. One browser, one page at a time.
 import { mkdirSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
@@ -41,7 +43,7 @@ const browser = await chromium.launch({ args: ['--enable-unsafe-swiftshader', '-
 const errors = [];
 
 /** Open the app with `save` (a SaveData, or null for none) in localStorage; resolves once the title is up. */
-async function open(size, lang, save) {
+async function open(size, lang, save, extra = {}) {
   const [w, h] = size.split('x').map(Number);
   const context = await browser.newContext({ viewport: { width: w, height: h }, deviceScaleFactor: 2, hasTouch: false, locale: lang === 'tr' ? 'tr-TR' : 'en-US' });
   const page = await context.newPage();
@@ -58,6 +60,7 @@ async function open(size, lang, save) {
   );
   const q = new URLSearchParams({ lang, seed: '3' });
   if (SAFE[size]) q.set('safe', SAFE[size]);
+  for (const [k, v] of Object.entries(extra)) q.set(k, v);
   await page.goto(`${url}?${q}`, { waitUntil: 'load' });
   await page.waitForFunction(() => window.__okcu3d?.ready === true && window.__okcu3d.frames > 4, null, { timeout: 90_000 });
   await page.evaluate(() => document.fonts.ready);
@@ -89,6 +92,40 @@ async function freshEnvelope() {
 }
 
 const fresh = await freshEnvelope();
+
+/**
+ * The welcome gift that unlocks the sling: a migrated player in chapter 4 with 9 sling shards and the
+ * welcome gold chest; `runs` is searched (with the game's own chest roll, served by the dev server)
+ * until that chest's shards go to the sling.
+ */
+async function revealEnvelope() {
+  const env = structuredClone(fresh);
+  const d = env.data;
+  d.chapter = 3;
+  d.coins = 2400;
+  d.bosses = d.bosses.map((_, i) => (i < 3 ? 1 : 0));
+  for (const id of ['crossbow', 'spear', 'boomerang']) d.arsenal.weapons[id].owned = true;
+  d.arsenal.weapons.sling = { owned: false, level: 1, shards: 9 };
+  d.arsenal.chests = ['gold'];
+  d.arsenal.welcome = true;
+  const { page, context } = await open('360x640', 'en', null);
+  const sim = encodeURI(`/@fs/${resolve(repo, 'games/okcu/src/sim/chests.ts').replace(/\\/g, '/')}`);
+  d.runs = await page.evaluate(
+    async ({ save, path }) => {
+      const m = await import(/* @vite-ignore */ path);
+      for (let runs = 0; runs < 500; runs++) {
+        const s = structuredClone(save);
+        s.runs = runs;
+        if (m.openQueuedChest(s, 0)?.loot.unlocked === 'sling') return runs;
+      }
+      return 0;
+    },
+    { save: d, path: sim },
+  );
+  await context.close();
+  return env;
+}
+
 const progressed = structuredClone(fresh);
 {
   const d = progressed.data;
@@ -116,6 +153,7 @@ const progressed = structuredClone(fresh);
   d.dailyDone = today(-1);
   d.dailyStreak = 2;
 }
+const reveal = ONLY && !ONLY.some((x) => x.startsWith('chest-reveal') || x.startsWith('chest-calm-')) ? null : await revealEnvelope();
 const done = structuredClone(progressed);
 {
   const d = done.data;
@@ -150,15 +188,32 @@ const plan = [
   { tab: 'weapons-locked', save: progressed, go: ['tab-weapons', 'weapon-card-sling'] },
   { tab: 'weapons-archer', save: progressed, go: ['tab-weapons', 'archer-card'] },
   { tab: 'ranks', save: progressed, go: ['tab-ranks'] },
+  // the chest opening, frozen mid-way (ms after the tap on the chest pile)
+  { tab: 'chest-shake', save: progressed, go: ['shell-pile'], wait: 1250 },
+  { tab: 'chest-lid', save: progressed, go: ['shell-pile'], wait: 2080 },
+  { tab: 'chest-coins', save: progressed, go: ['shell-pile'], wait: 2550 },
+  { tab: 'chest-shards', save: progressed, go: ['shell-pile'], wait: 3500 },
+  { tab: 'chest-summary', save: progressed, go: ['shell-pile'], wait: 7000 },
+  { tab: 'chest-reveal', save: reveal, wait: 7600 },
+  // reduced motion (?fx=0): the summary at once; the welcome gift's reveal, still, then its summary
+  { tab: 'chest-calm', save: progressed, query: { fx: '0' }, go: ['shell-pile'], wait: 300 },
+  { tab: 'chest-calm-reveal', save: reveal, query: { fx: '0' }, wait: 1500 },
+  { tab: 'chest-calm-summary', save: reveal, query: { fx: '0' }, wait: 1500, then: ['chest-reveal-ok'] },
 ].filter((p) => !ONLY || ONLY.includes(p.tab));
 
 for (const size of SIZES) {
   for (const lang of LANGS) {
     for (const p of plan) {
-      const { page, context } = await open(size, lang, p.save);
+      const { page, context } = await open(size, lang, p.save, p.query);
       for (const id of p.go ?? []) {
         await tap(page, id);
-        await page.waitForTimeout(900);
+        await page.waitForTimeout(p.wait ?? 900);
+      }
+      // (a welcome gift opens by itself a beat after the menu)
+      if (!p.go && p.wait) await page.waitForTimeout(p.wait);
+      for (const id of p.then ?? []) {
+        await tap(page, id);
+        await page.waitForTimeout(400);
       }
       await shot(page, p.tab, size, lang);
       await context.close();

@@ -23,6 +23,13 @@ export interface Arsenal {
   weapons: Record<WeaponId, WeaponState>;
   /** unopened chests, oldest first */
   chests: ChestKind[];
+  /**
+   * where in `chests` the last run-end chest waits (`grantRunChest`), -1 when it was opened (or none):
+   * a revived run upgrades exactly that chest. `openQueuedChest` keeps it in step with the queue.
+   */
+  runChest: number;
+  /** the migration's welcome gold chest has not been presented yet (the menu shows it once, then clears this) */
+  welcome: boolean;
   /** time (ms) the next free chest is ready; 0 = ready now */
   freeChestAt: number;
   /** ad coins: the day key and how many were taken that day */
@@ -51,7 +58,7 @@ export const DAY_FORMAT = /^\d{4}-\d{2}-\d{2}$/;
 export function freshArsenal(): Arsenal {
   const weapons = {} as Record<WeaponId, WeaponState>;
   for (const id of WEAPON_IDS) weapons[id] = { owned: id === 'bow', level: 1, shards: 0 };
-  return { selected: 'bow', weapons, chests: [], freeChestAt: 0, adCoinsDay: '', adCoinsUsed: 0, shopDay: '', shopBought: [], shopOffers: [], boughtLooks: [], rankFloor: 0, migrated: true, chestsOpened: 0, celestial: false };
+  return { selected: 'bow', weapons, chests: [], runChest: -1, welcome: false, freeChestAt: 0, adCoinsDay: '', adCoinsUsed: 0, shopDay: '', shopBought: [], shopOffers: [], boughtLooks: [], rankFloor: 0, migrated: true, chestsOpened: 0, celestial: false };
 }
 
 const obj = (v: unknown): Record<string, unknown> => (typeof v === 'object' && v !== null && !Array.isArray(v) ? (v as Record<string, unknown>) : {});
@@ -76,6 +83,8 @@ export function repairArsenal(v: unknown): Arsenal {
   const sel = a.selected as WeaponId;
   base.selected = WEAPON_IDS.includes(sel) && base.weapons[sel].owned ? sel : 'bow';
   base.chests = Array.isArray(a.chests) ? a.chests.filter((c): c is ChestKind => CHEST_KINDS.includes(c as ChestKind)) : [];
+  base.runChest = Number.isInteger(a.runChest) && (a.runChest as number) >= 0 && (a.runChest as number) < base.chests.length ? (a.runChest as number) : -1;
+  base.welcome = a.welcome === true && base.chests.includes('gold');
   base.freeChestAt = nat(a.freeChestAt);
   base.adCoinsDay = dayStr(a.adCoinsDay);
   base.adCoinsUsed = nat(a.adCoinsUsed);
@@ -117,6 +126,7 @@ export function migrateArsenal(save: SaveData): void {
   // the sky boss (chapter index 5) beaten before the arsenal: its celestial look comes along
   if ((save.bosses[CHAPTERS - 1] ?? 0) > 0) a.celestial = true;
   a.chests.push('gold');
+  a.welcome = true;
   a.migrated = true;
 }
 

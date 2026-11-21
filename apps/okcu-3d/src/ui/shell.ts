@@ -14,7 +14,9 @@
  * A change made in the Weapons pane (an upgrade, a selection) needs a new world before the next run
  * (its levels are fixed when the world is made): leaving the tab asks for one (`ShellHooks.rebuild`).
  * The free chest side button offers the wooden chest at once, or a silver one for a rewarded ad
- * (`ui.rewarded('free_chest')`; no ad, or a cancelled one, still gives the wooden chest).
+ * (`ui.rewarded('free_chest')`; no ad, or a cancelled one, still gives the wooden chest); the chest
+ * then opens right away (chest.ts, `ShellHooks.chest`). The chest pile on the right (shown with a
+ * count while chests wait in `arsenal.chests`) opens the line, oldest first.
  * Tabs switch with a tap or a horizontal swipe on the tab bar (and on the panes); a drag on
  * the open sky of the Home tab still draws the bow, as before.
  *
@@ -23,13 +25,13 @@
  */
 import { drawBadge } from '@okcu/scenes/gear';
 import { drawCoin } from '@okcu/scenes/icons';
-import { SFX } from '@okcu/sfx';
 import { PALETTE } from '@okcu/textures';
 import { powerOf } from '@sim/arsenal';
-import { claimFreeChest, freeChestWait } from '@sim/chests';
+import { chestRng, claimFreeChest, freeChestWait, openChest, openQueuedChest } from '@sim/chests';
 import type { ChestKind } from '@sim/arsenal';
 import type { SaveData } from '@sim/meta';
 import { progressScore, RANKS, rankOf } from '@sim/progress';
+import type { ChestPlay } from './chest';
 import { calmMotion, EASE, el, fitText, iconCanvas, mix, pressable, roundButton, TAB_BAR_H } from './dom';
 import { createEventsPane, type EventsPane } from './events';
 import { css, Gfx, rgba } from './gfx';
@@ -54,6 +56,8 @@ export interface ShellHooks {
   toast: (head: string, sub: string) => void;
   /** the shell changed the save (a free chest claimed, a weapon levelled, a buy): the badges again */
   changed: () => void;
+  /** open a chest (chest.ts): false when there was nothing to open */
+  chest: (p: ChestPlay) => boolean;
 }
 
 export interface Shell {
@@ -69,6 +73,8 @@ export interface Shell {
   relayout(): void;
   /** the tab that was up before the full-screen tab (Ranks) opened: where closing it returns */
   readonly returnTab: TabId;
+  /** a chest opened from outside the shell (the welcome gift): POWER counts up from `before`, the pile and badges follow */
+  opened(before: number): void;
 }
 
 const INK = PALETTE.ink;
@@ -177,8 +183,10 @@ export function createShell(ui: Ui, parent: HTMLElement, hooks: ShellHooks): She
   let paneTop = 0;
   let paneBot = 1280;
   let dailyDot: HTMLElement | null = null;
-  /** the side buttons (they belong to Home: away while Events is up) */
-  let sideParts: HTMLElement[] = [];
+  /** the side buttons (they belong to Home: away on the other tabs); `dir` the side they leave by */
+  let sideParts: { p: HTMLElement; dir: number }[] = [];
+  /** the chest pile's refresh (the count; hidden with none waiting) */
+  let refreshPile: (() => void) | null = null;
 
   const tabX = (id: TabId): { x: number; w: number } => {
     const i = TAB_IDS.indexOf(id);
@@ -206,6 +214,7 @@ export function createShell(ui: Ui, parent: HTMLElement, hooks: ShellHooks): She
     window.cancelAnimationFrame(countUp);
     sel = events = weapons = shop = dailyDot = powerEl = coinsEl = chipEl = weaponsMed = chestSheet = null;
     sideParts = [];
+    refreshPile = null;
   }
 
   function resetHome(): void {
@@ -359,7 +368,40 @@ export function createShell(ui: Ui, parent: HTMLElement, hooks: ShellHooks): She
       ui.audio.play('tap');
       select('events', true);
     });
-    sideParts = [chestP, dailyP];
+    // the chest pile, right edge on the daily's row: the chests waiting in the line, with their count
+    const pileP = part(root, 644, sideY + 176, 'translateX(200px)', 200, quiet);
+    const pile = el('div', 'ok-s-side', pileP);
+    pile.dataset.testid = 'shell-pile';
+    const pilePlank = el('div', 'ok-s-plank', pile);
+    let pileIcon: HTMLCanvasElement | null = null;
+    el('span', '', el('div', 'lbl', pile)).textContent = t('chest.pile');
+    const pileDot = el('div', 'ok-s-dot', pile);
+    refreshPile = (): void => {
+      const q = ui.game.save.data.arsenal.chests;
+      pileP.style.display = q.length > 0 ? '' : 'none';
+      pileDot.textContent = q.length > 99 ? '99+' : String(q.length);
+      pile.setAttribute('aria-label', t('chest.pileAria', { n: q.length }));
+      // the oldest chest (the next to open) on top, a second one peeking behind when there are more
+      const kind = q[0] ?? null;
+      const key = kind && q.length > 1 ? `${kind}+${q[1]}` : kind;
+      if (kind === null || key === (pileIcon?.dataset.k ?? null)) return;
+      pileIcon?.remove();
+      pileIcon = iconCanvas(pilePlank, 112, 112, (g) => {
+        if (q.length > 1) drawChestIcon(g, q[1]!, 64, 50, 0.78);
+        drawChestIcon(g, kind, 52, 66, 1);
+      });
+      pileIcon.dataset.k = key ?? '';
+    };
+    refreshPile();
+    pressable(pile, () => root !== null && chestSheet === null, ui.unlock, () => {
+      ui.audio.play('tap');
+      openLine();
+    });
+    sideParts = [
+      { p: chestP, dir: -1 },
+      { p: dailyP, dir: -1 },
+      { p: pileP, dir: 1 },
+    ];
 
     // ---- tab bar along the bottom edge
     const tabP = part(root, 0, bot - TAB_BAR_H, `translateY(${TAB_BAR_H + 80}px)`, 60, quiet);
@@ -461,22 +503,38 @@ export function createShell(ui: Ui, parent: HTMLElement, hooks: ShellHooks): She
       busy = false;
       wood.classList.remove('off');
       silver.classList.remove('off');
-      const got: { kind: ChestKind | null; n: number } = { kind: null, n: 0 };
-      // claimFreeChest may move the timer even when it says no (a clock moved back): persist either way
-      ui.game.save.update((d) => {
-        got.kind = claimFreeChest(d, Date.now(), watched);
-        if (got.kind) d.arsenal.chests.push(got.kind);
-        got.n = d.arsenal.chests.length;
-      });
       close();
+      // claimed and opened in one go (never queued); claimFreeChest may move the timer even when it
+      // says no (a clock moved back), and the chest screen's update persists either way
+      const opened = hooks.chest({
+        take: (d) => {
+          const kind = claimFreeChest(d, Date.now(), watched);
+          return kind ? { kind, loot: openChest(d, kind, chestRng(d, kind)) } : null;
+        },
+        done: (before) => afterChest(before),
+      });
       if (root) refresh();
-      if (!got.kind) return;
-      // the chest opening comes with its own screen; until then the chest waits in the line
-      ui.audio.playPreset(SFX.loot);
+      if (!opened) return;
       if (root && !calm) plank.animate([{ transform: 'scale(1.35) rotate(-8deg)' }, { transform: 'scale(0.9) rotate(4deg)', offset: 0.5 }, { transform: 'none' }], { duration: 520, easing: EASE.backOut });
-      hooks.toast(t('shell.chestGot'), t('shell.chestQueued', { k: t(`chest.${got.kind}`), n: got.n }));
-      hooks.changed();
     }
+  }
+
+  /** the line of waiting chests, oldest first, one after another */
+  function openLine(): void {
+    const take: ChestPlay['take'] = (d) => openQueuedChest(d, 0);
+    hooks.chest({ take, more: { take, left: (d) => d.arsenal.chests.length }, done: (before) => afterChest(before) });
+  }
+
+  /** a chest was opened: the top bar counts up, the pile and the panes show the new save */
+  function afterChest(before: number): void {
+    bump(before);
+    refreshPile?.();
+    shopPane?.refresh();
+    if (tab !== 'weapons') {
+      weaponsPane?.destroy();
+      weaponsPane = null;
+    }
+    hooks.changed();
   }
 
   function paintBadge(id: TabId, n: number | '!'): void {
@@ -529,10 +587,10 @@ export function createShell(ui: Ui, parent: HTMLElement, hooks: ShellHooks): She
 
   /** the side buttons in (Home) or out (the other tabs) */
   function sides(on: boolean, animate: boolean): void {
-    sideParts.forEach((p, i) => {
+    sideParts.forEach(({ p, dir }, i) => {
       for (const a of p.getAnimations()) a.cancel();
       p.style.visibility = '';
-      const out = [{ transform: 'none', opacity: 1 }, { transform: 'translateX(-200px)', opacity: 0 }];
+      const out = [{ transform: 'none', opacity: 1 }, { transform: `translateX(${dir * 200}px)`, opacity: 0 }];
       if (!animate || calm) {
         p.style.visibility = on ? '' : 'hidden';
         return;
@@ -602,6 +660,7 @@ export function createShell(ui: Ui, parent: HTMLElement, hooks: ShellHooks): She
       hooks.changed();
     },
     toast: (head: string, sub: string) => hooks.toast(head, sub),
+    chest: (take: ChestPlay['take']) => hooks.chest({ take, done: (before) => afterChest(before) }),
   };
 
   /** the top bar after a change: POWER counts up from `before`, the coins follow, the Weapons medallion shows the selected weapon */
@@ -684,6 +743,9 @@ export function createShell(ui: Ui, parent: HTMLElement, hooks: ShellHooks): She
       for (const e of Array.from(r.querySelectorAll<HTMLElement>('[data-ui]'))) e.removeAttribute('data-ui');
       const a = r.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 220, easing: EASE.cubicIn, fill: 'forwards' });
       a.onfinish = () => r.remove();
+    },
+    opened(before) {
+      afterChest(before);
     },
     relayout() {
       if (!root) return;

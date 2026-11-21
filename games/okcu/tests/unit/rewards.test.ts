@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { freshArsenal, repairArsenal } from '../../src/sim/arsenal';
+import { openQueuedChest } from '../../src/sim/chests';
 import { freshSave, newBank } from '../../src/sim/meta';
 import { dailyChallenge } from '../../src/sim/progress';
 import { bankDailyChest, grantBossReward, grantFirstBossRewards, grantRunChest, SKY_CHAPTER } from '../../src/sim/rewards';
@@ -90,6 +91,36 @@ describe('run chest', () => {
     s.arsenal.chests.length = 0; // opened between the death and the revive
     expect(grantRunChest(s, b, 9)).toBeNull();
     expect(s.arsenal.chests).toEqual([]);
+  });
+
+  it('the run chest opened before the revive: another queued chest of the same kind is never upgraded', () => {
+    const s = freshSave();
+    s.arsenal.chests.push('wood'); // an older wooden chest, still waiting
+    const b = newBank(s);
+    expect(grantRunChest(s, b, 3)).toBe('wood');
+    expect(s.arsenal.runChest).toBe(1);
+    // the result screen opens the run chest (exactly that one), then the run is revived and gets further
+    expect(openQueuedChest(s, s.arsenal.runChest)?.kind).toBe('wood');
+    expect(s.arsenal.runChest).toBe(-1);
+    expect(grantRunChest(s, b, 9)).toBeNull();
+    expect(s.arsenal.chests).toEqual(['wood']);
+  });
+
+  it('the run chest marker follows the line when an older chest is opened', () => {
+    const s = freshSave();
+    s.arsenal.chests.push('wood', 'gold');
+    const b = newBank(s);
+    grantRunChest(s, b, 4); // wood at index 2
+    s.arsenal.chests.push('gold'); // the daily chest after it
+    openQueuedChest(s, 0); // the older wooden chest
+    expect(s.arsenal.runChest).toBe(1);
+    expect(grantRunChest(s, b, 9)).toBe('silver');
+    expect(s.arsenal.chests).toEqual(['gold', 'silver', 'gold']);
+    // a chest behind it opened: the marker stays
+    openQueuedChest(s, 2);
+    expect(s.arsenal.runChest).toBe(1);
+    expect(grantRunChest(s, b, 25)).toBe('gold');
+    expect(s.arsenal.chests).toEqual(['gold', 'gold']);
   });
 });
 

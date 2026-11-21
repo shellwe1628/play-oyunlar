@@ -6,6 +6,7 @@
  * build's rewards (sim/rewards): a run-end chest at death, a boss chest (and weapon) for each
  * chapter boss beaten the first time, a gold chest for the daily goal instead of its coins.
  */
+import type { ChestKind } from '@sim/arsenal';
 import { stageOf } from '@sim/chapters';
 import { bankProgress, bankStart, runOutcome } from '@sim/meta';
 import { bankRecords, FEATS, unlockFeats } from '@sim/progress';
@@ -43,6 +44,8 @@ export interface RunResult {
   /** the bests of this run (the 3D result already showed them) */
   streakBest: number;
   chainBest: number;
+  /** the run-end chest this run queued (the result card offers to open it), null for none */
+  chest: ChestKind | null;
 }
 
 export interface Tracker {
@@ -132,6 +135,7 @@ export function createTracker(game: Game, onFeat: (id: string, coins: number) =>
         startRank: b?.startRank ?? save.rank,
         streakBest: w.run.streakBest,
         chainBest: w.run.chainBest,
+        chest: b?.chest ?? null,
       };
     },
   };

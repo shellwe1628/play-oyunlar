@@ -44,21 +44,24 @@ export function grantFirstBossRewards(save: SaveData, before: readonly number[])
 }
 
 /**
- * The run-end chest: queues `runChest(reached)` the first time this run ends. A revived run ends
- * again: a better chest then replaces the one it queued (if still unopened); otherwise nothing.
- * Returns the kind queued or upgraded to, null when nothing changed.
+ * The run-end chest: queues `runChest(reached)` the first time this run ends and marks where it
+ * waits (`arsenal.runChest`). A revived run ends again: a better chest then replaces exactly that
+ * chest if it is still unopened (another chest of the same kind elsewhere in the line is never
+ * touched); once it was opened, nothing. Returns the kind queued or upgraded to, null when nothing changed.
  */
 export function grantRunChest(save: SaveData, bank: RunBank, reached: number): ChestKind | null {
   const kind = runChest(reached);
-  const q = save.arsenal.chests;
+  const a = save.arsenal;
+  const q = a.chests;
   if (bank.chest === null) {
     q.push(kind);
+    a.runChest = q.length - 1;
     bank.chest = kind;
     return kind;
   }
   if (RUN_CHEST_ORDER.indexOf(kind) <= RUN_CHEST_ORDER.indexOf(bank.chest)) return null;
-  const at = q.lastIndexOf(bank.chest);
-  if (at < 0) return null;
+  const at = a.runChest;
+  if (at < 0 || q[at] !== bank.chest) return null;
   q[at] = kind;
   bank.chest = kind;
   return kind;

@@ -9,15 +9,17 @@ import { drawBadge } from '@okcu/scenes/gear';
 import { drawCardIcon } from '@okcu/scenes/icons';
 import { SFX } from '@okcu/sfx';
 import { PALETTE } from '@okcu/textures';
+import type { ChestKind } from '@sim/arsenal';
 import { bowTier } from '@sim/bow';
 import { countCards, synergyFor, type CardId, type SynergyId } from '@sim/cards';
 import { CHAPTERS } from '@sim/chapters';
 import { progressScore, RANKS, rankOf } from '@sim/progress';
 import type { World } from '@sim/world';
 import type { Game, Stage } from '../contract';
-import { button, EASE, el, Label, pressable, roundButton, Sketch, type ButtonHandle } from './dom';
+import { button, calmMotion, EASE, el, fitText, iconCanvas, Label, pressable, roundButton, Sketch, type ButtonHandle } from './dom';
 import { Gfx } from './gfx';
 import type { RunResult } from './progress';
+import { drawChestIcon } from './shop';
 
 export type T = (key: string, params?: Readonly<Record<string, string | number>>) => string;
 
@@ -287,6 +289,10 @@ export interface ResultHooks {
   shop: () => void;
   home: () => void;
   ranks: () => void;
+  /** the run's chest, while it still waits unopened (null: none, or opened) */
+  runChest: () => ChestKind | null;
+  /** open the run's chest on the chest screen; false when it was not there any more */
+  openRunChest: () => boolean;
 }
 
 export function createResult(ui: Ui, parent: HTMLElement, hooks: ResultHooks): ResultScreen {
@@ -469,6 +475,27 @@ export function createResult(ui: Ui, parent: HTMLElement, hooks: ResultHooks): R
       const zone = el('div', '', root);
       zone.style.cssText = 'position:absolute;left:510px;top:9px;width:180px;height:150px;pointer-events:auto;cursor:pointer';
       pressable(zone, () => true, ui.unlock, tap(hooks.ranks));
+      // top centre: the run's chest, "Open!" (left closed, it waits in the Home tab's chest pile)
+      const kind = r.chest ? hooks.runChest() : null;
+      if (kind) {
+        const ch = el('div', '', root);
+        ch.dataset.testid = 'result-chest';
+        ch.style.cssText = 'position:absolute;left:285px;top:4px;width:150px;height:146px;pointer-events:auto;cursor:pointer;touch-action:none';
+        const ic = iconCanvas(ch, 150, 112, (g) => drawChestIcon(g, kind, 75, 60, 1.35));
+        ic.style.cssText += ';position:absolute;left:0;top:0';
+        const pill = el('div', '', ch);
+        pill.style.cssText = `position:absolute;left:10px;right:10px;top:104px;height:40px;border-radius:20px;background:${'#ffc93c'};border:4px solid #2a1838;color:#2a1838;font-size:24px;line-height:32px;text-align:center;white-space:nowrap`;
+        fitText(pill, t('chest.openRun'), 24, 120);
+        if (!calmMotion()) {
+          ic.animate([{ transform: 'none' }, { transform: 'rotate(-6deg) scale(1.06)', offset: 0.1 }, { transform: 'rotate(5deg) scale(1.06)', offset: 0.2 }, { transform: 'none', offset: 0.3 }, { transform: 'none' }], { duration: 1600, iterations: Infinity, delay: 900 });
+          ch.animate([{ transform: 'scale(0)' }, { transform: 'none' }], { duration: 360, delay: 450, easing: EASE.backOut, fill: 'backwards' });
+        }
+        pressable(ch, () => !busy, ui.unlock, () => {
+          ui.audio.play('tap');
+          hooks.openRunChest();
+          if (!hooks.runChest()) ch.remove();
+        });
+      }
     },
     update(real) {
       clock += real;

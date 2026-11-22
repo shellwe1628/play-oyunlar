@@ -337,3 +337,37 @@ rebalance), an optional tag/metadata (rank id, expeditions), a "best only" polic
 (`submitted | offline | unsupported`) that never throws, queueing while offline, and a matching
 `showLeaderboard(boardId)` that is a no-op on the web platform.
 
+## Built: polish round (motion and feel)
+
+Presentation only: no rule, odds, number or save field changed, and `src/sim/**` is untouched.
+Shared helpers live in `src/fx/Motion.ts`; everything new respects reduced motion and `?fx=0`.
+- **Calm camera.** `calmShake` caps every shake at trauma 0.5 (about 5 px) and stops shakes from
+  adding up: a break + a find + a fusion shake as much as the biggest of them. No full-screen
+  colour or white flash is left anywhere: fever, relic, boss phase and the 1 in 10,000+ flip glow
+  at the screen edges (`edgeFlash`, nested frames of plain rectangles: a stretched screen-sized
+  image tore while the camera shook) and, for the flip, light bursts from behind the card.
+  Grand-reveal confetti and the mythic/singular shockwave rings stay behind the card and the odds.
+  The block's hit kick is integrated in small steps and held within 6 degrees, so several hits in
+  one slow frame can no longer throw it far over.
+- **Found and fixed on the way (presentation only).** A purchase that opened a layer raised the
+  rank and finished goals without any event (the sim reports none for `buy`), so the rank-up later
+  showed an older badge and the new layer got no banner: `afterBuy` reads the change off the sim
+  and presents it like a find would. A rank-up never shows a rank lower than the one held.
+- **Dig.** Chips fly away from the pick's swing with a contact star where it bit; the stretch of
+  crack that just opened is drawn bright and fades; dust rolls out along the floor after a break;
+  the HP bar eases (drains fast, fills for a fresh block) and its line turns gold and beats when
+  one hit is left; dust and dig power count up (about 25 text updates a second at most); coins
+  shrink into the dust icon; the block drops in when you arrive; the Upgrades button hops when
+  something new is affordable; a bought row lights up.
+- **Reveal.** A card never sits lower than the block (a glint low on the site used to put its odds
+  under the messages); it lands with a small squash; a first find rings in its tier colour; a rare
+  card leaves sparks in the last-find strip.
+- **Museum.** Daylight and drifting dust; the set bar fills and counts; cases give under the finger;
+  the detail view eases in and out, with rays behind rare pieces. Species found since your last
+  visit wear a "New!" ribbon, their tab carries a dot, and the dig's Museum button shows how many
+  wait (presentation memory in `src/fx/seen.ts`, outside the save).
+- **Ranks, menu, popups.** Lamp light and gold dust on the ranks page, the badge lands, score and
+  bars count up, your rung breathes; fireflies and pit dust on the menu, drawer bars fill; the
+  away-time dust counts up and coins fly to the counter on claim; today's daily pip is stamped in.
+- **Test hook.** `act('fxPreview', { kind: 'reveal' | 'rank' | 'fusion', odds })` plays a ceremony
+  without touching the sim (screenshots).

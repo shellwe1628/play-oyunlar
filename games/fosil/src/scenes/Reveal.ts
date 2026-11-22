@@ -5,6 +5,7 @@ import { LAYERS, TIERS, at } from '../sim/data';
 import type { Find } from '../sim/dig';
 import { fossilKey, PALETTE } from '../textures';
 import { addCardLife } from '../fx/CardLife';
+import { edgeFlash } from '../fx/Motion';
 import { cardBack, fitText, fossilName, luckLine, oddsText, outlined, rarityCard } from './ui';
 
 /** Odds at which the ceremony escalates (GAME.md "Feel"). */
@@ -166,6 +167,11 @@ export class Reveal {
       const tag = outlined(s, o.x + dx, o.y - 200, s.t('reveal.new'), 34, PALETTE.ochreLight, 7).setDepth(602);
       s.juice.pop(tag, 0.4, 260);
       s.tweens.add({ targets: tag, alpha: 0, delay: 600, duration: 250, onComplete: () => tag.destroy() });
+      // a first find: a ring of its tier colour snaps out around it as it lands in the air
+      if (!s.oyun.reducedMotion) {
+        const halo = s.add.circle(o.x + dx, o.y - 120, 44).setStrokeStyle(6, find.fossil.tier === 0 ? PALETTE.ochreLight : tierColor, 1).setDepth(598).setAlpha(0);
+        s.tweens.add({ targets: halo, alpha: { from: 0.9, to: 0 }, scale: { from: 0.7, to: 2 }, delay: 200, duration: 380, ease: 'Cubic.easeOut', onComplete: () => halo.destroy() });
+      }
     }
     s.tweens.add({
       targets: [img, ring],
@@ -200,9 +206,12 @@ export class Reveal {
     this.cardBusy = true;
     const { find } = next;
     const s = this.host.scene;
+    const reduced = s.oyun.reducedMotion;
     const o = next.from ?? this.host.origin();
     const L = s.layout;
-    const pos = { x: L.cx, y: Math.max(L.top + 270 + CARD_H / 2 + 10, o.y) };
+    // centred on the block at the lowest: a glint low on the site must not drop the card (and its
+    // odds) under the HP bar and the messages below it
+    const pos = { x: L.cx, y: Math.max(L.top + 270 + CARD_H / 2 + 10, Math.min(o.y, this.host.origin().y)) };
     const tierColor = at(TIERS, find.fossil.tier).color;
     const big = find.fossil.odds >= 1000;
 
@@ -231,7 +240,19 @@ export class Reveal {
       back.destroy();
       // the front pops in whole (never squashed mid-flip, so the odds are never half drawn)
       front.setVisible(true).setScale(0.7);
-      s.tweens.add({ targets: front, scale: 1, duration: 170, ease: 'Back.easeOut' });
+      // it lands with weight: an overshoot, then a small squash that settles
+      s.tweens.add({
+        targets: front,
+        scale: 1,
+        duration: 170,
+        ease: 'Back.easeOut',
+        onComplete: () => {
+          if (reduced || !front.active) return;
+          s.tweens.add({ targets: front, scaleX: 1.04, scaleY: 0.965, duration: 70, yoyo: true, ease: 'Sine.easeOut', onComplete: () => {
+            if (front.active) front.setScale(1);
+          } });
+        },
+      });
       const cap = outlined(s, pos.x, pos.y - CARD_H / 2 - 22, luckLine(s, find.source, find.luck), 26, find.source === 'assistant' ? PALETTE.sand : PALETTE.luck, 6).setDepth(720);
       s.tweens.add({ targets: cap, alpha: 0, delay: hold, duration: 200, onComplete: () => cap.destroy() });
       s.tweens.add({ targets: rays, alpha: 0.55, duration: 200 });
@@ -347,9 +368,13 @@ export class Reveal {
       back.destroy();
       front.setVisible(true).setScale(0.2, 1.2);
       s.tweens.add({ targets: front, scaleX: 1, scaleY: 1, duration: 220, ease: 'Back.easeOut' });
-      const flash = s.add.rectangle(L.cx, L.height / 2, L.width + 40, L.height + 40, tier.color, reduced ? 0.35 : 0.9).setDepth(900);
-      s.tweens.add({ targets: flash, alpha: 0, duration: 520, ease: 'Cubic.easeOut', onComplete: () => flash.destroy() });
-      s.juice.shake(0.9);
+      // the colour moment: light bursts out from behind the card and the screen edges glow in
+      // the tier colour. Nothing is painted over the card, so it can be read the instant it turns.
+      const burst = s.add.image(pos.x, pos.y, 'glow').setTint(tier.color).setDepth(818).setScale(2.6).setAlpha(reduced ? 0.5 : 0.85);
+      objects.push(burst);
+      s.tweens.add({ targets: burst, scale: reduced ? 4 : 5.4, alpha: 0, duration: 620, ease: 'Cubic.easeOut' });
+      edgeFlash(s, tier.color, 700, 900, 0.7);
+      s.juice.shake(0.5);
       s.juice.hitStop(120);
       s.oyun.platform.haptic('heavy');
       s.juice.burst(pos.x, pos.y, { count: 32, color: tier.color, texture: 'spark', distance: 420, duration: 900 });
@@ -357,16 +382,21 @@ export class Reveal {
       // mythic and singular go further: shockwave rings, and for singular a second flash
       if (find.fossil.tier >= 5) {
         for (let k = 0; k < (find.fossil.tier >= 6 ? 4 : 2); k++) {
-          const ring = s.add.circle(pos.x, pos.y, 80).setStrokeStyle(14 - k * 2, k % 2 ? 0xffffff : tier.color, 1).setDepth(855);
+          // behind the card: the rings open around it and never cross its face
+          const ring = s.add.circle(pos.x, pos.y, 80).setStrokeStyle(14 - k * 2, k % 2 ? 0xffffff : tier.color, 1).setDepth(817);
           objects.push(ring);
           s.tweens.add({ targets: ring, scale: 6 + k, alpha: 0, delay: k * 140, duration: 900, ease: 'Cubic.easeOut' });
         }
       }
       if (find.fossil.tier >= 6 && !reduced) {
+        // singular: a second, white pulse at the edges and one more ring of light (no white screen)
         s.time.delayedCall(260, () => {
-          const flash2 = s.add.rectangle(L.cx, L.height / 2, L.width + 40, L.height + 40, 0xffffff, 0.8).setDepth(900);
-          s.tweens.add({ targets: flash2, alpha: 0, duration: 600, onComplete: () => flash2.destroy() });
-          s.juice.shake(1);
+          if (!this.grand) return;
+          edgeFlash(s, 0xffffff, 700, 900, 0.6);
+          const ring = s.add.circle(pos.x, pos.y, 90).setStrokeStyle(6, 0xffffff, 0.9).setDepth(817);
+          objects.push(ring);
+          s.tweens.add({ targets: ring, scale: 7, alpha: 0, duration: 800, ease: 'Cubic.easeOut' });
+          s.juice.shake(0.5);
         });
       }
     });
@@ -409,7 +439,7 @@ export class Reveal {
         onComplete: () => {
           oddsBig.setScale(rest);
           s.oyun.audio.playPreset(SFX.slam);
-          s.juice.shake(0.6);
+          s.juice.shake(0.35);
           s.oyun.platform.haptic('heavy');
           s.juice.burst(oddsBig.x, oddsBig.y, { count: 14, color: 0xffffff, texture: 'chip', distance: 220 });
           s.tweens.add({ targets: oddsBig, scaleY: rest * 0.85, scaleX: rest * 1.08, duration: 70, yoyo: true, onComplete: () => oddsBig.setScale(rest) });
@@ -439,7 +469,8 @@ export class Reveal {
     s.time.delayedCall(1800, () => {
       tierHaptics(s, find.fossil.tier, 140);
       for (let i = 0; i < 26 + Math.max(0, find.fossil.tier - 4) * 20; i++) {
-        const star = s.add.image(Math.random() * L.width, L.top - 40 - Math.random() * 300, 'spark').setDepth(850).setTint(i % 3 ? tier.color : 0xffffff).setScale(0.8 + Math.random());
+        // behind the card, the name and the odds (they are what the player is here to read)
+        const star = s.add.image(Math.random() * L.width, L.top - 40 - Math.random() * 300, 'spark').setDepth(817).setTint(i % 3 ? tier.color : 0xffffff).setScale(0.8 + Math.random());
         objects.push(star);
         s.tweens.add({ targets: star, y: L.height + 60, angle: 360 * (Math.random() < 0.5 ? 1 : -1), duration: 2200 + Math.random() * 1800, ease: 'Sine.easeIn' });
       }

@@ -4,6 +4,10 @@ import { LAYERS, at } from '../sim/data';
 import type { BlockKind } from '../sim/dig';
 import { PALETTE } from '../textures';
 
+/** Highest spring velocity of the hit kick (degrees/s) and the furthest the block may tilt (degrees). */
+const KICK_MAX = 200;
+const KICK_ANGLE = 6;
+
 interface Seg {
   x1: number;
   y1: number;
@@ -19,6 +23,10 @@ interface Seg {
 export class StratumBlock extends Phaser.GameObjects.Container {
   private readonly base: Phaser.GameObjects.Graphics;
   private readonly cracks: Phaser.GameObjects.Graphics;
+  /** The crack segments that opened on the last hit, drawn bright; they fade to the dark crack. */
+  private readonly fresh: Phaser.GameObjects.Graphics;
+  /** Segments already showing per strike origin. */
+  private opened: number[] = [];
   private readonly deco: Phaser.GameObjects.Graphics;
   /** Pressure gauge (needle follows your combo), meteor core, white hit flash. */
   private readonly gauge: Phaser.GameObjects.Graphics;
@@ -49,6 +57,7 @@ export class StratumBlock extends Phaser.GameObjects.Container {
     super(scene, x, y);
     this.base = scene.add.graphics();
     this.cracks = scene.add.graphics();
+    this.fresh = scene.add.graphics().setAlpha(0);
     this.deco = scene.add.graphics();
     this.gauge = scene.add.graphics();
     this.flash = scene.add.graphics();
@@ -59,7 +68,7 @@ export class StratumBlock extends Phaser.GameObjects.Container {
     const ring = scene.add.circle(0, 0, 40).setStrokeStyle(5, 0xfff0c0, 0.9);
     const star = scene.add.image(0, 0, 'spark').setTint(0xffffff).setScale(2.2);
     this.core = scene.add.container(0, 0, [glow, ring, star]).setVisible(false);
-    this.add([this.base, this.deco, this.cracks, this.gauge, this.core, this.flash]);
+    this.add([this.base, this.deco, this.cracks, this.fresh, this.gauge, this.core, this.flash]);
     scene.add.existing(this);
   }
 
@@ -109,7 +118,8 @@ export class StratumBlock extends Phaser.GameObjects.Container {
   impact(lx: number, strength = 1): void {
     this.flash.setAlpha(Math.min(0.4, 0.16 + 0.12 * strength));
     if (this.reducedMotion) return;
-    this.kickV += (lx >= 0 ? 1 : -1) * 90 * Math.min(2, strength);
+    // capped: several hits in the same instant (assistant + finger) tilt it no further than one hard hit
+    this.kickV = Phaser.Math.Clamp(this.kickV + (lx >= 0 ? 1 : -1) * 90 * Math.min(2, strength), -KICK_MAX, KICK_MAX);
   }
 
   get blockKind(): BlockKind {
@@ -123,12 +133,22 @@ export class StratumBlock extends Phaser.GameObjects.Container {
   animate(dt: number, urgency = 0, combo = 0): void {
     this.clock += dt;
     const k = this.kind;
-    // spring back from the last hit kick; when nearly broken the block shudders
-    this.kickV += (-this.kick * 420 - this.kickV * 16) * dt;
-    this.kick += this.kickV * dt;
+    // spring back from the last hit kick; when nearly broken the block shudders. Integrated in
+    // small steps (a slow frame must not throw the spring) and held within a few degrees however
+    // many hits land together.
+    for (let left = Math.min(dt, 0.1); left > 0; left -= 1 / 120) {
+      const h = Math.min(left, 1 / 120);
+      this.kickV += (-this.kick * 420 - this.kickV * 16) * h;
+      this.kick += this.kickV * h;
+    }
+    if (Math.abs(this.kick) > KICK_ANGLE) {
+      this.kick = Math.sign(this.kick) * KICK_ANGLE;
+      if (this.kickV * this.kick > 0) this.kickV = 0;
+    }
     const shudder = !this.reducedMotion && this.dmg > 0.72 ? Math.sin(this.clock * 60) * (this.dmg - 0.72) * 2.4 : 0;
     let angle = this.kick + shudder;
     if (this.flash.alpha > 0) this.flash.setAlpha(Math.max(0, this.flash.alpha - dt * 3.2));
+    if (this.fresh.alpha > 0) this.fresh.setAlpha(Math.max(0, this.fresh.alpha - dt * 3.6));
     if (k === 'unstable') {
       const f = 10 + urgency * 26;
       angle += Math.sin(this.clock * f) * (0.6 + urgency * 1.8);
@@ -215,6 +235,8 @@ export class StratumBlock extends Phaser.GameObjects.Container {
     g.fillStyle(0xffffff, 0.16).fillRoundedRect(x0 + 8, y0 + 6, w - 16, 18, 9);
     g.fillStyle(0x000000, 0.16).fillRoundedRect(x0 + w - 22, y0 + 20, 14, h - 40, 7);
     this.origins = [];
+    this.opened = [];
+    this.fresh.clear().setAlpha(0);
     this.shown = -1;
     this.setDamage(0);
     return this;
@@ -539,15 +561,28 @@ export class StratumBlock extends Phaser.GameObjects.Container {
       this.kind === 'unstable' ? 0xffe080 : this.kind === 'meteor' || this.layer === 8 ? 0xffa030 : this.layer === 12 ? 0xe0b0ff : this.layer === 10 ? 0x7ad0ff : this.layer === 1 ? 0x2a5a78 : this.layer === 3 || this.layer === 9 ? 0x06141c : PALETTE.crack;
     const lip = 0xffffff;
     g.fillStyle(0x000000, Math.min(0.32, f * 0.36)).fillRoundedRect(-this.bw / 2, -this.bh / 2, this.bw, this.bh, 26);
-    // each origin spreads its own branches as damage grows
-    for (const segs of this.origins) {
+    // each origin spreads its own branches as damage grows; the stretch that just opened is drawn
+    // bright on top and fades (animate), so the eye sees the crack run
+    let grew = false;
+    this.origins.forEach((segs, o) => {
       const n = Math.max(1, Math.ceil(Math.min(1, f * 1.15) * segs.length));
       for (let i = 0; i < n; i++) {
         const s = segs[i]!;
         g.lineStyle(s.w + 3, lip, this.layer === 1 ? 0.35 : 0.12).lineBetween(s.x1, s.y1 + 2, s.x2, s.y2 + 2);
         g.lineStyle(s.w, crack, 1).lineBetween(s.x1, s.y1, s.x2, s.y2);
       }
-    }
+      const from = this.opened[o] ?? 0;
+      if (n > from && !this.reducedMotion) {
+        if (!grew) this.fresh.clear();
+        grew = true;
+        for (let i = from; i < n; i++) {
+          const s = segs[i]!;
+          this.fresh.lineStyle(Math.max(2, s.w - 1), 0xffe6b0, 1).lineBetween(s.x1, s.y1, s.x2, s.y2);
+        }
+      }
+      this.opened[o] = n;
+    });
+    if (grew) this.fresh.setAlpha(0.7);
   }
 
   /** Branches radiating from (ox, oy), ordered from the strike point outwards. */

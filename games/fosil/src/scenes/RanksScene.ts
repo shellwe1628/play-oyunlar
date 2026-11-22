@@ -2,6 +2,7 @@ import { button, cssColor, iconButton, label, OyunScene, panel, progressBar, toa
 import type { PauseReason } from '@oyun/core/pure';
 import Phaser from 'phaser';
 import { badgeKey } from '../art/badges';
+import { calmShake, countTo, fillBar, Motes } from '../fx/Motion';
 import { Particles } from '../fx/Particles';
 import { gameOnline, openOnline } from '../online';
 import { backgroundAware, session } from '../session';
@@ -39,6 +40,12 @@ export class RanksScene extends OyunScene {
   private scroll = { y: 0, max: 0, list: null as Phaser.GameObjects.Container | null, top: 0, bottom: 0 };
   private fx!: Particles;
   private bodyKey = '';
+  private motes!: Motes;
+  /** Counts, fills and pulses of the page on show: cancelled when the page is redrawn. */
+  private bodyTweens: (Phaser.Tweens.Tween | null)[] = [];
+  /** Score and bar fill the ladder card last showed (a live update continues from them). */
+  private scoreShown = 0;
+  private barShown = 0;
 
   constructor() {
     super(SCENES.ranks);
@@ -53,8 +60,16 @@ export class RanksScene extends OyunScene {
     this.bodyKey = '';
     this.scroll = { y: 0, max: 0, list: null, top: 0, bottom: 0 };
     this.fx = new Particles(this, 90, 990);
+    this.bodyTweens = [];
+    this.scoreShown = 0;
+    this.barShown = 0;
+    calmShake(this);
     const L = this.layout;
     this.cameras.main.setBackgroundColor(0x241812);
+    // a lamp-lit trophy room: a warm pool of light in the middle, dark corners, gold dust in the air
+    this.add.image(L.cx, L.top + 420, 'glow').setTint(0xd99a3e).setScale(9, 8).setAlpha(0.2);
+    this.add.image(L.cx, L.height / 2, 'vignette').setDisplaySize(L.width + 8, L.height + 8).setTint(0x000000).setAlpha(0.55);
+    this.motes = new Motes(this, { x: L.left + 10, y: L.top + 120, w: L.right - L.left - 20, h: L.bottom - L.top - 250, count: 12, colors: [PALETTE.ochreLight, 0xffffff], alpha: 0.5, texture: 'spark', scale: [0.2, 0.45], rise: -10, additive: true });
     const g = this.add.graphics();
     g.fillStyle(0x3a2618, 1).fillRect(0, 0, L.width, L.top + 112);
     label(this, L.cx, L.top + 58, this.t('ranks.title'), { size: 58, color: PALETTE.ochreLight });
@@ -89,6 +104,7 @@ export class RanksScene extends OyunScene {
   override update(_t: number, delta: number): void {
     const dt = Math.min(delta, 250) / 1000;
     this.fx.update(dt);
+    this.motes.update(dt);
     if (this.confirm) return;
     // the dig goes on while you read: finds and events wait for the dig screen
     const ses = session(this.oyun);
@@ -135,11 +151,17 @@ export class RanksScene extends OyunScene {
     const key = `${this.tab}|${this.sim.score.total}|${this.sim.quests.length}|${this.sim.records.rare.length}`;
     if (!force && key === this.bodyKey) return;
     this.bodyKey = key;
+    for (const tw of this.bodyTweens) tw?.remove();
+    this.bodyTweens = [];
     this.body.removeAll(true);
     this.scroll.list = null;
-    if (this.tab === 'ladder') this.drawLadder();
+    if (force) {
+      this.scoreShown = 0;
+      this.barShown = 0;
+    }
+    if (this.tab === 'ladder') this.drawLadder(force);
     else if (this.tab === 'records') this.drawRecords();
-    else this.drawGoals();
+    else this.drawGoals(force);
     if (force) {
       // the page slides in, its parts one after another
       this.body.list.forEach((o, i) => {
@@ -154,7 +176,7 @@ export class RanksScene extends OyunScene {
 
   // ------------------------------------------------------------------ ladder
 
-  private drawLadder(): void {
+  private drawLadder(fresh: boolean): void {
     const L = this.layout;
     const s = this.sim;
     const score = s.score;
@@ -165,7 +187,18 @@ export class RanksScene extends OyunScene {
     // your card: badge, name, score, progress to the next rank, and what the score is made of
     const card = panel(this, L.cx, top + 150, L.width - 40, 300, { color: PALETTE.dirtLight });
     this.body.add(card);
-    card.add(this.add.image(-L.width / 2 + 120, -60, badgeKey(this, rank)).setScale(0.95));
+    // your badge sits in its own light and lands with a pop; the score counts up and the bar fills
+    const motion = !this.oyun.reducedMotion;
+    const halo = this.add.image(-L.width / 2 + 120, -60, 'glow').setTint(r.color).setScale(1.9).setAlpha(0.5);
+    const badge = this.add.image(-L.width / 2 + 120, -60, badgeKey(this, rank)).setScale(0.95);
+    card.add([halo, badge]);
+    if (motion) {
+      this.bodyTweens.push(this.tweens.add({ targets: halo, alpha: 0.8, scale: 2.2, duration: 1300, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' }));
+      if (fresh) {
+        badge.setScale(0.3).setAngle(-25);
+        this.bodyTweens.push(this.tweens.add({ targets: badge, scale: 0.95, angle: 0, delay: 120, duration: 420, ease: 'Back.easeOut' }));
+      }
+    }
     const name = label(this, -L.width / 2 + 220, -100, this.t(`rank.${r.id}`), { size: 40, color: r.color }).setOrigin(0, 0.5);
     fitText(name, L.width - 280);
     const sc = label(this, -L.width / 2 + 220, -52, this.t('ranks.score', { n: big(this, score.total) }), { size: 30, color: 0xffffff }).setOrigin(0, 0.5);
@@ -174,8 +207,17 @@ export class RanksScene extends OyunScene {
     const barW = L.width - 300;
     const bar = progressBar(this, -L.width / 2 + 220 + barW / 2, -10, barW, 26, { color: r.color });
     const lo = r.score;
-    bar.setValue(next ? (score.total - lo) / (next.score - lo) : 1);
+    const fill = next ? (score.total - lo) / (next.score - lo) : 1;
+    bar.setValue(Math.min(this.barShown, fill));
     card.add(bar);
+    this.bodyTweens.push(
+      fillBar(this, bar, fill, 520, fresh ? 160 : 0),
+      countTo(this, Math.min(this.scoreShown, score.total), score.total, 520, (v) => {
+        if (sc.active) fitText(sc.setText(this.t('ranks.score', { n: big(this, Math.round(v)) })), L.width - 280);
+      }, 16, fresh ? 160 : 0),
+    );
+    this.scoreShown = score.total;
+    this.barShown = fill;
     const nextText = label(this, -L.width / 2 + 220, 24, next ? this.t('ranks.next', { n: big(this, next.score - score.total), name: this.t(`rank.${next.id}`) }) : this.t('ranks.top'), { size: 24, color: PALETTE.sand }).setOrigin(0, 0.5);
     fitText(nextText, barW);
     card.add(nextText);
@@ -189,7 +231,7 @@ export class RanksScene extends OyunScene {
     ];
     parts.forEach(([k, v], i) => {
       const x = -L.width / 2 + 40 + (i % 2) * ((L.width - 80) / 2);
-      const y = 76 + Math.floor(i / 2) * 32;
+      const y = 66 + Math.floor(i / 2) * 30; // the third row stays inside the card
       const t = label(this, x, y, `${this.t(k)}  ${big(this, v)}`, { size: 24, color: 0xffffff }).setOrigin(0, 0.5);
       fitText(t, (L.width - 100) / 2);
       card.add(t);
@@ -204,7 +246,14 @@ export class RanksScene extends OyunScene {
       const reached = i <= rank;
       const g = this.add.graphics();
       g.fillStyle(mine ? rk.color : 0x000000, mine ? 0.35 : 0.2).fillRoundedRect(L.left + 20, y - rowH / 2 + 3, L.right - L.left - 40, rowH - 6, 14);
-      if (mine) g.lineStyle(4, rk.color, 1).strokeRoundedRect(L.left + 20, y - rowH / 2 + 3, L.right - L.left - 40, rowH - 6, 14);
+      if (mine) {
+        g.lineStyle(4, rk.color, 1).strokeRoundedRect(L.left + 20, y - rowH / 2 + 3, L.right - L.left - 40, rowH - 6, 14);
+        // your rung breathes, so the eye finds it in the ladder
+        const lit = this.add.graphics();
+        lit.fillStyle(rk.color, 0.22).fillRoundedRect(L.left + 20, y - rowH / 2 + 3, L.right - L.left - 40, rowH - 6, 14);
+        this.body.add(lit);
+        if (motion) this.bodyTweens.push(this.tweens.add({ targets: lit, alpha: 0.15, duration: 900, delay: 700, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' }));
+      }
       const icon = this.add.image(L.left + 60, y, badgeKey(this, i)).setScale((rowH - 8) / 160);
       if (!reached) icon.setAlpha(0.35);
       const n = label(this, L.left + 100, y, this.t(`rank.${rk.id}`), { size: Math.min(28, rowH * 0.5), color: reached ? 0xffffff : PALETTE.sand }).setOrigin(0, 0.5);
@@ -274,7 +323,7 @@ export class RanksScene extends OyunScene {
 
   // ------------------------------------------------------------------ goals
 
-  private drawGoals(): void {
+  private drawGoals(fresh: boolean): void {
     const L = this.layout;
     const s = this.sim;
     const top = L.top + 210;
@@ -298,7 +347,11 @@ export class RanksScene extends OyunScene {
       const reward = label(this, L.right - 40, y - 16, done ? this.t('quest.done') : this.t('quest.reward', { n: big(this, a.reward * s.blockDust(s.unlocked)) }), { size: 24, color: done ? 0x9fe08a : PALETTE.dust }).setOrigin(1, 0.5);
       const p = Math.min(a.target, s.questProgress(a));
       const bar = progressBar(this, L.left + 40 + (L.width - 260) / 2, y + 20, L.width - 260, 16, { color: done ? 0x9fe08a : PALETTE.ochre });
-      bar.setValue(p / a.target);
+      // the rows on screen fill their bars one after another; the rest are simply set
+      if (fresh && i < 11) {
+        bar.setValue(0);
+        this.bodyTweens.push(fillBar(this, bar, p / a.target, 420, 140 + i * 40));
+      } else bar.setValue(p / a.target);
       const pt = label(this, L.right - 40, y + 20, `${count(this, p)}/${count(this, a.target)}`, { size: 22, color: PALETTE.sand }).setOrigin(1, 0.5);
       const row = this.add.container(0, 0, [g, t, reward, bar, pt]);
       row.setData('y', y);
@@ -334,6 +387,8 @@ export class RanksScene extends OyunScene {
     const s = this.sim;
     const box = this.add.container(0, 0).setDepth(950);
     const shade = this.add.rectangle(L.cx, L.height / 2, L.width + 40, L.height + 40, 0x000000, 0.8).setInteractive();
+    shade.setAlpha(0);
+    this.tweens.add({ targets: shade, alpha: 1, duration: 180 });
     const texts: Phaser.GameObjects.Text[] = [];
     const now = s.expeditionMult;
     const after = 1 + EXPEDITION.power * (s.expeditions + 1);
@@ -368,7 +423,9 @@ export class RanksScene extends OyunScene {
     const c = this.confirm;
     if (!c) return;
     this.confirm = null;
-    c.box.destroy(true);
+    // out of the way at once for input, then a quick fade
+    for (const o of c.box.list) if (o.input) o.disableInteractive();
+    this.tweens.add({ targets: c.box, alpha: 0, duration: 140, onComplete: () => c.box.destroy() });
   }
 
   /** The descent: the world drops away through every stratum, then a new, deeper Topsoil. */

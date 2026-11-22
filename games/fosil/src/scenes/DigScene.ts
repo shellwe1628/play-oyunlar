@@ -4,7 +4,7 @@ import Phaser from 'phaser';
 import { gameOnline } from '../online';
 import { backgroundAware, session, type Session } from '../session';
 import { SFX } from '../sfx';
-import { ACHIEVEMENTS, at, BOSS, FOSSIL_BY_ID, GRADE_COLORS, LAYERS, LUCK_BOOST, METEOR, PITY, RANKS, RELIC, TIERS, UPGRADE_ORDER, VEIN, type UpgradeId } from '../sim/data';
+import { ACHIEVEMENTS, at, BOSS, FOSSIL_BY_ID, FOSSILS, GRADE_COLORS, LAYERS, LUCK_BOOST, METEOR, PITY, RANKS, RELIC, TIERS, UPGRADE_ORDER, VEIN, type UpgradeId } from '../sim/data';
 import { NEWS_TIP, type DigSim, type Find, type OfflineHaul, type SimEvent, type TapResult } from '../sim/dig';
 import { badgeKey } from '../art/badges';
 import { questText, today } from './progress';
@@ -12,6 +12,8 @@ import { fossilKey, PALETTE } from '../textures';
 import { shade } from '../art/fossils';
 import { addCardLife } from '../fx/CardLife';
 import { Helper } from '../fx/Helper';
+import { calmShake, countTo, edgeFlash } from '../fx/Motion';
+import { initSeen } from '../fx/seen';
 import { Particles } from '../fx/Particles';
 import { Pickaxe } from '../fx/Pickaxe';
 import { Scenery } from '../fx/Scenery';
@@ -115,6 +117,20 @@ export class DigScene extends OyunScene {
   private coins: { img: Phaser.GameObjects.Image; t: number; dur: number; x0: number; y0: number; cx: number; cy: number }[] = [];
   /** Combo milestone celebrated (0 none, 1 = ×1.5, 2 = ×2). */
   private comboStep = 0;
+  /** HP bar: where the fill is drawn and where it is heading (it eases instead of jumping). */
+  private hpShown = 1;
+  private hpTarget = 1;
+  /** Dust and dig power as displayed: they count towards the real value in a few quick steps. */
+  private dustShown = 0;
+  private powerShown = 0;
+  private countClock = 0;
+  /** One more hit breaks the block: the HP line glows and beats. */
+  private lastHit = false;
+  private affordable = 0;
+  private hop: Phaser.Tweens.Tween | null = null;
+  /** Species found but not yet looked at in the museum: a count on the Museum button. */
+  private unseen = 0;
+  private museumBadge!: { box: Phaser.GameObjects.Container; text: Phaser.GameObjects.Text };
 
   constructor() {
     super(SCENES.dig);
@@ -152,6 +168,15 @@ export class DigScene extends OyunScene {
     this.dailyBox = null;
     this.heft = 1;
     this.comboStep = 0;
+    this.hpShown = this.hpTarget = 1 - this.sim.blockDamage / this.sim.blockHp;
+    this.dustShown = Math.floor(this.sim.dust);
+    this.powerShown = this.sim.digPower;
+    this.countClock = 0;
+    this.lastHit = false;
+    this.affordable = -1;
+    this.hop = null;
+    // one calm camera: shakes are capped and never add up (a break + a find + a fusion at once)
+    calmShake(this);
     this.sim.setClock(Date.now());
     const L = this.layout;
     // header (title, chips, combo) | dig site (block, HP bar, glints) | footer (last find, buttons)
@@ -184,7 +209,8 @@ export class DigScene extends OyunScene {
     this.drawer = new Drawer(this, this.sim, this.hpY + 32, (id) => this.onBuy(id));
     this.reveal = new Reveal({
       scene: this,
-      origin: () => ({ x: this.block.x, y: this.block.y }),
+      // the block's resting place, not where a break or a landing has it this frame
+      origin: () => ({ x: this.block.x, y: this.blockY }),
       slot: () => ({ x: this.strip.x - 240, y: this.strip.y }),
       landed: (f) => this.onLanded(f),
       setSlowMo: (f) => (this.slowmo = f),
@@ -210,6 +236,8 @@ export class DigScene extends OyunScene {
     this.refreshStrip();
     this.syncGlint();
     this.refreshProgress(true);
+    this.syncUnseen();
+    this.enter();
     this.oyun.platform.gameplayStart();
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
       // a rank-up not yet celebrated waits for the next visit
@@ -292,6 +320,12 @@ export class DigScene extends OyunScene {
     this.boostButton = button(this, L.cx, L.bottom - 190, this.t('dig.boost'), () => void this.onBoost(), { width: 360, height: 88, fontSize: 34, variant: 'secondary', ad: true });
     this.museumButton.setDepth(400);
     this.upgradesButton.setDepth(400);
+    // a small count on the Museum button: species waiting there that you have not looked at yet
+    const badge = this.add.container(132, -46);
+    const badgeText = label(this, 0, -1, '', { size: 26, color: 0xffffff });
+    badge.add([this.add.circle(0, 0, 23, 0xe2553a).setStrokeStyle(4, 0xffffff, 1), badgeText]);
+    this.museumButton.add(badge);
+    this.museumBadge = { box: badge, text: badgeText };
     // lucky-streak gauge left of the boost button; the daily dig right of it
     const sx = L.left + 84;
     const sy = L.bottom - 190;
@@ -364,10 +398,19 @@ export class DigScene extends OyunScene {
     const bx = Phaser.Math.Clamp(x, this.block.x - BLOCK_W / 2 + 20, this.block.x + BLOCK_W / 2 - 20);
     const by = Phaser.Math.Clamp(y, this.block.y - this.blockH / 2 + 20, this.block.y + this.blockH / 2 - 20);
     this.block.hit(bx - this.block.x, by - this.block.y);
-    if (FX_ON) this.block.impact(bx - this.block.x, r.core ? 2 : charged > 1 ? 1.6 : 1);
-    if (FX_ON) this.pick.strike(bx, by);
-    if (FX_ON) this.fx.emit(bx, by, 4, { texture: 'chip', tint: at(layer.bands, 2), speed: [160, 340], angle: -Math.PI / 2, spread: 2.6, gravity: 1500, life: [0.35, 0.6], scale: [0.6, 1.1], endScale: 0.6, spin: 14 });
-    if (FX_ON) this.fx.emit(bx, by, 2, { tint: PALETTE.sand, speed: [20, 70], life: [0.5, 0.8], scale: [1, 1.8], endScale: 2.2, alpha: 0.3 });
+    if (FX_ON) {
+      const power = r.core ? 2 : charged > 1 ? 1.6 : 1;
+      this.block.impact(bx - this.block.x, power);
+      this.pick.strike(bx, by);
+      // the pick swings in from the right: most chips are thrown up and away to the left, a
+      // couple glance back; dust puffs where it bit, and a quick bright star marks the contact
+      // (lighter than the rock they came from, or they vanish against the block)
+      const flake = shade(at(layer.bands, 2), 0.42);
+      this.fx.emit(bx, by, power > 1 ? 6 : 3, { texture: 'chip', tint: flake, speed: [190, 400], angle: -Math.PI / 2 - 0.6, spread: 1.5, gravity: 1500, life: [0.35, 0.6], scale: [0.7, 1.25], endScale: 0.6, spin: 14 });
+      this.fx.emit(bx, by, 1, { texture: 'chip', tint: flake, speed: [120, 260], angle: -0.75, spread: 0.9, gravity: 1500, life: [0.3, 0.5], scale: [0.5, 0.9], endScale: 0.6, spin: 14 });
+      this.fx.emit(bx, by, 2, { tint: PALETTE.sand, speed: [20, 70], life: [0.5, 0.8], scale: [1, 1.8], endScale: 2.2, alpha: 0.3 });
+      if (!this.oyun.reducedMotion) this.fx.emit(bx, by, 1, { texture: 'spark', tint: 0xfff3d0, speed: [0, 0], life: [0.12, 0.12], scale: [1.3 * power, 1.3 * power], endScale: 0.2, alpha: 0.9 });
+    }
     this.present(r);
     if (this.sim.combo >= 0.4) this.showTip('combo', this.t('tip.combo'));
     this.ses.markDirty();
@@ -545,9 +588,13 @@ export class DigScene extends OyunScene {
       const e = u * u;
       const ix = (1 - e) * (1 - e) * c.x0 + 2 * (1 - e) * e * c.cx + e * e * tx;
       const iy = (1 - e) * (1 - e) * c.y0 + 2 * (1 - e) * e * c.cy + e * e * ty;
-      c.img.setPosition(ix, iy).setAlpha(Math.min(1, c.t * 6)).setScale(0.55 + 0.25 * Math.sin(c.t * Math.PI)).setRotation(c.t * 6);
+      // it swells as it lifts off and shrinks into the icon as it arrives
+      c.img.setPosition(ix, iy).setAlpha(Math.min(1, c.t * 6)).setScale((0.55 + 0.25 * Math.sin(c.t * Math.PI)) * (1 - 0.45 * e)).setRotation(c.t * 6);
     }
-    if (landed) this.juice.pop(this.chips.dust.value, 1.18, 140);
+    if (landed) {
+      this.popFit(this.chips.dust.value, 1.18, 140);
+      if (!this.oyun.reducedMotion) this.fx.emit(tx, ty, 2, { texture: 'spark', tint: PALETTE.dust, speed: [40, 110], life: [0.2, 0.32], scale: [0.4, 0.7] });
+    }
   }
 
   /** Combo milestones (×1.5 and ×2) pop the combo label with a burst. */
@@ -615,10 +662,32 @@ export class DigScene extends OyunScene {
     this.tweens.add({ targets: box, y: y - 40, alpha: 0, delay: 2200, duration: 420, ease: 'Cubic.easeIn', onComplete: () => box.destroy(true) });
   }
 
+  /** A colour moment (fever, relic, boss phase): a glow at the screen edges, never over the dig. */
   private flash(color: number, ms: number): void {
-    const L = this.layout;
-    const r = this.add.rectangle(L.cx, L.height / 2, L.width + 40, L.height + 40, color, this.oyun.reducedMotion ? 0.2 : 0.45).setDepth(940);
-    this.tweens.add({ targets: r, alpha: 0, duration: ms, onComplete: () => r.destroy() });
+    edgeFlash(this, color, ms + 160);
+  }
+
+  /** Arriving at the dig: the block drops into place and settles in a puff of dust. */
+  private enter(): void {
+    if (!FX_ON || this.oyun.reducedMotion) return;
+    const b = this.block;
+    b.setY(this.blockY - 70).setAlpha(0);
+    this.tweens.add({ targets: b, alpha: 1, duration: 120, delay: 80 });
+    this.tweens.add({
+      targets: b,
+      y: this.blockY,
+      duration: 190,
+      delay: 80,
+      ease: 'Quad.easeIn',
+      onComplete: () => {
+        b.setY(this.blockY).setAlpha(1);
+        this.juice.squash(b, 0.05, 260);
+        const floor = this.blockY + this.blockH / 2;
+        const tint = at(at(LAYERS, this.sim.layer).bands, 2);
+        this.fx.emit(b.x - 150, floor, 5, { tint, speed: [60, 200], angle: Math.PI + 0.5, spread: 1, life: [0.4, 0.8], scale: [1, 2], endScale: 1.8, alpha: 0.35, drag: 2 });
+        this.fx.emit(b.x + 150, floor, 5, { tint, speed: [60, 200], angle: -0.5, spread: 1, life: [0.4, 0.8], scale: [1, 2], endScale: 1.8, alpha: 0.35, drag: 2 });
+      },
+    });
   }
 
   private syncBlockKind(): void {
@@ -702,7 +771,8 @@ export class DigScene extends OyunScene {
   private maybeRankUp(): void {
     if (this.pendingRank < 0 || this.ceremony || this.reveal.busy || this.popup || this.dailyBox || this.travelling) return;
     if (this.fxClock < this.rankNotBefore || this.fxClock - this.lastInput < QUIET_BEFORE_CEREMONY) return;
-    const r = this.pendingRank;
+    // never an older rank than the one already held (see afterBuy: not every rise arrives as an event)
+    const r = Math.max(this.pendingRank, this.sim.rank);
     this.pendingRank = -1;
     this.rankUp(r);
   }
@@ -775,6 +845,8 @@ export class DigScene extends OyunScene {
     const L = this.layout;
     const box = this.add.container(0, 0).setDepth(955);
     const shadeRect = this.add.rectangle(L.cx, L.height / 2, L.width + 40, L.height + 40, 0x000000, 0.75).setInteractive();
+    shadeRect.setAlpha(0);
+    this.tweens.add({ targets: shadeRect, alpha: 1, duration: 200 });
     const card = panel(this, L.cx, L.cy, 620, 560, { color: PALETTE.dirtLight });
     const lines = [
       label(this, 0, -210, this.t('daily.title'), { size: 52, color: PALETTE.ochreLight }),
@@ -784,12 +856,33 @@ export class DigScene extends OyunScene {
     ];
     // seven day pips, filled up to the streak
     const pips = this.add.graphics();
+    const stamp = FX_ON && !this.oyun.reducedMotion;
+    const todayPip = Math.min(7, got.streak) - 1;
     for (let i = 0; i < 7; i++) {
       const x = -180 + i * 60;
-      pips.fillStyle(i < got.streak ? 0xffd23f : PALETTE.dirt, 1).fillCircle(x, 140, 20);
+      pips.fillStyle(i < got.streak && !(stamp && i === todayPip) ? 0xffd23f : PALETTE.dirt, 1).fillCircle(x, 140, 20);
       pips.lineStyle(3, PALETTE.ink, 0.6).strokeCircle(x, 140, 20);
     }
     card.add([...lines, pips]);
+    if (stamp && todayPip >= 0) {
+      // today's pip is stamped in after the card has landed
+      const pip = this.add.circle(-180 + todayPip * 60, 140, 20, 0xffd23f).setStrokeStyle(3, PALETTE.ink, 0.6).setScale(0);
+      card.add(pip);
+      this.tweens.add({
+        targets: pip,
+        scale: { from: 2.2, to: 1 },
+        delay: 380,
+        duration: 220,
+        ease: 'Back.easeOut',
+        onComplete: () => {
+          if (this.dailyBox !== box) return;
+          const ring = this.add.circle(pip.x, pip.y, 22).setStrokeStyle(5, 0xffd23f, 1);
+          card.add(ring);
+          this.tweens.add({ targets: ring, scale: 2.4, alpha: 0, duration: 320, ease: 'Cubic.easeOut', onComplete: () => ring.destroy() });
+          this.oyun.audio.playPreset(SFX.tick, { pitch: 7, volume: 0.6 });
+        },
+      });
+    }
     const claim = button(this, L.cx, L.cy + 230, this.t('daily.claim'), () => this.closeDaily(), { width: 400, height: 100 });
     box.add([shadeRect, card, claim]);
     this.dailyBox = box;
@@ -806,6 +899,7 @@ export class DigScene extends OyunScene {
     const b = this.dailyBox;
     if (!b) return;
     this.dailyBox = null;
+    if (FX_ON) this.flyDust(this.layout.cx, this.layout.cy, 8);
     this.tweens.add({ targets: b, alpha: 0, duration: 180, onComplete: () => b.destroy(true) });
     this.showTip('daily', this.t('daily.rule'));
   }
@@ -874,10 +968,12 @@ export class DigScene extends OyunScene {
   }
 
   private onBuy(id: UpgradeId): void {
+    const before = { unlocked: this.sim.unlocked, rank: this.sim.rank, quests: this.sim.quests.length };
     if (!this.sim.buy(id)) {
       this.oyun.audio.play('hit', { volume: 0.3 });
       return;
     }
+    this.afterBuy(before);
     this.oyun.audio.playPreset(SFX.buy, { pitch: Math.min(12, this.sim.level(id)) });
     this.oyun.platform.haptic('light');
     const btn = this.drawer.buyButton(id);
@@ -887,6 +983,36 @@ export class DigScene extends OyunScene {
     this.refreshHud(true);
     this.drawer.refresh();
     this.ses.flush();
+  }
+
+  /**
+   * A purchase can open a layer, and with it finish goals and raise the rank. The sim applies all
+   * of that but reports no events for a purchase, so they are read off its state here and get the
+   * same moment as when a find sets them off: the goal message, the rank-up, the new-layer banner.
+   */
+  private afterBuy(before: { unlocked: number; rank: number; quests: number }): void {
+    const s = this.sim;
+    const events: SimEvent[] = [];
+    for (const id of s.quests.slice(before.quests)) {
+      const a = ACHIEVEMENTS.find((q) => q.id === id);
+      if (a) events.push({ kind: 'quest', id, dust: a.reward * s.blockDust(s.unlocked) });
+    }
+    if (s.rank > before.rank) events.push({ kind: 'rank', rank: s.rank });
+    if (events.length) this.onEvents(events);
+    if (s.unlocked > before.unlocked) this.layerOpened(s.unlocked);
+  }
+
+  /** A deeper layer opened: fanfare, the arrow hops, the banner of its strata, a one-time tip. */
+  private layerOpened(layer: number): void {
+    const name = this.t(`layer.${at(LAYERS, layer).id}`);
+    this.time.delayedCall(500, () => {
+      this.oyun.audio.playPreset(SFX.fanfare, { pitch: 3 });
+      this.oyun.platform.haptic('success');
+      this.juice.pop(this.arrows.right, 1.6, 500);
+      this.unlockBanner(layer);
+      this.showTip(`deeper-${layer}`, this.t('tip.deeper', { name }), true);
+    });
+    this.oyun.platform.track('layer_unlocked', { layer });
   }
 
   private async onBoost(): Promise<void> {
@@ -905,8 +1031,26 @@ export class DigScene extends OyunScene {
 
   // ------------------------------------------------------------------ finds
 
+  /** Recount the species the museum has not shown yet (from its own presentation memory). */
+  private syncUnseen(): void {
+    const found = FOSSILS.filter((f) => this.sim.discovered(f.id)).map((f) => f.id);
+    const seen = initSeen(this.oyun, found);
+    this.setUnseen(found.filter((id) => !seen.has(id)).length);
+  }
+
+  private setUnseen(n: number): void {
+    const grew = n > this.unseen;
+    this.unseen = n;
+    this.museumBadge.box.setVisible(n > 0);
+    this.museumBadge.text.setText(n > 99 ? '99+' : String(n));
+    fitText(this.museumBadge.text, 36);
+    if (grew && FX_ON && !this.oyun.reducedMotion) this.juice.pop(this.museumBadge.box, 1.5, 260);
+  }
+
   private onFind(find: Find, from?: { x: number; y: number }): void {
     this.reveal.show(find, from);
+    // recounted, not added: a find replayed from the museum may already have been looked at there
+    if (find.isNew) this.syncUnseen();
     if (find.fossil.odds >= 100) this.helper.cheer();
     else if (find.source === 'assistant') this.helper.found();
     if (find.fusions > 0) this.showFusion(find);
@@ -921,17 +1065,7 @@ export class DigScene extends OyunScene {
       });
       this.oyun.platform.track('set_complete', { layer: find.setCompleted });
     }
-    if (find.unlocked !== null) {
-      const name = this.t(`layer.${at(LAYERS, find.unlocked).id}`);
-      this.time.delayedCall(500, () => {
-        this.oyun.audio.playPreset(SFX.fanfare, { pitch: 3 });
-        this.oyun.platform.haptic('success');
-        this.juice.pop(this.arrows.right, 1.6, 500);
-        this.unlockBanner(find.unlocked!);
-        this.showTip(`deeper-${find.unlocked}`, this.t('tip.deeper', { name }), true);
-      });
-      this.oyun.platform.track('layer_unlocked', { layer: find.unlocked });
-    }
+    if (find.unlocked !== null) this.layerOpened(find.unlocked);
     this.ses.markDirty();
     if (find.isNew || find.fossil.tier >= 2 || find.setCompleted !== null || find.unlocked !== null) this.ses.flush();
   }
@@ -939,6 +1073,8 @@ export class DigScene extends OyunScene {
   private onLanded(find: Find): void {
     this.refreshStrip();
     this.juice.pop(this.strip, 1.12, 180);
+    // a rare card arriving in the strip leaves a few sparks of its tier colour
+    if (FX_ON && !this.oyun.reducedMotion && find.fossil.tier >= 2) this.fx.emit(this.strip.x - 262, this.strip.y, 5 + find.fossil.tier, { texture: 'spark', tint: at(TIERS, find.fossil.tier).color, speed: [80, 220], life: [0.3, 0.55], scale: [0.4, 0.9], drag: 2 });
     this.showTip('odds', this.t('tip.odds', { odds: oddsText(this, find.fossil.odds) }));
   }
 
@@ -952,7 +1088,7 @@ export class DigScene extends OyunScene {
       return;
     }
     const bx = this.block.x;
-    const by = this.block.y;
+    const by = this.blockY; // its resting place: several breaks in one frame must not walk it down
     const floor = by + this.blockH / 2 + 4;
     for (let k = 0; k < 4; k++) {
       this.rubble.emit(bx + (k - 1.5) * 70, by + this.blockH * 0.25, Math.ceil(chunks / 4), {
@@ -972,6 +1108,11 @@ export class DigScene extends OyunScene {
       });
     }
     this.fx.emit(bx, floor - 30, 8, { tint: PALETTE.sand, speed: [40, 160], angle: -Math.PI / 2, spread: 2.8, life: [0.6, 1], scale: [1.4, 2.6], endScale: 1.8, alpha: 0.28, drag: 1.5 });
+    // dust that settles: two low clouds roll out along the floor and thin away
+    if (!this.oyun.reducedMotion) {
+      this.fx.emit(bx - 60, floor - 10, 2, { tint: PALETTE.sand, speed: [50, 120], angle: Math.PI, spread: 0.5, life: [1, 1.5], scale: [2, 3], endScale: 1.6, alpha: 0.16, drag: 1.4 });
+      this.fx.emit(bx + 60, floor - 10, 2, { tint: PALETTE.sand, speed: [50, 120], angle: 0, spread: 0.5, life: [1, 1.5], scale: [2, 3], endScale: 1.6, alpha: 0.16, drag: 1.4 });
+    }
     // a quick white pop where the block was, sparks thrown outward
     this.fx.emit(bx, by, 6, { texture: 'spark', tint: 0xffffff, speed: [200, 420], life: [0.2, 0.35], scale: [0.5, 0.9], drag: 3 });
     this.block.renew(this.sim.block.kind, this.sim.echoLayer);
@@ -1180,6 +1321,8 @@ export class DigScene extends OyunScene {
     if (haul.best) lines.push([this.t('offline.best', { name: fossilName(this, haul.best), odds: oddsText(this, haul.best.odds) }), 30, at(TIERS, haul.best.tier).color]);
     if (haul.seconds >= this.sim.offlineCap - 1) lines.push([this.t('offline.cap', { min: Math.round(this.sim.offlineCap / 60) }), 26, PALETTE.sand]);
     const texts = lines.map(([text, size, color]) => label(this, 0, 0, text, { size, color, wrap: 560 }).setOrigin(0.5, 0));
+    shade.setAlpha(0);
+    this.tweens.add({ targets: shade, alpha: 1, duration: 200 });
     const gap = 16;
     const textH = texts.reduce((s, t) => s + t.height, 0) + gap * (texts.length - 1);
     const buttonsH = 100 + 18 + 92;
@@ -1198,8 +1341,12 @@ export class DigScene extends OyunScene {
     const double = button(this, L.cx, by + 118, this.t('offline.double'), () => void this.doubleOffline(), { width: 500, height: 92, fontSize: 34, variant: 'secondary', ad: true });
     box.add([claim, double]);
     this.juice.pop(card, 0.5, 320);
+    // the haul counts up (the card was laid out for the full number, so nothing shifts)
+    const dustLine = at(texts, 2);
+    countTo(this, 0, haul.dust, 700, (v) => dustLine.setText(this.t('offline.dust', { n: big(this, Math.round(v)) })), 14, 260);
     this.oyun.audio.play('coin');
     this.popup = { box, haul, claim, double, doubled: false };
+    this.syncUnseen();
     this.refreshHud(true);
   }
 
@@ -1227,6 +1374,8 @@ export class DigScene extends OyunScene {
     this.popup = null;
     if (!p.doubled) this.sim.clearOfflineBonus();
     this.napUntil = this.fxClock + 2.5;
+    // the haul is already yours; closing the popup sends a few coins to the dust counter
+    if (FX_ON && p.haul.dust > 0) this.flyDust(this.layout.cx, this.layout.cy, 8);
     this.tweens.add({ targets: p.box, alpha: 0, duration: 180, onComplete: () => p.box.destroy() });
     this.refreshHud(true);
     this.refreshStrip();
@@ -1281,6 +1430,8 @@ export class DigScene extends OyunScene {
     this.block.animate(real, b.kind === 'unstable' && b.timer > 0 ? 1 - b.timer / 6 : 0, this.sim.combo);
     this.block.setCore(this.sim.meteorCore);
     if (FX_ON) this.updateCoins(real);
+    this.updateHpBar(real);
+    this.updateCounters(real);
     this.checkCombo();
     this.updateHold();
     this.maybeRankUp();
@@ -1346,6 +1497,59 @@ export class DigScene extends OyunScene {
     if (this.glintLabel.text !== text) this.glintLabel.setText(text);
   }
 
+  /** Write a chip's value (refit to the chip); false when the text is already showing. */
+  private setChipText(c: Chip, text: string): boolean {
+    if (c.last === text) return false;
+    c.last = text;
+    c.value.setText(text);
+    fitText(c.value, 140);
+    return true;
+  }
+
+  /** Pop a text from the scale it was just fitted to (core's pop would return to an older size). */
+  private popFit(t: Phaser.GameObjects.Text, amount: number, ms: number): void {
+    fitText(t, 140);
+    t.setData('oyunRestScaleX', t.scaleX).setData('oyunRestScaleY', t.scaleY);
+    this.juice.pop(t, amount, ms);
+  }
+
+  /** The HP bar eases to its value: it drains quickly on a hit and fills up for a fresh block. */
+  private updateHpBar(dt: number): void {
+    if (this.lastHit && FX_ON && !this.oyun.reducedMotion) this.hpText.setScale(1 + 0.07 * Math.abs(Math.sin(this.fxClock * 7)));
+    const d = this.hpTarget - this.hpShown;
+    if (d === 0) return;
+    const snap = !FX_ON || this.oyun.reducedMotion || Math.abs(d) < 0.004;
+    this.hpShown = snap ? this.hpTarget : this.hpShown + d * Math.min(1, dt * (d < 0 ? 24 : 11));
+    this.hpBar.setValue(this.hpShown);
+  }
+
+  /**
+   * Dust and dig power count towards their real values in steps ~25 times a second (a text is
+   * re-rendered only when its formatted value changes). `snap` shows the exact values at once.
+   */
+  private updateCounters(dt: number, snap = false): void {
+    const dust = Math.floor(this.sim.dust);
+    const power = this.sim.digPower;
+    if (!snap && dust === this.dustShown && power === this.powerShown) return;
+    this.countClock -= dt;
+    if (!snap && this.countClock > 0) return;
+    this.countClock = 0.04;
+    const still = snap || !FX_ON || this.oyun.reducedMotion;
+    const next = (shown: number, target: number): number => {
+      const d = target - shown;
+      if (still || Math.abs(d) <= Math.max(1, Math.abs(target) * 0.004)) return target;
+      const n = Math.round(shown + d * 0.42);
+      return n === shown ? target : n;
+    };
+    const spent = dust < this.dustShown;
+    this.dustShown = next(this.dustShown, dust);
+    this.powerShown = next(this.powerShown, power);
+    const changed = this.setChipText(this.chips.dust, big(this, this.dustShown));
+    // spending pops the counter once; income pops as the coins land
+    if (changed && (spent || !FX_ON) && this.dustShown === dust) this.popFit(this.chips.dust.value, 1.12, 160);
+    this.setChipText(this.chips.power, big(this, this.powerShown));
+  }
+
   private refreshHud(force = false): void {
     const s = this.sim;
     const luck = s.luck;
@@ -1360,17 +1564,15 @@ export class DigScene extends OyunScene {
     if (!force && key === this.hudKey) return;
     this.hudKey = key;
     const setChip = (c: Chip, text: string, pop: boolean): void => {
-      if (c.last === text) return;
-      c.last = text;
-      c.value.setText(text);
-      fitText(c.value, 140);
-      if (pop) this.juice.pop(c.value, 1.12, 160);
+      if (!this.setChipText(c, text)) return;
+      if (pop) this.popFit(c.value, 1.12, 160);
     };
     const power = s.digPower;
     if (power > this.lastPower && this.lastPower > 1) this.showTip('power', this.t('tip.power'));
-    setChip(this.chips.power, big(this, power), power > this.lastPower);
+    // dust and dig power count up to their new value (updateCounters); a rise in power still pops
+    if (power > this.lastPower) this.popFit(this.chips.power.value, 1.12, 160);
     this.lastPower = power;
-    setChip(this.chips.dust, big(this, s.dust), true);
+    if (force) this.updateCounters(0, true);
     // luck moves every frame while the combo drains: update quietly, pop only when base luck rises
     const baseUp = s.baseLuck > this.lastBaseLuck;
     this.lastBaseLuck = s.baseLuck;
@@ -1393,11 +1595,26 @@ export class DigScene extends OyunScene {
     this.arrows.nudge.setVisible(s.layer < s.unlocked && s.setProgress(s.layer + 1).found === 0);
     this.pick.setTier(s.level('pick'));
     const hp = s.blockHp;
-    this.hpBar.setValue(1 - s.blockDamage / hp);
+    this.hpTarget = 1 - s.blockDamage / hp;
     const left = Math.max(1, Math.ceil((hp - s.blockDamage) / (s.digPower * s.tapMult)));
     this.hpText.setText(this.t('hud.taps', { taps: counted(this, 'n.taps', left) }));
+    // the hit that breaks it: the line turns gold (and beats, see updateHpBar)
+    const lastHit = left === 1 && s.blockDamage > 0;
+    if (lastHit !== this.lastHit) {
+      this.lastHit = lastHit;
+      this.hpText.setColor(cssColor(lastHit ? 0xffd23f : 0xffffff));
+      if (!lastHit) this.hpText.setScale(1);
+    }
     const affordable = UPGRADE_ORDER.filter((id) => s.canBuy(id)).length;
     this.upgradesButton.setLabel(affordable > 0 ? `${this.t('dig.upgrades')} (${affordable})` : this.t('dig.upgrades'));
+    // something new can be bought: the button hops once
+    if (affordable > this.affordable && this.affordable >= 0 && FX_ON && !this.oyun.reducedMotion && !this.drawer.open) {
+      const restY = this.layout.bottom - 76;
+      this.hop?.remove();
+      this.upgradesButton.setY(restY);
+      this.hop = this.tweens.add({ targets: this.upgradesButton, y: restY - 14, duration: 110, yoyo: true, ease: 'Quad.easeOut', onComplete: () => this.upgradesButton.setY(restY) });
+    }
+    this.affordable = affordable;
     if (affordable > 0 && !this.popup) this.showTip('dust', this.t('tip.dust'));
     this.boostButton.setEnabled(boost <= 0);
     this.boostButton.setLabel(boost > 0 ? this.t('hud.boost', { s: boost }) : this.t('dig.boost'));
@@ -1617,6 +1834,19 @@ export class DigScene extends OyunScene {
       },
       ranks: () => this.goTo(SCENES.ranks),
       daily: () => this.dailyButton.fire(),
+      /**
+       * Look at a ceremony without earning it (screenshots of the presentation): plays the reveal
+       * of the most common fossil at `odds` or rarer, the rank-up of the current rank, or a
+       * fusion. Presentation only: nothing is rolled, added or saved.
+       */
+      fxPreview: (p: unknown) => {
+        const o = (p ?? {}) as { kind?: string; odds?: number };
+        const fossil = [...FOSSILS].filter((f) => f.odds >= (o.odds ?? 100)).sort((a, b) => a.odds - b.odds)[0] ?? at(FOSSILS, 0);
+        const find: Find = { fossil, grade: 0, fusions: 0, isNew: true, source: 'tap', luck: this.sim.luck, dust: 0, setCompleted: null, unlocked: null, powerGain: 0, pity: false, block: 'normal' };
+        if (o.kind === 'rank') this.rankUp(this.sim.rank);
+        else if (o.kind === 'fusion') this.showFusion({ ...find, grade: 1, fusions: 1, powerGain: 120 });
+        else this.reveal.show(find);
+      },
       close: () => {
         this.closeCeremony();
         this.closeDaily();

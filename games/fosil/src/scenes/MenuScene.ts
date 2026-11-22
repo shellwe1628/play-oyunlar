@@ -4,7 +4,9 @@ import Phaser from 'phaser';
 import { badgeKey } from '../art/badges';
 import { addCardLife } from '../fx/CardLife';
 import { Helper } from '../fx/Helper';
+import { countTo, fillBar, Motes } from '../fx/Motion';
 import { Particles } from '../fx/Particles';
+import { initSeen } from '../fx/seen';
 import { backgroundAware, session } from '../session';
 import { at, FOSSIL_BY_ID, FOSSILS, LAYERS, RANKS, TIERS, type Fossil } from '../sim/data';
 import { fossilKey, PALETTE } from '../textures';
@@ -54,6 +56,7 @@ export class MenuScene extends MenuShell {
   private ranksButton!: Button;
   private museumX = 0;
   private ranksX = 0;
+  private motes: Motes[] = [];
 
   constructor() {
     super(SCENES.menu);
@@ -67,6 +70,9 @@ export class MenuScene extends MenuShell {
     this.cameras.main.setBackgroundColor(PALETTE.dirtDark);
     this.beat = 0;
     this.clouds = [];
+    this.motes = [];
+    // the museum's "New!" ribbons start counting from here (see fx/seen.ts)
+    initSeen(this.oyun, FOSSILS.filter((f) => sim.discovered(f.id)).map((f) => f.id));
 
     // vertical plan, from the safe bottom up (the sky simply grows on tall screens)
     const surfaceY = L.top + 372;
@@ -89,6 +95,12 @@ export class MenuScene extends MenuShell {
 
     const best = sim.stats.bestId ? FOSSIL_BY_ID.get(sim.stats.bestId) : undefined;
     this.drawPit(L.cx, pitY, pitH, best, motion);
+    // idle life: fireflies over the grass at dusk, dust hanging in the work light of the pit
+    const pitRx = Math.min(230, L.width / 2 - 70);
+    this.motes = [
+      new Motes(this, { x: 30, y: surfaceY - 170, w: L.width - 60, h: 160, count: 8, colors: [0xfff0a0, 0xd8ff9a], alpha: 0.85, texture: 'spark', scale: [0.25, 0.5], rise: -5, depth: -13, additive: true }),
+      new Motes(this, { x: L.cx - pitRx * 0.55, y: pitY - pitH / 2 + 10, w: pitRx * 1.1, h: pitH - 30, count: 10, colors: [0xfff3c0, 0xffffff], alpha: 0.55, scale: [0.18, 0.4], rise: -9, depth: 3, additive: true }),
+    ];
     this.drawPlaque(L.cx, plaqueY, plaqueH, best, motion);
     this.drawPlay(L.cx, playY, playH, motion);
 
@@ -520,7 +532,10 @@ export class MenuScene extends MenuShell {
     const colW = w - 150;
     const sub = label(this, left, -18, this.t('menu.species', { a: found, b: FOSSILS.length }), { size: 24, color: PALETTE.sand }).setOrigin(0, 0.5);
     fitText(sub, colW);
-    const bar = progressBar(this, left + colW / 2, 18, colW, 16, { color: PALETTE.ochreLight, background: 0x2c1b10, value: found / FOSSILS.length });
+    // the shelf fills up once the drawer has slid in
+    const bar = progressBar(this, left + colW / 2, 18, colW, 16, { color: PALETTE.ochreLight, background: 0x2c1b10, value: 0 });
+    fillBar(this, bar, found / FOSSILS.length, 700, 1450);
+    countTo(this, 0, found, 700, (v) => fitText(sub.setText(this.t('menu.species', { a: Math.round(v), b: FOSSILS.length })), colW), 16, 1450);
     const where = label(this, left, 48, this.t(`layer.${at(LAYERS, layer).id}`), { size: 20, color: PALETTE.sand }).setOrigin(0, 0.5).setAlpha(0.85);
     fitText(where, colW);
     btn.add([sub, bar, where]);
@@ -539,7 +554,8 @@ export class MenuScene extends MenuShell {
     name.setStroke('#24160e', 5);
     fitText(name, colW);
     const value = next ? (score - r.score) / (next.score - r.score) : 1;
-    const bar = progressBar(this, left + colW / 2, 18, colW, 16, { color: r.color, background: 0x2c1b10, value: Math.max(0, Math.min(1, value)) });
+    const bar = progressBar(this, left + colW / 2, 18, colW, 16, { color: r.color, background: 0x2c1b10, value: 0 });
+    fillBar(this, bar, Math.max(0, Math.min(1, value)), 700, 1550);
     const pts = label(this, left, 48, this.t('menu.points', { n: big(this, score) }), { size: 20, color: PALETTE.sand }).setOrigin(0, 0.5).setAlpha(0.85);
     fitText(pts, colW);
     btn.add([name, bar, pts]);
@@ -554,6 +570,7 @@ export class MenuScene extends MenuShell {
       cl.c.x += cl.speed * dt;
       if (cl.c.x > width + 120) cl.c.x = -120;
     }
+    for (const m of this.motes) m.update(dt);
     if (!this.helper || !this.chips) return;
     this.beat += dt;
     if (this.beat > 0.9) {

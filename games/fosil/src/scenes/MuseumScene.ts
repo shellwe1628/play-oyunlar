@@ -2,13 +2,15 @@ import { button, cssColor, label, OyunScene, panel, progressBar, type Button, ty
 import Phaser from 'phaser';
 import { backgroundAware, session } from '../session';
 import { SFX } from '../sfx';
-import { GRADE_COLORS, GRADE_COUNT, LAYERS, TIERS, fossilPower, type Fossil, at } from '../sim/data';
+import { FOSSILS, GRADE_COLORS, GRADE_COUNT, LAYERS, TIERS, fossilPower, type Fossil, at } from '../sim/data';
 import type { DigSim } from '../sim/dig';
 import { layerFossils } from '../sim/loot';
 import { fossilKey, PALETTE } from '../textures';
 import type { PauseReason } from '@oyun/core/pure';
 import { addCardLife } from '../fx/CardLife';
+import { calmShake, countTo, fillBar, Motes } from '../fx/Motion';
 import { Particles } from '../fx/Particles';
+import { initSeen, markSeen } from '../fx/seen';
 import { SCENES } from './keys';
 import { big, fitText, fossilName, hitZone, mult, oddsText, rarityCard } from './ui';
 
@@ -41,6 +43,14 @@ export class MuseumScene extends OyunScene {
   private detail: Phaser.GameObjects.Container | null = null;
   private backButton!: Button;
   private gridKey = '';
+  private motes!: Motes;
+  /** Species already looked at in the museum (stored), and the ones wearing a "New!" ribbon this visit. */
+  private seen = new Set<string>();
+  private fresh = new Set<string>();
+  /** Ribbons that have already stamped on this visit (a redraw shows them without the stamp). */
+  private stamped = new Set<string>();
+  private setShown = 0;
+  private setTweens: (Phaser.Tweens.Tween | null)[] = [];
 
   constructor() {
     super(SCENES.museum);
@@ -53,9 +63,21 @@ export class MuseumScene extends OyunScene {
     this.detail = null;
     this.tabs = [];
     this.gridKey = '';
+    this.setShown = 0;
+    this.setTweens = [];
+    calmShake(this);
     this.confetti = new Particles(this, 90, 950);
+    const found = FOSSILS.filter((f) => this.sim.discovered(f.id)).map((f) => f.id);
+    this.seen = initSeen(this.oyun, found);
+    this.fresh = new Set(found.filter((id) => !this.seen.has(id)));
+    this.stamped = new Set();
     const L = this.layout;
     this.cameras.main.setBackgroundColor(PALETTE.cream);
+    // the hall: daylight falls in from the top right, the corners stay a little darker
+    this.add.image(L.cx, L.height / 2, 'vignette').setDisplaySize(L.width + 8, L.height + 8).setTint(0x8a6a44).setAlpha(0.28);
+    for (const [bx, rot, a] of [[L.width * 0.82, 0.42, 0.5], [L.width * 0.5, 0.3, 0.32]] as const) {
+      this.add.image(bx, L.top + 60, 'ray').setOrigin(0.5, 0).setRotation(rot).setScale(4.6, 3.4).setTint(0xffffff).setAlpha(a);
+    }
     const g = this.add.graphics();
     g.fillStyle(PALETTE.creamDark, 1).fillRect(0, 0, L.width, L.top + 112);
     for (let x = 0; x < L.width; x += 48) g.fillStyle(PALETTE.creamDark, 0.5).fillRect(x, L.top + 112, 24, 6);
@@ -89,6 +111,8 @@ export class MuseumScene extends OyunScene {
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => ses.flush());
     this.drawTabs();
     this.drawGrid(true);
+    // dust in the daylight, drifting up past the cases
+    this.motes = new Motes(this, { x: L.left + 10, y: L.top + 130, w: L.right - L.left - 20, h: L.bottom - L.top - 260, count: 14, colors: [0xc9963e, 0xffffff, 0xb07a4a], alpha: 0.5, scale: [0.2, 0.5], rise: -12, depth: 5 });
   }
 
   /** Set completion gets its own celebration the first time you see the finished shelf. */
@@ -132,12 +156,17 @@ export class MuseumScene extends OyunScene {
 
   override update(_t: number, delta: number): void {
     this.confetti.update(Math.min(delta, 250) / 1000);
+    this.motes.update(Math.min(delta, 250) / 1000);
       // Every find is saved at once and its reveal waits for the dig screen (nothing arrives silently).
     const ses = session(this.oyun);
     const r = this.sim.tick(Math.min(delta, 250) / 1000);
     if (r.finds.length) {
-      for (const f of r.finds) ses.queueFind(f);
+      for (const f of r.finds) {
+        ses.queueFind(f);
+        if (f.isNew) this.fresh.add(f.fossil.id);
+      }
       this.drawGrid();
+      if (r.finds.some((f) => f.isNew)) this.drawTabs(false);
     }
     ses.queueEvents(r.events);
     ses.autosave();
@@ -164,7 +193,12 @@ export class MuseumScene extends OyunScene {
     this.drawGrid(true);
   }
 
-  private drawTabs(): void {
+  /** A layer that holds species the player has not looked at yet (a dot on its tab). */
+  private unseenIn(layer: number): boolean {
+    return layerFossils(layer).some((f) => this.sim.discovered(f.id) && !this.seen.has(f.id));
+  }
+
+  private drawTabs(pop = true): void {
     const L = this.layout;
     const tabW = (L.right - L.left - 40) / TABS_PER_ROW;
     this.tabs.forEach((t, i) => {
@@ -175,7 +209,12 @@ export class MuseumScene extends OyunScene {
       t.bg.fillStyle(PALETTE.shadow, 0.18).fillRoundedRect(-tabW / 2 + 3, -TAB_H / 2 + 4, tabW - 6, TAB_H, 16);
       t.bg.fillStyle(on ? PALETTE.ochre : locked ? PALETTE.creamDark : 0xffffff, 1).fillRoundedRect(-tabW / 2 + 3, -TAB_H / 2, tabW - 6, TAB_H, 16);
       if (done) t.bg.fillStyle(0xffd23f, 1).fillCircle(tabW / 2 - 12, -TAB_H / 2 + 8, 8);
-      if (on) this.juice.pop(t.text, 1.15, 200);
+      // something new waits on this shelf
+      if (!on && this.unseenIn(i)) {
+        t.bg.fillStyle(0xffffff, 1).fillCircle(-tabW / 2 + 14, -TAB_H / 2 + 8, 10);
+        t.bg.fillStyle(0xe2553a, 1).fillCircle(-tabW / 2 + 14, -TAB_H / 2 + 8, 7);
+      }
+      if (on && pop) this.juice.pop(t.text, 1.15, 200);
       t.text.setColor(cssColor(locked ? PALETTE.inkSoft : PALETTE.ink));
     });
   }
@@ -188,8 +227,17 @@ export class MuseumScene extends OyunScene {
     this.grid.removeAll(true);
     const L = this.layout;
     const prog = this.sim.setProgress(this.tab);
-    this.setBar.setValue(prog.found / prog.total);
-    this.setText.setText(this.t('museum.set', { a: prog.found, b: prog.total }));
+    // the set bar fills up and its count runs with it (from empty on a new shelf)
+    if (force) {
+      this.setBar.setValue(0);
+      this.setShown = 0;
+    }
+    for (const tw of this.setTweens) tw?.remove();
+    this.setTweens = [
+      fillBar(this, this.setBar, prog.found / prog.total, 480, force ? 140 : 0),
+      countTo(this, this.setShown, prog.found, 480, (v) => this.setText.setText(this.t('museum.set', { a: Math.round(v), b: prog.total })), prog.total, force ? 140 : 0),
+    ];
+    this.setShown = prog.found;
     const bonus = at(LAYERS, this.tab).setBonus;
     const bonusValue = bonus.kind === 'offlineCap' ? String(Math.round(bonus.value / 60)) : mult(this, bonus.value);
     const done = this.sim.setComplete(this.tab);
@@ -234,18 +282,44 @@ export class MuseumScene extends OyunScene {
         card.setAlpha(0).setY(y + 26);
         this.tweens.add({ targets: card, alpha: 1, y, delay: 25 * i, duration: 220, ease: 'Cubic.easeOut' });
       }
+      if (!locked && this.fresh.has(f.id)) {
+        this.ribbon(card, x, y, cardH, this.stamped.has(f.id) ? -1 : force ? 25 * i + 260 : 0);
+        this.stamped.add(f.id);
+      }
       if (i === spotAt) {
         const tag = label(this, x + CARD_W / 2 - 12, y - cardH / 2 - 2, this.t('museum.rarest'), { size: 22, color: PALETTE.ink }).setOrigin(1, 0.5);
         tag.setBackgroundColor('#ffd23f').setPadding(8, 2, 8, 2);
         this.grid.add(tag);
       }
     });
+    // these have now been looked at: no ribbon on the next visit, no dot on the tab
+    const shown = locked ? [] : fs.filter((f) => this.fresh.has(f.id)).map((f) => f.id);
+    for (const id of shown) this.seen.add(id);
+    markSeen(this.oyun, shown);
     if (done && !this.celebrated(this.tab)) this.time.delayedCall(350, () => this.celebrateSet());
     if (locked) {
       const msg = label(this, L.cx, top + 3 * step - 6, this.t('museum.locked', { n: big(this, this.sim.unlockPowerOf(this.tab)) }), { size: 40, color: PALETTE.ink });
       msg.setStroke(cssColor(PALETTE.cream), 10);
       this.grid.add([this.add.image(L.cx, top + 3 * step - 80, 'lock').setScale(1.4), msg]);
     }
+  }
+
+  /**
+   * A "New!" ribbon on a case found since the last visit: it stamps on with a few sparks after
+   * `delay` ms (once per visit; a negative delay just shows it).
+   */
+  private ribbon(card: Phaser.GameObjects.Container, x: number, y: number, h: number, delay: number): void {
+    const tag = label(this, -CARD_W / 2 + 2, -h / 2 + 4, this.t('reveal.new'), { size: 22, color: 0xffffff }).setOrigin(0, 0.5).setAngle(-7);
+    tag.setBackgroundColor('#e2553a').setPadding(8, 2, 8, 2);
+    card.add(tag);
+    if (this.oyun.reducedMotion || delay < 0) return;
+    tag.setVisible(false);
+    this.time.delayedCall(delay, () => {
+      if (!tag.active) return;
+      tag.setVisible(true);
+      this.juice.pop(tag, 2.2, 240);
+      this.confetti.emit(x - CARD_W / 2 + 40, y - h / 2 + 4, 7, { texture: 'spark', tint: 0xffd23f, speed: [90, 240], life: [0.35, 0.6], scale: [0.4, 0.9], drag: 2 });
+    });
   }
 
   /** A museum shelf is closed until its layer has been reached in any expedition. */
@@ -295,7 +369,21 @@ export class MuseumScene extends OyunScene {
       }
     }
     const zone = this.add.zone(0, 0, CARD_W, h).setInteractive({ useHandCursor: true });
-    zone.on(Phaser.Input.Events.GAMEOBJECT_POINTER_UP, () => this.openDetail(f));
+    // the case gives a little under the finger
+    let pressing: Phaser.Tweens.Tween | null = null;
+    const press = (to: number): void => {
+      if (this.oyun.reducedMotion) return;
+      pressing?.remove();
+      pressing = this.tweens.add({ targets: c, scale: to, duration: 80, ease: 'Quad.easeOut' });
+    };
+    zone.on(Phaser.Input.Events.GAMEOBJECT_POINTER_DOWN, () => {
+      if (!this.detail) press(0.96);
+    });
+    zone.on(Phaser.Input.Events.GAMEOBJECT_POINTER_OUT, () => press(1));
+    zone.on(Phaser.Input.Events.GAMEOBJECT_POINTER_UP, () => {
+      press(1);
+      this.openDetail(f);
+    });
     c.add(zone);
     c.setData('fossil', f.id);
     if (found) {
@@ -318,6 +406,13 @@ export class MuseumScene extends OyunScene {
     const closer = this.add.zone(L.cx, L.height / 2, L.width + 40, L.height + 40).setInteractive();
     closer.on(Phaser.Input.Events.GAMEOBJECT_POINTER_UP, () => this.closeDetail());
     box.add([shade, closer]);
+    // rare pieces stand in their own light
+    if (found && f.tier >= 2) {
+      const rays = this.add.container(L.cx, L.cy - 120);
+      for (let i = 0; i < 12; i++) rays.add(this.add.image(0, 0, 'ray').setOrigin(0.5, 0).setAngle(i * 30).setTint(at(TIERS, f.tier).color).setAlpha(0.55).setScale(1.2, 1.05));
+      box.add(rays);
+      if (!this.oyun.reducedMotion) this.tweens.add({ targets: rays, angle: 360, duration: 26000, repeat: -1 });
+    }
     const card = rarityCard(this, f, 420, 560).setPosition(L.cx, L.cy - 120);
     if (found) addCardLife(this, card, f.tier, 420, 560);
     if (!found) {
@@ -343,6 +438,14 @@ export class MuseumScene extends OyunScene {
       y += t.height + 14;
     }
     this.juice.pop(card, 0.6, 260);
+    if (!this.oyun.reducedMotion) {
+      // the room dims, the card pops forward, the notes slide up under it
+      shade.setAlpha(0);
+      this.tweens.add({ targets: shade, alpha: 1, duration: 180 });
+      const iy = info.y;
+      info.setAlpha(0).setY(iy + 46);
+      this.tweens.add({ targets: info, alpha: 1, y: iy, delay: 90, duration: 240, ease: 'Cubic.easeOut' });
+    }
     this.oyun.audio.playPreset(SFX.flip);
     this.detail = box;
   }
@@ -351,7 +454,17 @@ export class MuseumScene extends OyunScene {
     const d = this.detail;
     if (!d) return;
     this.detail = null;
-    d.destroy();
+    // stop taking taps at once; the view itself fades away quickly
+    for (const o of d.list) if (o.input) o.disableInteractive();
+    this.tweens.add({
+      targets: d,
+      alpha: 0,
+      duration: 130,
+      onComplete: () => {
+        for (const o of d.list) this.tweens.killTweensOf(o); // the slow spin of the rays
+        d.destroy();
+      },
+    });
   }
 
   protected override testState() {

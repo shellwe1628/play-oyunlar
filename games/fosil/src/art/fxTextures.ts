@@ -118,6 +118,19 @@ export const FX_TEXTURES: readonly TextureRecipe[] = [
     },
   },
   {
+    // edge glow for celebrations: clear in the middle, coloured at the rim (tinted at runtime)
+    key: 'vignette',
+    width: 180,
+    height: 320,
+    draw(g) {
+      const n = 26;
+      for (let i = 0; i < n; i++) {
+        const a = ((n - i) / n) ** 2 * 0.9;
+        g.lineStyle(2, 0xffffff, a).strokeRect(i * 2 + 1, i * 2 + 1, 180 - i * 4 - 2, 320 - i * 4 - 2);
+      }
+    },
+  },
+  {
     key: 'sheen',
     width: 48,
     height: 420,

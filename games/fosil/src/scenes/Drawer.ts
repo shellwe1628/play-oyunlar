@@ -7,6 +7,8 @@ import { PALETTE } from '../textures';
 import { big, fitText, mult } from './ui';
 
 const ROW_H = 92;
+/** Seconds a bought row stays lit. */
+const LIT = 0.38;
 
 interface Row {
   id: UpgradeId;
@@ -14,6 +16,11 @@ interface Row {
   iconGlow: Phaser.GameObjects.Image;
   afford: boolean;
   spin: number;
+  /** Bought: the row lights up and its title swells for a moment (seconds left). */
+  lit: number;
+  flash: Phaser.GameObjects.Graphics;
+  /** The title's fitted scale (the swell is applied on top of it). */
+  titleScale: number;
   title: Phaser.GameObjects.Text;
   fx: Phaser.GameObjects.Text;
   buy: Button;
@@ -55,6 +62,8 @@ export class Drawer extends Phaser.GameObjects.Container {
       const y = 138 + i * ROW_H;
       const rowBg = scene0.add.graphics();
       rowBg.fillStyle(PALETTE.dirt, 0.8).fillRoundedRect(L.left + 24, y - ROW_H / 2 + 6, L.right - L.left - 48, ROW_H - 12, 20);
+      const flash = scene0.add.graphics().setAlpha(0);
+      flash.fillStyle(PALETTE.ochreLight, 1).fillRoundedRect(L.left + 24, y - ROW_H / 2 + 6, L.right - L.left - 48, ROW_H - 12, 20);
       const iconGlow = scene0.add.image(L.left + 72, y, 'glow').setTint(PALETTE.ochreLight).setScale(0.7).setAlpha(0);
       const icon = scene0.add.image(L.left + 72, y, 'ico-luck');
       const title = label(scene0, L.left + 116, y - 18, '', { size: 34, color: 0xffffff }).setOrigin(0, 0.5);
@@ -66,8 +75,8 @@ export class Drawer extends Phaser.GameObjects.Container {
       buy.addAt(veil, 1);
       const ico = scene0.add.image(-74, -2, 'ico-dust').setScale(0.8);
       buy.add(ico);
-      this.add([rowBg, iconGlow, icon, title, fx, buy]);
-      this.rows.push({ id, icon, iconGlow, afford: false, spin: 0, title, fx, buy, key: '', parts: [rowBg, icon, title, fx, buy] });
+      this.add([rowBg, flash, iconGlow, icon, title, fx, buy]);
+      this.rows.push({ id, icon, iconGlow, afford: false, spin: 0, lit: 0, flash, titleScale: 1, title, fx, buy, key: '', parts: [rowBg, icon, title, fx, buy] });
     });
     this.setDepth(500).setY(L.height + 20);
     this.setVisible(false);
@@ -123,6 +132,7 @@ export class Drawer extends Phaser.GameObjects.Container {
       this.setIcon(r, lvl);
       r.title.setText(`${s.t(`up.${r.id}`)}  ·  ${s.t('up.level', { n: lvl })}`);
       fitText(r.title, 330);
+      r.titleScale = r.title.scaleX;
       const now = u.effect(lvl);
       const nxt = u.effect(Math.min(u.maxLevel, lvl + 1));
       const fmt = (v: number): string =>
@@ -148,10 +158,12 @@ export class Drawer extends Phaser.GameObjects.Container {
     else r.icon.setTexture(r.id === 'luck' ? 'ico-luck' : 'ico-moon').setScale(1.3).setData('base', 1.3);
   }
 
-  /** Bought: the icon spins and pops. */
+  /** Bought: the icon spins and pops, the row lights up and the new level swells. */
   celebrate(id: UpgradeId): void {
     const r = this.rows.find((x) => x.id === id);
-    if (r) r.spin = 0.55;
+    if (!r) return;
+    r.spin = 0.55;
+    r.lit = LIT;
   }
 
   /** Affordable icons bob and glow; a bought one spins. Called every frame (no allocation). */
@@ -159,6 +171,13 @@ export class Drawer extends Phaser.GameObjects.Container {
     if (!this.isOpen) return;
     for (const r of this.rows) {
       const base = (r.icon.getData('base') as number | undefined) ?? 1;
+      if (r.lit > 0) {
+        r.lit = Math.max(0, r.lit - dt);
+        const p = r.lit / LIT; // 1 → 0
+        r.flash.setAlpha(0.42 * p * p);
+        r.title.setScale(r.titleScale * (1 + 0.14 * Math.sin(p * Math.PI)));
+        if (r.lit === 0) r.title.setScale(r.titleScale);
+      }
       if (r.spin > 0) {
         r.spin = Math.max(0, r.spin - dt);
         const p = 1 - r.spin / 0.55;

@@ -123,6 +123,85 @@ describe(`weak spots: every ${WEAK.minGap}-${WEAK.maxGap} s, visible ${WEAK.life
   });
 });
 
+describe('the spot and the block, the spot and the other screens', () => {
+  it('stays where it is when its block breaks: it rides on the next block', () => {
+    const sim = on(0, 'normal', () => {}, 1); // every tap breaks a Topsoil block
+    waitSpot(sim);
+    const spot = { ...sim.weakSpot! };
+    const far = { x: spot.x > 0.5 ? spot.x - 0.4 : spot.x + 0.4, y: spot.y };
+    const broken = sim.blocksBroken(0);
+    for (let i = 0; i < 3; i++) {
+      const r = sim.tap(far);
+      expect(r.broke).toBe(true);
+      expect(r.precise).toBe(false);
+      expect(sim.weakSpot).toEqual(spot); // same place, same time left
+    }
+    expect(sim.blocksBroken(0)).toBe(broken + 3);
+    expect(sim.sharpEye).toBe(0);
+    // and it can still be hit, on the block that is there now
+    const hit = sim.tap(spot);
+    expect(hit.precise).toBe(true);
+    expect(hit.sharp).toBe(1);
+  });
+
+  it('waits while another screen is showing: nothing expires and the sharp eye is not lost behind the museum', () => {
+    const sim = on(3, 'normal', (s) => (s.levels.assistant = 10), 400);
+    for (let n = 0; n < 2; n++) {
+      waitSpot(sim);
+      sim.tap(sim.weakSpot!);
+    }
+    waitSpot(sim);
+    sim.tick(0.5);
+    const spot = { ...sim.weakSpot! };
+    const weak = sim.toSave().weak;
+    sim.setWatching(false); // the museum, the ranks
+    let hits = 0;
+    for (let i = 0; i < 600; i++) {
+      const r = sim.tick(0.1);
+      hits += r.assistantHits;
+      expect(r.weakAppeared).toBe(false);
+      expect(r.weakExpired).toBe(false);
+    }
+    expect(hits).toBeGreaterThan(50); // the rest of the dig went on
+    expect(sim.weakSpot).toEqual(spot);
+    expect(sim.sharpEye).toBe(2);
+    expect(sim.toSave().weak).toEqual(weak); // not a draw, not a second
+    // back on the dig screen it runs on from where it was
+    sim.setWatching(true);
+    sim.tick(spot.life - 0.1);
+    expect(sim.weakSpot).not.toBeNull();
+    expect(sim.tick(0.2).weakExpired).toBe(true);
+    expect(sim.sharpEye).toBe(0);
+    // a spot that was due does not appear unseen either
+    const due = on(1, 'normal', (s) => (s.weak = { ...s.weak, in: 1 }));
+    due.setWatching(false);
+    for (let i = 0; i < 100; i++) expect(due.tick(0.1).weakAppeared).toBe(false);
+    expect(due.toSave().weak.in).toBe(1);
+    due.setWatching(true);
+    due.tick(0.9);
+    expect(due.weakSpot).toBeNull();
+    expect(due.tick(0.2).weakAppeared).toBe(true);
+  });
+
+  it('pausing the weak spots touches no other stream: the dig behind the museum is the same dig', () => {
+    const mk = (): DigSim => new DigSim(8, saveWith((s) => (s.levels.assistant = 15)));
+    const seen = mk();
+    const unseen = mk();
+    unseen.setWatching(false);
+    const a: string[] = [];
+    const b: string[] = [];
+    for (let i = 0; i < 3000; i++) {
+      for (const f of seen.tick(0.1).finds) a.push(f.fossil.id);
+      for (const f of unseen.tick(0.1).finds) b.push(f.fossil.id);
+    }
+    expect(a.length).toBeGreaterThan(50);
+    expect(b).toEqual(a);
+    expect(unseen.toSave().rng).toBe(seen.toSave().rng);
+    expect(unseen.dust).toBe(seen.dust);
+    expect(unseen.glint).toEqual(seen.glint);
+  });
+});
+
 describe(`precise hits: ×${WEAK.mult} damage for that tap, up to ×${WEAK.maxMult} with a sharp eye`, () => {
   it('a tap on the spot deals ×4 and uses it up; a tap elsewhere or without a position is a normal tap', () => {
     const sim = on(1);

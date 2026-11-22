@@ -7,10 +7,11 @@ import { createSaveStore, memoryStorage } from '@oyun/core/pure';
 import { describe, expect, it } from 'vitest';
 import { saveOptions, SAVE_VERSION } from '../../src/save';
 import { cooldown } from '../../src/sim/clock';
-import { at, BOSS, CHAIN, FOSSIL_BY_ID, GOLDEN, LAYERS, RELIC, RUSH, WEAK } from '../../src/sim/data';
+import { OFFLINE_MIN_SECONDS } from '../../src/session';
+import { at, BOSS, CHAIN, FOSSIL_BY_ID, GLINT, GOLDEN, LAYERS, PITY, RELIC, RUSH, UNSTABLE, WEAK } from '../../src/sim/data';
 import { DigSim, defaultSave, type BlockKind, type DigSave, type Find, type RushResult } from '../../src/sim/dig';
-import { layerFossils, rollProbabilities } from '../../src/sim/loot';
-import { measureRush, saveOn, type RushMeasure } from './rushPlayer';
+import { layerFossils, LUCKY_TIER, rollProbabilities } from '../../src/sim/loot';
+import { flatSave, measureRush, saveOn, type RushMeasure } from './rushPlayer';
 
 const H = 3600_000;
 const T0 = 1_800_000_000_000; // some wall-clock time
@@ -96,13 +97,19 @@ describe('the rush is offered early and starts with a tap', () => {
 });
 
 describe(`rush blocks: ${RUSH.hp * 100} % of the normal health, plain or golden only`, () => {
-  it('a rush block has a fifth of the health of a normal block of the layer', () => {
+  it('a rush block has 30 % of the health of a normal block of the layer (literal numbers)', () => {
+    // written out, not derived from the constant: a lighter rush block must fail here
+    expect(RUSH.hp).toBe(0.3);
+    const literal: Record<number, number> = { 0: 2, 1: 1800, 3: 1_350_000, 6: 660_000_000 };
     for (const layer of [0, 1, 3, 6, 9, 12]) {
       const sim = ready(layer, (s) => (s.stats.rolls = 0)); // no golden in this one
       const normal = sim.blockHp;
       expect(normal).toBe(sim.hpOf(layer));
+      expect(sim.rushHp).toBe(Math.max(1, Math.ceil(normal * 0.3)));
       sim.startRush();
-      expect(sim.blockHp).toBe(Math.max(1, Math.ceil(normal * RUSH.hp)));
+      expect(sim.blockHp).toBe(Math.max(1, Math.ceil(normal * 0.3)));
+      const want = literal[layer];
+      if (want !== undefined) expect(sim.blockHp, at(LAYERS, layer).id).toBe(want);
     }
   });
 
@@ -169,37 +176,6 @@ describe(`rush blocks: ${RUSH.hp * 100} % of the normal health, plain or golden 
     expect(sim.blockDust(seas)).toBe(before.dust);
     expect(sim.block.kind).toBe('boss');
     expect(sim.blockDamage).toBe(before.damage);
-  });
-
-  it('the assistant stands back and no new glint appears while it runs', () => {
-    const sim = ready(1, (s) => {
-      s.levels.assistant = 30;
-      s.glintIn = 5;
-    });
-    sim.startRush();
-    let hits = 0;
-    let glints = 0;
-    for (let i = 0; i < 300; i++) {
-      const r = sim.tick(0.1);
-      hits += r.assistantHits;
-      if (r.glintAppeared) glints++;
-    }
-    expect(sim.rushActive).toBe(true);
-    expect(hits).toBe(0);
-    expect(glints).toBe(0);
-    expect(sim.blockDamage).toBe(0);
-    // afterwards both are back
-    sim.tick(RUSH.seconds);
-    expect(sim.rushActive).toBe(false);
-    let after = 0;
-    let glintAfter = 0;
-    for (let i = 0; i < 100; i++) {
-      const r = sim.tick(0.1);
-      after += r.assistantHits;
-      if (r.glintAppeared) glintAfter++;
-    }
-    expect(after).toBeGreaterThan(20);
-    expect(glintAfter).toBe(1);
   });
 
   it('no relic fragments in a rush (Crystal Geode); a rush stays on its layer', () => {
@@ -352,7 +328,7 @@ describe('the result and the personal best', () => {
     expect(sim.rushCount).toBe(3);
   });
 
-  it('leaving the dig screen or the app ends it; what it broke still counts', () => {
+  it('leaving the dig screen ends it; what it broke still counts', () => {
     const sim = ready(1);
     sim.startRush();
     for (let i = 0; i < 40; i++) sim.tap();
@@ -360,20 +336,10 @@ describe('the result and the personal best', () => {
     expect(blocks).toBeGreaterThan(0);
     const r = sim.stopRush()!;
     expect(r.blocks).toBe(blocks);
+    expect(r.ended).toBe('left');
     expect(sim.rushActive).toBe(false);
     expect(sim.rushBest).toBe(blocks);
     expect(sim.stopRush()).toBeNull();
-    // time away: the rush is over before the assistant digs, and the haul is an ordinary one
-    const away = ready(1, (s) => (s.levels.assistant = 10));
-    away.setClock(T0);
-    away.startRush();
-    for (let i = 0; i < 10; i++) away.tap();
-    const broken = away.blocksBroken(1);
-    const haul = away.claimOffline(600);
-    expect(away.rushActive).toBe(false);
-    expect(away.takeRushResult()!.blocks).toBeGreaterThan(0);
-    expect(haul.blocks).toBeGreaterThan(0);
-    expect(away.blocksBroken(1)).toBe(broken + haul.blocks);
   });
 });
 
@@ -527,51 +493,424 @@ describe('the rush in the save', () => {
   });
 });
 
-describe('balance guard: one rush is worth at most about 4 minutes of the same play', () => {
-  // The pacing profiles (5 taps/s; 2.5 taps/s in bursts), each from its own save on layers 1, 3
-  // and 6: one rush against four minutes of normal play on that layer. `aim` = also tapping
-  // every weak spot, which the pacing profiles never do.
-  const rows: RushMeasure[] = [];
-  const aimed: RushMeasure[] = [];
-  for (const profile of ['fast', 'casual'] as const)
+describe('the assistant keeps digging the block that was set aside', () => {
+  const withHelper = (layer: number, mut: (s: DigSave) => void = () => {}): DigSim =>
+    ready(layer, (s) => {
+      s.levels.assistant = 20; // 2 hits a second
+      mut(s);
+    });
+
+  it('its work in a rush is exactly what it would have been without the rush', () => {
+    // same save, nobody taps: one dig rushes, the other does not
+    const rush = withHelper(3);
+    const plain = withHelper(3);
+    expect(rush.startRush()).toBe(true);
+    const a: string[] = [];
+    const b: string[] = [];
+    let hits = 0;
+    for (let i = 0; i < 460; i++) {
+      const ra = rush.tick(0.1);
+      const rb = plain.tick(0.1);
+      hits += ra.assistantHits;
+      expect(ra.assistantHits).toBe(rb.assistantHits);
+      for (const f of ra.finds) a.push(`${f.fossil.id}@${f.luck}`);
+      for (const f of rb.finds) b.push(`${f.fossil.id}@${f.luck}`);
+    }
+    expect(rush.rushActive).toBe(false);
+    expect(hits).toBeGreaterThan(80);
+    expect(a.length).toBeGreaterThan(10);
+    expect(a).toEqual(b);
+    // the same blocks broken, the same dust, the main stream in the same place...
+    expect(rush.blocksBroken(3)).toBe(plain.blocksBroken(3));
+    expect(rush.dust).toBe(plain.dust);
+    expect(rush.toSave().rng).toBe(plain.toSave().rng);
+    // ...and the block that comes back is the one the assistant got to, with its damage
+    expect(rush.block).toEqual(plain.block);
+    expect(rush.blockDamage).toBe(plain.blockDamage);
+    // nobody tapped: the rush itself broke nothing
+    const result = rush.takeRushResult()!;
+    expect(result.blocks).toBe(0);
+    expect(result.rolls).toBe(0);
+    expect(rush.rushBest).toBe(0);
+  });
+
+  it('never touches a rush block, and the block on screen is not reported as broken', () => {
+    const sim = withHelper(3);
+    sim.startRush();
+    expect(sim.blockHp).toBe(sim.rushHp);
+    let breaks = 0;
+    let hits = 0;
+    for (let i = 0; i < 300; i++) {
+      const r = sim.tick(0.1);
+      breaks += r.breaks;
+      hits += r.assistantHits;
+      expect(sim.blockDamage).toBe(0);
+      // (30 % of the layer's normal health as it is now: the assistant's own blocks harden the stratum as always)
+      expect(sim.blockHp).toBe(sim.rushHp);
+    }
+    expect(hits).toBeGreaterThan(50);
+    expect(breaks).toBe(0); // `breaks` is about the block on screen
+    expect(sim.blocksBroken(3)).toBeGreaterThan(5); // the set-aside layer block did break, as always
+    expect(sim.rushBlocks).toBe(0);
+  });
+
+  it('its finds are assistant finds at the assistant luck shown, never rush finds; only your breaks count for the rush', () => {
+    const sim = withHelper(2, (s) => (s.levels.luck = 4));
+    sim.startRush();
+    let mine = 0;
+    let myBreaks = 0;
+    let theirs = 0;
+    while (sim.rushActive) {
+      for (let k = 0; k < 2 && sim.rushActive; k++) {
+        const r = sim.tap();
+        if (r.broke) myBreaks++;
+        for (const f of r.find ? [r.find, ...r.extra] : r.extra) {
+          expect(f.source).toBe('tap');
+          expect(f.rush).toBe(true);
+          mine++;
+        }
+      }
+      const shown = sim.assistantLuck;
+      expect(sim.luck).toBeGreaterThan(shown); // the combo is up: tap luck and assistant luck differ
+      for (const f of sim.tick(0.1).finds) {
+        expect(f.source).toBe('assistant');
+        expect(f.luck).toBeCloseTo(shown, 12);
+        expect(f.rush).toBeUndefined();
+        theirs++;
+      }
+    }
+    expect(theirs).toBeGreaterThan(5);
+    const result = sim.takeRushResult()!;
+    expect(result.blocks).toBe(myBreaks);
+    expect(result.rolls).toBe(mine);
+    expect(sim.rushBest).toBe(myBreaks);
+  });
+
+  it('what the next set-aside block is stays unannounced until the rush is over', () => {
+    const seas = LAYERS.findIndex((l) => l.twist === 'boss');
+    const sim = withHelper(seas, (s) => {
+      s.levels.assistant = 35;
+      s.counts['topsoil-01'] = [1, 0, 0, 1e12]; // the assistant breaks a block with every hit
+    });
+    sim.startRush();
+    const kinds = new Set<string>();
+    for (let i = 0; i < 440; i++) for (const e of sim.tick(0.1).events) kinds.add(e.kind);
+    expect(sim.blocksBroken(seas)).toBeGreaterThan(BOSS.every); // it met a boss on the way
+    for (const k of kinds) expect(['quest', 'rank', 'pity', 'fragment', 'relic']).toContain(k);
+  });
+
+  it('an unstable block set aside keeps its window running: a rush does not freeze it', () => {
+    const forest = LAYERS.findIndex((l) => l.twist === 'unstable');
+    // not yet hit, no assistant: it waits untouched
+    const idle = ready(forest, (s) => (s.block = { kind: 'unstable', timer: -1 }), 40);
+    idle.startRush();
+    idle.tick(RUSH.seconds + 1);
+    expect(idle.block).toEqual({ kind: 'unstable', timer: -1 });
+    // hit once before the rush: the 6 s run on while you rush, exactly as without it
+    const started = ready(forest, (s) => (s.block = { kind: 'unstable', timer: -1 }), 40);
+    started.tap();
+    expect(started.block.timer).toBe(UNSTABLE.window);
+    const damage = started.blockDamage;
+    started.startRush();
+    started.tick(2);
+    started.stopRush();
+    expect(started.block.kind).toBe('unstable');
+    expect(started.block.timer).toBeCloseTo(UNSTABLE.window - 2, 9);
+    expect(started.blockDamage).toBe(damage);
+    const late = ready(forest, (s) => (s.block = { kind: 'unstable', timer: -1 }), 40);
+    late.tap();
+    late.startRush();
+    late.tick(UNSTABLE.window + 1);
+    late.stopRush();
+    expect(late.block.kind).toBe('normal'); // it settled meanwhile, as it would have
+  });
+});
+
+describe(`away from the app: under ${RUSH.away} s the rush waits, longer ends it`, () => {
+  it('the threshold is the one below which time away gets no popup', () => {
+    expect(RUSH.away).toBe(OFFLINE_MIN_SECONDS);
+    expect(RUSH.away).toBe(60);
+  });
+
+  it('a short absence does not end the rush: its clock did not run, and time away dug only the set-aside block', () => {
+    const sim = ready(2, (s) => (s.levels.assistant = 20));
+    sim.setClock(T0);
+    sim.startRush();
+    for (let i = 0; i < 12; i++) sim.tap();
+    sim.tick(5);
+    const before = { left: sim.rushLeft, blocks: sim.rushBlocks, damage: sim.blockDamage, broken: sim.blocksBroken(2), kind: sim.block.kind };
+    const haul = sim.claimOffline(RUSH.away - 0.5);
+    expect(sim.rushActive).toBe(true);
+    expect(sim.takeRushResult()).toBeNull();
+    expect(sim.rushLeft).toBe(before.left);
+    // the assistant's away hits are credited as always, on the block that was set aside
+    expect(haul.hits).toBeGreaterThan(20);
+    expect(haul.blocks).toBeGreaterThan(0);
+    expect(sim.blocksBroken(2)).toBe(before.broken + haul.blocks);
+    // not one of them landed on a rush block
+    expect(sim.rushBlocks).toBe(before.blocks);
+    expect(sim.blockDamage).toBe(before.damage);
+    expect(sim.blockHp).toBe(Math.ceil(sim.rushHp * (before.kind === 'golden' ? GOLDEN.hp : 1)));
+    expect(sim.block.kind).toBe(before.kind);
+    for (const f of haul.notable) expect(f.rush).toBeUndefined();
+    // and the rush plays on to its end
+    sim.tick(before.left - 0.5);
+    expect(sim.rushActive).toBe(true);
+    sim.tick(1);
+    expect(sim.rushActive).toBe(false);
+    expect(sim.takeRushResult()!.ended).toBe('time');
+  });
+
+  it(`${RUSH.away} s or more end it, and the result says why; the haul is an ordinary one`, () => {
+    for (const away of [RUSH.away, 600]) {
+      const sim = ready(2, (s) => (s.levels.assistant = 20));
+      sim.setClock(T0);
+      sim.startRush();
+      for (let i = 0; i < 12; i++) sim.tap();
+      const blocks = sim.rushBlocks;
+      const broken = sim.blocksBroken(2);
+      const haul = sim.claimOffline(away);
+      expect(sim.rushActive).toBe(false);
+      const result = sim.takeRushResult()!;
+      expect(result.ended).toBe('away');
+      expect(result.blocks).toBe(blocks);
+      expect(sim.rushBest).toBe(blocks);
+      expect(sim.blockHp).toBeGreaterThanOrEqual(sim.hpOf(2)); // back on a block of the layer, at its full health
+      expect(sim.blocksBroken(2)).toBe(broken + haul.blocks);
+      expect(sim.rushWait).toBe(RUSH.cooldown);
+    }
+  });
+
+  it('the clock running out and leaving the dig screen are told apart too', () => {
+    const a = ready(1);
+    a.startRush();
+    a.tick(RUSH.seconds);
+    expect(a.takeRushResult()!.ended).toBe('time');
+    const b = ready(1);
+    b.startRush();
+    expect(b.stopRush()!.ended).toBe('left');
+  });
+});
+
+describe('edges the review asked for', () => {
+  it('the lucky streak fires inside a rush: guaranteed 1 in 100 or rarer, from the rush stream', () => {
+    const sim = ready(1, (s) => {
+      s.dry = PITY;
+      s.counts['topsoil-01'] = [1, 0, 0, 1e6];
+    });
+    const main = sim.toSave().rng;
+    sim.startRush();
+    const r = sim.tap();
+    expect(r.find!.pity).toBe(true);
+    expect(r.find!.rush).toBe(true);
+    expect(r.find!.fossil.tier).toBeGreaterThanOrEqual(LUCKY_TIER);
+    expect(r.events.some((e) => e.kind === 'pity')).toBe(true);
+    expect(sim.dry).toBe(0);
+    expect(sim.toSave().rng).toBe(main);
+    // and it counts dry rolls in a rush like anywhere else
+    const next = sim.tap().find!;
+    expect(sim.dry).toBe(next.fossil.tier >= LUCKY_TIER ? 0 : 1);
+  });
+
+  it('a glint that is up when a rush starts stays a glint: its own luck, its own find, gone on time', () => {
+    const sim = ready(1, (s) => {
+      s.glintIn = 0.05;
+      s.levels.luck = 4;
+    });
+    sim.tick(0.1);
+    expect(sim.glint).not.toBeNull();
+    const shown = sim.glintLuck;
+    sim.startRush();
+    expect(sim.glint).not.toBeNull();
+    expect(sim.glintLuck).toBe(shown);
+    for (let i = 0; i < 20; i++) sim.tap(); // the combo climbs: the glint's luck was fixed when it appeared
+    expect(sim.glintLuck).toBe(shown);
+    const rolls = sim.rushFinds;
+    const f = sim.tapGlint()!;
+    expect(f.source).toBe('glint');
+    expect(f.luck).toBeCloseTo(shown, 12);
+    expect(f.rush).toBeUndefined();
+    expect(sim.rushFinds).toBe(rolls); // not a rush find
+    expect(sim.glint).toBeNull();
+    // left alone instead, it fades after its 3 s; no new one comes during the rush
+    const other = ready(1, (s) => (s.glintIn = 0.05));
+    other.tick(0.1);
+    other.startRush();
+    other.tick(GLINT.life - 0.2);
+    expect(other.glint).not.toBeNull();
+    expect(other.tick(0.3).glintExpired).toBe(true);
+    let appeared = 0;
+    while (other.rushActive) if (other.tick(0.1).glintAppeared) appeared++;
+    expect(appeared).toBe(0);
+  });
+
+  it('no new glint appears while a rush runs; the glint timer picks up where it was', () => {
+    const sim = ready(1, (s) => (s.glintIn = 5));
+    sim.startRush();
+    let glints = 0;
+    for (let i = 0; i < 300; i++) if (sim.tick(0.1).glintAppeared) glints++;
+    expect(sim.rushActive).toBe(true);
+    expect(glints).toBe(0);
+    sim.tick(RUSH.seconds);
+    expect(sim.rushActive).toBe(false);
+    let after = 0;
+    for (let i = 0; i < 100; i++) if (sim.tick(0.1).glintAppeared) after++;
+    expect(after).toBe(1); // 5 s after the rush, as it was 5 s away before it
+  });
+
+  it('an expedition started during a rush closes the rush first', () => {
+    const rift = LAYERS.length - 1;
+    const sim = ready(rift);
+    expect(sim.canExpedition).toBe(true);
+    sim.startRush();
+    for (let i = 0; i < 20; i++) sim.tap();
+    const blocks = sim.rushBlocks;
+    expect(blocks).toBeGreaterThan(0);
+    expect(sim.expedition()).toBe(true);
+    expect(sim.rushActive).toBe(false);
+    expect(sim.rushBest).toBe(blocks);
+    expect(sim.rushCount).toBe(1);
+    expect(sim.layer).toBe(0);
+    expect(sim.block).toEqual({ kind: 'normal', timer: -1 });
+    expect(sim.blockHp).toBe(sim.hpOf(0)); // a normal Topsoil block of the new stratum
+    expect(sim.takeRushResult()).toBeNull(); // no card for a rush you left
+    expect(new DigSim(1, JSON.parse(JSON.stringify(sim.toSave())) as DigSave).rushBest).toBe(blocks);
+  });
+
+  it('a meteor block coming back from a rush clears a weak spot that was showing; the sharp eye is kept', () => {
+    const crater = LAYERS.findIndex((l) => l.twist === 'meteor');
+    const sim = ready(crater, (s) => {
+      s.block = { kind: 'meteor', timer: -1, x: 0.5, y: 0.5 };
+      s.weak = { ...s.weak, in: 0.05, streak: 3 };
+    });
+    expect(sim.sharpEye).toBe(3);
+    sim.startRush(); // rush blocks are plain: a weak spot can show
+    sim.tick(0.1);
+    expect(sim.weakSpot).not.toBeNull();
+    sim.stopRush();
+    expect(sim.block.kind).toBe('meteor');
+    expect(sim.weakSpot).toBeNull(); // not left hidden under the star core...
+    for (let i = 0; i < 100; i++) sim.tick(0.1);
+    expect(sim.sharpEye).toBe(3); // ...to run out unseen and end the streak
+    // the same when the app closed mid-rush with a spot showing
+    const saved = ready(crater, (s) => {
+      s.block = { kind: 'meteor', timer: -1, x: 0.5, y: 0.5 };
+      s.weak = { ...s.weak, in: 0.05, streak: 2 };
+    });
+    saved.startRush();
+    saved.tick(0.1);
+    expect(saved.weakSpot).not.toBeNull();
+    const loaded = new DigSim(1, JSON.parse(JSON.stringify(saved.toSave())) as DigSave);
+    expect(loaded.block.kind).toBe('meteor');
+    expect(loaded.weakSpot).toBeNull();
+    for (let i = 0; i < 100; i++) loaded.tick(0.1);
+    expect(loaded.sharpEye).toBe(2);
+  });
+
+  it('a loaded cooldown is never longer than one cooldown from the last time the save was seen', () => {
+    const base = defaultSave();
+    // a damaged or once-wrong `readyAt` far in the future, and a `seen` beyond the stored last-seen
+    const far = new DigSim(1, { ...base, lastSeen: T0, rush: { ...base.rush, readyAt: T0 + 5000 * H, seen: T0 + 4000 * H } });
+    expect(far.rushWait).toBe(RUSH.cooldown);
+    far.setClock(T0 + 1 * H);
+    expect(far.rushWait).toBe(RUSH.cooldown - 3600);
+    far.setClock(T0 + 3 * H);
+    expect(far.rushWait).toBe(0);
+    // an honest one is untouched
+    const fine = new DigSim(1, { ...base, lastSeen: T0, rush: { ...base.rush, readyAt: T0 + 2 * H, seen: T0 } });
+    expect(fine.rushWait).toBe(2 * 3600);
+    // without a stored last-seen (never saved by the session) the save's own `seen` stands
+    const bare = new DigSim(1, { ...base, rush: { ...base.rush, readyAt: T0 + 9 * H, seen: T0 } });
+    expect(bare.rushWait).toBe(RUSH.cooldown);
+  });
+});
+
+describe('balance guard: a rush is worth about 4 minutes of the same play at most', () => {
+  // (1) The pacing profiles (5 taps/s; 2.5 taps/s in bursts), each from its own save on layers
+  //     1, 3 and 6, also tapping every weak spot ("aiming").
+  // (2) What the review found weak: a save with no assistant whose player never shops, where a
+  //     normal block takes exactly T taps (the worst is a T that the rush share cuts to one tap).
+  // (3) A later save back on a layer it has outgrown (blocks break in one tap there anyway).
+  // Each: one rush against four minutes of normal play, and against the same 45 s of normal play.
+  interface Row extends RushMeasure {
+    name: string;
+  }
+  const rows: Row[] = [];
+  for (const profile of ['fast', 'casual'] as const) {
     for (const layer of [0, 2, 5])
       for (const seed of [1, 2]) {
         const save = saveOn(seed, profile, layer);
         if (!save) throw new Error(`${profile} never reached layer ${layer + 1}`);
-        rows.push(measureRush(save, profile, false, seed));
-        aimed.push(measureRush(save, profile, true, seed));
+        rows.push({ name: `${profile} L${layer + 1}`, ...measureRush(save, profile, false, seed) });
+        rows.push({ name: `${profile} L${layer + 1} aiming`, ...measureRush(save, profile, true, seed) });
       }
+    for (const layer of [1, 3, 6]) for (const taps of [1, 2, 3, 4, 5, 6, 8, 10, 12]) rows.push({ name: `${profile} no assistant L${layer + 1}, ${taps} taps a block`, ...measureRush(flatSave(layer, taps), profile, false, 1, false) });
+    const deep = saveOn(1, profile, 5);
+    if (!deep) throw new Error('layer 6 not reached');
+    for (const back of [0, 2]) {
+      const sim = new DigSim(1, structuredClone(deep));
+      sim.travel(back);
+      rows.push({ name: `${profile} layer-6 save back on L${back + 1}`, ...measureRush(sim.toSave(), profile, false, 1) });
+    }
+  }
+  const pacing = rows.filter((r) => !r.name.includes('no assistant') && !r.name.includes('back on'));
+  const flat = rows.filter((r) => r.name.includes('no assistant'));
+  const revisit = rows.filter((r) => r.name.includes('back on'));
 
   it('prints the measured table', () => {
-    for (const [name, list] of [['plain', rows], ['aiming', aimed]] as const)
-      for (const m of list)
-        console.warn(
-          `rush ${name} ${m.profile} L${m.layer + 1}: ${m.rush.blocks} blocks, ${m.rush.rolls} finds in one rush = ${m.minutesByBlocks.toFixed(2)} min of normal play by blocks (${m.normal.blocks} in 4 min), ${m.minutesByRolls.toFixed(2)} by finds, ${m.minutesByDust.toFixed(2)} by dust`,
-        );
-    expect(rows).toHaveLength(12);
+    for (const m of rows)
+      console.warn(
+        `rush ${m.name}: ${m.rush.blocks} blocks, ${m.rush.rolls} finds = ${m.minutesByBlocks.toFixed(2)} min of normal play by blocks (${m.normal.blocks} in 4 min), ${m.minutesByRolls.toFixed(2)} by finds, ${m.minutesByDust.toFixed(2)} by dust; ×${m.gain.toFixed(2)} the finds of the same 45 s without it`,
+      );
+    const max = (list: Row[], f: (r: Row) => number): string => Math.max(...list.map(f)).toFixed(2);
+    console.warn(`rush guard: pacing players at most ${max(pacing, (r) => r.minutesByBlocks)} min by blocks, ${max(pacing, (r) => r.minutesByRolls)} by finds, ${max(pacing, (r) => r.minutesByDust)} by dust`);
+    console.warn(`rush guard: no assistant, never shops: at most ${max(flat, (r) => r.minutesByBlocks)} min by blocks, ${max(flat, (r) => r.minutesByRolls)} by finds, ${max(flat, (r) => r.minutesByDust)} by dust`);
+    expect(pacing).toHaveLength(24);
+    expect(flat).toHaveLength(54);
+    expect(revisit).toHaveLength(4);
   });
 
-  it('in blocks broken: never more than 4 minutes, and always worth starting (more than 45 s)', () => {
-    for (const m of [...rows, ...aimed]) {
-      expect(m.minutesByBlocks, `${m.profile} L${m.layer + 1}`).toBeLessThanOrEqual(4);
-      expect(m.minutesByBlocks, `${m.profile} L${m.layer + 1}`).toBeGreaterThan(RUSH.seconds / 60);
+  it('the pacing players: never more than 4 minutes by blocks, finds or dust', () => {
+    for (const m of pacing) {
+      expect(m.minutesByBlocks, m.name).toBeLessThanOrEqual(4);
+      expect(m.minutesByRolls, m.name).toBeLessThanOrEqual(4);
+      expect(m.minutesByDust, m.name).toBeLessThanOrEqual(4);
     }
   });
 
-  it('in finds and in dust: never more than 4 minutes either (dust does not flood the upgrade curve)', () => {
-    for (const m of [...rows, ...aimed]) {
-      expect(m.minutesByRolls, `${m.profile} L${m.layer + 1}`).toBeLessThanOrEqual(4);
-      expect(m.minutesByDust, `${m.profile} L${m.layer + 1}`).toBeLessThanOrEqual(4);
+  it('the worst case found (no assistant, never shops, any taps per block): never more than 5 minutes', () => {
+    // This is the case that catches a rush block made too light: at a fifth of the health these
+    // reach 6.4 minutes, at a quarter 5.4.
+    for (const m of flat) {
+      expect(m.minutesByBlocks, m.name).toBeLessThanOrEqual(5);
+      expect(m.minutesByRolls, m.name).toBeLessThanOrEqual(5);
+      expect(m.minutesByDust, m.name).toBeLessThanOrEqual(5);
+    }
+    expect(Math.max(...flat.map((m) => m.minutesByBlocks))).toBeGreaterThan(4); // and it is a real worst case
+  });
+
+  it('a rush never pays less than the same 45 s without it', () => {
+    // (finds; 5 % for the luck of which blocks turn golden in two different streams)
+    for (const m of rows) expect(m.gain, m.name).toBeGreaterThanOrEqual(0.95);
+    // for the pacing players and the no-assistant saves it is always clearly worth starting
+    for (const m of [...pacing, ...flat]) expect(m.gain, m.name).toBeGreaterThan(1.25);
+  });
+
+  it('on a layer you have outgrown it is worth just those 45 s: no more, no less', () => {
+    for (const m of revisit) {
+      expect(m.gain, m.name).toBeGreaterThanOrEqual(0.95);
+      expect(m.gain, m.name).toBeLessThanOrEqual(1.05);
+      expect(m.minutesByBlocks, m.name).toBeLessThan(1);
     }
   });
 
-  it('a tap breaks at most one block, so a rush is at most as many blocks as taps', () => {
-    for (const m of [...rows, ...aimed]) expect(m.rush.blocks).toBeLessThanOrEqual(m.rush.taps);
+  it('a tap breaks at most one block, so your rush blocks are at most your taps', () => {
+    for (const m of flat) expect(m.rush.blocks, m.name).toBeLessThanOrEqual(m.rush.taps); // no assistant: every block is a tap
   });
 
   it('the cooldown keeps it a side dish: under 3 % of the play it interrupts', () => {
-    // one rush (at most 4 minutes of normal play) per cooldown of wall-clock time
-    expect(4 / (RUSH.cooldown / 60)).toBeLessThan(0.03);
+    // one rush (at most 5 minutes of normal play) per cooldown of wall-clock time
+    expect(5 / (RUSH.cooldown / 60)).toBeLessThan(0.03);
     expect(RUSH.cooldown).toBeGreaterThanOrEqual(3 * 3600);
   });
 });

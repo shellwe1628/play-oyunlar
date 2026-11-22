@@ -1,4 +1,4 @@
-import { act, collectErrors, expect, openGame, shot, state, test, waitForScene } from '@oyun/core/e2e';
+import { act, collectErrors, expect, openGame, setHidden, shot, state, test, waitForScene } from '@oyun/core/e2e';
 import type { Page } from '@playwright/test';
 import { fileURLToPath } from 'node:url';
 
@@ -26,7 +26,10 @@ interface Dig {
   precise: number;
   rush: { open: boolean; ready: boolean; active: boolean; left: number; blocks: number; finds: number; best: number; count: number; wait: number };
   rushCard: { blocks: number; dust: number; rolls: number; kinds: number; record: boolean; best: number } | null;
-  ui: { block: Pt; map: Pt; rush: Pt; rushClaim: Pt | null };
+  rushAsk: boolean;
+  rushEnded: string | null;
+  sharpZone: boolean;
+  ui: { block: Pt; map: Pt; rush: Pt; rushClaim: Pt | null; rushStart: Pt | null; rushAskClose: Pt | null };
 }
 interface MapState {
   from: string;
@@ -54,7 +57,7 @@ async function touch(page: Page, p: Pt): Promise<void> {
 async function settle(page: Page): Promise<void> {
   for (let i = 0; i < 10; i++) {
     const s = await dig(page);
-    if (!s.overlay || s.overlay === 'rush') return;
+    if (!s.overlay || s.overlay === 'rush' || s.overlay === 'rushAsk') return;
     await page.waitForFunction(() => window.__OYUN__?.state().data.overlayReady === true, null, { timeout: 30_000 });
     await act(page, s.overlay === 'grand' ? 'dismiss' : s.overlay === 'offline' ? 'claim' : 'close');
     await page.waitForTimeout(200);
@@ -76,6 +79,7 @@ test('weak spot, dig rush and depth map: a new player meets all three, and the s
   await waitForScene(page, 'dig');
   let d = await dig(page);
   expect(d.weak).toBeNull();
+  expect(d.sharpZone).toBe(false); // no count showing: that spot is dig site
   expect(d.rush.open).toBe(false); // not offered before four Topsoil species
   expect(d.rush.best).toBe(0);
 
@@ -102,6 +106,7 @@ test('weak spot, dig rush and depth map: a new player meets all three, and the s
   expect(d.precise).toBe(1);
   expect(d.sharp).toBe(1);
   expect(d.weak).toBeNull(); // used up
+  expect(d.sharpZone).toBe(true); // the sharp-eye count takes taps only while it shows
   await shot(page, gameDir, 'harita-precise');
 
   // --- until the rush is offered
@@ -121,14 +126,49 @@ test('weak spot, dig rush and depth map: a new player meets all three, and the s
   const foundBefore = d.museum.found;
   const rollsBefore = d.rolls;
   const dustBefore = d.dust;
+  // one tap on the button only opens the start card: it can be closed again and nothing has started
   await touch(page, d.ui.rush);
+  await page.waitForFunction(() => window.__OYUN__?.state().data.rushAsk === true, null, { timeout: 10_000 });
+  await page.waitForTimeout(500);
+  d = await dig(page);
+  expect(d.rush.active).toBe(false);
+  await shot(page, gameDir, 'harita-rush-start-card');
+  await touch(page, d.ui.rushAskClose!);
+  await page.waitForFunction(() => window.__OYUN__?.state().data.rushAsk === false, null, { timeout: 10_000 });
+  d = await dig(page);
+  expect(d.rush.active).toBe(false);
+  expect(d.rush.ready).toBe(true); // closing it costs nothing
+  await page.waitForTimeout(300);
+  // again, and Start: one tap from the card
+  await touch(page, d.ui.rush);
+  await page.waitForFunction(() => window.__OYUN__?.state().data.rushAsk === true, null, { timeout: 10_000 });
+  await page.waitForTimeout(400);
+  d = await dig(page);
+  await touch(page, d.ui.rushStart!);
   await page.waitForFunction(() => (window.__OYUN__?.state().data.rush as { active: boolean }).active === true, null, { timeout: 10_000 });
   d = await dig(page);
+  expect(d.rushAsk).toBe(false);
   expect(d.rush.left).toBeGreaterThan(40);
-  expect(d.blockHp).toBeLessThanOrEqual(Math.max(1, Math.ceil(normalHp * 0.2) * 1.5)); // a fifth (×1.5 if golden)
+  expect(d.blockHp).toBeLessThanOrEqual(Math.max(1, Math.ceil(normalHp * 0.3) * 1.5)); // 30 % (×1.5 if golden)
   expect(d.status).toContain(String(d.luck)); // the status line names the luck the finds roll at
   await page.waitForTimeout(400);
   await shot(page, gameDir, 'harita-rush');
+  // a short trip to the background (well under a minute) does not end it: its clock just waited
+  await act(page, 'tap', 4);
+  await act(page, 'advance', 2);
+  await settle(page);
+  const beforeAway = (await dig(page)).rush;
+  await setHidden(page, true);
+  await page.waitForTimeout(1200);
+  await setHidden(page, false);
+  await waitForScene(page, 'pause');
+  await act(page, 'resume');
+  await waitForScene(page, 'dig');
+  d = await dig(page);
+  expect(d.rush.active).toBe(true);
+  expect(d.rush.blocks).toBe(beforeAway.blocks);
+  expect(d.rush.left).toBeLessThanOrEqual(beforeAway.left);
+  expect(d.rush.left).toBeGreaterThan(beforeAway.left - 1.5); // the 1.2 s away were not taken off it
   let lastLeft = d.rush.left;
   for (let i = 0; i < 120 && d.rush.active; i++) {
     await act(page, 'tap', 4);
@@ -150,6 +190,7 @@ test('weak spot, dig rush and depth map: a new player meets all three, and the s
   expect(card.dust).toBeGreaterThan(0);
   expect(card.best).toBe(0); // the first rush
   expect(card.record).toBe(true);
+  expect(d.rushEnded).toBe('time');
   expect(d.rush.best).toBe(card.blocks);
   expect(d.rush.count).toBe(1);
   expect(d.rolls - rollsBefore).toBeGreaterThanOrEqual(card.rolls); // real finds, in the museum
@@ -169,6 +210,7 @@ test('weak spot, dig rush and depth map: a new player meets all three, and the s
   await touch(page, d.ui.rush);
   await page.waitForTimeout(400);
   d = await dig(page);
+  expect(d.rushAsk).toBe(false); // cooling down: no card, only the note that says when
   expect(d.rush.active).toBe(false);
   expect(d.rush.count).toBe(1);
 

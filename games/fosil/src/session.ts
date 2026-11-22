@@ -58,6 +58,8 @@ export class Session {
   constructor(private readonly oyun: OyunContext) {
     const store = gameSave(oyun);
     this.sim = new DigSim(oyun.rng.int(1, 2 ** 31 - 1), store.data);
+    // weak spots only come and go while the dig screen shows (it says so itself, see DigScene)
+    this.sim.setWatching(false);
     // Closing the tab or the app must lose nothing.
     const bye = (): void => void this.flush();
     window.addEventListener('pagehide', bye);

@@ -387,23 +387,48 @@ damage for that tap. Precise hits in a row are the **sharp eye**: ×4, ×4.5, ×
 a row) and it stays at ×6; a spot left to expire resets it, a normal tap in between does not.
 Missing costs nothing. It stacks with what the tap already had (fever ×2, a charged strike on a
 hard vein). A spot never appears while a glint is up and makes way if one appears (the sharp eye
-is kept); a Star Crater meteor block has its star core instead and shows no weak spot. The
-assistant and time away never use it. Damage only: luck, tables and every roll are exactly as
-before (tested: the luck of a find from a precise hit is the luck shown before the tap, and such
-finds follow the printed table). One-time tips: the first weak spot, the sharp eye at two in a row.
+is kept); a Star Crater meteor block has its star core instead and shows no weak spot (a spot
+showing when a meteor block arrives, or comes back from a rush, makes way the same way). The spot
+stays where it is when its block breaks. Weak spots only come and go while the dig screen shows
+(`setWatching`): behind the Museum, the Ranks, the map or the menu a spot does not run out and
+the sharp eye is not lost. The assistant and time away never use it. Damage only: luck, tables
+and every roll are exactly as before (tested: the luck of a find from a precise hit is the luck
+shown before the tap, and such finds follow the printed table). One-time tips: the first weak
+spot, the sharp eye at two in a row.
 
 **Dig Rush** (`RUSH`). A stopwatch button right of the block, offered once Topsoil has 4 species
-(a 2.5 taps/s player gets there within 90 s on every seed tested), no ad. 45 s of play on the
-current layer. Rush blocks have 20 % of the layer's normal block health (at least 1) and pay the
-normal dust of a block; only plain and golden blocks appear (golden at the usual 1 in 20 after 150
-finds: ×1.5 health, two fossils, ×5 dust); vein, unstable, twin, cave-in, boss, pressure, meteor
-and echo blocks rest, and so do relic fragments. Every break rolls the layer's normal table at
-the tap luck on screen (charm × sets × boost × combo, capped as always): no hidden bonus, the
-status line says "finds roll at luck ×N" with the number of the luck chip. Fever, chains and weak
-spots work. The assistant stands back and no new glint appears for those 45 s. Rush blocks are
-counted on their own: they do not harden the stratum (the hp ramp), do not move the boss on, and
-the block you were digging (with its damage, even a boss half done) is set aside and comes back.
-You cannot travel during a rush; leaving the dig screen or the app ends it (what it broke counts).
+(a 2.5 taps/s player gets there within 90 s on every seed tested), no ad. The button opens a
+**start card**, never a rush: what it is (45 seconds of light blocks on this layer), the luck it
+rolls at ("your tap luck: ×N now"; the dig waits while the card is open, so that is the luck of
+the first tap), how many taps a block here takes now against a rush block, and one line saying
+that special blocks, relic parts and the boss rest, that the assistant keeps digging your block
+and that more than a minute away ends it; then Start (one tap) or close. The one-time tip says
+the same about what rests.
+
+Rush blocks have 30 % of the layer's normal block health (at least 1) and pay the normal dust of
+a block; only plain and golden blocks appear (golden at the usual 1 in 20 after 150 finds: ×1.5
+health, two fossils, ×5 dust); vein, unstable, twin, cave-in, boss, pressure, meteor and echo
+blocks rest, and so do relic fragments. Every break rolls the layer's normal table at the tap
+luck on screen (charm × sets × boost × combo, capped as always): no hidden bonus, the status
+line says "finds roll at luck ×N" with the number of the luck chip. Fever, chains, weak spots and
+the lucky streak work. No new glint appears for those 45 s (one already up stays a glint: its own
+fixed luck, its own find, gone after its 3 s). You cannot travel during a rush.
+
+*The block you were digging and the assistant.* That block (with its damage, even a boss half
+done) is set aside. The assistant keeps digging it exactly as it would without the rush: normal
+health, the layer's own special blocks, the main rng stream, assistant luck, finds marked
+"Assistant" (tested: with nobody tapping, a dig that rushes and one that does not get the same
+assistant finds, blocks, dust and main rng state). An unstable block set aside keeps its 6 s
+window running. Only your own breaks count for the rush's blocks and the personal best; rush
+blocks do not harden the stratum or move the boss on. When the rush ends the block the assistant
+got to comes back. What the next set-aside block is stays unannounced until then.
+
+*Leaving.* Away from the game for less than 60 s (the same minimum below which time away gets no
+popup): the rush clock simply did not run and the rush goes on when you are back; the time away
+is credited to the assistant on the set-aside block as always, never on rush blocks. 60 s or
+more end it (what it broke counts) and the result card says "Ended early: you were away for more
+than a minute". Leaving the dig screen (the pause menu's quit) or closing the app ends it too.
+
 Finds are real finds: museum, fusion, goals, lucky streak. The result card lists blocks, the
 personal best (most blocks in one rush, kept in the save), dust, finds rarest first (four kinds,
 then "+N more"), the sentence "Every find was rolled at the tap luck on screen" and the time to
@@ -414,23 +439,40 @@ latest wall-clock time it has ever seen (`rush.seen`, only moves forward; pure r
 in `src/sim/clock.ts`), and the wait is counted from that: a clock wound back does not shorten it,
 winding back and forth over the same hours earns nothing, only time beyond the latest ever seen
 counts. (As with away time, a clock wound forward and left there gets what was due at that time.)
+On load the wait is clamped to one cooldown from the stored last-seen time, whatever a damaged
+save or a once-wrong device clock left in it.
 
 *Balance guard* (`tests/unit/rush.test.ts`, players in `tests/unit/rushPlayer.ts`: the tapping
-and shopping of the two pacing profiles, kept on one layer). From the same save, one rush against
-four minutes of normal play on that layer; "aiming" = also tapping every weak spot:
-| player, layer | blocks in one rush | = minutes of normal play (blocks) | by finds | by dust |
-|---|---|---|---|---|
-| fast, layer 1 (when the rush is first offered) | 225 | 3.4–3.5 (aiming 3.3) | 3.2–3.3 | 0.4–0.5 |
-| fast, layer 3 | 225 | 2.0–2.1 | 2.0–2.1 | 1.7 |
-| fast, layer 6 | 225 | 2.2 | 1.6 | 1.8–2.0 |
-| casual, layer 1 | 82 | 3.1 (aiming 2.9–3.0) | 2.9 | 0.7–0.9 |
-| casual, layer 3 | 81 | 1.8–1.9 | 1.8 | 1.9–2.6 |
-| casual, layer 6 | 82 | 1.3–1.4 | 1.0 | 1.5–1.6 |
-Tested: never more than 4 minutes by blocks, by finds or by dust, always more than its own 45 s;
-one rush per 3 h is under 3 % of the play it interrupts. Normal blocks take these players about
-3–4 taps, so a rush block (a fifth) breaks on every tap: the best is, in practice, how fast you
-tap for 45 s. (The spec expected "one break a second"; at these health values that would make a
-rush worth less than normal play, so the share stays at a fifth and the guard holds it.)
+and shopping of the two pacing profiles, kept on one layer). From the same save: one rush against
+four minutes of normal play on that layer, and against the same 45 s of normal play ("gain").
+Blocks include what the assistant broke meanwhile; "aiming" = also tapping every weak spot.
+| player, layer (2 seeds) | blocks in the 45 s | = minutes of normal play, by blocks | by finds | by dust | gain in finds |
+|---|---|---|---|---|---|
+| fast, layer 1 (when the rush is first offered) | 242 | 3.6–3.7 (aiming 3.5–3.6) | 3.5–3.6 | 0.5–0.7 | ×3.7–3.9 |
+| fast, layer 3 | 243–251 | 2.2–2.4 | 2.2–2.3 | 1.8 | ×3.0–3.2 |
+| fast, layer 6 | 250 | 2.4 | 1.8–1.9 | 1.9–2.2 | ×2.2 |
+| casual, layer 1 | 82–84 | 3.1 | 3.0 | 0.8–0.9 | ×3.4–3.8 |
+| casual, layer 3 | 58–84 | 1.4–1.9 | 1.3–1.8 | 1.1–2.5 | ×2.0–2.5 |
+| casual, layer 6 | 114–115 | 1.8–1.9 | 1.5–1.6 | 1.8–2.0 | ×1.7–1.9 |
+So for the pacing players a rush is worth **about 2 to 4 minutes** of their own play (at most
+3.7 by blocks, 3.6 by finds, 2.5 by dust; the test bound is 4).
+
+The worst case found is a save with **no assistant whose player never shops**, where a normal
+block takes exactly T taps (measured for T = 1…12 on layers 2, 4 and 7, both profiles): normal
+play then hardens the stratum for four minutes with nothing to offset it, while rush blocks do
+not harden it. There a rush is worth **up to about 4½ minutes** (4.5 by blocks, 4.3 by finds, 4.5
+by dust, at T = 3, the largest T the 30 % share still cuts to one tap); the test bound is 5. This
+case set the share: at 20 % it reached 6.4 minutes and at 25 % 5.4, so the rush block was made
+heavier (30 %) until no case was over about 5. The same test fails if the share is lowered again,
+and the health of a rush block is also asserted as literal numbers.
+
+A rush **never pays less than the same 45 s without it** (tested on every case above: finds at
+least equal, 5 % allowed for which blocks happen to be golden). It is clearly worth starting
+(×1.5 to ×5.2 the finds) wherever a normal block takes more than one tap. On a layer you have
+outgrown, where blocks break in one tap anyway, it is worth exactly those 45 s (×0.99–1.01
+measured) and still uses the cooldown: the start card shows "a block here takes 1 tap now; a
+rush block takes 1 tap" so that is visible before you start. One rush per 3 h is under 3 % of
+the play it interrupts.
 
 **Depth map** (`src/scenes/MapScene.ts`, model `mapBands` in `src/fx/model.ts`). Opened from the
 dig screen (the round Map button left of the block, or the layer name between the arrows, which
@@ -450,50 +492,60 @@ bands slide in from alternating sides on entry. Tapping an open band travels the
 sheet covers the map and runs off on the dig screen (`src/fx/Travel.ts`, shared with the arrows);
 tapping the current band goes back to the dig; a locked band says what opens it. The map reads
 the sim through the read-only view and asks only for `travel`; the sim does not tick while it is
-open (as on the title screen), so no glint or weak spot passes unseen.
+open (as on the title screen).
 
 **Honesty.** Luck per roll source is unchanged; a rush find is a `tap` find (`Find.rush` marks
-it) rolled at `luck`, the HUD chip. `tests/unit/weak.test.ts` and `tests/unit/rush.test.ts`
-check both against the value on screen before the action and χ²-check the finds against the
-printed table at the luck each find carries. Nothing about randomness can be bought; the rush
+it) rolled at `luck`, the HUD chip; an assistant find made during a rush is an ordinary assistant
+find at `assistantLuck`. `tests/unit/weak.test.ts` and `tests/unit/rush.test.ts` check each
+against the value on screen before the action and χ²-check the finds against the printed table
+at the luck each find carries. What rests during a rush (special blocks, relic parts, the boss)
+is said on the start card and in the rush tip. Nothing about randomness can be bought; the rush
 needs no ad.
 
 **Streams** (`tests/unit/streams.test.ts`). Weak spots and the rush draw from their own rng
 streams (`rng.fork('weak')`, `rng.fork('rush')`: derived from the seed by label, consuming
 nothing; their states are saved beside the main one). The main stream is never touched by them:
 a weak spot draws its place and the wait after it together, a rush draws its golden blocks and
-its fossils from the rush stream. Tested with values recorded from the sim before this round (the
+its fossils from the rush stream (the assistant's work on the set-aside block stays on the main
+stream, where it always was). Tested with values recorded from the sim before this round (the
 seeded fx session and a fresh dig end in the recorded rng state, finds, dust and collection), by
 the same weak spots showing however the dig is played, by precise hits and by a whole rush
-leaving the main rng state where it was. The pacing printout is identical line for line.
+leaving the main rng state where it was, and by a dig behind another screen (weak spots paused)
+being the same dig. The pacing printout is identical line for line.
 
 **Save** (still v3, no migration: additive fields with defaults, repaired by `sanitizeSave`).
 `weak` { in, gap, spot, cell, streak, hits, rng } and `rush` { left, blocks, dust, rolls, found,
 fresh, held, best, count, readyAt, seen, rng }. A save from before the round loads with nothing
 lost, the first weak spot scheduled, no best and the rush on offer (tested through the real save
 store with the two fields deleted). A rush that was running when the app closed is over on load:
-its blocks count for the best, the block that was being dug is back.
+its blocks count for the best, the block that was set aside is back.
 
 **Look and feel.** No new shake source and no flash: a precise hit is a star, a ring, chips and a
 rising tick (one step higher per sharp-eye step); rush blocks break without the break shake and
-without hit-stop; the last 10 s pulse the clock and the frame and tick each second. The rush puts
+without hit-stop, and with one light haptic tick on every fifth block at most (normal play ticks
+on every break); the last 10 s pulse the clock and the frame and tick each second. The rush puts
 the site in a warm light (a tint over the site only, two slow rays, rising sparks, a gold frame)
 with a start banner; the rush button becomes the clock (a ring that drains), Blocks and Finds take
 the place of the Map button; Museum, Upgrades, Daily, the boost and travel wait until it is over.
-The result card counts blocks and dust up and stamps a new best. Reduced motion: no slide-in, no
+The helper keeps swinging and its finds pop as "Assistant". The result card counts blocks and dust
+up and stamps a new best. The Map and Rush buttons take only their discs (88 px) from the dig
+site and the sharp-eye count takes taps only while it shows. Reduced motion: no slide-in, no
 breathing, no pulses, no sparks; `?fx=0`: no sparks, pulses or spin. All texts in `en` and `tr`.
 
 **Test hook.** Dig: `state()` adds `weak` (screen position, life, multiplier), `sharp`, `precise`,
-`rush` (open, ready, active, left, blocks, finds, best, count, wait), `rushCard`, `travelling`,
-`ui.map`, `ui.rush`, `ui.rushClaim`; `act('map')`, `act('rush')` (the buttons' own handlers),
-`act('waitWeak', seconds)` (lets time pass in steps until a weak spot shows), `act('tapWeak')`
-(a tap on it through the dig handler), `act('close')` also closes the rush card. Map: `state()`
-gives `from`, `scroll`, `maxScroll`, `window`, `bands` (with screen positions), `ui.back`;
-`act('scroll', px)`, `act('scrollTo', layer)`, `act('band', layer)`, `act('back')`. Menu:
-`act('map')`. `tests/e2e/harita.spec.ts` plays all three by real touch and reloads.
+`sharpZone`, `rush` (open, ready, active, left, blocks, finds, best, count, wait), `rushAsk`,
+`rushCard`, `rushEnded`, `travelling`, `ui.map`, `ui.rush`, `ui.rushStart`, `ui.rushAskClose`,
+`ui.rushClaim`; `act('map')`, `act('rush')` (the buttons' own handlers: `rush` opens the start
+card), `act('rushStart')` (the card's Start button), `act('waitWeak', seconds)` (lets time pass in
+steps until a weak spot shows), `act('tapWeak')` (a tap on it through the dig handler),
+`act('close')` also closes the start card and the rush card, `act('fxPreview', { kind:
+'rushAway' })` shows the result card of a rush ended by an absence without touching the sim. Map:
+`state()` gives `from`, `scroll`, `maxScroll`, `window`, `bands` (with screen positions),
+`ui.back`; `act('scroll', px)`, `act('scrollTo', layer)`, `act('band', layer)`, `act('back')`.
+Menu: `act('map')`. `tests/e2e/harita.spec.ts` plays all three by real touch (the start card
+closed and reopened, a short trip to the background in mid-rush) and reloads.
 
-**Not done, and why.** The weak spot stays where it is when its block breaks (it rides on the
-next block): on Topsoil and in a rush blocks break faster than a spot lasts, and a spot that
-vanished with every break could hardly ever be hit. A rush does not survive closing the app (it
-ends; its blocks count). The map shows no layer the game does not have and no other players.
-Bundle 467/550 KB gz.
+**Not done, and why.** A rush does not survive closing the app (it ends; its blocks count): only
+a trip to the background of under a minute is bridged. The relic tip itself still reads "1 in 6
+blocks" without the exception; the exception is on the start card and in the rush tip. The map
+shows no layer the game does not have and no other players. Bundle 468/550 KB gz.

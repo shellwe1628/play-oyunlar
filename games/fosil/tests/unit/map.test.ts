@@ -3,7 +3,7 @@
  * the map prints is read off the sim and reading it changes nothing.
  */
 import { describe, expect, it } from 'vitest';
-import { mapBands, rushClock, sharpPips, travelDir, waitParts, weakRing, type SimView } from '../../src/fx/model';
+import { mapBands, rushClock, rushHaptic, sharpPips, travelDir, waitParts, weakRing, type SimView } from '../../src/fx/model';
 import { at, LAYERS, RUSH, WEAK } from '../../src/sim/data';
 import { DigSim, defaultSave, type DigSave } from '../../src/sim/dig';
 import { layerFossils } from '../../src/sim/loot';
@@ -110,6 +110,20 @@ describe('depth map: a read-only picture of the dig', () => {
     expect(en['rush.cool']).toContain(`${RUSH.cooldown / 3600} hours`);
     expect(tr['tip.weak']).toContain(`×${WEAK.mult}`);
     expect(tr['tip.rush']).toContain(`${RUSH.seconds} saniye`);
+    // what rests during a rush is said where the player decides: the tip and the start card
+    for (const key of ['tip.rush', 'rush.ask.rest']) {
+      expect(en[key], key).toMatch(/relic/i);
+      expect(en[key], key).toMatch(/boss/i);
+      expect(en[key], key).toMatch(/special blocks/i);
+      expect(tr[key], key).toMatch(/kalıntı/i);
+      expect(tr[key], key).toMatch(/patron/i);
+    }
+    expect(en['rush.ask.rest']).toMatch(/minute/);
+    expect(tr['rush.ask.rest']).toMatch(/dakika/);
+    expect(en['rush.ask.time']).toContain('{s} seconds');
+    expect(en['rush.ask.luck']).toContain('×{n}');
+    expect(en['rush.away']).toBeTruthy();
+    expect(tr['rush.away']).toBeTruthy();
   });
 
   it('travel direction: down to a deeper band, up to a shallower one', () => {
@@ -152,15 +166,26 @@ describe('weak spot, sharp eye and rush clock (what the screen shows)', () => {
     expect(rushClock(0)).toEqual({ seconds: 0, share: 0, last: false });
   });
 
-  it('the cooldown reads as hours and minutes, then minutes, then seconds (never 0 while waiting)', () => {
+  it('the cooldown reads as hours and minutes, then minutes, then seconds (never 0 while waiting, never "60 min")', () => {
     expect(waitParts(RUSH.cooldown)).toEqual({ unit: 'h', h: 3, m: 0, s: 0 });
-    expect(waitParts(2 * 3600 + 59 * 60 + 2)).toMatchObject({ unit: 'h', h: 2, m: 59 });
-    expect(waitParts(3599)).toMatchObject({ unit: 'm', m: 60 });
+    expect(waitParts(2 * 3600 + 58 * 60 + 2)).toMatchObject({ unit: 'h', h: 2, m: 59 }); // minutes round up
+    expect(waitParts(3600)).toMatchObject({ unit: 'h', h: 1, m: 0 });
+    expect(waitParts(3599)).toMatchObject({ unit: 'h', h: 1, m: 0 }); // not "60 min"
+    expect(waitParts(3541)).toMatchObject({ unit: 'h', h: 1, m: 0 });
+    expect(waitParts(3540)).toMatchObject({ unit: 'm', m: 59 });
     expect(waitParts(61)).toMatchObject({ unit: 'm', m: 2 });
     expect(waitParts(60)).toMatchObject({ unit: 'm', m: 1 });
     expect(waitParts(59.2)).toMatchObject({ unit: 'm', m: 1 });
     expect(waitParts(58.9)).toMatchObject({ unit: 's', s: 59 });
     expect(waitParts(0.4)).toMatchObject({ unit: 's', s: 1 });
     expect(waitParts(0)).toMatchObject({ unit: 's', s: 0 });
+    for (let t = 0; t <= RUSH.cooldown; t += 7) expect(waitParts(t).m).toBeLessThan(60);
+  });
+
+  it('haptics in a rush: a tick on every fifth block at most', () => {
+    expect([0, 1, 2, 4, 5, 6, 9, 10, 225].map(rushHaptic)).toEqual([false, false, false, false, true, false, false, true, true]);
+    let ticks = 0;
+    for (let n = 1; n <= 225; n++) if (rushHaptic(n)) ticks++;
+    expect(ticks).toBe(45); // a rush of 225 blocks: 45 ticks in 45 s, where normal play would give 225
   });
 });

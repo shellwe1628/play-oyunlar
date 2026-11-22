@@ -104,6 +104,8 @@ export interface RushResult {
   /** The personal best before this rush, and whether this rush beat it. */
   best: number;
   record: boolean;
+  /** Why it ended: the clock ran out, the app was left for RUSH.away seconds or more, or the dig screen was left. */
+  ended: 'time' | 'away' | 'left';
 }
 
 export interface GlintState {
@@ -451,12 +453,21 @@ export function sanitizeSave(raw: Partial<DigSave> | undefined): DigSave {
   // Dig Rush: the best and the cooldown are kept; a rush that was running when the app closed is
   // over (what it broke counts for the best) and the block that was being dug comes back.
   const r = raw.rush;
-  d.rush = { ...d.rush, best: int(r?.best), count: int(r?.count), readyAt: num(r?.readyAt), seen: Math.max(num(r?.seen), d.lastSeen), rng: state(r?.rng) };
+  // The latest time ever seen is the stored last-seen when there is one (every real save has
+  // seen <= lastSeen); the wait can never be longer than one cooldown from it, whatever a
+  // damaged save or a once-wrong device clock left in `readyAt`.
+  const seen = d.lastSeen > 0 ? d.lastSeen : num(r?.seen);
+  d.rush = { ...d.rush, best: int(r?.best), count: int(r?.count), readyAt: Math.min(num(r?.readyAt), seen + RUSH.cooldown * 1000), seen, rng: state(r?.rng) };
   if (num(r?.left) > 0) {
     d.rush.best = Math.max(d.rush.best, int(r?.blocks));
     d.rush.count += 1;
     d.block = sanitizeBlock(r?.held?.block, d.layer);
     d.damage = num(r?.held?.damage);
+  }
+  // a meteor block shows its star core, never a weak spot (as when one is drawn in play)
+  if (d.block.kind === 'meteor' && d.weak.spot) {
+    d.weak.spot = null;
+    d.weak.in = 0;
   }
   return d;
 }
@@ -551,6 +562,10 @@ export class DigSim {
   private readonly rushRng: Rng;
   /** The result of a rush that just ended, until the scene takes it. */
   private rushDone: RushResult | null = null;
+  /** True while a hit is applied to the block set aside by a rush (the assistant, time away). */
+  private onAside = false;
+  /** False while the dig screen is not showing: weak spots wait (see setWatching). */
+  private watching = true;
   private pendingOfflineDust = 0;
   /** Cached collection power (invalidated on every change to the collection). */
   private powerCache = -1;
@@ -631,6 +646,22 @@ export class DigSim {
   /** A rush can start right now. */
   get rushReady(): boolean {
     return this.rushOpen && !this.rushActive && this.rushWait <= 0;
+  }
+  /** Health of a plain rush block on this layer right now (for the start card: taps it will take). */
+  get rushHp(): number {
+    return Math.max(1, Math.ceil(this.hpOf(this.s.layer) * RUSH.hp));
+  }
+  /**
+   * The dig screen is showing (true) or another screen is (false). Weak spots only come and go
+   * while it shows: a spot never expires, and the sharp eye is never lost, behind the museum.
+   * Nothing else depends on it, and no rng stream is touched.
+   */
+  setWatching(on: boolean): void {
+    this.watching = on;
+  }
+  /** Hits on rush blocks, as opposed to hits on the block a rush has set aside. */
+  private get rushing(): boolean {
+    return this.s.rush.left > 0 && !this.onAside;
   }
 
   // ---------------------------------------------------------------- new systems (read)
@@ -931,7 +962,7 @@ export class DigSim {
     const k = this.s.block.kind;
     const m = k === 'twin' ? TWIN.hp : k === 'golden' ? GOLDEN.hp : k === 'cavein' ? CAVEIN.hp : k === 'boss' ? BOSS.hp : 1;
     // a rush block: a fixed share of the layer's normal health
-    if (this.s.rush.left > 0) return Math.max(1, Math.ceil(this.hpOf(this.s.layer) * m * RUSH.hp));
+    if (this.rushing) return Math.max(1, Math.ceil(this.hpOf(this.s.layer) * m * RUSH.hp));
     return Math.ceil(this.hpOf(this.s.layer) * m);
   }
 
@@ -1045,7 +1076,7 @@ export class DigSim {
   tick(dt: number): TickResult {
     const out: TickResult = { finds: [], assistantHits: 0, glintAppeared: false, glintExpired: false, weakAppeared: false, weakExpired: false, events: [], breaks: 0 };
     if (!(dt > 0)) return out;
-    // during a rush the glint timer holds and the assistant stands back: the blocks are yours
+    // during a rush the glint timer holds; the assistant works on the block that was set aside
     const rushing = this.s.rush.left > 0;
     this.s.stats.playSeconds += dt;
     // fever: when it ends the combo drops back
@@ -1053,12 +1084,18 @@ export class DigSim {
       this.s.fever = Math.max(0, this.s.fever - dt);
       if (this.s.fever === 0) out.events.push({ kind: 'feverEnd' });
     }
-    // unstable block: the bonus window runs out and the block settles
-    if (this.s.block.kind === 'unstable' && this.s.block.timer > 0) {
-      this.s.block.timer = Math.max(0, this.s.block.timer - dt);
-      if (this.s.block.timer === 0) {
-        this.s.block = { kind: 'normal', timer: -1 };
-        out.events.push({ kind: 'settled' });
+    // unstable block: the bonus window runs out and the block settles (in a rush this is the
+    // block set aside: its window runs as in normal play, a rush does not freeze it)
+    const held = rushing ? this.s.rush.held : null;
+    const live = held ? held.block : this.s.block;
+    if (live.kind === 'unstable' && live.timer > 0) {
+      live.timer = Math.max(0, live.timer - dt);
+      if (live.timer === 0) {
+        if (held) held.block = { kind: 'normal', timer: -1 };
+        else {
+          this.s.block = { kind: 'normal', timer: -1 };
+          out.events.push({ kind: 'settled' });
+        }
       }
     }
     // combo
@@ -1086,7 +1123,9 @@ export class DigSim {
     // weak spot (own stream): shows for WEAK.life, never appears while a glint is up or on a
     // meteor block (its core is the target there), and makes way if a glint appears
     const w = this.s.weak;
-    if (w.spot) {
+    if (!this.watching) {
+      // another screen is showing: the spot and its timer wait
+    } else if (w.spot) {
       if (this.s.glint) {
         w.spot = null;
         w.in = 0; // back as soon as the glint is gone; the sharp eye is not broken
@@ -1110,20 +1149,27 @@ export class DigSim {
     // the rush clock
     if (rushing) {
       this.s.rush.left = Math.max(0, this.s.rush.left - dt);
-      if (this.s.rush.left === 0) this.rushDone = this.finishRush();
+      if (this.s.rush.left === 0) this.rushDone = this.finishRush('time');
     }
-    // assistant
+    // assistant: in a rush it keeps digging the block that was set aside, exactly as it would
+    // without the rush (normal health, main stream, assistant luck); rush blocks are yours alone
     const rate = this.assistantRate;
-    if (rate > 0 && !rushing) {
+    if (rate > 0) {
       this.s.assistantAcc += rate * dt;
       while (this.s.assistantAcc >= 1) {
         this.s.assistantAcc -= 1;
         out.assistantHits += 1;
-        const r = this.hit('assistant', this.baseLuck, this.passiveMult);
-        if (r.broke) out.breaks += 1;
+        const aside = this.s.rush.left > 0;
+        const r = aside ? this.aside(() => this.hit('assistant', this.baseLuck, this.passiveMult)) : this.hit('assistant', this.baseLuck, this.passiveMult);
         if (r.find) out.finds.push(r.find);
         out.finds.push(...r.extra);
-        out.events.push(...r.events);
+        if (aside) {
+          // the block on screen did not break, and what the next set-aside block is stays unannounced
+          for (const e of r.events) if (e.kind === 'quest' || e.kind === 'rank' || e.kind === 'pity' || e.kind === 'fragment' || e.kind === 'relic') out.events.push(e);
+        } else {
+          if (r.broke) out.breaks += 1;
+          out.events.push(...r.events);
+        }
       }
     }
     this.saveRng();
@@ -1162,15 +1208,17 @@ export class DigSim {
     const haul: OfflineHaul = { seconds: 0, hits: 0, blocks: 0, dust: 0, found: {}, newSpecies: [], fusions: 0, best: null, unlocked: null, lucks: [], notable: [], rolls: 0, quests: [], questDust: 0 };
     // The rewarded boost is a wall-clock 60 s: time away uses it up, and offline rolls never get it.
     if (elapsedSeconds > 0) this.s.boost = Math.max(0, this.s.boost - elapsedSeconds);
-    // Leaving the app ends a rush (what it broke counts); time away never digs rush blocks.
-    if (elapsedSeconds > 0 && this.s.rush.left > 0) this.rushDone = this.finishRush();
+    // A rush survives a short absence (its clock simply did not run); RUSH.away seconds or more
+    // end it (what it broke counts). Either way time away never digs rush blocks: until the rush
+    // is over its hits go to the block that was set aside.
+    if (this.s.rush.left > 0 && elapsedSeconds >= RUSH.away) this.rushDone = this.finishRush('away');
     const rate = this.assistantRate;
     if (!(elapsedSeconds > 0) || rate <= 0) return haul;
     haul.seconds = Math.min(elapsedSeconds, this.offlineCap);
     haul.hits = Math.floor(haul.seconds * rate * OFFLINE.efficiency);
     const haulLuck = this.luckNoBoost; // fixed for the whole haul
     for (let i = 0; i < haul.hits; i++) {
-      const r = this.hit('offline', haulLuck, this.passiveMult);
+      const r = this.s.rush.left > 0 ? this.aside(() => this.hit('offline', haulLuck, this.passiveMult)) : this.hit('offline', haulLuck, this.passiveMult);
       if (r.broke) haul.blocks += 1;
       haul.dust += r.dust;
       for (const e of r.events)
@@ -1264,7 +1312,7 @@ export class DigSim {
 
   private hit(source: FindSource, luck: number, mult = 1): TapResult {
     const out: TapResult = { damage: 0, find: null, extra: [], events: [], broke: false, dust: 0, core: false, precise: false, sharp: 0 };
-    const rushing = this.s.rush.left > 0;
+    const rushing = this.rushing;
     const b = this.s.block;
     const damage = this.digPower * mult;
     out.damage = damage;
@@ -1353,7 +1401,7 @@ export class DigSim {
   /** Choose the next block: golden anywhere (after the first 40 finds), else the layer's twist. */
   private newBlock(events?: SimEvent[]): void {
     const layer = this.s.layer;
-    if (this.s.rush.left > 0) {
+    if (this.rushing) {
       // a rush block: plain, or golden at the usual chance (drawn from the rush stream)
       const golden = this.s.stats.rolls >= GOLDEN.after && this.rushRng.next() < GOLDEN.chance;
       this.s.block = { kind: golden ? 'golden' : 'normal', timer: -1 };
@@ -1378,8 +1426,9 @@ export class DigSim {
       this.s.block.y = this.rng.range(0.25, 0.75);
     }
     if (kind === 'echo') this.s.block.echo = Math.min(layer - 1, Math.floor(this.rng.next() * layer));
-    // a star core is the target on a meteor block: a weak spot showing makes way (sharp eye kept)
-    if (kind === 'meteor' && this.s.weak.spot) {
+    // a star core is the target on a meteor block: a weak spot showing makes way (sharp eye kept);
+    // not for a block set aside by a rush (the spot is on the rush block: see finishRush)
+    if (kind === 'meteor' && this.s.weak.spot && !this.onAside) {
       this.s.weak.spot = null;
       this.s.weak.in = 0;
     }
@@ -1400,7 +1449,7 @@ export class DigSim {
     const applied = effectiveLuck(layer, luck);
     const pity = this.s.dry >= PITY;
     // a rush find is a tap find from the same table at the same luck; only its stream differs
-    const rush = this.s.rush.left > 0 && source === 'tap';
+    const rush = this.rushing && source === 'tap';
     const rng = rush ? this.rushRng : this.rng;
     const fossil = pity ? rollRare(layer, rng) : rollFossil(layer, applied, rng);
     this.s.dry = fossil.tier >= LUCKY_TIER ? 0 : this.s.dry + 1;
@@ -1457,7 +1506,30 @@ export class DigSim {
 
   /** End the rush now (the dig screen is being left). Returns its result, or null if none ran. */
   stopRush(): RushResult | null {
-    return this.s.rush.left > 0 ? this.finishRush() : null;
+    return this.s.rush.left > 0 ? this.finishRush('left') : null;
+  }
+
+  /**
+   * Run `fn` against the block a rush has set aside (the assistant, time away): for its length
+   * that block is the one being dug, by the normal rules, and the rush block waits untouched.
+   */
+  private aside<T>(fn: () => T): T {
+    const r = this.s.rush;
+    const held = (r.held ??= { block: { kind: 'normal', timer: -1 }, damage: 0 });
+    const rushBlock = this.s.block;
+    const rushDamage = this.s.damage;
+    this.s.block = held.block;
+    this.s.damage = held.damage;
+    this.onAside = true;
+    try {
+      return fn();
+    } finally {
+      held.block = this.s.block;
+      held.damage = this.s.damage;
+      this.s.block = rushBlock;
+      this.s.damage = rushDamage;
+      this.onAside = false;
+    }
   }
 
   /** The result of a rush that ended since the last call (time ran out, or the app was left). */
@@ -1467,12 +1539,12 @@ export class DigSim {
     return r;
   }
 
-  private finishRush(): RushResult {
+  private finishRush(ended: RushResult['ended']): RushResult {
     const r = this.s.rush;
     const finds = Object.entries(r.found)
       .map(([id, n]) => ({ fossil: FOSSIL_BY_ID.get(id)!, n, isNew: r.fresh.includes(id) }))
       .sort((a, b) => b.fossil.odds - a.fossil.odds || (a.fossil.id < b.fossil.id ? -1 : 1));
-    const result: RushResult = { layer: this.s.layer, blocks: r.blocks, dust: r.dust, rolls: r.rolls, finds, best: r.best, record: r.blocks > r.best };
+    const result: RushResult = { layer: this.s.layer, blocks: r.blocks, dust: r.dust, rolls: r.rolls, finds, best: r.best, record: r.blocks > r.best, ended };
     r.best = Math.max(r.best, r.blocks);
     r.count += 1;
     r.left = 0;
@@ -1480,6 +1552,12 @@ export class DigSim {
     this.s.block = r.held ? r.held.block : { kind: 'normal', timer: -1 };
     this.s.damage = r.held ? r.held.damage : 0;
     r.held = null;
+    // a meteor block is back: its star core is the target, a weak spot showing makes way as it
+    // does when a meteor block is drawn (the sharp eye is kept, the spot returns on the next block)
+    if (this.s.block.kind === 'meteor' && this.s.weak.spot) {
+      this.s.weak.spot = null;
+      this.s.weak.in = 0;
+    }
     r.blocks = 0;
     r.dust = 0;
     r.rolls = 0;
@@ -1535,7 +1613,7 @@ export class DigSim {
    */
   expedition(): boolean {
     if (!this.canExpedition) return false;
-    if (this.s.rush.left > 0) this.finishRush();
+    if (this.s.rush.left > 0) this.finishRush('left');
     const t = this.s.stats.playSeconds - this.s.expedition.runStart;
     this.s.expedition.best = this.s.expedition.best > 0 ? Math.min(this.s.expedition.best, t) : t;
     this.s.expedition.count += 1;

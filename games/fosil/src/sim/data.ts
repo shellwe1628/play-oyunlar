@@ -604,11 +604,13 @@ export const WEAK = { first: 4, minGap: 6, maxGap: 9, life: 2.2, radius: 0.17, m
 /**
  * Dig Rush: `seconds` on the current layer where every block has `hp` of the layer's normal
  * health and pays `dust` of its normal dust; each break rolls the layer's normal table at your
- * tap luck. Only plain and golden blocks; the assistant rests; rush blocks do not harden the
- * stratum. Offered once Topsoil has `species` species; then one every `cooldown` seconds of
- * wall-clock time (the clock never counts backwards, see clock.ts).
+ * tap luck. Only plain and golden blocks; rush blocks do not harden the stratum. The block you
+ * were digging is set aside and the assistant keeps working on it as always. Offered once
+ * Topsoil has `species` species; then one every `cooldown` seconds of wall-clock time (the
+ * clock never counts backwards, see clock.ts). Away from the app for `away` seconds or more
+ * ends it; a shorter absence only stops its clock.
  */
-export const RUSH = { seconds: 45, hp: 0.2, dust: 1, cooldown: 3 * 60 * 60, species: 4 } as const;
+export const RUSH = { seconds: 45, hp: 0.3, dust: 1, cooldown: 3 * 60 * 60, species: 4, away: 60 } as const;
 
 /**
  * Expedition (prestige): open the deepest layer, then restart from Topsoil keeping the museum,

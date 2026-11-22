@@ -111,9 +111,19 @@ export function rushClock(left: number): { seconds: number; share: number; last:
 /** A wait as hours / minutes / seconds, the largest unit that is not zero first (rounded up). */
 export function waitParts(seconds: number): { unit: 'h' | 'm' | 's'; h: number; m: number; s: number } {
   const s = Math.max(0, Math.ceil(seconds));
-  if (s >= 3600) return { unit: 'h', h: Math.floor(s / 3600), m: Math.floor((s % 3600) / 60), s: s % 60 };
-  if (s >= 60) return { unit: 'm', h: 0, m: Math.ceil(s / 60), s: s % 60 };
-  return { unit: 's', h: 0, m: 0, s };
+  if (s < 60) return { unit: 's', h: 0, m: 0, s };
+  // whole minutes, rounded up; sixty of them are an hour ("1 h 0 min", never "60 min")
+  const minutes = Math.ceil(s / 60);
+  if (minutes >= 60) return { unit: 'h', h: Math.floor(minutes / 60), m: minutes % 60, s: 0 };
+  return { unit: 'm', h: 0, m: minutes, s: 0 };
+}
+
+/**
+ * Haptics in a rush: one light tick on every fifth block at most (normal play ticks on every
+ * break; a rush breaks several blocks a second).
+ */
+export function rushHaptic(blocks: number): boolean {
+  return blocks > 0 && blocks % 5 === 0;
 }
 
 /** Layers passed between two map bands, for the travel animation: 1 = down, -1 = up. */

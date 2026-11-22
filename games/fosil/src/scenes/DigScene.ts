@@ -12,7 +12,7 @@ import { fossilKey, PALETTE } from '../textures';
 import { shade } from '../art/fossils';
 import { addCardLife } from '../fx/CardLife';
 import { Helper } from '../fx/Helper';
-import { rushClock, sharpPips, travelDir, waitParts, weakRing } from '../fx/model';
+import { rushClock, rushHaptic, sharpPips, travelDir, waitParts, weakRing } from '../fx/model';
 import { calmShake, countTo, edgeFlash, Motes } from '../fx/Motion';
 import { initSeen } from '../fx/seen';
 import { cover, uncover } from '../fx/Travel';
@@ -168,6 +168,9 @@ export class DigScene extends OyunScene {
   /** A finished rush waiting for its card (it never opens over another popup). */
   private rushResult: RushResult | null = null;
   private rushCard: { box: Phaser.GameObjects.Container; claim: Button; result: RushResult } | null = null;
+  /** The start card: what a rush is, the luck it rolls at, what rests; Start or close. */
+  private rushAsk: { box: Phaser.GameObjects.Container; start: Button; close: IconButton } | null = null;
+  private sharpZone!: Phaser.GameObjects.Zone;
 
   constructor() {
     super(SCENES.dig);
@@ -218,9 +221,12 @@ export class DigScene extends OyunScene {
     this.rushFx = null;
     this.rushResult = null;
     this.rushCard = null;
+    this.rushAsk = null;
     // one calm camera: shakes are capped and never add up (a break + a find + a fusion at once)
     calmShake(this);
     this.sim.setClock(Date.now());
+    // the dig screen is showing: weak spots come and go only here (not behind the museum or ranks)
+    this.sim.setWatching(true);
     const L = this.layout;
     // header (title, chips, combo) | dig site (block, HP bar, glints) | footer (last find, buttons)
     this.site = { top: L.top + HEADER, bottom: Math.max(L.top + HEADER + 420, L.bottom - FOOTER) };
@@ -288,6 +294,7 @@ export class DigScene extends OyunScene {
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
       // leaving the dig ends a rush (what it broke counts for the best)
       this.sim.stopRush();
+      this.sim.setWatching(false);
       // a rank-up not yet celebrated waits for the next visit
       if (this.pendingRank >= 0) this.ses.pendingEvents.push({ kind: 'rank', rank: this.pendingRank });
       this.oyun.platform.gameplayStop();
@@ -423,7 +430,7 @@ export class DigScene extends OyunScene {
       this.reveal.dismiss();
       return;
     }
-    if (this.popup || this.ceremony || this.rushCard) return;
+    if (this.popup || this.ceremony || this.rushCard || this.rushAsk) return;
     if (this.hint) {
       const h = this.hint;
       this.hint = null;
@@ -481,7 +488,9 @@ export class DigScene extends OyunScene {
       const w = rush ? 0 : Math.min(1, Math.log10(Math.max(1, this.heft)) / 1.6);
       if (!rush) this.juice.shake(0.12 + 0.28 * w);
       if (FX_ON && !this.oyun.reducedMotion && w > 0.5) this.juice.hitStop(Math.round(30 + 50 * w));
-      this.oyun.platform.haptic(w > 0.7 ? 'medium' : 'light');
+      // a rush breaks several blocks a second: a tick on every fifth at most
+      if (!rush) this.oyun.platform.haptic(w > 0.7 ? 'medium' : 'light');
+      else if (rushHaptic(this.sim.rushBlocks)) this.oyun.platform.haptic('light');
       this.breakBlock(at(layer.bands, 1), at(layer.bands, 3), 7 + Math.round(5 * w));
       if (FX_ON && r.dust > 0) this.flyDust(this.block.x, this.block.y, 2 + Math.round(4 * w));
       if (r.find) this.onFind(r.find);
@@ -802,8 +811,9 @@ export class DigScene extends OyunScene {
     const text = outlined(this, 0, 62, caption, 24, PALETTE.sand, 6);
     fitText(text, 118);
     box.add([g, img, text]);
-    // below the glint (depth 301): a glint that lands here is still the thing a tap takes
-    const zone = hitZone(this, x, y + 12, 100, 124, onTap).setDepth(241);
+    // below the glint (depth 301): a glint that lands here is still the thing a tap takes.
+    // The zone is the disc alone (the smallest touch target), so it takes little of the dig site.
+    const zone = hitZone(this, x, y, 88, 88, onTap).setDepth(241);
     return { box, img, text, zone, x, y };
   }
 
@@ -839,9 +849,11 @@ export class DigScene extends OyunScene {
     const stext = outlined(this, 0, 30, '', 28, 0xffd23f, 6);
     const pips = this.add.graphics();
     sbox.add([this.add.image(0, -4, 'ico-eye'), stext, pips]);
-    hitZone(this, sx, sy + 20, 100, 100, () => {
+    // (its tap zone exists only while a count is showing: otherwise that spot is dig site)
+    this.sharpZone = hitZone(this, sx, sy + 20, 100, 100, () => {
       if (this.sim.sharpEye > 0) this.showTip('sharp', this.t('tip.sharp'), true);
     }).setDepth(241);
+    this.sharpZone.disableInteractive();
     this.sharp = { box: sbox, text: stext, pips, shown: -1 };
   }
 
@@ -851,7 +863,7 @@ export class DigScene extends OyunScene {
       this.note(this.t('rush.busy'));
       return;
     }
-    if (this.rushCard || this.travelling) return;
+    if (this.rushCard || this.rushAsk || this.travelling) return;
     this.goTo(key, data);
   }
 
@@ -919,6 +931,8 @@ export class DigScene extends OyunScene {
       const rose = n > sh.shown && sh.shown >= 0;
       sh.shown = n;
       sh.box.setVisible(n > 0);
+      if (n > 0) this.sharpZone.setInteractive({ useHandCursor: true });
+      else this.sharpZone.disableInteractive();
       if (n > 0) {
         sh.text.setText(this.t('hud.weak', { n: mult(this, this.sim.weakMult) }));
         const lit = sharpPips(n);
@@ -964,12 +978,69 @@ export class DigScene extends OyunScene {
   /** The rush button: start it, or say when the next one comes. */
   private onRush(): void {
     const s = this.sim;
-    if (s.rushActive || !s.rushOpen || this.rushCard) return;
+    if (s.rushActive || !s.rushOpen || this.rushCard || this.rushAsk) return;
     if (this.reveal.blocking || this.popup || this.ceremony || this.dailyBox || this.travelling) return;
     if (!s.rushReady) {
       this.note(this.t('rush.cool', { t: this.waitText(s.rushWait) }), { duration: 2200 });
       return;
     }
+    // never on one stray tap: the card says what a rush is and what rests, then one tap starts it
+    this.showRushAsk();
+  }
+
+  /**
+   * The start card. The dig waits while it is open (the combo does not drain), so the luck it
+   * names is the luck the first tap of the rush rolls at.
+   */
+  private showRushAsk(): void {
+    const L = this.layout;
+    const s = this.sim;
+    const box = this.add.container(0, 0).setDepth(955);
+    const shadeRect = this.add.rectangle(L.cx, L.height / 2, L.width + 40, L.height + 40, 0x000000, 0.75).setInteractive();
+    shadeRect.setAlpha(0);
+    this.tweens.add({ targets: shadeRect, alpha: 1, duration: 200 });
+    const normalTaps = Math.max(1, Math.ceil(s.hpOf(s.layer) / s.digPower));
+    const rushTaps = Math.max(1, Math.ceil(s.rushHp / s.digPower));
+    const lines: [string, number, number][] = [
+      [this.t('rush.ask.title'), 54, 0xffd23f],
+      [this.t('rush.ask.time', { s: RUSH.seconds }), 32, 0xffffff],
+      [this.t('rush.ask.luck', { n: mult(this, s.luck) }), 30, PALETTE.luck],
+      [this.t('rush.ask.taps', { a: counted(this, 'n.taps', normalTaps), b: counted(this, 'n.taps', rushTaps) }), 28, PALETTE.sand],
+      [this.t('rush.ask.rest'), 26, PALETTE.sand],
+    ];
+    const texts = lines.map(([text, size, color]) => label(this, 0, 0, text, { size, color, wrap: 560 }).setOrigin(0.5, 0));
+    const gap = 20;
+    const textH = texts.reduce((sum, t) => sum + t.height, 0) + gap * (texts.length - 1);
+    const cardH = 70 + textH + 40 + 104 + 46;
+    const card = panel(this, L.cx, L.cy, 640, cardH, { color: PALETTE.dirtLight });
+    card.add(this.add.image(-250, -cardH / 2 + 70, 'ico-rush').setScale(0.9));
+    let y = -cardH / 2 + 46;
+    for (const t of texts) {
+      t.setY(y);
+      card.add(t);
+      y += t.height + gap;
+    }
+    const start = button(this, L.cx, L.cy + cardH / 2 - 46 - 52, this.t('rush.ask.go'), () => this.startRush(), { width: 400, height: 104, fontSize: 46 });
+    const close = iconButton(this, L.cx + 320 - 52, L.cy - cardH / 2 + 52, 'close', () => this.closeRushAsk());
+    box.add([shadeRect, card, start, close]);
+    shadeRect.on(Phaser.Input.Events.GAMEOBJECT_POINTER_DOWN, () => this.closeRushAsk());
+    this.rushAsk = { box, start, close };
+    this.juice.pop(card, 0.5, 280);
+    this.oyun.audio.playPreset(SFX.flip, { pitch: 4 });
+  }
+
+  private closeRushAsk(): void {
+    const a = this.rushAsk;
+    if (!a) return;
+    this.rushAsk = null;
+    this.tweens.add({ targets: a.box, alpha: 0, duration: 160, onComplete: () => a.box.destroy(true) });
+  }
+
+  /** Start, from the card. */
+  private startRush(): void {
+    const s = this.sim;
+    if (!this.rushAsk) return;
+    this.closeRushAsk();
     s.setClock(Date.now());
     if (!s.startRush()) return;
     this.oyun.platform.track('rush_start', { layer: s.layer });
@@ -1016,7 +1087,7 @@ export class DigScene extends OyunScene {
     if (this.drawer.open) this.drawer.toggle(false);
     this.museumButton.setEnabled(false);
     this.upgradesButton.setEnabled(false);
-    // the assistant stands back for the rush, and cheers you on
+    // the assistant cheers, then goes on digging the block that was set aside
     if (banner) this.helper.cheer();
     // the rush block replaces the one being dug (it comes back afterwards)
     this.block.renew(this.sim.block.kind, this.sim.echoLayer);
@@ -1057,8 +1128,9 @@ export class DigScene extends OyunScene {
       b.text.setText(active ? '' : wait || this.t('dig.rush')).setColor(cssColor(wait ? PALETTE.sand : 0xffd23f));
       fitText(b.text, 106);
       if (!active) b.ring.clear();
-      if (s.rushOpen && s.rushReady) this.showTip('rush', this.t('tip.rush'));
     }
+    // the one-time tip, never under a popup, a card or a ceremony (it would be marked seen unread)
+    if (s.rushOpen && s.rushReady && !this.popup && !this.rushCard && !this.rushAsk && !this.ceremony && !this.dailyBox && !this.reveal.blocking) this.showTip('rush', this.t('tip.rush'));
     const fx = this.rushFx;
     if (!active || !fx) return;
     // the ring drains with the clock
@@ -1111,6 +1183,7 @@ export class DigScene extends OyunScene {
     this.upgradesButton.setEnabled(true);
     // the block that was being dug before the rush is back, with the damage it had
     this.block.renew(this.sim.block.kind, this.sim.echoLayer);
+    this.syncBlockKind();
     this.block.setDamage(this.sim.blockDamage / this.sim.blockHp);
     this.hpShown = this.hpTarget = 1 - this.sim.blockDamage / this.sim.blockHp;
     this.hpBar.setValue(this.hpShown);
@@ -1134,11 +1207,19 @@ export class DigScene extends OyunScene {
     const more = res.finds.length - rows.length;
     const fresh = res.finds.filter((f) => f.isNew).length;
     const rowH = 62;
-    const cardH = 120 + 70 + 50 + 62 + 48 + rows.length * rowH + (more > 0 ? 40 : 0) + 96 + 150;
+    const away = res.ended === 'away';
+    const cardH = 120 + 70 + 50 + 62 + 48 + rows.length * rowH + (more > 0 ? 40 : 0) + 96 + 150 + (away ? 40 : 0);
     const card = panel(this, L.cx, L.cy, 640, cardH, { color: PALETTE.dirtLight });
     let y = -cardH / 2 + 64;
     const title = label(this, 0, y, this.t('rush.over'), { size: 52, color: PALETTE.ochreLight });
-    y += 78;
+    if (away) {
+      // why it stopped before its 45 s were up
+      y += 48;
+      const why = label(this, 0, y, this.t('rush.away'), { size: 26, color: 0xffb36b });
+      fitText(why, 580);
+      card.add(why);
+      y += 70;
+    } else y += 78;
     const blocks = label(this, 0, y, '', { size: 50, color: 0xffffff });
     y += 56;
     const bestLine = label(this, 0, y, record ? `${this.t('rush.record')}  ${this.t('rush.best', { n: big(this, res.blocks) })}` : this.t('rush.best', { n: big(this, Math.max(res.best, res.blocks)) }), { size: 30, color: record ? 0xffd23f : PALETTE.sand });
@@ -1242,7 +1323,7 @@ export class DigScene extends OyunScene {
   /** A rank-up: everything pauses for the new badge, its name and what comes next. */
   /** The ceremony starts only when nothing else is up and the player has not touched for 1 s. */
   private maybeRankUp(): void {
-    if (this.pendingRank < 0 || this.ceremony || this.reveal.busy || this.popup || this.dailyBox || this.travelling || this.sim.rushActive || this.rushCard || this.rushResult) return;
+    if (this.pendingRank < 0 || this.ceremony || this.reveal.busy || this.popup || this.dailyBox || this.travelling || this.sim.rushActive || this.rushCard || this.rushAsk || this.rushResult) return;
     if (this.fxClock < this.rankNotBefore || this.fxClock - this.lastInput < QUIET_BEFORE_CEREMONY) return;
     // never an older rank than the one already held (see afterBuy: not every rise arrives as an event)
     const r = Math.max(this.pendingRank, this.sim.rank);
@@ -1311,7 +1392,7 @@ export class DigScene extends OyunScene {
   // ------------------------------------------------------------------ daily dig
 
   private openDaily(): void {
-    if (this.dailyBox || this.popup || this.ceremony || this.reveal.blocking || this.sim.rushActive || this.rushCard) return;
+    if (this.dailyBox || this.popup || this.ceremony || this.reveal.blocking || this.sim.rushActive || this.rushCard || this.rushAsk) return;
     const day = today();
     const got = this.sim.claimDaily(day);
     if (!got) return;
@@ -1870,7 +1951,7 @@ export class DigScene extends OyunScene {
         sp.setScale(0.15 + tw * 0.75).setAlpha(0.3 + tw * 0.7);
       });
     }
-    if (!this.reveal.blocking && !this.popup && !this.ceremony && !this.dailyBox && !this.rushCard) {
+    if (!this.reveal.blocking && !this.popup && !this.ceremony && !this.dailyBox && !this.rushCard && !this.rushAsk) {
       this.step(this.juice.scaledDelta(Math.min(delta, 250)) / 1000);
       const haul = this.ses.takeHaul();
       if (haul) this.showOfflinePopup(haul);
@@ -2186,7 +2267,7 @@ export class DigScene extends OyunScene {
     if (this.ceremony) this.closeCeremony();
     else if (this.dailyBox) this.closeDaily();
     else if (this.reveal.blocking) this.reveal.dismiss();
-    else if (!this.popup && !this.rushCard) this.onDigTap(this.block.x, this.block.y);
+    else if (!this.popup && !this.rushCard && !this.rushAsk) this.onDigTap(this.block.x, this.block.y);
   }
 
   protected override testState() {
@@ -2228,8 +2309,11 @@ export class DigScene extends OyunScene {
       dailyStreak: s.dailyStreak,
       ceremony2: this.ceremony ? 'rank' : this.dailyBox ? 'daily' : null,
       /** Anything covering the dig that a tap would close or that swallows taps. */
-      overlay: this.ceremony ? 'rank' : this.dailyBox ? 'daily' : this.popup ? 'offline' : this.rushCard ? 'rush' : this.reveal.blocking ? 'grand' : null,
-      overlayReady: this.ceremony ? this.ceremonyReady : this.reveal.blocking ? this.reveal.canDismiss : this.dailyBox !== null || this.popup !== null || this.rushCard !== null,
+      overlay: this.ceremony ? 'rank' : this.dailyBox ? 'daily' : this.popup ? 'offline' : this.rushCard ? 'rush' : this.rushAsk ? 'rushAsk' : this.reveal.blocking ? 'grand' : null,
+      overlayReady: this.ceremony ? this.ceremonyReady : this.reveal.blocking ? this.reveal.canDismiss : this.dailyBox !== null || this.popup !== null || this.rushCard !== null || this.rushAsk !== null,
+      rushAsk: this.rushAsk !== null,
+      rushEnded: this.rushCard?.result.ended ?? null,
+      sharpZone: this.sharpZone.input?.enabled === true,
       weak: s.weakSpot ? { x: Math.round(this.weakPos()?.x ?? 0), y: Math.round(this.weakPos()?.y ?? 0), life: Math.round(s.weakSpot.life * 100) / 100, mult: s.weakMult } : null,
       sharp: s.sharpEye,
       precise: s.preciseHits,
@@ -2279,6 +2363,9 @@ export class DigScene extends OyunScene {
         map: { x: Math.round(this.mapButton.x), y: Math.round(this.mapButton.y) },
         rush: { x: Math.round(this.rushButton.x), y: Math.round(this.rushButton.y) },
         rushClaim: this.rushCard ? pos(this.rushCard.claim) : null,
+        rushStart: this.rushAsk ? pos(this.rushAsk.start) : null,
+        rushAskClose: this.rushAsk ? pos(this.rushAsk.close) : null,
+        sharp: { x: Math.round(this.sharpZone.x), y: Math.round(this.sharpZone.y) },
         title: pos(this.layerTitle),
         hp: pos(this.hpBar),
         statusLine: pos(this.statusText),
@@ -2328,6 +2415,8 @@ export class DigScene extends OyunScene {
       /** The depth map button / the rush button, as a finger would press them. */
       map: () => this.openMap(),
       rush: () => this.onRush(),
+      /** The Start button of the rush start card (nothing when the card is not open). */
+      rushStart: () => this.rushAsk?.start.fire(),
       /** Let time pass (in steps, like `advance`) until a weak spot shows; at most `p` seconds (default 20). */
       waitWeak: (p: unknown) => {
         let left = typeof p === 'number' ? p : 20;
@@ -2353,7 +2442,11 @@ export class DigScene extends OyunScene {
         const o = (p ?? {}) as { kind?: string; odds?: number };
         const fossil = [...FOSSILS].filter((f) => f.odds >= (o.odds ?? 100)).sort((a, b) => a.odds - b.odds)[0] ?? at(FOSSILS, 0);
         const find: Find = { fossil, grade: 0, fusions: 0, isNew: true, source: 'tap', luck: this.sim.luck, dust: 0, setCompleted: null, unlocked: null, powerGain: 0, pity: false, block: 'normal' };
-        if (o.kind === 'rank') this.rankUp(this.sim.rank);
+        if (o.kind === 'rushAway') {
+          // the result card of a rush that a long absence ended (nothing is rolled, added or saved)
+          const some = FOSSILS.filter((f) => f.layer === this.sim.layer).slice(0, 3);
+          this.showRushCard({ layer: this.sim.layer, blocks: 37, dust: 1234, rolls: 39, finds: some.map((f, i) => ({ fossil: f, n: 3 - i, isNew: i === 0 })).reverse(), best: 120, record: false, ended: 'away' });
+        } else if (o.kind === 'rank') this.rankUp(this.sim.rank);
         else if (o.kind === 'fusion') this.showFusion({ ...find, grade: 1, fusions: 1, powerGain: 120 });
         else this.reveal.show(find);
       },
@@ -2361,6 +2454,7 @@ export class DigScene extends OyunScene {
         this.closeCeremony();
         this.closeDaily();
         this.closeRushCard();
+        this.closeRushAsk();
       },
     };
   }

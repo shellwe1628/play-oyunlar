@@ -7,6 +7,7 @@ import { OyunScene, toast, touchHitSize } from '@oyun/core';
 import Phaser from 'phaser';
 import { Backdrop } from '../render/Backdrop';
 import { ensureCanvasArt } from '../render/canvasArt';
+import { countUp, drawHalo, enter, isCalm, Motes, pressable, wipeIn, wipeTo } from '../render/menuFx';
 import { ensureWorldArt, MOTIFS } from '../render/worldArt';
 import { gameSave } from '../save';
 import { totalStars, worldStars, WORLD_STAR_REQ } from '../sim/meta';
@@ -15,12 +16,15 @@ import { levelOpen, levelToPlay, worldUnlocked } from '../sim/progress';
 import { PALETTE, PALETTES } from '../textures';
 import { bigText, fitText, IconTile } from '../ui';
 import type { GameStart } from './GameScene';
-import { SCENES } from './keys';
+import { SCENES, UNLOCKED_KEY } from './keys';
 
 const WORLD_COLORS = [0xff7a1a, 0x3ff6ff, 0x9dff3a, 0xc35bff] as const;
 
 export class LevelsScene extends OyunScene {
   private backdrop!: Backdrop;
+  private motes!: Motes;
+  private tabGlow!: Phaser.GameObjects.Image;
+  private focusGlow: Phaser.GameObjects.Graphics | null = null;
   private back!: IconTile;
   private cards: Phaser.GameObjects.Container[] = [];
   private previews: Phaser.GameObjects.TileSprite[] = [];
@@ -40,18 +44,34 @@ export class LevelsScene extends OyunScene {
     ensureCanvasArt(this);
     ensureWorldArt(this);
     const L = this.layout;
+    this.t0 = 0;
     this.cards = [];
     this.previews = [];
     this.tabs = [];
     this.backdrop = new Backdrop(this, PALETTES[7]!, L.width, L.height);
-    fitText(bigText(this, L.cx, L.top + 70, this.t('levels.title'), 70), 2 * (L.right - 210 - L.cx));
+    this.motes = new Motes(this, L.width, L.height, PALETTES[7]!.edge);
+    this.world = 0;
+    this.focusGlow = null;
+    const title = fitText(bigText(this, L.cx, L.top + 70, this.t('levels.title'), 70), 2 * (L.right - 210 - L.cx));
+    enter(this, title, { dy: -50, duration: 380, ease: 'Back.easeOut' });
     this.back = new IconTile(this, L.left + 70, L.top + 70, 'ic-back', null, () => this.goHome(), { radius: 46 });
     const save = gameSave(this.oyun).data;
-    bigText(this, L.right - 110, L.top + 72, `${save.gems}`, 44, PALETTE.gem);
-    this.add.image(L.right - 170, L.top + 72, 'gem').setScale(0.6);
-    // Star total under the title.
-    this.add.image(L.cx - 52, L.top + 138, 'star-on').setScale(0.8);
-    bigText(this, L.cx + 18, L.top + 138, `${totalStars(save)}`, 38, PALETTE.gold);
+    const wallet = bigText(this, L.right - 110, L.top + 72, `${save.gems}`, 44, PALETTE.gem);
+    const walletGem = this.add.image(L.right - 170, L.top + 72, 'gem').setScale(0.6);
+    enter(this, wallet, { dx: 60, delay: 120 });
+    enter(this, walletGem, { dx: 60, delay: 120 });
+    // Star total under the title: the star spins in, the number counts up.
+    const starIcon = this.add.image(L.cx - 52, L.top + 138, 'star-on').setScale(0.8);
+    const starText = bigText(this, L.cx + 18, L.top + 138, `${totalStars(save)}`, 38, PALETTE.gold);
+    enter(this, starIcon, { scale: 0.2, delay: 160, duration: 420, ease: 'Back.easeOut' });
+    enter(this, starText, { dy: 12, delay: 160 });
+    countUp(this, starText, 0, totalStars(save), (n) => `${n}`, 600, 200);
+    if (!isCalm(this)) {
+      starIcon.setAngle(-180);
+      this.tweens.add({ targets: starIcon, angle: 0, delay: 160, duration: 520, ease: 'Cubic.easeOut' });
+    }
+    // The light under the active world tab (it slides from tab to tab).
+    this.tabGlow = this.add.image(L.cx, L.top + 254, 'glow').setBlendMode(Phaser.BlendModes.ADD).setDisplaySize(150, 40).setAlpha(0.9);
 
     // World tabs.
     const tw = Math.min(160, (L.width - 60) / WORLD_COUNT);
@@ -66,16 +86,22 @@ export class LevelsScene extends OyunScene {
       tab.setData('g', g);
       const hit = touchHitSize(tw - 8, 80);
       tab.setSize(hit.width, hit.height).setInteractive({ useHandCursor: true });
-      tab.on(Phaser.Input.Events.GAMEOBJECT_POINTER_UP, () => this.showWorld(w));
+      pressable(this, tab, () => this.showWorld(w));
       this.tabs.push(tab);
     }
     this.worldTitle = bigText(this, L.cx, L.top + 290, '', 40, PALETTE.white);
     this.gateText = bigText(this, L.cx, L.top + 330, '', 30, 0xffb3c0);
     this.page = this.add.container(0, 0);
     this.showWorld(worldOf(levelToPlay(save)));
+    // Tabs drop in one after another (after showWorld has sized the active one).
+    this.tabs.forEach((tab, i) => enter(this, tab, { dy: -26, delay: 120 + i * 45, duration: 300, ease: 'Back.easeOut' }));
+    wipeIn(this);
   }
 
   private showWorld(w: number): void {
+    // Cards come in from the side the new world lies on (from below on the first visit).
+    const dir = this.world === 0 ? 0 : Math.sign(w - this.world);
+    const first = this.world === 0;
     this.world = w;
     const L = this.layout;
     const save = gameSave(this.oyun).data;
@@ -88,8 +114,14 @@ export class LevelsScene extends OyunScene {
       g.fillStyle(PALETTE.ink, 0.6).fillRoundedRect(-tw / 2 + 4, -36 + 6, tw - 8, 76, 22);
       g.fillStyle(on ? WORLD_COLORS[i]! : PALETTE.ui, on ? 0.9 : 1).fillRoundedRect(-tw / 2 + 4, -36, tw - 8, 76, 22);
       g.lineStyle(on ? 6 : 3, 0xffffff, on ? 1 : 0.5).strokeRoundedRect(-tw / 2 + 4, -36, tw - 8, 76, 22);
-      tab.setScale(on ? 1.05 : 1);
+      tab.setData('rest', on ? 1.05 : 1);
+      if (!this.tweens.isTweening(tab)) tab.setScale(on ? 1.05 : 1);
     });
+    const tabX = this.tabs[w - 1]!.x;
+    this.tabGlow.setTint(WORLD_COLORS[w - 1]);
+    this.tweens.killTweensOf(this.tabGlow);
+    if (first || isCalm(this)) this.tabGlow.setX(tabX);
+    else this.tweens.add({ targets: this.tabGlow, x: tabX, duration: 260, ease: 'Back.easeOut' });
     fitText(this.worldTitle.setText(`${this.t('world.n', { n: w })} · ${this.t(`world.${w}` as 'world.1')}`), L.width - 60, 40);
     const open = worldUnlocked(save, w);
     let gate = '';
@@ -102,6 +134,9 @@ export class LevelsScene extends OyunScene {
     this.page.removeAll(true);
     this.cards = [];
     this.previews = [];
+    this.focusGlow = null;
+    const playNext = levelToPlay(save);
+    const fresh = isCalm(this) ? -1 : ((this.registry.get(UNLOCKED_KEY) as number | undefined) ?? -1);
     const cw = 300;
     const ch = 158;
     const gapX = 30;
@@ -135,22 +170,60 @@ export class LevelsScene extends OyunScene {
       parts.push(bigText(this, -cw / 2 + 64, -6, `${id}`, id >= 10 ? 70 : 80));
       if (info.boss) parts.push(this.add.image(-cw / 2 + 64, -62, 'ic-crown').setScale(0.55).setTint(PALETTE.gold));
       if (info.intro) parts.push(bigText(this, -cw / 2 + 64, 54, this.t('levels.new'), 22, PALETTE.gold));
+      // A level the last finish unlocked: its lock shakes, pops off and the card lights up (once).
+      const unlocking = !locked && id === fresh && !rec.done;
+      const reveal: (Phaser.GameObjects.Text | Phaser.GameObjects.Image)[] = [];
       if (locked) {
         parts.push(this.add.image(cw / 2 - 70, -6, 'ic-lock').setScale(0.9));
       } else {
-        parts.push(bigText(this, cw / 2 - 76, -30, rec.done ? '100%' : this.t('levels.best', { n: rec.best }), 40, rec.done ? PALETTE.gold : PALETTE.white));
-        for (let k = 0; k < 3; k++) parts.push(this.add.image(cw / 2 - 124 + k * 46, 34, rec.stars & (1 << k) ? 'star-on' : 'star-off').setScale(0.8));
+        const bestText = bigText(this, cw / 2 - 76, -30, rec.done ? '100%' : this.t('levels.best', { n: rec.best }), 40, rec.done ? PALETTE.gold : PALETTE.white);
+        parts.push(bestText);
+        reveal.push(bestText);
+        for (let k = 0; k < 3; k++) {
+          const lit = (rec.stars & (1 << k)) !== 0;
+          const star = this.add.image(cw / 2 - 124 + k * 46, 34, lit ? 'star-on' : 'star-off').setScale(0.8);
+          parts.push(star);
+          reveal.push(star);
+          // Earned stars pop in one after another once the card has landed.
+          if (lit && !isCalm(this)) {
+            star.setScale(0);
+            this.tweens.add({ targets: star, scale: 0.8, delay: 200 + i * 28 + k * 70, duration: 300, ease: 'Back.easeOut' });
+          }
+        }
       }
       const card = this.add.container(x, y, parts);
       const hit = touchHitSize(cw, ch);
       card.setSize(hit.width, hit.height);
       card.setInteractive({ useHandCursor: true });
-      card.on(Phaser.Input.Events.GAMEOBJECT_POINTER_UP, () => this.pick(id));
+      pressable(this, card, () => this.pick(id));
       card.setData('id', id);
-      card.setScale(0.6).setAlpha(0);
-      this.tweens.add({ targets: card, scale: 1, alpha: locked ? 0.85 : 1, delay: i * 25, duration: 240, ease: 'Back.easeOut' });
+      card.setAlpha(locked ? 0.85 : 1);
+      if (id === playNext && !locked) {
+        // The level to play next wears a breathing halo, so the eye lands on it first.
+        this.focusGlow = drawHalo(this.add.graphics({ x, y }).setBlendMode(Phaser.BlendModes.ADD), cw, ch, 30, pal.edge).setAlpha(0);
+        this.page.add(this.focusGlow);
+      }
+      enter(this, card, { dx: dir * 90, dy: dir === 0 ? 50 : 0, scale: 0.8, delay: i * 28, duration: 300, ease: 'Back.easeOut' });
       this.page.add(card);
       this.cards.push(card);
+      if (unlocking) {
+        this.registry.remove(UNLOCKED_KEY);
+        for (const o of reveal) o.setAlpha(0);
+        const lock = this.add.image(cw / 2 - 70, -6, 'ic-lock').setScale(0.9);
+        const ring = this.add.image(cw / 2 - 70, -6, 'ring-burst').setBlendMode(Phaser.BlendModes.ADD).setTint(pal.edge).setScale(0.1).setAlpha(0);
+        card.add([ring, lock]);
+        const at = 520 + i * 28;
+        this.tweens.add({ targets: lock, angle: 14, yoyo: true, repeat: 3, delay: at, duration: 55, ease: 'Sine.easeInOut' });
+        this.tweens.add({ targets: lock, scale: 1.9, alpha: 0, angle: -25, delay: at + 460, duration: 280, ease: 'Cubic.easeOut', onComplete: () => lock.destroy() });
+        this.tweens.add({ targets: ring, scale: 0.9, alpha: 0, delay: at + 460, duration: 380, ease: 'Cubic.easeOut', onStart: () => ring.setAlpha(0.9), onComplete: () => ring.destroy() });
+        this.tweens.add({ targets: reveal, alpha: 1, delay: at + 520, duration: 240 });
+        this.time.delayedCall(at + 460, () => {
+          if (!card.active) return;
+          this.oyun.audio.play('coin', { pitch: 8 });
+          this.oyun.platform.haptic('light');
+          this.juice.burst(x + cw / 2 - 70, y - 6, { count: 10, color: PALETTE.gold, texture: 'oyun-star', distance: 110, duration: 420 });
+        });
+      }
     }
   }
 
@@ -161,7 +234,11 @@ export class LevelsScene extends OyunScene {
       p.tilePositionY -= delta * (0.04 + i * 0.006);
       p.tilePositionX += delta * 0.01 * (i % 2 ? 1 : -1);
     }
-    this.backdrop.update(0.5 + 0.5 * Math.sin(this.t0 / 3000), delta * 0.12, Math.pow(1 - ((this.t0 / 500) % 1), 3), 400, delta / 1000);
+    const pulse = Math.pow(1 - ((this.t0 / 500) % 1), 3);
+    this.backdrop.update(0.5 + 0.5 * Math.sin(this.t0 / 3000), delta * 0.12, pulse, 400, delta / 1000);
+    this.motes.update(delta / 1000, pulse);
+    this.tabGlow.setAlpha(0.65 + 0.3 * pulse);
+    if (this.focusGlow) this.focusGlow.setAlpha(Math.min(1, this.t0 / 600) * (0.6 + 0.4 * Math.sin(this.t0 / 320)));
   }
 
   private pick(id: number): void {
@@ -171,8 +248,9 @@ export class LevelsScene extends OyunScene {
       const card = this.cards.find((c) => c.getData('id') === id);
       if (card) {
         this.tweens.killTweensOf(card);
-        card.setScale(1);
-        this.tweens.add({ targets: card, x: card.x + 14, yoyo: true, repeat: 3, duration: 45 });
+        const restX = (card.getData('restX') as number | undefined) ?? card.x;
+        card.setScale(1).setAlpha(0.85).setX(restX);
+        this.tweens.add({ targets: card, x: restX + 14, yoyo: true, repeat: 3, duration: 45, onComplete: () => card.setX(restX) });
       }
       this.oyun.audio.play('hit', { volume: 0.4 });
       this.oyun.platform.haptic('error');
@@ -184,11 +262,11 @@ export class LevelsScene extends OyunScene {
     }
     this.oyun.audio.play('tap');
     this.oyun.platform.haptic('light');
-    this.scene.start(SCENES.game, { mode: 'level', level: id, phase: 'ready' } satisfies GameStart);
+    wipeTo(this, SCENES.game, { mode: 'level', level: id, phase: 'ready' } satisfies GameStart);
   }
 
   private goHome(): void {
-    this.scene.start(SCENES.game, { phase: 'title' } satisfies GameStart);
+    wipeTo(this, SCENES.game, { phase: 'title' } satisfies GameStart);
   }
 
   protected override testState() {

@@ -21,6 +21,7 @@ import { ShaftView } from '../render/Shaft';
 import { ensureBadges } from '../render/badges';
 import { Boss } from '../render/Boss';
 import { MechView } from '../render/MechView';
+import { awardChips, countUp, isCalm, wipeIn, wipeTo } from '../render/menuFx';
 import { hue, Trail, TRAIL_LEN } from '../render/Trail';
 import { gameOnline } from '../online';
 import { gameSave } from '../save';
@@ -32,12 +33,12 @@ import { ACHIEVEMENTS, FLOW_MAX, progressScore, RANKS, rankOf, settle, totalStar
 import { MECHANICS, type Mechanic } from '../sim/patterns';
 import { endlessUnlocked, levelOpen, levelToPlay, recordDaily, recordEndless, recordLevelRun, recordStats, shouldShowInterstitial } from '../sim/progress';
 import { RunSim } from '../sim/run';
-import { COLOR_SHIFT_STYLES, TRAILS } from '../sim/skins';
+import { COLOR_SHIFT_STYLES, TIERS, TRAILS } from '../sim/skins';
 import { K_REF, prepare, solve } from '../sim/solver';
 import { sdf, segmentAt, wallXAt, type GateKind, type Track } from '../sim/track';
 import { ENDLESS_THEMES, GATE_COLORS, PALETTE, PALETTES, type Palette } from '../textures';
 import { bigText, fitText, IconTile, MenuCard, NeonButton, type MenuHit } from '../ui';
-import { SCENES } from './keys';
+import { SCENES, UNLOCKED_KEY } from './keys';
 import { TRIAL_KEY } from './SkinsScene';
 
 export type Mode = 'level' | 'endless' | 'daily';
@@ -185,6 +186,23 @@ export class GameScene extends OyunScene {
   private idleY = 0;
   private squash = 0;
   private flashA = 0;
+  /** Reduced motion (system setting): flashes, zoom punches and card motion are toned down. */
+  private calm = false;
+  /** Screen-edge tint pulse (gates, flow, death): colour at the rim, the corridor stays clear. */
+  private frameA = 0;
+  private frameFx!: Phaser.GameObjects.Image;
+  private impact!: Phaser.GameObjects.Image;
+  private barHead!: Phaser.GameObjects.Image;
+  private slotPing!: Phaser.GameObjects.Image;
+  private deadEdges: Phaser.GameObjects.Image[] = [];
+  private finishPct!: Phaser.GameObjects.Text;
+  private finishGemIcon!: Phaser.GameObjects.Image;
+  private finishFly: Phaser.GameObjects.Image[] = [];
+  /** Stars of the finished level (bits) and the ones earned by this finish. */
+  private finishStarBits = 0;
+  private finishNewBits = 0;
+  /** Gems the finish card shows (level gems + star and world bonuses, + the doubled part). */
+  private finishTotal = 0;
   private continueUsed = false;
   private gateSnap: RunSim | null = null;
   private runGems = 0;
@@ -279,6 +297,8 @@ export class GameScene extends OyunScene {
   private titleUi!: Phaser.GameObjects.Container;
   private readyUi!: Phaser.GameObjects.Container;
   private resumeUi!: Phaser.GameObjects.Container;
+  private readyPlate!: Phaser.GameObjects.Graphics;
+  private readyStars: Phaser.GameObjects.Image[] = [];
   private readyTitle!: Phaser.GameObjects.Text;
   private readySub!: Phaser.GameObjects.Text;
   private deadUi!: Phaser.GameObjects.Container;
@@ -330,6 +350,11 @@ export class GameScene extends OyunScene {
     this.trial = (this.registry.get(TRIAL_KEY) as number | undefined) ?? -1;
     this.trialRun = false;
     this.finishStars = [];
+    this.finishFly = [];
+    this.deadEdges = [];
+    this.readyStars = [];
+    this.calm = isCalm(this);
+    this.frameA = 0;
     this.rankUp = null;
     this.fx = new URLSearchParams(location.search).get('fx') !== '0';
     this.simHash = 2166136261;
@@ -469,6 +494,9 @@ export class GameScene extends OyunScene {
       })
       .setDepth(150);
     this.flash = this.add.image(0, 0, 'flash').setOrigin(0, 0).setDisplaySize(width, height).setDepth(140).setAlpha(0);
+    this.frameFx = this.add.image(0, 0, 'edge-frame').setOrigin(0, 0).setDisplaySize(width, height).setDepth(96).setBlendMode(Phaser.BlendModes.ADD).setAlpha(0);
+    // The hit star at the point of impact (death), instead of a white screen.
+    this.impact = this.add.image(0, 0, 'w-star4').setBlendMode(Phaser.BlendModes.ADD).setDepth(12).setVisible(false);
 
     this.buildHud();
     this.buildTitle();
@@ -511,6 +539,7 @@ export class GameScene extends OyunScene {
     this.applySkin();
     this.resetRun();
     this.showPhase(this.phase);
+    wipeIn(this);
   }
 
   // ───────────────────────────────────────────────────────────── building UI
@@ -535,6 +564,9 @@ export class GameScene extends OyunScene {
     this.barBg.fillStyle(PALETTE.ink, 0.55).fillRoundedRect(cx - this.barW / 2 - 6, top + 104, this.barW + 12, 30, 15);
     this.barFill = this.add.image(cx - this.barW / 2, top + 119, 'flash').setOrigin(0, 0.5).setDisplaySize(1, 18);
     this.barBest = this.add.rectangle(cx - this.barW / 2, top + 119, 6, 30, 0xffffff).setOrigin(0.5);
+    // A bright head on the progress bar, breathing with the beat.
+    this.barHead = this.add.image(cx - this.barW / 2, top + 119, 'glow').setBlendMode(Phaser.BlendModes.ADD).setScale(0.4);
+    this.slotPing = this.add.image(0, 0, 'ring-burst').setBlendMode(Phaser.BlendModes.ADD).setTint(PALETTE.gem).setVisible(false);
     this.attemptText = bigText(this, cx, top + 210, '', 30);
     for (let i = 0; i < 3; i++) {
       this.gemSlots.push(this.add.image(cx + (i - 1) * 50, top + 164, 'gem-empty').setScale(0.62));
@@ -552,7 +584,7 @@ export class GameScene extends OyunScene {
     // Boss health (boss levels only), in place of the attempt line.
     const bossLabel = bigText(this, cx, top + 200, '', 24, 0xff8aa0);
     this.boss = new Boss(this, L.cx, L.top + 470, bossLabel);
-    this.hud.add([pill, this.chip, this.barBg, this.barFill, this.barBest, this.pctText, this.attemptText, ...this.gemSlots, this.edgeText, this.gateText, this.gateSub, this.flipTag, this.cue, this.flowPips, this.flowText, this.boss.bar, bossLabel]);
+    this.hud.add([pill, this.chip, this.barBg, this.barFill, this.barHead, this.barBest, this.slotPing, this.pctText, this.attemptText, ...this.gemSlots, this.edgeText, this.gateText, this.gateSub, this.flipTag, this.cue, this.flowPips, this.flowText, this.boss.bar, bossLabel]);
     this.pauseBtn = iconButton(this, L.right - 70, top + 70, 'pause', () => this.openPauseMenu());
     this.pauseBtn.setDepth(101);
   }
@@ -826,12 +858,16 @@ export class GameScene extends OyunScene {
   private buildReady(): void {
     const L = this.layout;
     const c = this.add.container(0, 0).setDepth(200);
+    // A glass plate with neon edges in the level's colour (drawn in refreshReady).
+    this.readyPlate = this.add.graphics();
+    c.add(this.readyPlate);
+    for (let k = 0; k < 3; k++) this.readyStars.push(this.add.image(L.cx + (k - 1) * 70, L.top + 456, 'star-off').setScale(1.05));
     this.readyTitle = bigText(this, L.cx, L.top + 300, '', 84);
     this.readySub = bigText(this, L.cx, L.top + 390, '', 38, PALETTE.gold);
     const tap = fitText(bigText(this, L.cx, L.cy + 40, this.t('ready.tap'), 62), L.width - 170);
     this.tweens.add({ targets: tap, scale: 1.1, alpha: 0.75, yoyo: true, repeat: -1, duration: 420, ease: 'Sine.easeInOut' });
     const tag = fitText(bigText(this, L.cx, L.cy + 120, this.t('title.tagline'), 34), L.width - 140);
-    c.add([this.readyTitle, this.readySub, tap, tag]);
+    c.add([...this.readyStars, this.readyTitle, this.readySub, tap, tag]);
     this.readyUi = c;
   }
 
@@ -850,7 +886,20 @@ export class GameScene extends OyunScene {
     const c = this.add.container(0, 0).setDepth(200);
     const band = this.add.graphics();
     band.fillStyle(PALETTE.ink, 0.72).fillRect(0, L.cy - 480, L.width, 600);
-    band.fillStyle(0xffffff, 0.95).fillRect(0, L.cy - 486, L.width, 8).fillRect(0, L.cy + 120, L.width, 8);
+    // Neon edges in the level's colour (tinted at each death): a soft inner glow, a tube, a core.
+    const edges: Phaser.GameObjects.Image[] = [];
+    for (const [y, flip] of [
+      [L.cy - 482, false],
+      [L.cy + 124, true],
+    ] as const) {
+      const glow = this.add.image(0, y, 'bg-grad').setOrigin(0, 0).setDisplaySize(L.width, 90).setBlendMode(Phaser.BlendModes.ADD).setAlpha(0.4).setFlipY(flip);
+      if (flip) glow.setY(y - 90);
+      const tube = this.add.image(0, y, 'flash').setOrigin(0, 0.5).setDisplaySize(L.width, 8);
+      const core = this.add.image(0, y, 'flash').setOrigin(0, 0.5).setDisplaySize(L.width, 2).setAlpha(0.9);
+      edges.push(glow, tube);
+      this.deadEdges.push(glow, tube);
+      edges.push(core);
+    }
     this.deadBadge = bigText(this, L.cx, L.cy - 420, this.t('dead.newBest'), 46, PALETTE.gold);
     this.deadPct = bigText(this, L.cx, L.cy - 280, '0%', 170);
     // "You got further": this attempt against the best, on one bar.
@@ -868,7 +917,7 @@ export class GameScene extends OyunScene {
     this.continueBtn = button(this, L.cx, L.bottom - 150, this.t('dead.continue'), () => void this.continueRun(), { width: 380, height: 104, fontSize: 40, variant: 'secondary', ad: true });
     const adIcon = this.add.image(-150, 0, 'ic-ad').setScale(0.6);
     this.continueBtn.add(adIcon);
-    c.add([band, this.deadBadge, this.deadPct, this.deadBarBg, this.deadBarBest, this.deadBarNow, this.deadBarMark, this.deadBest, this.deadAttempt, this.deadRetry, this.continueBtn]);
+    c.add([band, ...edges, this.deadBadge, this.deadPct, this.deadBarBg, this.deadBarBest, this.deadBarNow, this.deadBarMark, this.deadBest, this.deadAttempt, this.deadRetry, this.continueBtn]);
     this.deadUi = c;
   }
 
@@ -878,11 +927,18 @@ export class GameScene extends OyunScene {
     const band = this.add.graphics();
     band.fillStyle(PALETTE.ink, 0.72).fillRect(0, L.cy - 470, L.width, 540);
     band.fillStyle(PALETTE.gold, 1).fillRect(0, L.cy - 478, L.width, 10).fillRect(0, L.cy + 66, L.width, 10);
+    band.fillStyle(0xffffff, 0.9).fillRect(0, L.cy - 474, L.width, 2).fillRect(0, L.cy + 70, L.width, 2);
+    const glowTop = this.add.image(0, L.cy - 468, 'bg-grad').setOrigin(0, 0).setDisplaySize(L.width, 110).setBlendMode(Phaser.BlendModes.ADD).setAlpha(0.3).setTint(PALETTE.gold);
+    const glowBot = this.add.image(0, L.cy + 66 - 110, 'bg-grad').setOrigin(0, 0).setDisplaySize(L.width, 110).setBlendMode(Phaser.BlendModes.ADD).setAlpha(0.3).setTint(PALETTE.gold).setFlipY(true);
     this.finishTitle = bigText(this, L.cx, L.cy - 390, this.t('finish.title'), 72, PALETTE.gold);
     this.finishRays = this.add.image(L.cx, L.cy - 250, 'w-rays').setBlendMode(Phaser.BlendModes.ADD).setScale(1.2).setTint(PALETTE.gold).setAlpha(0.9);
     const pct = bigText(this, L.cx, L.cy - 262, '100%', 150);
+    this.finishPct = pct;
     this.finishGems = bigText(this, L.cx + 30, L.cy - 56, '', 56, PALETTE.gem);
     const gemIcon = this.add.image(L.cx - 60, L.cy - 56, 'gem').setScale(0.9);
+    this.finishGemIcon = gemIcon;
+    // Gems that fly from the spark into the counter (a fixed pool of eight).
+    for (let k = 0; k < 8; k++) this.finishFly.push(this.add.image(0, 0, 'gem').setDepth(210).setVisible(false));
     this.finishStyle = bigText(this, L.cx, L.cy + 2, '', 30, PALETTE.gold);
     this.finishBonus = bigText(this, L.cx, L.cy + 40, '', 28, PALETTE.white);
     for (let k = 0; k < 3; k++) this.finishStars.push(this.add.image(L.cx + (k - 1) * 96, L.cy - 138, 'star-off').setScale(1.5));
@@ -891,7 +947,7 @@ export class GameScene extends OyunScene {
     this.doubleBtn = button(this, L.cx, L.bottom - 170, this.t('finish.double'), () => void this.doubleGems(), { width: 440, height: 104, fontSize: 40, ad: true });
     const adIcon = this.add.image(-180, 0, 'ic-ad').setScale(0.6).setTint(PALETTE.ink);
     this.doubleBtn.add(adIcon);
-    c.add([band, this.finishRays, this.finishTitle, pct, gemIcon, this.finishGems, this.finishStyle, this.finishBonus, ...this.finishStars, this.finishNext, this.doubleBtn]);
+    c.add([band, glowTop, glowBot, this.finishRays, this.finishTitle, pct, gemIcon, this.finishGems, this.finishStyle, this.finishBonus, ...this.finishStars, this.finishNext, this.doubleBtn]);
     this.finishUi = c;
   }
 
@@ -966,6 +1022,8 @@ export class GameScene extends OyunScene {
     this.trail.tail0 = tr.tail;
     this.trail.rainbow = false;
     this.trail.style = this.fx ? tr.style : 'ribbon';
+    this.trail.tier = this.fx ? TIERS.indexOf(tr.tier) : 0;
+    this.demoTrail.tier = this.trail.tier;
     this.colorShift = this.fx && COLOR_SHIFT_STYLES.includes(tr.style);
     this.demoTrail.head0 = tr.head;
     this.demoTrail.tail0 = tr.tail;
@@ -1001,6 +1059,8 @@ export class GameScene extends OyunScene {
     this.embers.emitting = false;
     this.shards.killAll();
     this.ringBurst.setVisible(false);
+    this.tweens.killTweensOf(this.impact);
+    this.impact.setVisible(false);
     for (const g of this.gemSlots) g.setTexture('gem-empty').setScale(0.62);
     this.edgeText.setAlpha(0);
     this.cameras.main.setZoom(1);
@@ -1041,9 +1101,36 @@ export class GameScene extends OyunScene {
     this.worldFx.boost = 1 + 0.14 * level;
     if (level > prev && this.phase === 'playing') {
       this.juice.pop(this.flowText, 1.5);
+      this.rimPulse(level >= FLOW_MAX ? PALETTE.gold : this.pal.edge, 0.45);
       this.oyun.audio.play('coin', { pitch: 4 + level * 2, volume: 0.6 });
       if (level >= FLOW_MAX) this.callout(this.t('call.flowMax'), PALETTE.gold);
     }
+  }
+
+  /** Tint the rim of the screen for a moment (never the middle, where the corridor is). */
+  private rimPulse(color: number, strength: number): void {
+    this.frameFx.setTint(color);
+    this.frameA = Math.max(this.frameA, this.calm ? strength * 0.4 : strength);
+  }
+
+  /** A card (death, finish) slides off as the next run starts; the run is already live under it. */
+  private exitCard(ui: Phaser.GameObjects.Container, forPhase: Phase, prompt: Phaser.GameObjects.Text): void {
+    this.tweens.killTweensOf(ui);
+    ui.setPosition(0, 0).setAlpha(1);
+    if (this.calm) return;
+    // The "tap" prompt sits just above the spark: it goes at once, the band fades fast.
+    prompt.setVisible(false);
+    ui.setVisible(true);
+    this.tweens.add({
+      targets: ui,
+      props: { x: { value: 150, ease: 'Cubic.easeIn' }, alpha: { value: 0, ease: 'Cubic.easeOut' } },
+      duration: 140,
+      onComplete: () => {
+        ui.setPosition(0, 0).setAlpha(1);
+        prompt.setVisible(true);
+        if (this.phase !== forPhase) ui.setVisible(false);
+      },
+    });
   }
 
   /** A short callout in the top band, unless a gate banner is showing. */
@@ -1071,6 +1158,15 @@ export class GameScene extends OyunScene {
     this.finishUi.setVisible(p === 'finished');
     this.hud.setVisible(p === 'playing' || p === 'finishing' || p === 'resume');
     this.hudShade.setVisible(this.hud.visible);
+    if (p === 'playing' && from !== 'resume' && from !== 'playing' && !this.calm) {
+      // The HUD drops in as the run starts.
+      this.tweens.killTweensOf(this.hud);
+      this.hud.setY(-46).setAlpha(0);
+      this.tweens.add({ targets: this.hud, y: 0, alpha: 1, duration: 200, ease: 'Cubic.easeOut' });
+    } else if (p !== 'playing' && this.hud.y !== 0) {
+      this.tweens.killTweensOf(this.hud);
+      this.hud.setY(0).setAlpha(1);
+    }
     void playingish;
     this.setLetterbox();
     this.pauseBtn.setVisible(p === 'playing');
@@ -1078,7 +1174,15 @@ export class GameScene extends OyunScene {
       this.tweens.killTweensOf(this.hint);
       this.hint.setAlpha(0);
     }
-    if (p === 'ready') this.refreshReady();
+    if (p === 'ready') {
+      this.refreshReady();
+      if (!this.calm) {
+        // The mode's name drops in over the waiting shaft.
+        this.tweens.killTweensOf(this.readyUi);
+        this.readyUi.setAlpha(0).setY(-50);
+        this.tweens.add({ targets: this.readyUi, alpha: 1, y: 0, duration: 320, ease: 'Back.easeOut' });
+      }
+    }
     this.music.setMuffled(p !== 'playing');
     if (p !== 'playing') this.cue.setAlpha(0);
     this.refreshHud(true);
@@ -1142,19 +1246,34 @@ export class GameScene extends OyunScene {
   }
 
   /** Award achievements, earned trails and rank-ups after a save change; show what was gained. */
-  private settleMeta(rankBefore: number): void {
+  private settleMeta(rankBefore: number, button: boolean, extra: readonly string[] = []): void {
     let gain: MetaGain | null = null;
     gameSave(this.oyun).update((d) => void (gain = settle(d, rankBefore)));
     const g = gain as MetaGain | null;
-    if (!g) return;
-    const msgs: string[] = [];
+    // One slot at the bottom edge (under the ad button when one is showing), clear of the spark.
+    const chipY = this.layout.bottom - (button ? 42 : 70);
+    if (!g) {
+      if (extra.length) awardChips(this, extra, chipY);
+      return;
+    }
+    const msgs: string[] = [...extra];
     for (const i of g.achievements) msgs.push(this.t('ach.got', { name: this.t(`ach.${ACHIEVEMENTS[i]!.id}` as 'ach.first'), n: ACHIEVEMENTS[i]!.gems }));
     for (const i of g.trails) msgs.push(this.t('trail.new', { name: this.t(`trail.${TRAILS[i]!.id}` as 'trail.white') }));
     if (msgs.length) {
-      toast(this, msgs.slice(0, 3).join('\n'), { position: 'bottom' });
-      this.oyun.audio.play('win', { volume: 0.5, pitch: 5 });
+      awardChips(this, msgs, chipY);
+      if (g.achievements.length || g.trails.length) this.oyun.audio.play('win', { volume: 0.5, pitch: 5 });
     }
-    if (g.rankTo > g.rankFrom) this.showRankUp(g.rankTo);
+    if (g.rankTo <= g.rankFrom) return;
+    if (this.phase !== 'finishing') {
+      this.showRankUp(g.rankTo);
+      return;
+    }
+    // At a finish the ceremony waits for the card: the 100 % slam in the HUD stays readable.
+    const finishId = this.finishId;
+    const rank = g.rankTo;
+    this.time.delayedCall(FINISH_SLOWMO_MS + 250, () => {
+      if (!this.leaving && this.finishId === finishId && this.phase === 'finished') this.showRankUp(rank);
+    });
   }
 
   /** Rank-up ceremony across the top of the screen (never blocks the retry or the next tap). */
@@ -1162,20 +1281,23 @@ export class GameScene extends OyunScene {
     const L = this.layout;
     this.rankUp?.destroy();
     const col = RANKS[rank]!.color;
-    const rays = this.add.image(0, 0, 'w-rays').setBlendMode(Phaser.BlendModes.ADD).setTint(col).setScale(0.6).setAlpha(0.9);
+    const rays = this.add.image(0, 0, 'w-rays').setBlendMode(Phaser.BlendModes.ADD).setTint(col).setScale(0.6).setAlpha(0.7);
     const glow = this.add.image(0, 0, 'glow').setBlendMode(Phaser.BlendModes.ADD).setTint(col).setScale(2.4);
     const badge = this.add.image(0, 0, `badge-${rank}`).setScale(0.62);
     const title = bigText(this, 70, -22, this.t('rank.up'), 40, PALETTE.gold).setOrigin(0, 0.5);
     const name = bigText(this, 70, 22, this.t(`rank.${RANKS[rank]!.id}` as 'rank.ember'), 36, col).setOrigin(0, 0.5);
-    fitText(title, L.width - 360, 40);
-    fitText(name, L.width - 360, 36);
-    const c = this.add.container(L.cx - 110, L.top + 88, [rays, glow, badge, title, name]).setDepth(260);
+    // Between the home button (left) and the mute button (right), whatever the language.
+    const cx = L.left + 196;
+    const room = L.right - 132 - (cx + 70);
+    fitText(title, room, 40);
+    fitText(name, room, 36);
+    const c = this.add.container(cx, L.top + 88, [rays, glow, badge, title, name]).setDepth(260);
     this.rankUp = c;
     c.setScale(0.2).setAlpha(0);
     this.tweens.add({ targets: c, scale: 1, alpha: 1, duration: 420, ease: 'Back.easeOut' });
     this.tweens.add({ targets: rays, angle: 360, duration: 6000, repeat: -1 });
     this.tweens.add({ targets: c, alpha: 0, delay: 3200, duration: 400, onComplete: () => c.destroy() });
-    this.confetti.explode(60, L.cx, L.top + 120);
+    this.confetti.explode(this.calm ? 16 : 60, L.cx, L.top + 120);
     this.oyun.audio.playPreset(
       [
         { wave: 'triangle', freq: 523, freqEnd: 1046, duration: 0.25, gain: 0.3 },
@@ -1190,6 +1312,29 @@ export class GameScene extends OyunScene {
     this.fillReady();
     fitText(this.readyTitle, this.layout.width - 80);
     fitText(this.readySub, this.layout.width - 80);
+    const L = this.layout;
+    const level = this.mode === 'level';
+    const stars = level ? gameSave(this.oyun).data.levels[this.level - 1]!.stars : 0;
+    this.readyStars.forEach((img, k) => {
+      const on = (stars & (1 << k)) !== 0;
+      img.setVisible(level).setTexture(on ? 'star-on' : 'star-off').setScale(1.05);
+      if (on && !this.calm) {
+        this.tweens.killTweensOf(img);
+        img.setScale(0);
+        this.tweens.add({ targets: img, scale: 1.05, delay: 220 + k * 110, duration: 320, ease: 'Back.easeOut' });
+      }
+    });
+    const y0 = L.top + 226;
+    const h = level ? 280 : this.readySub.text ? 214 : 150;
+    const edge = this.pal.edge;
+    const g = this.readyPlate.clear();
+    g.fillStyle(PALETTE.ink, 0.58).fillRect(0, y0, L.width, h);
+    g.fillStyle(edge, 0.1).fillRect(0, y0, L.width, h * 0.4);
+    for (const y of [y0, y0 + h]) {
+      g.lineStyle(16, edge, 0.2).lineBetween(0, y, L.width, y);
+      g.lineStyle(6, edge, 1).lineBetween(0, y, L.width, y);
+      g.lineStyle(2, 0xffffff, 0.9).lineBetween(0, y, L.width, y);
+    }
   }
 
   private fillReady(): void {
@@ -1271,7 +1416,7 @@ export class GameScene extends OyunScene {
     this.input2.clear();
     if (this.phase === 'playing') this.oyun.platform.gameplayStop();
     this.music.stop(false);
-    this.goTo(key, data);
+    wipeTo(this, key, data);
   }
 
   /** Back from the pause menu (or an ad): a run waits for the player's next press. */
@@ -1297,6 +1442,7 @@ export class GameScene extends OyunScene {
 
   /** Start the run at `time` (the press that starts it is its first edge). */
   private startRun(time: number = performance.now()): void {
+    const from = this.phase;
     // No tick of this run may come from before the press: the clock starts at the press.
     this.acc = 0;
     this.lastFrameAt = time;
@@ -1318,6 +1464,21 @@ export class GameScene extends OyunScene {
     this.runBest = this.mode === 'level' ? gameSave(this.oyun).data.levels[this.level - 1]!.best : -1;
     this.trialRun = this.trial >= 0;
     this.showPhase('playing');
+    if (from === 'ready' && !this.calm) {
+      // The ready plate lifts away over the run that has already started.
+      const ui = this.readyUi;
+      this.tweens.killTweensOf(ui);
+      ui.setVisible(true).setPosition(0, 0).setAlpha(1);
+      this.tweens.add({
+        targets: ui,
+        props: { y: { value: -90, ease: 'Cubic.easeIn' }, alpha: { value: 0, ease: 'Cubic.easeOut' } },
+        duration: 150,
+        onComplete: () => {
+          ui.setPosition(0, 0).setAlpha(1);
+          if (this.phase !== 'ready') ui.setVisible(false);
+        },
+      });
+    }
     if (this.boss.active) this.flashGateText(this.t('boss.fight'), this.t(`boss.${worldOf(this.level)}` as 'boss.1'), 0xff5a7a, 64);
     // Respawn pop: the spark arrives with a ring, never blocking input.
     this.ringBurst.setVisible(true).setPosition(this.rx, SPARK_Y).setScale(0.15).setAlpha(0.9).setTint(this.pal.edge);
@@ -1345,6 +1506,9 @@ export class GameScene extends OyunScene {
     this.retryLatency = performance.now() - this.deathAt;
     this.resetRun();
     this.startRun(time);
+    // The run is live from this press; the card only slides off over it (the launch chamber
+    // cannot kill for the first 1.6 s).
+    this.exitCard(this.deadUi, 'dead', this.deadRetry);
   }
 
   private goHome(): void {
@@ -1384,8 +1548,11 @@ export class GameScene extends OyunScene {
     this.embers.emitting = false;
     this.juice.hitStop(FREEZE_MS);
     this.spark.setTint(0xffffff).setScale(1.5);
-    this.flashA = 0.55;
-    this.flash.setTint(0xffffff);
+    // No white screen: a faint wash in the level's colour, and the rim of the screen flares red.
+    this.flashA = this.calm ? 0.06 : 0.2;
+    this.flash.setTint(mix(this.pal.edge, 0xffffff, 0.4));
+    this.rimPulse(PALETTE.danger, 1);
+    for (const e of this.deadEdges) e.setTint(this.pal.edge);
     // Record the attempt now (the overlay reads it).
     const pct = Math.floor(sim.progress * 100);
     const save = gameSave(this.oyun);
@@ -1393,6 +1560,7 @@ export class GameScene extends OyunScene {
     const date = dailyKey(new Date());
     let best = 0;
     let prevBest = 0;
+    const rewardLines: string[] = [];
     if (this.mode === 'level') {
       save.update((d) => {
         prevBest = d.levels[this.level - 1]!.best;
@@ -1421,11 +1589,12 @@ export class GameScene extends OyunScene {
         streak = r.streak;
         best = d.daily.best;
       });
-      if (streakGems > 0) toast(this, this.t('daily.reward', { n: streak, g: streakGems }), { position: 'bottom' });
+      if (streakGems > 0) rewardLines.push(this.t('daily.reward', { n: streak, g: streakGems }));
     }
     save.update((d) => recordStats(d, sim.bestEdge, this.bestFlowRun));
     this.endTrial();
-    this.settleMeta(rankSeen);
+    const canContinue = this.mode === 'level' && !this.continueUsed && this.gateSnap !== null;
+    this.settleMeta(rankSeen, canContinue, rewardLines);
     this.soClose = this.mode === 'level' && pct >= 85;
     this.bestDelta = this.newBest ? (this.mode === 'level' ? pct - prevBest : best - prevBest) : 0;
     // Bar: this attempt (bright) over the best so far (ghost); levels in %, endless in metres.
@@ -1447,7 +1616,6 @@ export class GameScene extends OyunScene {
     else if (this.newBest && prevBest > 0 && this.mode === 'level') this.deadBadge.setText(this.t(this.bestDelta >= 30 ? 'dead.huge' : 'dead.better', { n: this.bestDelta })).setVisible(true);
     else this.deadBadge.setText(this.t('dead.newBest')).setVisible(this.newBest && prevBest > 0);
     fitText(this.deadBadge, this.layout.width - 60, 46);
-    const canContinue = this.mode === 'level' && !this.continueUsed && this.gateSnap !== null;
     this.continueBtn.setVisible(canContinue).setEnabled(true);
   }
 
@@ -1471,11 +1639,22 @@ export class GameScene extends OyunScene {
     this.shards.setParticleTint(tr.tail);
     this.shards.explode(Math.ceil(sh.count * 0.55), x, y);
     this.sparks.setParticleTint(tr.head);
-    this.sparks.explode(24, x, y);
-    this.juice.shake(0.75);
+    this.sparks.explode(this.calm ? 10 : 24, x, y);
+    // A shock ring and a hit star open from the point of impact.
+    this.tweens.killTweensOf([this.ringBurst, this.impact]);
+    this.ringBurst.setVisible(true).setPosition(x, SPARK_Y).setScale(0.12).setAlpha(0.95).setTint(mix(tr.tail, 0xffffff, 0.5));
+    this.tweens.add({ targets: this.ringBurst, scale: this.calm ? 0.9 : 1.7, alpha: 0, duration: 340, ease: 'Cubic.easeOut' });
+    if (!this.calm) {
+      this.impact.setVisible(true).setPosition(x, SPARK_Y).setScale(0.6).setAlpha(1).setAngle(0).setTint(mix(tr.head, 0xffffff, 0.6));
+      this.tweens.add({ targets: this.impact, scale: 4.2, alpha: 0, angle: 45, duration: 240, ease: 'Cubic.easeOut', onComplete: () => this.impact.setVisible(false) });
+    }
+    // One kick, kept low: the eye stays on the card that says how far you got.
+    this.juice.shake(0.5);
     const cam = this.cameras.main;
-    cam.setZoom(1.07);
-    this.tweens.add({ targets: cam, zoom: 1, duration: 260, ease: 'Cubic.easeOut' });
+    if (!this.calm) {
+      cam.setZoom(1.05);
+      this.tweens.add({ targets: cam, zoom: 1, duration: 260, ease: 'Cubic.easeOut' });
+    }
     this.oyun.audio.playPreset(
       [
         { wave: 'sine', freq: 150, freqEnd: 32, duration: 0.42, gain: 0.6 },
@@ -1487,7 +1666,9 @@ export class GameScene extends OyunScene {
     // Death overlay slams in: the card slides, the number counts up, the bar fills. Purely
     // visual; the retry is accepted from RETRY_LOCK_MS whatever is still animating.
     this.showPhase('dead');
-    this.deadUi.setX(-80);
+    this.deadRetry.setVisible(true);
+    this.tweens.killTweensOf(this.deadUi);
+    this.deadUi.setPosition(this.calm ? 0 : -80, 0).setAlpha(1);
     this.tweens.add({ targets: this.deadUi, x: 0, duration: 160, ease: 'Cubic.easeOut' });
     this.deadPct.setScale(2.2).setAlpha(0);
     this.tweens.add({ targets: this.deadPct, scale: 1, alpha: 1, duration: 260, ease: 'Back.easeOut' });
@@ -1515,7 +1696,7 @@ export class GameScene extends OyunScene {
       this.stars.explode(big ? 40 : mid ? 28 : 18, this.rx, -this.ry);
       if (mid) this.oyun.audio.play('coin', { pitch: 9 });
       if (big) {
-        this.confetti.explode(70, this.layout.cx, this.layout.cy - 300);
+        this.confetti.explode(this.calm ? 20 : 70, this.layout.cx, this.layout.cy - 300);
         this.oyun.audio.play('win', { volume: 0.7 });
       }
       this.juice.pop(this.deadBadge, big ? 1.8 : 1.3);
@@ -1523,7 +1704,6 @@ export class GameScene extends OyunScene {
     if (this.soClose) {
       // So close: the percentage slams in harder.
       this.deadPct.setScale(3.2);
-      this.juice.shake(0.35);
       this.juice.pop(this.deadBadge, 1.6);
     }
     this.deadRetry.setAlpha(0);
@@ -1546,6 +1726,7 @@ export class GameScene extends OyunScene {
     let bonus = 0;
     let worldGems = 0;
     const rankSeen = save.data.rankSeen;
+    const unlockedBefore = save.data.unlocked;
     save.update((d) => {
       const r = recordLevelRun(d, this.level, { percent: 100, gemMask: sim.gemMask, finished: true, nearMisses: sim.nearMisses, date: dailyKey(new Date()) });
       gained = r.gemsGained;
@@ -1557,18 +1738,17 @@ export class GameScene extends OyunScene {
       recordStats(d, sim.bestEdge, this.bestFlowRun);
     });
     this.endTrial();
-    this.settleMeta(rankSeen);
+    // Level select opens the newly unlocked card with a little ceremony (this session only).
+    if (save.data.unlocked > unlockedBefore) this.registry.set(UNLOCKED_KEY, save.data.unlocked);
+    this.settleMeta(rankSeen, gained > 0);
     this.gemsGainedThisFinish = gained;
-    // Stars: earned ones lit; new ones pop in one after another.
+    this.finishTotal = gained + bonus + worldGems;
+    // Stars: earned ones lit; they land one after another when the card comes in (enterFinish).
+    this.finishStarBits = stars;
+    this.finishNewBits = newStars;
     this.finishStars.forEach((img, k) => {
-      const on = (stars & (1 << k)) !== 0;
-      const fresh = (newStars & (1 << k)) !== 0;
-      img.setTexture(on ? 'star-on' : 'star-off').setScale(1.5).setAngle(0);
-      if (fresh) {
-        img.setScale(0.1);
-        this.tweens.add({ targets: img, scale: 1.5, angle: 360, delay: FINISH_SLOWMO_MS + 120 + k * 160, duration: 380, ease: 'Back.easeOut' });
-        this.time.delayedCall(FINISH_SLOWMO_MS + 120 + k * 160, () => this.oyun.audio.play('coin', { pitch: 6 + k * 3 }));
-      }
+      this.tweens.killTweensOf(img);
+      img.setTexture((stars & (1 << k)) !== 0 ? 'star-on' : 'star-off').setScale(1.5).setAngle(0);
     });
     const bonusParts: string[] = [];
     if (bonus > 0) bonusParts.push(`${this.t('finish.newStars', { n: bonus / 2 })}  +${bonus} ◆`);
@@ -1577,7 +1757,6 @@ export class GameScene extends OyunScene {
     if (this.boss.active) {
       this.boss.defeat();
       this.flashGateText(this.t('boss.down'), '', PALETTE.gold, 72);
-      this.juice.shake(0.8);
     }
     this.doubled = false;
     this.oyun.platform.track('level_complete', { level: this.level, attempts: this.attempts, gems: sim.gemsTaken });
@@ -1586,21 +1765,89 @@ export class GameScene extends OyunScene {
     this.shaft.burstFinishLabel();
     this.ringBurst.setVisible(true).setPosition(x, SPARK_Y).setScale(0.3).setAlpha(1).setTint(PALETTE.gold);
     this.tweens.add({ targets: this.ringBurst, scale: 4.5, alpha: 0, duration: 900, ease: 'Cubic.easeOut' });
-    this.confetti.explode(90, x, SPARK_Y);
+    this.confetti.explode(this.calm ? 24 : 90, x, SPARK_Y);
     this.stars.setParticleTint(PALETTE.gold);
     this.stars.explode(30, x, -this.ry);
-    this.flashA = 0.6;
+    // Gold at the rim and a light wash, not a screen of gold; one kick (a little more for a boss).
+    this.flashA = this.calm ? 0.06 : 0.22;
     this.flash.setTint(PALETTE.gold);
-    this.juice.shake(0.45);
+    this.rimPulse(PALETTE.gold, 1);
+    this.juice.shake(this.boss.active ? 0.5 : 0.3);
     this.oyun.audio.play('win');
     this.pctText.setText('100%').setScale(1.8);
     this.tweens.add({ targets: this.pctText, scale: 1, duration: 420, ease: 'Back.easeOut' });
     this.gemSlots.forEach((g, i) => this.tweens.add({ targets: g, scale: 0.95, yoyo: true, delay: 200 + i * 120, duration: 160 }));
     fitText(this.finishTitle.setText(all && this.level === LEVEL_COUNT ? this.t('finish.all') : this.boss.active ? this.t('boss.down') : this.t('finish.title')), this.layout.width - 60);
-    this.finishGems.setText(`+${gained + bonus + worldGems}`);
+    this.finishGems.setText(`+${this.finishTotal}`);
     this.finishStyle.setText(sim.style > 0 ? this.t('dead.style', { n: sim.style }) : '');
     fitText(this.finishNext.setText(this.level < LEVEL_COUNT && levelOpen(gameSave(this.oyun).data, this.level + 1) ? this.t('finish.next') : this.t('finish.again')), this.layout.width - 120);
     this.doubleBtn.setVisible(gained > 0).setEnabled(true);
+  }
+
+  /**
+   * The finish card comes in: the band rises, the title and 100 % slam, the stars land one by
+   * one (new ones with a burst and a chime), and the gems fly from the spark into the counter,
+   * which counts up as they arrive. Drawing only: the tap for the next level has its own lock.
+   */
+  private enterFinish(): void {
+    const tw = this.tweens;
+    const ui = this.finishUi;
+    tw.killTweensOf([ui, this.finishTitle, this.finishPct, this.finishGemIcon]);
+    ui.setPosition(0, 0).setAlpha(1);
+    this.finishNext.setVisible(true);
+    const total = this.finishTotal;
+    if (this.calm) {
+      this.finishGems.setText(`+${total}`);
+      return;
+    }
+    ui.setAlpha(0).setY(60);
+    tw.add({ targets: ui, alpha: 1, y: 0, duration: 260, ease: 'Back.easeOut' });
+    this.juice.pop(this.finishTitle, 1.5, 380);
+    this.juice.pop(this.finishPct, 1.8, 420);
+    const L = this.layout;
+    this.finishStars.forEach((img, k) => {
+      if ((this.finishStarBits & (1 << k)) === 0) return;
+      const fresh = (this.finishNewBits & (1 << k)) !== 0;
+      const delay = 200 + k * 150;
+      img.setScale(0).setAngle(fresh ? -200 : 0);
+      tw.add({ targets: img, scale: 1.5, angle: 0, delay, duration: fresh ? 420 : 300, ease: 'Back.easeOut' });
+      this.time.delayedCall(delay + 120, () => {
+        if (this.phase !== 'finished') return;
+        this.oyun.audio.play('coin', { pitch: 6 + k * 3, volume: fresh ? 1 : 0.5 });
+        if (fresh) this.juice.burst(img.x, img.y, { count: 8, color: PALETTE.gold, texture: 'oyun-star', distance: 90, duration: 380 });
+      });
+    });
+    // Gems: up to eight fly in; the counter ticks up with each arrival.
+    const n = Math.min(this.finishFly.length, total);
+    this.finishGems.setText('+0');
+    if (n === 0) return;
+    const finishId = this.finishId;
+    let arrived = 0;
+    for (let k = 0; k < n; k++) {
+      const fly = this.finishFly[k]!;
+      tw.killTweensOf(fly);
+      fly.setVisible(true).setPosition(this.rx + (k - (n - 1) / 2) * 18, SPARK_Y - 10).setScale(0.2).setAlpha(0);
+      tw.add({
+        targets: fly,
+        props: {
+          x: { value: L.cx - 60, ease: 'Sine.easeIn' },
+          y: { value: L.cy - 56, ease: 'Cubic.easeOut' },
+          scale: { value: 0.9, ease: 'Cubic.easeOut' },
+          alpha: { value: 1, duration: 120 },
+        },
+        delay: 480 + k * 70,
+        duration: 440,
+        onComplete: () => {
+          fly.setVisible(false);
+          if (this.phase !== 'finished' || this.finishId !== finishId) return;
+          arrived++;
+          this.finishGems.setText(`+${Math.round((this.finishTotal * arrived) / n)}`);
+          this.juice.pop(this.finishGemIcon, 1.35, 160);
+          this.oyun.audio.play('coin', { pitch: 2 + arrived * 2, volume: 0.35 });
+          if (arrived === n) this.juice.pop(this.finishGems, 1.4);
+        },
+      });
+    }
   }
 
   private nextAfterFinish(time: number): void {
@@ -1618,6 +1865,11 @@ export class GameScene extends OyunScene {
       this.loadTrack();
       this.resetRun();
       this.startRun(at);
+      for (const f of this.finishFly) {
+        this.tweens.killTweensOf(f);
+        f.setVisible(false);
+      }
+      this.exitCard(this.finishUi, 'finished', this.finishNext);
     };
     if (shouldShowInterstitial(gameSave(this.oyun).data.finishes)) {
       // After an ad the run starts when it closes, not at the (long past) press.
@@ -1681,17 +1933,26 @@ export class GameScene extends OyunScene {
     this.oyun.platform.track('reward_claimed', { placement: 'double_gems' });
     if (this.leaving || this.finishId !== finishId || this.phase !== 'finished') return;
     this.doubleBtn.setVisible(false);
-    this.finishGems.setText(`+${n * 2}`);
+    // The doubled gems count on from what the card already shows (bonuses included).
+    for (const f of this.finishFly) {
+      this.tweens.killTweensOf(f);
+      f.setVisible(false);
+    }
+    countUp(this, this.finishGems, this.finishTotal, this.finishTotal + n, (v) => `+${v}`, 500);
+    this.finishTotal += n;
     this.juice.pop(this.finishGems, 1.4);
-    toast(this, this.t('finish.doubled'), { position: 'bottom' });
+    this.juice.pop(this.finishGemIcon, 1.5);
+    awardChips(this, [this.t('finish.doubled')], this.layout.bottom - 150, PALETTE.gem);
   }
 
   // ───────────────────────────────────────────────────────────── per-tick events
 
   private onGate(kind: GateKind): void {
     const color = GATE_COLORS[kind];
-    this.flashA = 0.22;
+    // The gate's colour flares at the rim of the screen; the corridor itself stays clear.
+    this.flashA = this.calm ? 0 : 0.07;
     this.flash.setTint(color);
+    this.rimPulse(color, 0.85);
     this.oyun.platform.haptic('light');
     this.oyun.audio.playPreset(
       [
@@ -1701,9 +1962,15 @@ export class GameScene extends OyunScene {
       { jitter: 0 },
     );
     this.flashGateText(this.t(`gate.${kind}`), kind === 'flip' ? this.t('gate.flipHint') : kind === 'unflip' ? this.t('gate.unflipHint') : '', color);
-    const cam = this.cameras.main;
-    cam.setZoom(kind === 'fast' ? 1.05 : kind === 'slow' ? 0.97 : 1.03);
-    this.tweens.add({ targets: cam, zoom: 1, duration: 300, ease: 'Cubic.easeOut' });
+    if (!this.calm) {
+      const cam = this.cameras.main;
+      cam.setZoom(kind === 'fast' ? 1.05 : kind === 'slow' ? 0.97 : 1.03);
+      this.tweens.add({ targets: cam, zoom: 1, duration: 300, ease: 'Cubic.easeOut' });
+      // A ring in the gate's colour opens from the spark.
+      this.tweens.killTweensOf(this.ringBurst);
+      this.ringBurst.setVisible(true).setPosition(this.sim.x, SPARK_Y).setScale(0.18).setAlpha(0.7).setTint(color);
+      this.tweens.add({ targets: this.ringBurst, scale: 0.75, alpha: 0, duration: 240, ease: 'Cubic.easeOut' });
+    }
     this.stars.setParticleTint(color);
     this.stars.explode(10, this.sim.x, -this.sim.y);
     if (this.fx) {
@@ -1743,18 +2010,23 @@ export class GameScene extends OyunScene {
     const slot = this.gemSlots[Math.min(2, this.runGems - 1)];
     if (this.mode === 'level' && slot) {
       // Fly the gem from the shaft into its HUD slot.
-      const fly = this.add.image(g.x, SPARK_Y - (g.y - this.ry), 'gem').setDepth(160);
+      // It swings out sideways first and dives into the slot (an arc, not a straight line).
+      const fly = this.add.image(g.x, SPARK_Y - (g.y - this.ry) - 56, 'gem').setDepth(160).setScale(0.9);
       this.tweens.add({
         targets: fly,
-        x: slot.x,
-        y: slot.y,
-        scale: 0.62,
-        duration: 420,
-        ease: 'Cubic.easeIn',
+        props: {
+          x: { value: slot.x, ease: this.calm ? 'Cubic.easeIn' : 'Back.easeIn' },
+          y: { value: slot.y, ease: 'Quad.easeIn' },
+          scale: { value: 0.62, ease: 'Cubic.easeIn' },
+        },
+        duration: 400,
         onComplete: () => {
           fly.destroy();
           slot.setTexture('gem');
           this.juice.pop(slot, 1.6);
+          this.tweens.killTweensOf(this.slotPing);
+          this.slotPing.setVisible(true).setPosition(slot.x, slot.y).setScale(0.1).setAlpha(0.9);
+          this.tweens.add({ targets: this.slotPing, scale: 0.42, alpha: 0, duration: 280, ease: 'Cubic.easeOut', onComplete: () => this.slotPing.setVisible(false) });
         },
       });
     } else {
@@ -1898,8 +2170,7 @@ export class GameScene extends OyunScene {
       this.rx += (this.corridorCentre(this.ry) - this.rx) * Math.min(1, realDt * 4);
       if (this.phase === 'finishing' && now - this.finishAt >= FINISH_SLOWMO_MS) {
         this.showPhase('finished');
-        this.finishUi.setAlpha(0);
-        this.tweens.add({ targets: this.finishUi, alpha: 1, duration: 200 });
+        this.enterFinish();
       }
     } else if (this.phase !== 'dead') {
       this.rx = this.prevX + (sim.x - this.prevX) * alpha;
@@ -1953,6 +2224,7 @@ export class GameScene extends OyunScene {
     const trailAlpha = this.phase === 'dead' ? Math.max(0, 1 - (now - this.deathAt) / 500) : 1;
     this.trail.boost = 1 + Math.min(0.6, sim.edge * 0.12) + this.flow * 0.07;
     this.trail.pulse = pulse;
+    this.trail.flare = this.phase !== 'dead';
     this.trail.draw(this.rx, this.ry, trailAlpha);
     this.mech.update(this.ry, this.rx, drawT, speed, pulse, now);
     // Dark sections: the light travels with the spark (and reaches well ahead of it).
@@ -2054,6 +2326,11 @@ export class GameScene extends OyunScene {
       this.flash.setAlpha(this.flashA);
       this.flashA *= Math.pow(0.002, realDt);
     } else this.flash.setAlpha(0);
+    if (this.frameA > 0.004) {
+      this.frameFx.setAlpha(Math.min(1, this.frameA));
+      this.frameA *= Math.pow(0.004, realDt);
+    } else this.frameFx.setAlpha(0);
+    this.barHead.setScale(0.34 + pulse * 0.16);
 
     this.refreshHud(false);
     if (this.phase === 'playing' && !this.tweens.isTweening(this.pctText)) this.pctText.setScale(1 + pulse * 0.06);
@@ -2245,6 +2522,7 @@ export class GameScene extends OyunScene {
       if (this.phase !== 'finishing' && this.phase !== 'finished') this.pctText.setText(level ? `${pct}%` : this.t('hud.height', { n: pct }));
       const frac = level ? sim.progress : Math.min(1, save.endlessBest > 0 ? sim.y / 10 / save.endlessBest : 0);
       this.barFill.setDisplaySize(Math.max(1, this.barW * frac), 18);
+      this.barHead.setX(this.layout.cx - this.barW / 2 + this.barW * frac).setVisible(frac > 0.004);
       const bestFrac = level ? save.levels[this.level - 1]!.best / 100 : 1;
       this.barBest.setX(this.layout.cx - this.barW / 2 + this.barW * bestFrac).setVisible(bestFrac > 0 && bestFrac < 1);
     }
@@ -2255,6 +2533,7 @@ export class GameScene extends OyunScene {
       for (const g of this.gemSlots) g.setVisible(level);
     }
     this.barFill.setTint(mix(this.pal.edge, 0xffffff, 0.35));
+    this.barHead.setTint(mix(this.pal.edge, 0xffffff, 0.6));
     void this.lastEdge;
   }
 

@@ -5,3 +5,6 @@ export const SCENES = {
   skins: 'skins',
   ranks: 'ranks',
 } as const;
+
+/** Registry key (this session only): the level that the last finish unlocked, for level select. */
+export const UNLOCKED_KEY = 'kvJustUnlocked';

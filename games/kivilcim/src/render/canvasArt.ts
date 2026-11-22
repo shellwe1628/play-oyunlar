@@ -43,6 +43,18 @@ export function ensureCanvasArt(scene: Phaser.Scene): void {
     c.fillRect(0, 0, 180, 320);
   });
 
+  // Rim of the screen (tinted and pulsed at gates and deaths): clear in the middle, where the
+  // corridor is, bright toward the edges and corners. Stretched over the whole view.
+  make('edge-frame', 90, 160, (c) => {
+    c.scale(1, 160 / 90);
+    const g = c.createRadialGradient(45, 45, 30, 45, 45, 66);
+    g.addColorStop(0, 'rgba(255,255,255,0)');
+    g.addColorStop(0.55, 'rgba(255,255,255,0.22)');
+    g.addColorStop(1, 'rgba(255,255,255,0.85)');
+    c.fillStyle = g;
+    c.fillRect(0, 0, 90, 90);
+  });
+
   make('streak', 8, 160, (c) => {
     const g = c.createLinearGradient(0, 0, 0, 160);
     g.addColorStop(0, 'rgba(255,255,255,0)');

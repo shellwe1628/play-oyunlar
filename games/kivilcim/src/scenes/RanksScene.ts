@@ -9,6 +9,8 @@ import Phaser from 'phaser';
 import { Backdrop } from '../render/Backdrop';
 import { ensureBadges } from '../render/badges';
 import { ensureCanvasArt } from '../render/canvasArt';
+import { countUp, enter, isCalm, Motes, pressable, wipeIn, wipeTo } from '../render/menuFx';
+import { ensureWorldArt } from '../render/worldArt';
 import { gameOnline, openOnline } from '../online';
 import { gameSave } from '../save';
 import { WORLD_COUNT, WORLD_SIZE } from '../sim/levels';
@@ -22,6 +24,13 @@ type Tab = 'ladder' | 'records' | 'feats';
 
 export class RanksScene extends OyunScene {
   private backdrop!: Backdrop;
+  private motes!: Motes;
+  private rays!: Phaser.GameObjects.Image;
+  private barGlint!: Phaser.GameObjects.Image;
+  private barX = 0;
+  private barLen = 0;
+  /** The light behind the current rank's row on the ladder (null on the other tabs). */
+  private rowGlow: Phaser.GameObjects.Image | null = null;
   private back!: IconTile;
   private online!: IconTile;
   private page!: Phaser.GameObjects.Container;
@@ -38,11 +47,16 @@ export class RanksScene extends OyunScene {
   create(): void {
     ensureCanvasArt(this);
     ensureBadges(this);
+    ensureWorldArt(this);
     const L = this.layout;
+    this.t0 = 0;
     this.tabs = [];
+    this.rowGlow = null;
     this.backdrop = new Backdrop(this, PALETTES[8]!, L.width, L.height);
-    fitText(bigText(this, L.cx, L.top + 70, this.t('ranks.title'), 70), 2 * (L.right - 140 - L.cx));
-    this.back = new IconTile(this, L.left + 70, L.top + 70, 'ic-back', null, () => this.scene.start(SCENES.game, { phase: 'title' } satisfies GameStart), { radius: 46 });
+    this.motes = new Motes(this, L.width, L.height, PALETTES[8]!.edge);
+    const title = fitText(bigText(this, L.cx, L.top + 70, this.t('ranks.title'), 70), 2 * (L.right - 140 - L.cx));
+    enter(this, title, { dy: -50, duration: 380, ease: 'Back.easeOut' });
+    this.back = new IconTile(this, L.left + 70, L.top + 70, 'ic-back', null, () => wipeTo(this, SCENES.game, { phase: 'title' } satisfies GameStart), { radius: 46 });
     // Online ranking (Google Play Games): the shared panel from @oyun/core/online.
     this.online = new IconTile(this, L.right - 70, L.top + 70, 'ic-globe', null, () => openOnline(this.oyun), { radius: 46 });
     void gameOnline(this.oyun).sync();
@@ -53,24 +67,51 @@ export class RanksScene extends OyunScene {
     const r = rankOf(score);
     const card = this.add.graphics();
     card.fillStyle(PALETTE.ink, 0.6).fillRoundedRect(L.left + 24, L.top + 136, L.width - 48, 230, 36);
+    card.fillStyle(RANKS[r]!.color, 0.1).fillRoundedRect(L.left + 24, L.top + 136, L.width - 48, 230, 36);
+    card.fillStyle(0xffffff, 0.06).fillRoundedRect(L.left + 36, L.top + 146, L.width - 72, 70, { tl: 28, tr: 28, bl: 10, br: 10 });
+    card.lineStyle(14, RANKS[r]!.color, 0.2).strokeRoundedRect(L.left + 24, L.top + 136, L.width - 48, 230, 36);
     card.lineStyle(5, RANKS[r]!.color, 1).strokeRoundedRect(L.left + 24, L.top + 136, L.width - 48, 230, 36);
+    card.lineStyle(1.5, 0xffffff, 0.7).strokeRoundedRect(L.left + 26, L.top + 138, L.width - 52, 226, 34);
+    // The badge sits on slowly turning rays and lands with a pop; the score counts up.
+    this.rays = this.add.image(L.left + 150, L.top + 251, 'w-rays').setBlendMode(Phaser.BlendModes.ADD).setTint(RANKS[r]!.color).setScale(0.42).setAlpha(0.75);
     this.add.image(L.left + 150, L.top + 251, 'glow').setBlendMode(Phaser.BlendModes.ADD).setTint(RANKS[r]!.color).setScale(2.2).setAlpha(0.7);
     this.badge = this.add.image(L.left + 150, L.top + 251, `badge-${r}`).setScale(1);
     const nx = L.left + 270;
     const name = bigText(this, nx, L.top + 196, this.t(`rank.${RANKS[r]!.id}` as 'rank.ember'), 56, RANKS[r]!.color).setOrigin(0, 0.5);
     fitText(name, L.right - nx - 40, 56);
-    bigText(this, nx, L.top + 254, this.t('rank.score', { n: score }), 38).setOrigin(0, 0.5);
+    enter(this, name, { dx: 50, delay: 140 });
+    const scoreText = bigText(this, nx, L.top + 254, this.t('rank.score', { n: score }), 38).setOrigin(0, 0.5);
+    enter(this, scoreText, { dx: 50, delay: 200 });
+    countUp(this, scoreText, 0, score, (n) => this.t('rank.score', { n }), 750, 220);
     const nxt = nextRank(score);
     const nextText = bigText(this, nx, L.top + 306, nxt ? this.t('rank.next', { name: this.t(`rank.${RANKS[nxt.rank]!.id}` as 'rank.ember'), n: nxt.need }) : this.t('rank.top'), 26, PALETTE.gold).setOrigin(0, 0.5);
     fitText(nextText, L.right - nx - 40, 26);
+    enter(this, nextText, { dx: 50, delay: 260 });
     // Progress to the next rank.
     const bw = L.right - nx - 50;
     const from = RANKS[r]!.min;
     const to = nxt ? RANKS[nxt.rank]!.min : from + 1;
     const frac = nxt ? (score - from) / (to - from) : 1;
     const bar = this.add.graphics();
-    bar.fillStyle(0x000000, 0.45).fillRoundedRect(nx, L.top + 334, bw, 16, 8);
-    bar.fillStyle(RANKS[r]!.color, 1).fillRoundedRect(nx, L.top + 334, Math.max(16, bw * frac), 16, 8);
+    const fillLen = Math.max(16, bw * frac);
+    const drawBar = (k: number): void => {
+      bar.clear();
+      bar.fillStyle(0x000000, 0.45).fillRoundedRect(nx, L.top + 334, bw, 16, 8);
+      bar.fillStyle(RANKS[r]!.color, 1).fillRoundedRect(nx, L.top + 334, Math.max(16, fillLen * k), 16, 8);
+      bar.fillStyle(0xffffff, 0.35).fillRoundedRect(nx + 4, L.top + 336, Math.max(8, fillLen * k - 8), 5, 2.5);
+    };
+    // The bar fills to where the score stands; a glint keeps running along the filled part.
+    this.barX = nx;
+    this.barLen = fillLen;
+    this.barGlint = this.add.image(nx, L.top + 342, 'glow').setBlendMode(Phaser.BlendModes.ADD).setDisplaySize(70, 30).setAlpha(0);
+    if (isCalm(this)) drawBar(1);
+    else {
+      drawBar(0);
+      const k = { v: 0 };
+      this.tweens.add({ targets: k, v: 1, delay: 300, duration: 700, ease: 'Cubic.easeOut', onUpdate: () => drawBar(k.v), onComplete: () => drawBar(1) });
+      this.badge.setScale(0.2);
+      this.tweens.add({ targets: this.badge, scale: 1, delay: 60, duration: 480, ease: 'Back.easeOut' });
+    }
 
     (['ladder', 'records', 'feats'] as const).forEach((k, n) => {
       const x = L.cx + (n - 1) * 216;
@@ -81,11 +122,27 @@ export class RanksScene extends OyunScene {
       tab.setData('g', g);
       const hit = touchHitSize(200, 66);
       tab.setSize(hit.width, hit.height).setInteractive({ useHandCursor: true });
-      tab.on(Phaser.Input.Events.GAMEOBJECT_POINTER_UP, () => this.show(k));
+      pressable(this, tab, () => {
+        this.oyun.audio.play('tap');
+        this.show(k);
+      });
+      enter(this, tab, { dy: 24, delay: 200 + n * 60, duration: 300, ease: 'Back.easeOut' });
       this.tabs.push(tab);
     });
     this.page = this.add.container(0, 0);
     this.show('ladder');
+    wipeIn(this);
+  }
+
+  /** Rows of the page arrive one after another, top to bottom. */
+  private stagger(): void {
+    if (isCalm(this)) return;
+    const list = this.page.list;
+    for (let i = 0; i < list.length; i++) {
+      const o = list[i]!;
+      if (o instanceof Phaser.GameObjects.Zone || o === this.rowGlow) continue;
+      enter(this, o as Phaser.GameObjects.Image, { dy: 18, delay: Math.min(420, i * 5), duration: 240 });
+    }
   }
 
   private show(tab: Tab): void {
@@ -96,11 +153,15 @@ export class RanksScene extends OyunScene {
       const on = ['ladder', 'records', 'feats'][n] === tab;
       const g = t.getData('g') as Phaser.GameObjects.Graphics;
       g.clear();
-      g.fillStyle(on ? PALETTE.gold : PALETTE.ui, 1).fillRoundedRect(-100, -30, 200, 60, 28);
+      g.fillStyle(PALETTE.ink, 0.5).fillRoundedRect(-100, -30 + 6, 200, 60, 28);
+      g.fillStyle(on ? 0xff9a1f : PALETTE.ui, 1).fillRoundedRect(-100, -30, 200, 60, 28);
+      if (on) g.fillStyle(PALETTE.gold, 1).fillRoundedRect(-100, -30, 200, 51, 25);
+      g.fillStyle(0xffffff, on ? 0.3 : 0.08).fillRoundedRect(-90, -25, 180, 18, 9);
       g.lineStyle(4, 0xffffff, on ? 1 : 0.5).strokeRoundedRect(-100, -30, 200, 60, 28);
-      (t.list[1] as Phaser.GameObjects.Text).setColor(on ? '#2a1018' : '#ffffff');
+      (t.list[1] as Phaser.GameObjects.Text).setAlpha(on ? 1 : 0.8);
     });
     this.page.removeAll(true);
+    this.rowGlow = null;
     const add = <T extends Phaser.GameObjects.GameObject>(o: T): T => {
       this.page.add(o);
       return o;
@@ -116,6 +177,7 @@ export class RanksScene extends OyunScene {
         const x = L.left + 30 + col * colW;
         const y = top + 34 + row * 78;
         const reached = i <= cur;
+        if (i === cur) this.rowGlow = add(this.add.image(x + (colW - 12) / 2, y, 'glow').setBlendMode(Phaser.BlendModes.ADD).setTint(rk.color).setDisplaySize(colW + 90, 150).setAlpha(0.5));
         const g = add(this.add.graphics());
         g.fillStyle(i === cur ? rk.color : PALETTE.ink, i === cur ? 0.35 : 0.45).fillRoundedRect(x, y - 34, colW - 12, 68, 22);
         if (i === cur) g.lineStyle(4, rk.color, 1).strokeRoundedRect(x, y - 34, colW - 12, 68, 22);
@@ -140,8 +202,10 @@ export class RanksScene extends OyunScene {
         const y = by + Math.floor(i / 2) * 40;
         const t = add(bigText(this, x + 8, y, label, 24, 0xd8c8ff).setOrigin(0, 0.5));
         fitText(t, colW - 100, 24);
-        add(bigText(this, x + colW - 24, y, `${v}`, 26, PALETTE.gold).setOrigin(1, 0.5));
+        const num = add(bigText(this, x + colW - 24, y, `${v}`, 26, PALETTE.gold).setOrigin(1, 0.5));
+        countUp(this, num, 0, v, (n) => `${n}`, 600, 250 + i * 60);
       });
+      this.stagger();
       return;
     }
     if (tab === 'records') {
@@ -181,6 +245,7 @@ export class RanksScene extends OyunScene {
         add(bigText(this, L.left + 300, y, rec.attempts ? this.t('records.tries', { n: rec.attempts }) : '', 22, 0xd8c8ff).setOrigin(0, 0.5));
         add(bigText(this, L.right - 44, y, rec.bestDate, 22, 0xb8a8d8).setOrigin(1, 0.5));
       }
+      this.stagger();
       return;
     }
     // Feats.
@@ -197,15 +262,29 @@ export class RanksScene extends OyunScene {
       fitText(nm, colW - 100, 24);
       const ds = add(bigText(this, x + 14, y + 14, this.t(`achd.${a.id}` as 'achd.first'), 18, 0xd8c8ff).setOrigin(0, 0.5));
       fitText(ds, colW - 40, 18);
+      // Long descriptions (Turkish) are squeezed to the card instead of running past its edge.
+      if (ds.width > colW - 34) ds.setScale((colW - 34) / ds.width);
       add(bigText(this, x + colW - 26, y - 10, `+${a.gems}◆`, 22, PALETTE.gem).setOrigin(1, 0.5));
     });
+    this.stagger();
   }
 
   override update(_t: number, delta: number): void {
     this.t0 += delta;
     const pulse = Math.pow(1 - ((this.t0 / 600) % 1), 3);
-    this.badge.setScale(1 + pulse * 0.05).setAngle(Math.sin(this.t0 / 900) * 4);
+    if (!this.tweens.isTweening(this.badge)) this.badge.setScale(1 + pulse * 0.05);
+    this.badge.setAngle(Math.sin(this.t0 / 900) * 4);
     this.backdrop.update(0.5, delta * 0.1, pulse, 380, delta / 1000);
+    this.motes.update(delta / 1000, pulse);
+    if (!isCalm(this)) {
+      this.rays.rotation += (delta / 1000) * 0.35;
+      this.rays.setScale(0.42 + pulse * 0.03);
+      // The glint crosses the filled part of the bar every 2.4 s.
+      const k = ((this.t0 - 1100) / 2400) % 1;
+      const on = this.t0 > 1100 && k < 0.4;
+      this.barGlint.setAlpha(on ? 0.8 * Math.sin((Math.PI * k) / 0.4) : 0).setX(this.barX + (this.barLen * k) / 0.4);
+      if (this.rowGlow) this.rowGlow.setAlpha(0.35 + 0.25 * Math.sin(this.t0 / 300));
+    }
   }
 
   protected override testState() {

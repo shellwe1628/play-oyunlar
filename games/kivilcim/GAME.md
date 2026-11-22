@@ -212,6 +212,38 @@ generated beat.
   reward ladder 5/6/7/8/10/12/20 then 12.
 - **Save v3** with a v2 → v3 migration (levels, gems, skins, records kept; finish and gem stars
   derived; tested).
+- **Polish round** (presentation only; sim, levels, timing and save untouched). Shared helpers in
+  `src/render/menuFx.ts`: a neon wipe between scenes (140 ms out, the time the old black fade
+  took; the slab slides off in the next scene), drifting motes behind the menus, press squash/pop
+  for cards, tabs and tiles, staggered entrances, count-ups, and award chips (feats, new trails,
+  streak rewards) that show one at a time at the bottom edge, clear of the spark.
+  - Play: gates, flow-ups, deaths and finishes tint the **rim of the screen** (`edge-frame`) and
+    leave the corridor clear; the full-screen flash is down to a faint wash (gate 0.22 → 0.07,
+    death white 0.55 → level colour 0.2, finish 0.6 → 0.22). Shake is one low kick per event
+    (death 0.75 → 0.5, finish 0.45 → 0.3, boss 0.5, "so close" no longer adds one). A gate opens a
+    ring in its colour from the spark; a collected gem starts above the spark and arcs into its
+    slot with a ping; the progress bar has a head that breathes with the beat; epic and rarer
+    trails light a flare at the spark's head (legendary/earned add orbiting motes, mythic a ring).
+  - Death: a hit star and shock ring at the point of impact, the card wears neon edges in the
+    level's colour; on retry the card slides off over the run that has already started (retry
+    lock unchanged at 260 ms). Finish: the card rises, title and 100 % slam, stars land one by
+    one, gems fly from the spark into the counter, which counts up; "double gems" counts on from
+    the total shown. A rank-up at a finish waits for the card, so the 100 % slam in the HUD is
+    not covered. The HUD drops in at a run's start; the ready plate lifts away over the run.
+  - Screens: the ready plate (mode name on a neon-edged band, the level's stars), level select
+    (sliding tab light, cards arriving from the side of the new world, stars popping, a halo on
+    the level to play next; the level the last finish unlocked shakes its lock off, once, kept
+    in the scene registry for the session only, not in the save), shop (frame in the item's tier colour, streaks in the stage, halo on
+    the selected tile, twinkles on legendary+ tiles, wallet counts down on a purchase, a gold tick
+    instead of a greyed-out "equipped" button), ranks (badge on turning rays, score count-up,
+    bar fill with a glint, rows arriving in order, a light on the current rank).
+  - Reduced motion (`prefers-reduced-motion`, `isCalm`): wipes become fades, entrances and
+    count-ups land at once, motes stand still, no zoom punches, hit star or card slides, flashes
+    and confetti are cut to about a third.
+  - Measured after the round (same software-rendered machine, level 10 autopilot, 16 s): own
+    update avg 1.31 ms (p95 7.4) with the free trail, 1.44 ms (p95 7.0) with the mythic Supernova
+    trail; retry on the game clock unchanged (tap taken at 264 ms, run advancing at 297 ms at
+    33 ms frames; 272 / 289 ms at 17 ms frames); presentation test: same sim hash with fx on/off.
 
 ### Tuning numbers
 

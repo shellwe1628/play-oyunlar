@@ -49,6 +49,10 @@ export class Trail {
   length = TRAIL_LEN;
   /** Beat pulse 0..1 (music-reactive styles). */
   pulse = 0;
+  /** Rarity of the worn trail (index into skins.ts TIERS): epic and up light a flare at the head. */
+  tier = 0;
+  /** Draw the head flare (off while the spark is shattered). */
+  flare = true;
 
   constructor(readonly g: Phaser.GameObjects.Graphics) {}
 
@@ -89,6 +93,44 @@ export class Trail {
     g.clear();
     if (this.count === 0 || alpha <= 0) return;
     const now = performance.now();
+    this.drawStyle(hx, hy, alpha, now);
+    if (this.flare && this.tier >= 2) this.drawFlare(hx, hy, alpha, now);
+  }
+
+  /**
+   * The rarer the trail, the more its head shows it: epic = a twinkling four-point flare behind
+   * the spark; legendary and earned = a second, turning flare and two orbiting motes; mythic = a
+   * beat-pulsed ring and three motes. Kept within ~45 px of the spark, behind it.
+   */
+  private drawFlare(hx: number, hy: number, alpha: number, now: number): void {
+    const g = this.g;
+    const y = -hy;
+    const rank = this.tier >= 5 ? 3 : this.tier;
+    const tw = 0.75 + 0.25 * Math.sin(now / 90);
+    const len = (36 + 8 * this.pulse) * tw;
+    const rainbow = this.style === 'prism' || this.style === 'rainbow';
+    const col = rainbow ? hue((now / 900) % 1) : this.tail0;
+    g.lineStyle(9, col, 0.35 * alpha).lineBetween(hx - len, y, hx + len, y).lineBetween(hx, y - len, hx, y + len);
+    g.lineStyle(3, 0xffffff, 0.9 * alpha).lineBetween(hx - len, y, hx + len, y).lineBetween(hx, y - len, hx, y + len);
+    if (rank < 3) return;
+    const a = now / 520;
+    const d = len * 0.62;
+    const cx = Math.cos(a) * d;
+    const cy = Math.sin(a) * d;
+    g.lineStyle(2, this.head0, 0.7 * alpha).lineBetween(hx - cx, y - cy, hx + cx, y + cy).lineBetween(hx + cy, y - cx, hx - cy, y + cx);
+    const motes = rank >= 4 ? 3 : 2;
+    const orbit = 36 + 4 * this.pulse;
+    for (let k = 0; k < motes; k++) {
+      const o = -now / 260 + (k * Math.PI * 2) / motes;
+      const mx = hx + Math.cos(o) * orbit;
+      const my = y + Math.sin(o) * orbit * 0.8;
+      g.fillStyle(rainbow ? hue((now / 900 + k / motes) % 1) : col, 0.45 * alpha).fillCircle(mx, my, 5);
+      g.fillStyle(0xffffff, 0.95 * alpha).fillCircle(mx, my, 2.2);
+    }
+    if (rank >= 4) g.lineStyle(2, col, (0.35 + 0.4 * this.pulse) * alpha).strokeCircle(hx, y, orbit);
+  }
+
+  private drawStyle(hx: number, hy: number, alpha: number, now: number): void {
     switch (this.style) {
       case 'pixels':
       case 'dots':

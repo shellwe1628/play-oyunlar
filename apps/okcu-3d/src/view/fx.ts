@@ -11,6 +11,11 @@
  * celebration (confetti and a ring around the player; fireworks after a chapter's boss), the
  * cinder king's eruption warning, gust streaks across the sky, and ember / cloud debris in the
  * new worlds. Reduced motion (see stage.ts CALM) also softens the white flash.
+ * Each weapon also lands in its own way (`weaponHit`, `weaponThunk`): the spear's heavy thud of
+ * dust, the bolt's sharp crack going straight through, the boomerang's slice across its path, the
+ * sling pebble's tick of grit. These are a few small, short particles at the point of impact (no
+ * glow, no shake, nothing over a body), at most FLAVOUR_CAP of them a frame, none for a barrage's
+ * extra hits, and fewer still under reduced motion.
  *
  * Left to the HUD module, which owns those pieces: flying coins and the coin counter, banners
  * (wave, boss, "Phase 2!"), the objective result line and the one-time tips.
@@ -53,6 +58,8 @@ const ENEMY_TINT: Record<EnemyType, number> = {
 const BEAMS = 8;
 const BEAM_LIFE = 0.45;
 const MOTES = 18;
+/** weapon-flavoured impacts a frame (a volley of spears or pebbles landing together stays light) */
+const FLAVOUR_CAP = CALM ? 1 : 3;
 
 type StringKey = keyof typeof STRINGS.en;
 
@@ -128,6 +135,67 @@ export function createFx(stage: Stage): FxView {
   let lastWorldTime = -1;
   let focusK = 0;
   let overlayOpen = false;
+
+  /** weapon-flavoured impacts spent this frame */
+  let flavour = 0;
+
+  /** How the player's weapon lands on a body: a little of its own character around the point of impact. */
+  function weaponHit(x: number, y: number, dir: number, w: World): void {
+    if (flavour >= FLAVOUR_CAP) return;
+    flavour += 1;
+    switch (WEAPONS[w.stats.weapon].projectile) {
+      case 'spear':
+        // a heavy thud: dust knocked out to both sides of the shaft and two big splinters
+        for (let side = -1; side <= 1; side += 2) {
+          const a = dir + Math.PI + side * 1.15;
+          fx.spawn('puff', x, y, Math.cos(a) * 190, Math.sin(a) * 190, { life: 0.34, drag: 5, scale: 0.28, scaleEnd: 0.75, tint: PALETTE.dust, alpha: 0.7 });
+        }
+        fx.shards(x, y, dir, PALETTE.shaftLight, 2, 560);
+        break;
+      case 'bolt':
+        // a sharp crack: a cross glint that snaps shut and two needles straight on through
+        fx.spawn('spark', x, y, 0, 0, { life: 0.14, scale: 1.9, scaleEnd: 0.3, tint: PALETTE.white, rot: 0.785, vr: 0 });
+        fx.streaks(x, y, dir, 0.1, 2, PALETTE.cream, 1500);
+        break;
+      case 'boomerang':
+        // a slice: thin streaks thrown off across the flight line, both ways
+        fx.streaks(x, y, dir + Math.PI / 2, 0.45, 2, PALETTE.cream, 640);
+        fx.streaks(x, y, dir - Math.PI / 2, 0.45, 2, PALETTE.cream, 640);
+        break;
+      case 'pebble':
+        // a tick: grit hopping up off the hit and one star
+        fx.shards(x, y, Math.PI / 2, PALETTE.rock, 3, 250);
+        fx.spawn('spark', x, y, 0, -70, { life: 0.28, scale: 1.1, scaleEnd: 0, tint: PALETTE.white, vr: 10 });
+        break;
+      default:
+        break;
+    }
+  }
+
+  /** How the player's weapon lands in a ledge or a wall (on top of the ledge's own debris). */
+  function weaponThunk(x: number, y: number, w: World): void {
+    if (flavour >= FLAVOUR_CAP) return;
+    flavour += 1;
+    switch (WEAPONS[w.stats.weapon].projectile) {
+      case 'spear':
+        // it drives in: dust rolling out low along the ground both ways
+        for (let side = -1; side <= 1; side += 2) {
+          fx.spawn('puff', x + side * 10, y, side * 230, -24, { life: 0.5, drag: 4.5, scale: 0.35, scaleEnd: 1.05, tint: PALETTE.dust, alpha: 0.75 });
+          fx.spawn('puff', x + side * 6, y, side * 120, -46, { life: 0.42, drag: 4, scale: 0.3, scaleEnd: 0.8, tint: PALETTE.dust, alpha: 0.6 });
+        }
+        break;
+      case 'bolt':
+        // a hard little spark where the steel bites
+        fx.sparks(x, y, 3, PALETTE.white, 300);
+        fx.spawn('spark', x, y, 0, 0, { life: 0.12, scale: 1.4, scaleEnd: 0.3, tint: PALETTE.cream, rot: 0.785, vr: 0 });
+        break;
+      case 'pebble':
+        fx.shards(x, y, Math.PI / 2, PALETTE.rock, 3, 220);
+        break;
+      default:
+        break;
+    }
+  }
 
   const shake = (s: number): void => stage.shake(s);
   /** freeze the game for `ms` (juice.hitStop: max 150, overlapping stops keep the later end) */
@@ -218,6 +286,7 @@ export function createFx(stage: Stage): FxView {
         fx.flash(e.x, e.y, mixWhite(tint, 0.65), e.slowmo ? 170 : e.crit ? 150 : 110, 0.12, 0.75);
         fx.streaks(e.x, e.y, dir + Math.PI, 1.5, e.slowmo ? 9 : 5, mixWhite(tint, 0.55), e.slowmo ? 900 : 700);
         text.damage(e.id, e.x, e.y, e.dmg, e.crit ? PALETTE.crit : e.slowmo ? PALETTE.gold : PALETTE.white, e.slowmo || e.crit);
+        weaponHit(e.x, e.y, dir, w);
         // plate armour: steel sparks fly off it (a spear or a rocket goes through, so the clang is for the rest)
         if (e.enemy === 'armored') fx.sparks(e.x, e.y, 10, 0xe8f0ff, 380);
         if (e.crit) {
@@ -315,8 +384,19 @@ export function createFx(stage: Stage): FxView {
         fx.puffs(e.x, e.y, 3, theme.ambient === 'snow' || theme.ambient === 'wisps' ? PALETTE.white : PALETTE.dust, 70);
         // the caldera's rock spits embers where an arrow bites
         if (theme.ambient === 'embers') fx.sparks(e.x, e.y, 5, PALETTE.fire, 220);
+        if (e.owner === 'player') weaponThunk(e.x, e.y, w);
         break;
       case 'bounce':
+        if (WEAPONS[w.stats.weapon].projectile === 'pebble') {
+          // the sling's ricochet: a tick of grit and a small ring where it skips off
+          if (flavour < FLAVOUR_CAP) {
+            flavour += 1;
+            fx.shards(e.x, e.y, Math.PI / 2, PALETTE.rock, 3, 230);
+            fx.ring(e.x, e.y, PALETTE.cream, 0.45, 0.16);
+            fx.sparks(e.x, e.y, 2, PALETTE.white, 200);
+          }
+          break;
+        }
         fx.sparks(e.x, e.y, 5, PALETTE.grassLight, 240);
         break;
       case 'shieldHit':
@@ -418,6 +498,15 @@ export function createFx(stage: Stage): FxView {
         fx.ring(e.x, e.y, PALETTE.danger, 3, 0.45);
         fx.flash(e.x, e.y, PALETTE.danger, 460, 0.45, 0.6);
         fx.streaks(e.x, e.y, 0, 6.28, 14, PALETTE.danger, 900);
+        {
+          // the ledge under it cracks: its own debris and a few embers jump from the boss's feet
+          const boss = w.enemies.find((x) => x.id === e.id);
+          if (boss) {
+            const fy = boss.anchorY + 52 * boss.scale;
+            fx.shards(boss.anchorX, fy, Math.PI / 2, theme.debris, CALM ? 4 : 9, 480);
+            fx.sparks(boss.anchorX, fy, CALM ? 3 : 7, e.rage ? PALETTE.fire : PALETTE.danger, 340);
+          }
+        }
         break;
       case 'eruption': {
         // a warning glint where each rock enters the sky, and one rumble per volley
@@ -581,8 +670,19 @@ export function createFx(stage: Stage): FxView {
     if (kind === 'land') {
       for (const x of w.enemies) {
         if (x.gone) continue;
-        if (x.type === 'boss' || x.type === 'elite') shake(0.35);
-        fx.puffs(x.anchorX, x.anchorY + 52 * x.scale, 4, PALETTE.white, 140);
+        const big = x.type === 'boss' || x.type === 'elite';
+        if (big) shake(0.35);
+        const fy = x.anchorY + 52 * x.scale;
+        fx.puffs(x.anchorX, fy, 4, PALETTE.white, 140);
+        if (big) {
+          // a heavy landing: the ledge coughs up its own stuff and dust rolls out low both ways, at the feet
+          const theme = THEMES[themeIndex(w.wave)] ?? THEMES[0]!;
+          fx.shards(x.anchorX, fy, Math.PI / 2, theme.debris, CALM ? 4 : 8, 380);
+          for (let side = -1; side <= 1; side += 2) {
+            fx.spawn('puff', x.anchorX + side * 20, fy, side * 300, -20, { life: 0.6, drag: 4, scale: 0.5, scaleEnd: 1.4, tint: PALETTE.dust, alpha: 0.75 });
+            fx.spawn('puff', x.anchorX + side * 12, fy, side * 170, -50, { life: 0.5, drag: 4, scale: 0.4, scaleEnd: 1.1, tint: PALETTE.dust, alpha: 0.6 });
+          }
+        }
       }
     }
   }
@@ -709,6 +809,7 @@ export function createFx(stage: Stage): FxView {
       overlayOpen = w.phase === 'cards' || w.phase === 'over';
       if (overlayOpen) text.clearCalls();
 
+      flavour = 0;
       for (const e of events) handle(e, w);
       for (let i = later.length - 1; i >= 0; i--) {
         const job = later[i]!;

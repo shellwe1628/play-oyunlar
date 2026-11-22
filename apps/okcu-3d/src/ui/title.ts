@@ -115,6 +115,8 @@ export function createTitle(ui: Ui, parent: HTMLElement, hooks: TitleHooks): Tit
   let playFace: HTMLElement | null = null;
   let intervals: number[] = [];
   let swapTimer = 0;
+  /** the chapter picker was just turned this way: the next build slides the card's content in from there */
+  let turned: 1 | -1 | 0 = 0;
 
   function drop(): void {
     for (const i of intervals) window.clearInterval(i);
@@ -313,7 +315,13 @@ export function createTitle(ui: Ui, parent: HTMLElement, hooks: TitleHooks): Tit
         pressable(prev, on('menu'), ui.unlock, tap(() => switchChapter(-1)));
       }
       const mid = el('div', 'ok-m-mid', card);
-      iconCanvas(mid, 84, 76, (g) => drawIsland(g, 42, 34, chapter, tint));
+      const isle = iconCanvas(mid, 84, 76, (g) => drawIsland(g, 42, 34, chapter, tint));
+      if (turned !== 0 && !calm) {
+        // a chapter switch: the new world's name slides in the way the picker was turned, its island hops
+        mid.animate([{ transform: `translateX(${turned * 70}px)`, opacity: 0 }, { transform: 'none', opacity: 1 }], { duration: 300, easing: EASE.cubicOut });
+        isle.animate([{ transform: 'translateY(0) scale(1)' }, { transform: 'translateY(-14px) scale(1.15)', offset: 0.4 }, { transform: 'translateY(0) scale(1)' }], { delay: 120, duration: 420, easing: EASE.backOut });
+        card.animate([{ transform: 'scale(1)' }, { transform: 'scale(1.035)', offset: 0.35 }, { transform: 'scale(1)' }], { duration: 320, easing: EASE.cubicOut });
+      }
       const words = el('div', '', mid);
       words.style.minWidth = '0';
       el('div', 'c1', words).textContent = chapter >= CHAPTERS ? '∞' : t('title.chapter', { n: chapter + 1 });
@@ -408,6 +416,7 @@ export function createTitle(ui: Ui, parent: HTMLElement, hooks: TitleHooks): Tit
     settle(readyG, mode === 'ready');
     if (mode === 'ready') startPulse();
     if (!soft) enter(mode === 'menu' ? menuG : readyG, 60);
+    turned = 0;
   }
 
   /** a switch that starts a new world at the title: its title comes back as it was, without the entrance */
@@ -417,6 +426,7 @@ export function createTitle(ui: Ui, parent: HTMLElement, hooks: TitleHooks): Tit
   }
 
   function switchChapter(dir: 1 | -1): void {
+    turned = dir;
     quietly(() => hooks.chapter(dir));
   }
 

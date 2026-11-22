@@ -13,7 +13,10 @@
  * projects, so it reads as arcing over them, never clipping) with a spin blur, a wake and a puff
  * at the turn; the sling pebble tumbles and kicks up dust; the firework rocket streams flame,
  * sparks and smoke and flashes as its fuse runs out. Celestial (`game.celestial`): every player
- * projectile wears the starry material and sheds glints.
+ * projectile wears the starry material and sheds glints. A levelled weapon's glow (`bowGlow`, from
+ * the steel band up) rides these three as well, as it does arrows, bolts and spears: one soft halo
+ * in the band's colour around the boomerang, the pebble and the rocket's nose, so the weapon's
+ * level reads in flight whatever is thrown.
  */
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
@@ -468,6 +471,7 @@ export function createArrows(stage: Stage, game: Game): Module {
             sprZ(turnX[i]!, turnY[i]!, z, 60 * (1 - f), 60 * (1 - f), clock * 4, PALETTE.cream, 0.9 * (1 - f), TILE.glint, 1);
           }
           if (cel) sprZ(a.x, a.y, z + 0.02, 30, 30, clock * 3, CELESTIAL, 0.7, TILE.glint, 1);
+          if (mine && glow.band >= 2) sprZ(a.x, a.y, z - 0.05, (18 + 12 * glow.aura) * 4, (18 + 12 * glow.aura) * 4, 0, glowCol, 0.26, TILE.blob, 1);
           continue;
         }
 
@@ -487,6 +491,7 @@ export function createArrows(stage: Stage, game: Game): Module {
             }
           }
           if (cel) spr(a.x, a.y, 26, 26, clock * 3, CELESTIAL, 0.75, TILE.glint, 1);
+          if (mine && glow.band >= 2) spr(a.x, a.y, (9 + 7 * glow.aura) * 4.4, (9 + 7 * glow.aura) * 4.4, 0, glowCol, 0.4, TILE.blob, 1);
           continue;
         }
 
@@ -532,6 +537,7 @@ export function createArrows(stage: Stage, game: Game): Module {
             spr(a.x, a.y, 44, 44, clock * 6, PALETTE.white, 0.5 + 0.5 * blink, TILE.glint, 1);
           }
           if (cel) spr(a.x - dx * 10, a.y - dy * 10, 34, 34, clock * 3, CELESTIAL, 0.75, TILE.glint, 1);
+          if (mine && glow.band >= 2) spr(a.x + dx * 12, a.y + dy * 12, (10 + 8 * glow.aura) * 4.4, (10 + 8 * glow.aura) * 4.4, 0, glowCol, 0.4, TILE.blob, 1);
           continue;
         }
 

@@ -20,8 +20,14 @@
  * Tabs switch with a tap or a horizontal swipe on the tab bar (and on the panes); a drag on
  * the open sky of the Home tab still draws the bow, as before.
  *
+ * The top bar answers every change of the save (`bump`): POWER climbs in green under a "+n" tag
+ * with a ring and stars off the chip (a weaker weapon chosen: it settles in orange under "−n");
+ * coins gained fly into the counter, which counts up as they land; coins spent count down under a
+ * red "−n". A ready free chest knocks, the chest pile bobs, a chosen tab's glyph hops (juice.ts).
+ *
  * Everything lives in the HUD's logical 720 × 1280 layer and follows the real screen edges and
- * safe areas (`Ui.view`). Reduced motion (`calmMotion`): no pulses or glows, tabs cut instead of slide.
+ * safe areas (`Ui.view`). Reduced motion (`calmMotion`): no pulses, glows or flights, numbers are
+ * simply set, tabs cut instead of slide.
  */
 import { drawBadge } from '@okcu/scenes/gear';
 import { drawCoin } from '@okcu/scenes/icons';
@@ -35,6 +41,7 @@ import type { ChestPlay } from './chest';
 import { calmMotion, EASE, el, fitText, iconCanvas, mix, pressable, roundButton, TAB_BAR_H } from './dom';
 import { createEventsPane, type EventsPane } from './events';
 import { css, Gfx, rgba } from './gfx';
+import { centreIn, countTo, flyTo, pop, rectIn, sparkle, tag } from './juice';
 import type { Ui } from './screens';
 import { clock, createShopPane, drawChestIcon, setShopView, type ShopPane } from './shop';
 import { drawCalendarGlyph } from './title';
@@ -80,6 +87,8 @@ export interface Shell {
 }
 
 const INK = PALETTE.ink;
+/** POWER went down (a weaker weapon chosen): the "tough" orange, never an alarm red */
+const TOUGH_DOWN = 0xffa23a;
 const W = 720;
 /** tab widths: four side tabs and the larger centre (Home) */
 const SIDE_W = 130;
@@ -142,7 +151,12 @@ const STYLE = `
 .ok-s-fb.down{transform:scale(.95)}
 .ok-s-fb.off{opacity:.5;cursor:default}
 .ok-s-fb>.ok-ad{right:10px;top:-16px}
-.ok-calm .ok-s-dot,.ok-calm .ok-s-side.ready .ok-s-plank{animation:none}
+.ok-s-side.ready .ok-s-plank>canvas{animation:oks-knock 2.6s ease-in-out infinite;transform-origin:50% 78%}
+@keyframes oks-knock{0%,62%,100%{transform:none}66%{transform:rotate(-9deg) scale(1.08)}71%{transform:rotate(8deg) scale(1.08)}76%{transform:rotate(-6deg) scale(1.1)}81%{transform:rotate(5deg) scale(1.06)}88%{transform:translateY(-7px) scale(1.04,.96)}94%{transform:scale(1.06,.94)}}
+.ok-s-pile .ok-s-plank>canvas{animation:oks-bob 1.9s ease-in-out infinite alternate}
+@keyframes oks-bob{from{transform:translateY(2px) rotate(-2deg)}to{transform:translateY(-4px) rotate(2deg)}}
+.ok-s-ring{position:absolute;inset:-6px;border-radius:inherit;border:6px solid ${css(PALETTE.heal)};pointer-events:none;will-change:transform,opacity}
+.ok-calm .ok-s-dot,.ok-calm .ok-s-side.ready .ok-s-plank,.ok-calm .ok-s-plank>canvas{animation:none}
 `;
 
 let styled = false;
@@ -181,7 +195,11 @@ export function createShell(ui: Ui, parent: HTMLElement, hooks: ShellHooks): She
   let coinsEl: HTMLElement | null = null;
   let chipEl: HTMLElement | null = null;
   let weaponsMed: HTMLCanvasElement | null = null;
-  let countUp = 0;
+  /** the top bar's running counts (POWER, coins): cancelled when a newer change starts */
+  let stopPower: () => void = () => undefined;
+  let stopCoins: () => void = () => undefined;
+  /** the coins the top bar last counted to */
+  let coinsShown = 0;
   let paneTop = 0;
   let paneBot = 1280;
   let dailyDot: HTMLElement | null = null;
@@ -213,7 +231,8 @@ export function createShell(ui: Ui, parent: HTMLElement, hooks: ShellHooks): She
     shopPane = null;
     eventsPane?.destroy();
     eventsPane = null;
-    window.cancelAnimationFrame(countUp);
+    stopPower();
+    stopCoins();
     sel = events = weapons = shop = dailyDot = powerEl = coinsEl = chipEl = weaponsMed = chestSheet = null;
     sideParts = [];
     refreshPile = null;
@@ -321,6 +340,7 @@ export function createShell(ui: Ui, parent: HTMLElement, hooks: ShellHooks): She
     iconCanvas(coins, 48, 48, (g) => drawCoin(g.phaser, 24, 24, 17));
     coinsEl = el('span', '', coins);
     coinsEl.textContent = String(save.coins);
+    coinsShown = save.coins;
     const sndP = part(root, 658, top + 60, 'translateY(-130px)', 60, quiet);
     const snd = roundButton(sndP, 0, 0, 92, ui.audio.muted ? 'sound-off' : 'sound-on', ui.unlock, () => {
       const muted = ui.audio.toggleMute();
@@ -372,7 +392,7 @@ export function createShell(ui: Ui, parent: HTMLElement, hooks: ShellHooks): She
     });
     // the chest pile, right edge on the daily's row: the chests waiting in the line, with their count
     const pileP = part(root, 644, sideY + 176, 'translateX(200px)', 200, quiet);
-    const pile = el('div', 'ok-s-side', pileP);
+    const pile = el('div', 'ok-s-side ok-s-pile', pileP);
     pile.dataset.testid = 'shell-pile';
     const pilePlank = el('div', 'ok-s-plank', pile);
     let pileIcon: HTMLCanvasElement | null = null;
@@ -580,6 +600,9 @@ export function createShell(ui: Ui, parent: HTMLElement, hooks: ShellHooks): She
     sel.style.width = `${w - 12}px`;
     if (animate && !calm && from.left) sel.animate([{ left: from.left, width: from.width }, { left: `${x + 6}px`, width: `${w - 12}px` }], { duration: 300, easing: EASE.backOut });
     for (const [k, e] of tabEls) e.classList.toggle('on', k === id);
+    // the chosen tab's glyph hops in its medallion
+    const glyph = animate && !calm ? tabEls.get(id)?.querySelector<HTMLElement>('.ok-s-med>canvas') : null;
+    glyph?.animate([{ transform: 'none' }, { transform: 'translateY(-12px) rotate(-12deg) scale(1.12)', offset: 0.32 }, { transform: 'translateY(2px) rotate(7deg) scale(0.96)', offset: 0.62 }, { transform: 'rotate(-3deg)', offset: 0.82 }, { transform: 'none' }], { duration: 460, easing: 'ease-out' });
   }
 
   /** slide the content panes from `a` to `b` (every tab but Ranks has a pane of its own) */
@@ -696,11 +719,46 @@ export function createShell(ui: Ui, parent: HTMLElement, hooks: ShellHooks): She
     chest: (take: ChestPlay['take']) => hooks.chest({ take, done: (before) => afterChest(before) }),
   };
 
+  /** the coins counter after a change: gained coins fly into it and it counts up; spent ones count down under a red "−n" */
+  function bumpCoins(coins: number): void {
+    const e = coinsEl;
+    const r = root;
+    if (!e || !r || coins === coinsShown) return;
+    const from = coinsShown;
+    coinsShown = coins;
+    stopCoins();
+    const chip = e.parentElement ?? e;
+    if (calm) {
+      e.textContent = String(coins);
+      return;
+    }
+    const c = centreIn(chip, r);
+    if (coins > from) {
+      const n = Math.min(10, Math.max(4, Math.round((coins - from) / 120)));
+      // the number starts as the first coin lands and is done with the last
+      flyTo(r, 360, (paneTop + paneBot) / 2, c.x - 34, c.y, {
+        kind: 'coin',
+        n,
+        onLand: (i) => {
+          // the menu went away meanwhile (PLAY): nothing left to count on
+          if (root !== r) return;
+          if (i === 0) stopCoins = countTo(e, from, coins, 300 + n * 45);
+          if (i % 2 === 0) ui.audio.play('coin', { volume: 0.5 });
+          pop(chip, 1.1, 220);
+        },
+      });
+      return;
+    }
+    stopCoins = countTo(e, from, coins, 420);
+    pop(chip, 1.08, 300);
+    tag(r, c.x, c.y + 66, `−${from - coins}`, { color: PALETTE.danger, ink: 0xffffff, size: 26, rise: 22, hold: 750 });
+  }
+
   /** the top bar after a change: POWER counts up from `before`, the coins follow, the Weapons medallion shows the selected weapon */
   function bump(before: number): void {
     const d = ui.game.save.data;
     const now = powerOf(d);
-    if (coinsEl) coinsEl.textContent = String(d.coins);
+    bumpCoins(d.coins);
     if (weaponsMed) {
       const c = weaponsMed.getContext('2d')!;
       const m = c.getTransform();
@@ -713,22 +771,28 @@ export function createShell(ui: Ui, parent: HTMLElement, hooks: ShellHooks): She
     }
     const p = powerEl;
     if (!p) return;
-    window.cancelAnimationFrame(countUp);
+    stopPower();
     if (calm || now === before) {
       p.textContent = String(now);
       return;
     }
-    const t0 = performance.now();
-    const dur = 700;
-    const step = (): void => {
-      const u = Math.min(1, (performance.now() - t0) / dur);
-      const e = 1 - (1 - u) ** 3;
-      p.textContent = String(Math.round(before + (now - before) * e));
-      if (u < 1) countUp = window.requestAnimationFrame(step);
-    };
-    step();
-    chipEl?.animate([{ transform: 'scale(1)' }, { transform: 'scale(1.14)', offset: 0.3 }, { transform: 'scale(1)' }], { duration: 700, easing: EASE.backOut });
-    p.animate([{ color: '#fff' }, { color: css(PALETTE.heal), offset: 0.2 }, { color: css(PALETTE.heal), offset: 0.8 }, { color: '#fff' }], { duration: 900 });
+    // stronger: the number climbs in green, the chip swells, a ring bursts off it and "+n" pops under it.
+    // weaker (another weapon chosen): the number just settles, in orange, with a quiet "−n"
+    const up = now > before;
+    const hue = css(up ? PALETTE.heal : TOUGH_DOWN);
+    stopPower = countTo(p, before, now, up ? 900 : 450);
+    p.animate([{ color: '#fff' }, { color: hue, offset: 0.15 }, { color: hue, offset: 0.85 }, { color: '#fff' }], { duration: up ? 1500 : 800 });
+    const chip = chipEl;
+    if (!chip || !root) return;
+    const box = rectIn(chip, root);
+    tag(root, box.x + box.w - 56, box.y + box.h + 8, `${up ? '+' : '−'}${Math.abs(now - before)}`, { color: up ? PALETTE.heal : TOUGH_DOWN, size: up ? 32 : 26, bolt: true, hold: up ? 1500 : 900, rise: 18 });
+    if (!up) return;
+    chip.animate([{ transform: 'scale(1)' }, { transform: 'scale(1.2, 0.9)', offset: 0.18 }, { transform: 'scale(1.1, 1.16)', offset: 0.42 }, { transform: 'scale(1.04)', offset: 0.7 }, { transform: 'scale(1)' }], { duration: 900, easing: 'ease-out' });
+    for (let i = 0; i < 2; i++) {
+      const ring = el('div', 'ok-s-ring', chip);
+      ring.animate([{ transform: 'scale(1)', opacity: 0.9 }, { transform: 'scale(1.22, 1.6)', opacity: 0 }], { delay: i * 180, duration: 620, easing: EASE.cubicOut, fill: 'both' }).onfinish = () => ring.remove();
+    }
+    sparkle(root, box.x + box.w - 70, box.y + box.h / 2, { n: 8, reach: 90, ring: 0, colors: [PALETTE.heal, PALETTE.gold, PALETTE.white], delay: 120 });
   }
 
   return {

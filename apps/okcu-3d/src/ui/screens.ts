@@ -9,15 +9,17 @@ import { drawBadge } from '@okcu/scenes/gear';
 import { drawCardIcon } from '@okcu/scenes/icons';
 import { SFX } from '@okcu/sfx';
 import { PALETTE } from '@okcu/textures';
-import type { ChestKind } from '@sim/arsenal';
-import { bowTier } from '@sim/bow';
+import { canUpgrade, type ChestKind } from '@sim/arsenal';
 import { countCards, synergyFor, type CardId, type SynergyId } from '@sim/cards';
 import { CHAPTERS } from '@sim/chapters';
+import { UPGRADE_IDS, upgradeCost } from '@sim/meta';
 import { progressScore, RANKS, rankOf } from '@sim/progress';
+import { WEAPON_IDS } from '@sim/weapons';
 import type { World } from '@sim/world';
 import type { Game, Stage } from '../contract';
 import { button, calmMotion, EASE, el, fitText, iconCanvas, Label, pressable, roundButton, Sketch, type ButtonHandle } from './dom';
 import { Gfx } from './gfx';
+import { centreIn, confetti, countTo, pop, shineLoop, sparkle, sunburst } from './juice';
 import type { RunResult } from './progress';
 import { drawChestIcon } from './shop';
 
@@ -312,6 +314,8 @@ export function createResult(ui: Ui, parent: HTMLElement, hooks: ResultHooks): R
   /** a rewarded ad is showing: every button waits */
   let busy = false;
   let btns: ButtonHandle[] = [];
+  /** the score just finished counting on a new best: the celebration around it */
+  let cheer: (() => void) | null = null;
 
   function setButtons(on: boolean): void {
     for (const b of btns) b.setEnabled(on);
@@ -341,6 +345,7 @@ export function createResult(ui: Ui, parent: HTMLElement, hooks: ResultHooks): R
     scoreEl = null;
     badge = null;
     rankBadge = null;
+    cheer = null;
     done = true;
   }
 
@@ -360,7 +365,7 @@ export function createResult(ui: Ui, parent: HTMLElement, hooks: ResultHooks): R
       const panel = el('div', 'ok-panel', root);
       panel.style.cssText = 'left:70px;top:150px;width:580px;height:560px';
       const inner = el('div', '', panel);
-      inner.style.cssText = 'display:flex;flex-direction:column;align-items:center;gap:12px;width:520px';
+      inner.style.cssText = 'position:relative;display:flex;flex-direction:column;align-items:center;gap:12px;width:520px';
       if (newBest) {
         badge = el('div', 'badge', inner);
         badge.textContent = t('core.newBest');
@@ -381,12 +386,32 @@ export function createResult(ui: Ui, parent: HTMLElement, hooks: ResultHooks): R
       if (r.records.length > 0) lines.push(t('result.records'));
       for (const id of r.feats.slice(0, 2)) lines.push(`★ ${t(`feat.${id}.name`)}`);
       let coinsEl: HTMLElement | null = null;
+      const calm = calmMotion();
       lines.forEach((line, i) => {
         const l = el('div', 'line', inner);
         l.textContent = line;
-        if (i === coinLine) coinsEl = l;
+        const at = 220 + i * 70;
+        if (i === coinLine) {
+          // what the run earned, in gold, counted up as its line arrives
+          coinsEl = l;
+          l.classList.add('gold');
+          if (!calm && r.coins > 0) {
+            l.textContent = t('result.coins', { n: 0 });
+            window.setTimeout(() => {
+              if (l.isConnected && l.textContent === t('result.coins', { n: 0 })) countTo(l, 0, r.coins, Math.min(900, 300 + r.coins * 4), (n) => t('result.coins', { n: Math.round(n) }));
+            }, at + 120);
+          }
+        } else if (i === coinLine + 1 && !calm && r.kos > 0) {
+          l.textContent = t('result.kos', { k: 0, h: 0 });
+          window.setTimeout(() => {
+            if (l.isConnected) countTo(l, 0, 1, Math.min(800, 300 + r.kos * 30), (u) => t('result.kos', { k: Math.round(r.kos * u), h: Math.round(r.headshots * u) }));
+          }, at + 120);
+        } else if (i > coinLine + 1) {
+          // bests, records and achievements: the run's trophies
+          l.classList.add('gold');
+        }
         // the card's lines slide in one by one after the panel lands
-        l.animate([{ transform: 'translateX(-26px)', opacity: 0 }, { transform: 'none', opacity: 1 }], { delay: 220 + i * 70, duration: 240, easing: EASE.cubicOut, fill: 'backwards' });
+        l.animate([{ transform: 'translateX(-26px)', opacity: 0 }, { transform: 'none', opacity: 1 }], { delay: at, duration: 240, easing: EASE.cubicOut, fill: 'backwards' });
       });
       const fit = Math.min(1, (560 - 52) / Math.max(1, inner.offsetHeight));
       if (fit < 1) {
@@ -394,6 +419,18 @@ export function createResult(ui: Ui, parent: HTMLElement, hooks: ResultHooks): R
         inner.style.margin = `${(-inner.offsetHeight * (1 - fit)) / 2}px 0`;
       }
       panel.animate([{ transform: 'scale(0.8)', opacity: 0 }, { transform: 'scale(1)', opacity: 1 }], { duration: 300, easing: EASE.backOut });
+      if (newBest) {
+        // a new best: once the score has counted, light turns behind it, stars fly off it and confetti falls over the card
+        const face = scoreEl;
+        const host = root;
+        cheer = () => {
+          const c = centreIn(face, host);
+          const p = centreIn(face, panel);
+          sunburst(panel, p.x, p.y, 500, PALETTE.gold, 2200, inner);
+          sparkle(host, c.x, c.y, { n: 14, reach: 210, ring: 150, colors: [PALETTE.gold, PALETTE.white, PALETTE.pink] });
+          confetti(host, CX, 190, 520, 28);
+        };
+      }
       score = r.wave;
       age = 0;
       dur = Math.min(0.9, 0.2 + score * 0.04);
@@ -411,6 +448,24 @@ export function createResult(ui: Ui, parent: HTMLElement, hooks: ResultHooks): R
         button(root, CX, 932, t('result.shop'), ui.unlock, tap(hooks.upgrades), { width: 440, variant: 'secondary' }),
         button(root, CX, 1044, t('tab.shop'), ui.unlock, tap(hooks.shop), { width: 440, height: 96, fontSize: 40, variant: 'secondary' }),
       ];
+      {
+        // something can be made stronger right now (a weapon's level, an archer upgrade the coins cover):
+        // the way to the upgrades says so, with the menu's own red "!" and a light running across it
+        const d = ui.game.save.data;
+        const stronger = WEAPON_IDS.some((id) => canUpgrade(d, id)) || UPGRADE_IDS.some((id) => {
+          const c = upgradeCost(id, d.upgrades[id]);
+          return c !== null && d.coins >= c;
+        });
+        if (stronger) {
+          const up = btns[1]!.el;
+          const dot = el('div', 'ok-s-dot', up);
+          dot.dataset.testid = 'result-upgrade-ready';
+          dot.textContent = '!';
+          dot.style.cssText = 'right:-10px;top:-14px;z-index:1';
+          if (calm) dot.style.animation = 'none';
+          shineLoop(up, 3000, 1500);
+        }
+      }
       const offers: { id: string; text: string; secondary: boolean; act: () => Promise<void> }[] = [];
       if (ads.revive) {
         offers.push({
@@ -471,7 +526,9 @@ export function createResult(ui: Ui, parent: HTMLElement, hooks: ResultHooks): R
       rank = rankOf(progressScore(save).total);
       rankBadge = new Sketch(root, 600 - 60, 78 - 60, 120, 120);
       labels.push(new Label(root, 600, 134, t(`rank.${RANKS[rank]!.id}`), { size: 28, color: PALETTE.gold, stroke: 8 }));
-      labels.push(new Label(root, 600, 166, t('bow.name', { name: t(`bow.${bowTier(save.bow.level)}`), n: save.bow.level }), { size: 22, color: PALETTE.cream, stroke: 6 }));
+      // under the rank: the weapon in hand and its level (the HUD's own line; the 3D build has no forged bow)
+      const held = save.arsenal.selected;
+      labels.push(new Label(root, 600, 166, `${t(`weapon.${held}`)} · ${t('weapons.lv', { n: save.arsenal.weapons[held].level })}`, { size: 22, color: PALETTE.cream, stroke: 6 }));
       const zone = el('div', '', root);
       zone.style.cssText = 'position:absolute;left:510px;top:9px;width:180px;height:150px;pointer-events:auto;cursor:pointer';
       pressable(zone, () => true, ui.unlock, tap(hooks.ranks));
@@ -507,7 +564,11 @@ export function createResult(ui: Ui, parent: HTMLElement, hooks: ResultHooks): R
       if (scoreEl.textContent !== shown) scoreEl.textContent = shown;
       if (u < 1) return;
       done = true;
-      scoreEl.animate([{ transform: 'scale(1.15)' }, { transform: 'scale(1)' }], { duration: 220, easing: EASE.backOut });
+      if (cheer) {
+        pop(scoreEl, 1.3, 520);
+        cheer();
+        cheer = null;
+      } else scoreEl.animate([{ transform: 'scale(1.15)' }, { transform: 'scale(1)' }], { duration: 220, easing: EASE.backOut });
       if (badge) {
         badge.style.visibility = 'visible';
         badge.animate([{ transform: 'scale(0.3)' }, { transform: 'scale(1)' }], { duration: 320, easing: EASE.backOut });

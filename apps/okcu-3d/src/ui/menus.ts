@@ -14,8 +14,9 @@ import { SFX } from '@okcu/sfx';
 import { PALETTE } from '@okcu/textures';
 import { CHAPTERS } from '@sim/chapters';
 import { FEATS, progressScore, RANKS, rankOf, SCORE, toNextRank } from '@sim/progress';
-import { button, EASE, el, Label, roundButton, Sketch, type ButtonHandle, type LabelOpts } from './dom';
-import { rgba } from './gfx';
+import { button, calmMotion, EASE, el, Label, roundButton, Sketch, type ButtonHandle, type LabelOpts } from './dom';
+import { css, rgba } from './gfx';
+import { growBar } from './juice';
 import { openOnline } from './online';
 import type { Ui } from './screens';
 
@@ -163,6 +164,17 @@ export function createMenus(ui: Ui, parent: HTMLElement, hooks: MenuHooks): Menu
     const perCol = Math.ceil(RANKS.length / 2);
     const ladderRow = Math.min(88, (BOTTOM - 140 - ladderTop) / perCol);
 
+    /** the tab's page arrives: its sheet rises and its lines follow from the top down (reduced motion: it is simply there) */
+    function arrive(sheet: Sketch): void {
+      if (calmMotion()) return;
+      sheet.cv.animate([{ transform: 'translateY(22px)', opacity: 0 }, { transform: 'none', opacity: 1 }], { duration: 280, easing: EASE.cubicOut });
+      for (const l of bodyLabels) {
+        const y = parseFloat(l.el.style.top) || 0;
+        // on top of the label's own fit scale, so a shrunk line stays shrunk while it moves
+        l.el.animate([{ transform: 'translateY(16px)', opacity: 0 }, { transform: 'translateY(0)', opacity: 1 }], { delay: Math.max(0, Math.min(420, (y - 240) * 0.42)), duration: 260, easing: EASE.cubicOut, fill: 'backwards', composite: 'add' });
+      }
+    }
+
     function setTab(k: 'ladder' | 'records' | 'feats'): void {
       tab = k;
       for (const [key, b] of tabBtns) b.el.style.opacity = key === k ? '1' : '0.55';
@@ -179,6 +191,16 @@ export function createMenus(ui: Ui, parent: HTMLElement, hooks: MenuHooks): Menu
         tx(CX + 40, TOP + 306, t('ranks.score', { n: s.total }), 34, PALETTE.cream);
         const need = toNextRank(s.total);
         tx(CX, TOP + 350, need === null ? t('ranks.top') : t('ranks.next', { n: need, r: t(`rank.${RANKS[r + 1]!.id}`) }), 30, PALETTE.heal);
+        if (need !== null) {
+          // how far along this rank is: a bar from its threshold to the next one's, filling as the page arrives
+          const a = RANKS[r]!.at;
+          const b = RANKS[r + 1]!.at;
+          const bar = el('div', '', body);
+          bar.style.cssText = `position:absolute;left:180px;top:${TOP + 373}px;width:360px;height:12px;border-radius:6px;background:${rgba(PALETTE.ink, 0.7)};box-shadow:0 0 0 3px ${rgba(PALETTE.ink, 0.7)};overflow:hidden`;
+          const fill = el('div', '', bar);
+          fill.style.cssText = `position:absolute;left:0;top:0;bottom:0;width:${(Math.max(0.03, Math.min(1, (s.total - a) / Math.max(1, b - a))) * 100).toFixed(1)}%;border-radius:6px;background:linear-gradient(180deg,#b9ffcf,${css(PALETTE.heal)})`;
+          growBar(fill, 0.03, 320, 800);
+        }
         const parts: [string, number, number][] = [
           ['chapters', s.chapters, SCORE.chapter],
           ['bosses', s.bosses, SCORE.boss],
@@ -198,6 +220,13 @@ export function createMenus(ui: Ui, parent: HTMLElement, hooks: MenuHooks): Menu
           const y = ladderTop + (i % perCol) * ladderRow;
           const here = i === r;
           g.fillStyle(here ? PALETTE.gold : PALETTE.ink, here ? 0.35 : 0.5).fillRoundedRect(x - 40, y - ladderRow / 2 + 4, 310, ladderRow - 8, 16);
+          if (here) {
+            // the player's own rung: a gold rim that breathes (under the texts)
+            const rim = document.createElement('div');
+            rim.style.cssText = `position:absolute;left:${x - 40}px;top:${y - ladderRow / 2 + 4}px;width:310px;height:${ladderRow - 8}px;border-radius:16px;box-shadow:inset 0 0 0 4px ${css(PALETTE.gold)};pointer-events:none`;
+            body.insertBefore(rim, sheet.cv.nextSibling);
+            if (!calmMotion()) rim.animate([{ opacity: 0.25 }, { opacity: 1 }], { duration: 900, direction: 'alternate', iterations: Infinity, easing: EASE.sine });
+          }
           tx(x + 46, y - 12, t(`rank.${rk.id}`), 28, i <= r ? PALETTE.cream : PALETTE.locked, 0);
           tx(x + 46, y + 18, t('ranks.at', { n: rk.at }), 24, i <= r ? PALETTE.gold : PALETTE.locked, 0);
         });
@@ -256,6 +285,7 @@ export function createMenus(ui: Ui, parent: HTMLElement, hooks: MenuHooks): Menu
           tx(x + 56, y + 16, `${t(`feat.${f.id}.desc`)} · +${f.coins}`, 22, on ? PALETTE.gold : PALETTE.locked, 0, 268);
         });
       }
+      arrive(sheet);
     }
 
     setTab('ladder');

@@ -23,7 +23,7 @@ import { WEAPON_IDS, WEAPON_MAX } from '@sim/weapons';
 import type { GameEvent, World } from '@sim/world';
 import type { Frame, Game, Module, Stage } from '../contract';
 import { createChestScreen } from './chest';
-import { EASE, el, injectStyle, Label, rerenderLabels, roundButton, setLabelRes, Timers } from './dom';
+import { calmMotion, EASE, el, injectStyle, Label, rerenderLabels, roundButton, setLabelRes, Timers } from './dom';
 import { css, rgba } from './gfx';
 import { createMenus } from './menus';
 import { todayKey } from './save';
@@ -222,14 +222,18 @@ export function createHud(stage: Stage, game: Game): Module {
     toastBusy = true;
     const c = el('div', 'ok-anchor', toastGroup);
     c.style.left = `${CX}px`;
-    c.style.top = '62px';
+    // on the menu the toast sits under the top bar: rank, POWER and coins stay readable while they count
+    const menu = game.w.phase === 'title';
+    const top = menu ? 172 : 62;
+    const away = `translateY(${-(top + 80)}px)`;
+    c.style.top = `${top}px`;
     const bg = el('div', '', c);
     bg.style.cssText = `position:absolute;left:-300px;top:-48px;width:600px;height:96px;border-radius:28px;background:${rgba(PALETTE.ink, 0.92)};border:4px solid ${css(n.color)}`;
     const labels = [new Label(c, 0, -18, n.title, { size: 30, color: n.color }), new Label(c, 0, 20, n.sub, { size: 28, color: PALETTE.cream, wrap: 560 })];
     toastEl = { root: c, labels };
     audio.playPreset(SFX.fanfare, { volume: 0.6 });
-    c.animate([{ transform: 'translateY(-142px)' }, { transform: 'none' }], { duration: 320, easing: EASE.backOut });
-    const out = c.animate([{ transform: 'none' }, { transform: 'translateY(-142px)' }], { delay: 1900, duration: 260, easing: EASE.cubicIn, fill: 'forwards' });
+    c.animate([{ transform: away }, { transform: 'none' }], { duration: 320, easing: EASE.backOut });
+    const out = c.animate([{ transform: 'none' }, { transform: away }], { delay: 1900, duration: 260, easing: EASE.cubicIn, fill: 'forwards' });
     out.onfinish = () => {
       if (toastEl?.root === c) nextToast();
     };
@@ -960,7 +964,11 @@ export function createHud(stage: Stage, game: Game): Module {
       // title → play: the first shot starts the run
       if (w.phase === 'title') {
         if (!title.shown && !result.shown) title.show(w);
-      } else if (title.shown) title.hide();
+      } else if (title.shown) {
+        title.hide();
+        // the run begins: the weapon in hand and its level announce themselves as the HUD fades in
+        if (!calmMotion()) bowText.el.animate([{ transform: 'scale(2.1)', opacity: 0 }, { transform: 'scale(0.94)', opacity: 1, offset: 0.7 }, { transform: 'scale(1)', opacity: 1 }], { delay: 260, duration: 460, easing: 'ease-out', fill: 'backwards' });
+      }
       // the tab shell frames the title's menu state; away in the ready state, in play and under the result
       const wantShell = w.phase === 'title' && title.shown && !title.ready && !result.shown;
       stage.menu(wantShell);

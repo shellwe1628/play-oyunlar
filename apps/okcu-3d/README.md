@@ -15,6 +15,10 @@ cd apps/okcu-3d && node tools/shot.mjs --url "http://localhost:5180/?seed=5&auto
 
 `tools/shot.mjs` takes headless screenshots (software WebGL, so judge looks, not frame rate) and
 prints module failures and console errors; read its header for `--eval`, `--clip`, `--size`.
+`tools/cila-shots.mjs` captures the menus' motion moments (a level-up, coins flying to the counter, the
+result card, the tabs arriving) frozen at exact times into `tools/out-cila/`; `src/ui/juice.ts` holds the
+shared motion pieces they show. `tools/cila-play.mjs` takes a burst of in-play frames from the moment a
+condition on the world turns true (its header shows how to push an event into `w.events` to stage a moment).
 URL switches are listed at the top of `src/main.ts` (`seed`, `wave`, `chapter`, `bow`, `armor`,
 `auto`, `off`, `speed`). `window.__okcu3d` exposes `w` (the world), `game`, `stage`, `shoot()`,
 `skip()`.

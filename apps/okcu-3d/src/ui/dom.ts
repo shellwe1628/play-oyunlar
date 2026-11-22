@@ -66,11 +66,12 @@ const STYLE = `
 .ok-card-desc{font-size:32px;line-height:39px;margin-top:8px;color:${css(PALETTE.inkSoft)};width:400px}
 .ok-card-syn{color:#b06a00}
 .ok-card-stack{position:absolute;right:8px;top:2px;width:72px;height:72px;border-radius:50%;background:${css(PALETTE.danger)};border:5px solid ${css(PALETTE.ink)};font-size:34px;display:flex;align-items:center;justify-content:center;pointer-events:none}
-.ok-panel{position:absolute;border-radius:${THEME.radius}px;background:${css(THEME.surface)};box-shadow:0 12px 0 ${rgba(THEME.shadow, 0.5)};display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;padding:26px 30px;text-align:center}
+.ok-panel{position:absolute;border-radius:${THEME.radius}px;background:linear-gradient(180deg,#39407f 0%,${css(THEME.surface)} 42%,#232853 100%);box-shadow:0 12px 0 ${rgba(THEME.shadow, 0.5)},inset 0 0 0 5px rgba(255,255,255,.09),inset 0 7px 0 rgba(255,255,255,.1);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;padding:26px 30px;text-align:center}
 .ok-panel .cap{font-size:48px;color:${css(THEME.textDim)}}
-.ok-panel .score{font-size:150px;line-height:1.05;color:${css(THEME.primary)}}
+.ok-panel .score{font-size:150px;line-height:1.05;color:${css(THEME.primary)};-webkit-text-stroke:16px ${css(THEME.shadow)};paint-order:stroke fill;text-shadow:0 9px 0 ${rgba(THEME.shadow, 0.55)}}
 .ok-panel .best{font-size:40px}
 .ok-panel .line{font-size:34px;color:${css(THEME.textDim)}}
+.ok-panel .line.gold{color:${css(PALETTE.coin)}}
 .ok-panel .badge{font-size:34px;height:56px;line-height:56px;padding:0 24px;border-radius:28px;background:${css(THEME.accent)};color:${css(THEME.primaryText)}}
 `;
 

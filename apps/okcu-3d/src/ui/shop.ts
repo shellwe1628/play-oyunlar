@@ -28,6 +28,7 @@ import { BOSS_KINDS } from '@sim/world';
 import type { ChestTake } from './chest';
 import { calmMotion, EASE, el, fitText, iconCanvas, mix, pressable, TAB_BAR_H } from './dom';
 import { css, type Gfx, rgba } from './gfx';
+import { centreIn, flyTo, knock, pop, shineLoop, sparkle } from './juice';
 import { todayKey } from './save';
 import { featLine } from './progress';
 import type { Ui } from './screens';
@@ -284,7 +285,8 @@ export function createShopPane(ui: Ui, pane: HTMLElement, top: number, bot: numb
       const c = el('div', 'ok-sh-card ok-sh-chest', crow);
       const tp = el('div', 'top', c);
       const ih = Math.min(104, chestH - 84);
-      iconCanvas(tp, 110, ih, (g) => drawChestIcon(g, kind, 55, ih / 2 + 4, Math.min(1.25, ih / 76)));
+      // the chests on sale knock in turn
+      knock(iconCanvas(tp, 110, ih, (g) => drawChestIcon(g, kind, 55, ih / 2 + 4, Math.min(1.25, ih / 76))), 3600, kind === 'silver' ? 1200 : 3000);
       const tx = el('div', 'tx', tp);
       fitText(el('b', '', tx), t(`chest.${kind}`), 27, 180);
       const od = CHEST_ODDS[kind];
@@ -309,6 +311,7 @@ export function createShopPane(ui: Ui, pane: HTMLElement, top: number, bot: numb
       const b = el('b', '', ad);
       b.textContent = t('shop.adCoins', { n });
       el('span', '', ad).textContent = t('shop.adLeft', { n: AD_COINS_PER_DAY - used, m: AD_COINS_PER_DAY });
+      if (!adBusy) shineLoop(ad, 3800, 1800);
       pressable(ad, () => !adBusy, ui.unlock, () => {
         ui.audio.play('tap');
         void watchAd(ad);
@@ -346,7 +349,16 @@ export function createShopPane(ui: Ui, pane: HTMLElement, top: number, bot: numb
     const o = offer as { weapon: string; shards: number };
     ui.audio.play('coin');
     render(false);
-    pulse(body.querySelector<HTMLElement>(`[data-offer="${i}"]`) ?? card);
+    const bought = body.querySelector<HTMLElement>(`[data-offer="${i}"]`) ?? card;
+    pulse(bought);
+    // the shards leave the card for the Weapons tab, where they now wait
+    const host = pane.parentElement;
+    const to = host?.querySelector<HTMLElement>('[data-testid="tab-weapons"] .ok-s-med');
+    if (host && to && !calm) {
+      const a = centreIn(bought, host);
+      const b = centreIn(to, host);
+      flyTo(host, a.x, a.y - 40, b.x, b.y, { kind: 'star', n: Math.max(3, Math.min(8, o.shards)), size: 30, color: 0xa77bff, ms: 600, gap: 50, onLand: (_i, last) => last && pop(to, 1.2, 380) });
+    }
     hooks.changed(before);
     if (unlocked) hooks.toast(t('shop.weaponGot'), t(`weapon.${o.weapon}`));
     else hooks.toast(t('shop.offerGot'), t('shop.offerSub', { n: o.shards, w: t(`weapon.${o.weapon}`) }));
@@ -591,19 +603,8 @@ export function createShopPane(ui: Ui, pane: HTMLElement, top: number, bot: numb
   function pulse(e: HTMLElement | null): void {
     if (calm || !e) return;
     e.animate([{ transform: 'scale(1)' }, { transform: 'scale(1.08)', offset: 0.35 }, { transform: 'scale(1)' }], { duration: 420, easing: EASE.backOut });
-    const r = e.getBoundingClientRect();
-    const host = pane.getBoundingClientRect();
-    const k = host.width / 720 || 1;
-    const cx = (r.left + r.width / 2 - host.left) / k;
-    const cy = (r.top + r.height / 2 - host.top) / k;
-    for (let i = 0; i < 12; i++) {
-      const s = el('div', '', pane);
-      const a = (i / 12) * Math.PI * 2;
-      const dd = 70 + (i % 3) * 30;
-      s.style.cssText = `position:absolute;left:${cx - 9}px;top:${cy - 9}px;width:18px;height:18px;border-radius:50%;background:${css(i % 2 ? PALETTE.gold : PALETTE.coin)};box-shadow:0 0 0 3px ${css(INK)};pointer-events:none`;
-      const an = s.animate([{ transform: 'translate(0,0) scale(1)', opacity: 1 }, { transform: `translate(${Math.cos(a) * dd}px,${Math.sin(a) * dd}px) scale(0.3)`, opacity: 0 }], { duration: 560, easing: EASE.cubicOut, fill: 'forwards' });
-      an.onfinish = () => s.remove();
-    }
+    const c = centreIn(e, pane);
+    sparkle(pane, c.x, c.y, { n: 10, reach: 120, ring: 84, colors: [PALETTE.gold, PALETTE.coin, PALETTE.white] });
   }
 
   function render(animate: boolean): void {

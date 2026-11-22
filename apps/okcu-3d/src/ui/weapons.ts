@@ -12,8 +12,10 @@
  *
  * Every rule is the simulation's (sim/arsenal.ts, sim/weapons.ts, sim/meta.ts); every change goes
  * through `save.update` (persisted at once). An upgrade or a new selection tells the shell
- * (`changed`), which counts the top bar's POWER up; the weapon card pulses. Reduced motion
- * (`calmMotion`): no pulses, the number is simply set.
+ * (`changed`), which counts the top bar's POWER up; the weapon card pulses. A level gained is a
+ * moment of its own (`levelUp`): a sunburst behind the weapon, a "Level up!" stamp, the damage bar
+ * growing to its new length, and the power gained flying up into the top bar's POWER. Reduced
+ * motion (`calmMotion`): no pulses, the numbers are simply set.
  *
  * The weapon icons are drawn in code (canvas), in the game's style: chunky shapes with an ink outline.
  */
@@ -31,6 +33,7 @@ import { WEAPON_IDS, WEAPON_MAX, WEAPONS, weaponDamage, weaponPerks, type Weapon
 import { BOSS_KINDS } from '@sim/world';
 import { calmMotion, EASE, el, fitText, iconCanvas, mix, pressable, TAB_BAR_H } from './dom';
 import { css, Gfx, rgba } from './gfx';
+import { centreIn, countTo, flyTo, growBar, pop, shine, sparkle, sunburst } from './juice';
 import type { Ui } from './screens';
 import { featLine } from './progress';
 
@@ -93,10 +96,12 @@ const STYLE = `
 @keyframes okw-go{0%,100%{transform:translateX(-50%) scale(1)}50%{transform:translateX(-50%) scale(1.1)}}
 @keyframes okw-pulse{0%,100%{transform:scale(1)}50%{transform:scale(1.2)}}
 .ok-w-det{flex:1;min-height:0;cursor:default;padding:14px 20px 18px;display:flex;flex-direction:column;justify-content:space-between;gap:8px}
+.ok-w-det>*{position:relative}
 .ok-w-head{display:flex;align-items:center;gap:14px;flex:none}
+.ok-w-stamp{position:absolute;right:14px;top:-26px;height:56px;padding:0 22px;border-radius:28px;background:linear-gradient(180deg,#ffe27a,#ffc93c 60%,#f7a823);border:5px solid ${css(INK)};color:${css(INK)};font-size:31px;line-height:44px;white-space:nowrap;pointer-events:none;box-shadow:0 6px 0 ${rgba(INK, 0.45)};will-change:transform,opacity}
 .ok-w-plate{width:92px;height:92px;border-radius:24px;flex:none;position:relative;box-shadow:inset 0 0 0 4px ${rgba(INK, 0.5)},inset 0 -8px 0 rgba(0,0,0,.18)}
 .ok-w-plate>canvas{position:absolute;left:-14px;top:-14px}
-.ok-w-head .t{flex:1;min-width:0;display:flex;flex-direction:column;gap:6px}
+.ok-w-head .t{position:relative;flex:1;min-width:0;display:flex;flex-direction:column;gap:6px}
 .ok-w-big{font-size:38px;line-height:1;color:${css(PALETTE.gold)};white-space:nowrap;-webkit-text-stroke:8px ${css(INK)};paint-order:stroke fill}
 .ok-w-sub{font-size:21px;line-height:1;color:${css(PALETTE.cream)};white-space:nowrap;display:flex;align-items:center;gap:8px}
 .ok-w-tag{height:28px;padding:0 10px;border-radius:14px;background:${css(PALETTE.heal)};color:${css(INK)};font-size:18px;line-height:28px}
@@ -123,6 +128,9 @@ const STYLE = `
 .ok-w-btn.off{opacity:.45;cursor:default}
 .ok-w-btn.sel{opacity:1;background:${rgba(PALETTE.heal, 0.14)};color:${css(PALETTE.heal)};box-shadow:inset 0 0 0 4px ${rgba(PALETTE.heal, 0.8)}}
 .ok-w-btn.sel::after{display:none}
+.ok-w-btn.rdy{overflow:hidden}
+.ok-w-btn.rdy::before{content:'';position:absolute;top:-10px;bottom:-10px;left:0;width:70px;background:linear-gradient(90deg,rgba(255,255,255,0),rgba(255,255,255,.7),rgba(255,255,255,0));transform:translateX(-120px) skewX(-18deg);animation:okw-shine 2.8s ease-in-out .5s infinite;pointer-events:none}
+@keyframes okw-shine{0%,58%{transform:translateX(-120px) skewX(-18deg)}86%,100%{transform:translateX(560px) skewX(-18deg)}}
 .ok-w-btn .c{display:flex;align-items:center;gap:3px}
 .ok-w-up{display:flex;align-items:center;gap:12px;height:62px;flex:none}
 .ok-w-up .ic{width:58px;height:58px;border-radius:29px;background:${css(PALETTE.cream)};flex:none;position:relative;box-shadow:0 0 0 4px ${css(INK)}}
@@ -136,6 +144,7 @@ const STYLE = `
 .ok-w-up .ok-w-btn{height:62px;min-width:136px;border-radius:24px;font-size:26px;padding:0 12px 3px}
 .ok-w-up .mx{min-width:136px;text-align:center;font-size:26px;color:${css(PALETTE.heal)}}
 .ok-w-calm .ok-w-go,.ok-w-calm .ok-w-dot{animation:none}
+.ok-w-calm .ok-w-btn.rdy::before{display:none}
 `;
 
 let styled = false;
@@ -149,6 +158,9 @@ function injectStyle(): void {
 
 /** the level's damage factor under the 3D build's hard rules (sim/cards.ts) */
 const levelDamage = (level: number): number => weaponDamage(level) ** HARD_BOW_POW;
+/** a weapon's damage a hit at a level, and where that sits on the detail card's damage bar (0 … 1) */
+const hitOf = (id: WeaponId, level: number): number => WEAPONS[id].dmgMul * levelDamage(level);
+const dmgBar = (v: number): number => Math.max(0.06, Math.sqrt(v / (2.4 * levelDamage(WEAPON_MAX))));
 
 /** The perk steps (levels 5, 10, 15, 20) that change something for this weapon, with their text. */
 export function perkSteps(id: WeaponId, t: Ui['t']): { level: number; text: string }[] {
@@ -209,6 +221,8 @@ export function createWeaponsPane(ui: Ui, pane: HTMLElement, top: number, bot: n
   });
   const detail = el('div', 'ok-w-card ok-w-det', wrap);
   detail.dataset.testid = 'weapon-detail';
+  /** the detail card's damage row as last drawn (a level-up grows the bar and counts the number) */
+  let dmgRow: { fill: HTMLElement; value: HTMLElement } | null = null;
   // the detail card is no button: a press on its free space does nothing (and never reaches the scene)
   detail.dataset.ui = '1';
   detail.addEventListener('pointerdown', (e) => e.stopPropagation());
@@ -301,6 +315,7 @@ export function createWeaponsPane(ui: Ui, pane: HTMLElement, top: number, bot: n
 
   function renderDetail(d: SaveData): void {
     detail.replaceChildren();
+    dmgRow = null;
     if (focus === 'archer') renderArcherDetail(d);
     else renderWeaponDetail(d, focus ?? d.arsenal.selected);
   }
@@ -333,10 +348,8 @@ export function createWeaponsPane(ui: Ui, pane: HTMLElement, top: number, bot: n
     const stats = el('div', 'ok-w-stats', detail);
     const cost = locked ? null : upgradeCost(lv);
     const perks = weaponPerks(id, lv);
-    const hit = (l: number): number => def.dmgMul * levelDamage(l);
-    const dmgMax = 2.4 * levelDamage(WEAPON_MAX);
-    const k = (v: number): number => Math.max(0.06, Math.sqrt(v / dmgMax));
-    stat(stats, t('weapons.stat.dmg'), k(hit(lv)), cost ? k(hit(lv + 1)) : 0, `×${hit(lv).toFixed(2)}`, tint);
+    const hit = (l: number): number => hitOf(id, l);
+    dmgRow = stat(stats, t('weapons.stat.dmg'), dmgBar(hit(lv)), cost ? dmgBar(hit(lv + 1)) : 0, `×${hit(lv).toFixed(2)}`, tint);
     stat(stats, t('weapons.stat.speed'), def.speedMul / 1.3, 0, `×${def.speedMul.toFixed(2)}`, tint);
     const rate = 1 / (def.reloadMul * perks.reloadMul);
     const rateNext = cost ? 1 / (def.reloadMul * weaponPerks(id, lv + 1).reloadMul) : 0;
@@ -386,6 +399,8 @@ export function createWeaponsPane(ui: Ui, pane: HTMLElement, top: number, bot: n
     const up = btn(row, 'p', cost !== null && canUpgrade(d, id), () => upgrade(id));
     up.dataset.testid = 'weapon-upgrade';
     up.style.flex = '1';
+    // ready to level up: a light keeps running across the button
+    if (cost !== null && canUpgrade(d, id)) up.classList.add('rdy');
     if (!cost) {
       up.style.fontSize = '32px';
       up.textContent = t('weapons.maxBtn');
@@ -447,7 +462,7 @@ export function createWeaponsPane(ui: Ui, pane: HTMLElement, top: number, bot: n
     }
   }
 
-  function stat(parent: HTMLElement, name: string, v: number, next: number, value: string, tint: number): void {
+  function stat(parent: HTMLElement, name: string, v: number, next: number, value: string, tint: number): { fill: HTMLElement; value: HTMLElement } {
     const r = el('div', 'ok-w-stat', parent);
     fitText(el('b', '', r), name, 19, 116);
     const tr = el('div', 'tr', r);
@@ -458,7 +473,9 @@ export function createWeaponsPane(ui: Ui, pane: HTMLElement, top: number, bot: n
     const f = el('i', '', tr);
     f.style.width = `${Math.min(1, v) * 100}%`;
     f.style.background = `linear-gradient(180deg, ${css(mix(tint, 0xffffff, 0.35))}, ${css(tint)})`;
-    el('span', '', r).textContent = value;
+    const val = el('span', '', r);
+    val.textContent = value;
+    return { fill: f, value: val };
   }
 
   function btn(parent: HTMLElement, variant: 'p' | 's', enabled: boolean, fire: () => void): HTMLElement {
@@ -483,6 +500,7 @@ export function createWeaponsPane(ui: Ui, pane: HTMLElement, top: number, bot: n
 
   function upgrade(id: WeaponId): void {
     const before = powerOf(save.data);
+    const level = save.data.arsenal.weapons[id].level;
     let ok = false;
     let got: string[] = [];
     save.update((d) => {
@@ -497,8 +515,86 @@ export function createWeaponsPane(ui: Ui, pane: HTMLElement, top: number, bot: n
     ui.audio.playPreset(SFX.fanfare);
     render();
     pulse(cards.get(id)!);
+    levelUp(id, level, before);
     hooks.changed(before);
-    feats(got);
+    // an achievement's toast drops over the top bar: let POWER finish climbing there first
+    if (calm || got.length === 0) feats(got);
+    else window.setTimeout(() => feats(got), 1800);
+  }
+
+  /** the power gained flies from `from` up into the top bar's POWER (the shell counts it up meanwhile) */
+  function powerFlight(from: HTMLElement, before: number): void {
+    const host = pane.parentElement;
+    const target = host?.querySelector('[data-testid="shell-power"]');
+    if (!host || !target || powerOf(save.data) <= before) return;
+    const a = centreIn(from, host);
+    const b = centreIn(target, host);
+    flyTo(host, a.x, a.y, b.x, b.y, { kind: 'bolt', n: 6, size: 36, color: PALETTE.heal, ms: 560, gap: 55 });
+  }
+
+  /**
+   * A weapon went up a level (the cards are already drawn at the new level): the grid card's level
+   * tag stamps down under a shine; on the detail card a sunburst turns behind the weapon, the
+   * plate jumps, "Level up!" is stamped on the corner, the damage bar grows from its old length
+   * while its number counts, and the power gained flies up to the top bar.
+   */
+  function levelUp(id: WeaponId, from: number, before: number): void {
+    if (calm) return;
+    const card = cards.get(id)!;
+    shine(card, 60);
+    card.querySelector<HTMLElement>('.ok-w-lv')?.animate([{ transform: 'scale(2.6) rotate(-16deg)', opacity: 0 }, { transform: 'scale(0.88) rotate(4deg)', opacity: 1, offset: 0.6 }, { transform: 'none', opacity: 1 }], { duration: 440, easing: 'ease-out' });
+    if (focus !== id) {
+      powerFlight(card, before);
+      return;
+    }
+    const tint = WEAPON_TINT[id];
+    const plate = detail.querySelector<HTMLElement>('.ok-w-plate');
+    const head = plate?.parentElement;
+    if (plate && head) {
+      // behind the plate and the name (it is put in before them), over the card's face
+      sunburst(head, 46, head.offsetHeight / 2, 340, mix(tint, PALETTE.gold, 0.5), 1500, plate);
+      plate.animate([{ transform: 'scale(1)' }, { transform: 'scale(1.38) rotate(-10deg)', offset: 0.28 }, { transform: 'scale(0.93) rotate(5deg)', offset: 0.6 }, { transform: 'scale(1.04) rotate(-2deg)', offset: 0.8 }, { transform: 'none' }], { duration: 680, easing: 'ease-out' });
+      const host = pane.parentElement ?? pane;
+      const c = centreIn(plate, host);
+      sparkle(host, c.x, c.y, { n: 12, reach: 150, ring: 100, colors: [PALETTE.gold, mix(tint, 0xffffff, 0.3), PALETTE.white] });
+    }
+    const lv = detail.querySelector<HTMLElement>('.ok-w-sub>span');
+    if (lv) {
+      pop(lv, 1.3, 520);
+      lv.animate([{ color: css(PALETTE.gold) }, { color: css(PALETTE.gold), offset: 0.7 }, { color: css(PALETTE.cream) }], { duration: 1300 });
+    }
+    const stamp = el('div', 'ok-w-stamp', detail);
+    stamp.textContent = t('weapons.levelUp');
+    const rest = 'scale(1) rotate(-7deg)';
+    stamp.animate(
+      [
+        { transform: 'scale(3.2) rotate(-26deg)', opacity: 0 },
+        { transform: 'scale(0.86) rotate(-5deg)', opacity: 1, offset: 0.16 },
+        { transform: rest, opacity: 1, offset: 0.24 },
+        { transform: rest, opacity: 1, offset: 0.84 },
+        { transform: 'scale(1) rotate(-7deg) translateY(-26px)', opacity: 0 },
+      ],
+      { duration: 1900, fill: 'both' },
+    ).onfinish = () => stamp.remove();
+    // a perk level reached (5, 10, 15, 20): its chip, gold from now on, jumps under a shine and a few stars
+    const perk = perkSteps(id, t).findIndex((s) => s.level === from + 1);
+    const chip = perk >= 0 ? detail.querySelectorAll<HTMLElement>('.ok-w-perk')[perk] : undefined;
+    if (chip) {
+      chip.style.position = 'relative';
+      chip.animate([{ transform: 'scale(1)' }, { transform: 'scale(1.35) rotate(-4deg)', offset: 0.35 }, { transform: 'scale(0.95) rotate(2deg)', offset: 0.65 }, { transform: 'scale(1)' }], { delay: 500, duration: 620, easing: 'ease-out' });
+      shine(chip, 620, 520);
+      const host = pane.parentElement ?? pane;
+      const c = centreIn(chip, host);
+      sparkle(host, c.x, c.y, { n: 8, reach: 90, ring: 60, delay: 560 });
+    }
+    if (dmgRow) {
+      const a = hitOf(id, from);
+      const b = hitOf(id, from + 1);
+      growBar(dmgRow.fill, dmgBar(a) / dmgBar(b), 120, 620);
+      countTo(dmgRow.value, a, b, 700, (n) => `×${n.toFixed(2)}`);
+      pop(dmgRow.value, 1.25, 700);
+    }
+    powerFlight(plate ?? card, before);
   }
 
   function choose(id: WeaponId): void {
@@ -527,25 +623,19 @@ export function createWeaponsPane(ui: Ui, pane: HTMLElement, top: number, bot: n
     ui.audio.play('coin');
     render();
     pulse(archer);
+    if (!calm) {
+      shine(archer, 40);
+      powerFlight(archer, before);
+    }
     hooks.changed(before);
   }
 
   function pulse(e: HTMLElement): void {
     if (calm) return;
     e.animate([{ transform: 'scale(1)' }, { transform: 'scale(1.12)', offset: 0.35 }, { transform: 'scale(1)' }], { duration: 460, easing: EASE.backOut });
-    const r = e.getBoundingClientRect();
-    const host = pane.getBoundingClientRect();
-    const k = host.width / 720 || 1;
-    const cx = (r.left + r.width / 2 - host.left) / k;
-    const cy = (r.top + r.height / 2 - host.top) / k;
-    for (let i = 0; i < 12; i++) {
-      const s = el('div', '', pane);
-      const a = (i / 12) * Math.PI * 2;
-      const dd = 70 + (i % 3) * 30;
-      s.style.cssText = `position:absolute;left:${cx - 9}px;top:${cy - 9}px;width:18px;height:18px;border-radius:50%;background:${css(i % 2 ? PALETTE.gold : PALETTE.heal)};box-shadow:0 0 0 3px ${css(INK)};pointer-events:none`;
-      const an = s.animate([{ transform: 'translate(0,0) scale(1)', opacity: 1 }, { transform: `translate(${Math.cos(a) * dd}px,${Math.sin(a) * dd}px) scale(0.3)`, opacity: 0 }], { duration: 560, easing: EASE.cubicOut, fill: 'forwards' });
-      an.onfinish = () => s.remove();
-    }
+    // stars and a ring off the card (over the pane, so they may fly past its edges)
+    const c = centreIn(e, pane);
+    sparkle(pane, c.x, c.y, { n: 10, reach: 120, ring: 84, colors: [PALETTE.gold, PALETTE.heal, PALETTE.white] });
   }
 
   function render(): void {

@@ -14,6 +14,7 @@ import type { SaveData } from '@sim/meta';
 import { dailyChallenge, liveStreak } from '@sim/progress';
 import { calmMotion, EASE, el, fitText, iconCanvas, mix, pressable, TAB_BAR_H } from './dom';
 import { css, type Gfx, rgba } from './gfx';
+import { growBar, knock, popIn, shineLoop } from './juice';
 import { todayKey } from './save';
 import type { Ui } from './screens';
 import { clock, drawChestIcon, msToMidnight } from './shop';
@@ -150,7 +151,8 @@ export function createEventsPane(ui: Ui, pane: HTMLElement, top: number, bot: nu
       iconCanvas(rw, 56, 56, (g) => drawTick(g, 28, 28));
       fitText(el('span', '', rw), t('events.done'), 26, 520);
     } else {
-      iconCanvas(rw, 80, 64, (g) => drawChestIcon(g, 'gold', 40, 34, 0.78));
+      // the prize still to win knocks now and then
+      knock(iconCanvas(rw, 80, 64, (g) => drawChestIcon(g, 'gold', 40, 34, 0.78)), 3000, 1100);
       fitText(el('span', '', rw), t('events.reward'), 26, 500);
     }
 
@@ -172,7 +174,12 @@ export function createEventsPane(ui: Ui, pane: HTMLElement, top: number, bot: nu
 
     if (animate && !calm) {
       [card, more].forEach((e, i) => e.animate([{ transform: 'scale(0.9)', opacity: 0 }, { transform: 'none', opacity: 1 }], { delay: 40 + i * 60, duration: 320, easing: EASE.backOut, fill: 'backwards' }));
+      // the day's progress fills up and the streak's days pop in one by one, once the card has landed
+      if (k > 0) growBar(fill, 0.04, 300, 700);
+      popIn(Array.from(pips.querySelectorAll<HTMLElement>('i.on')), 420, 80);
     }
+    // the way into the daily run catches the light now and then
+    if (!ui.game.daily) shineLoop(play, 3400, 1400);
     left = sub.lastElementChild as HTMLElement;
   }
 

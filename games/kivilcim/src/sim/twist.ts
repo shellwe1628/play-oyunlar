@@ -312,3 +312,71 @@ export function rollRate(twists: readonly Twist[], y: number, v: number): number
   const h = 1;
   return ((poseAt(twists, y + h).tilt - poseAt(twists, y - h).tilt) / (2 * h)) * v;
 }
+
+/**
+ * A cue: the banner and the hold arrow for one change of view. One cue per chamber, whatever
+ * happens in it (twists easing in, twists easing out, or one set easing out and the next easing
+ * in straight after): it comes up CUE_LEAD px before the pose starts to move, so the player is
+ * always told first, and it names what the view is going to (the incoming twists, or the normal
+ * view). The scene shows these; the tests check them against the poses.
+ */
+export interface TwistCue {
+  /** Height at which the banner and the arrow come up. */
+  y: number;
+  /** The twists being announced, flips first (out: the twists that are ending). */
+  kinds: TwistKind[];
+  /** The view is going back to normal: nothing eases in. */
+  out: boolean;
+  /** A dive or a side starts or ends here: the screen direction of hold changes. */
+  turns: boolean;
+  /** Where the pose starts to change, and where it has settled again. */
+  from: number;
+  end: number;
+  /** Which way hold points on screen once the view has settled (unit vector, y down). */
+  holdX: number;
+  holdY: number;
+}
+
+/** Px of climb between a cue and the first change of the pose it announces. */
+export const CUE_LEAD = 350;
+/** Changes of view closer together than this belong to one chamber (one cue). */
+const CUE_GAP = 400;
+
+const flipFirst = (a: TwistKind, b: TwistKind): number => (a === 'dive' || a === 'side' ? 0 : 1) - (b === 'dive' || b === 'side' ? 0 : 1);
+
+/** The cues of a track's twists, in order of height. */
+export function twistCues(twists: readonly Twist[], calm = false): TwistCue[] {
+  const moves: { a: number; b: number; kind: TwistKind; out: boolean }[] = [];
+  for (const t of twists) {
+    if (t.ease <= 0) continue;
+    moves.push({ a: t.y0, b: t.y0 + t.ease, kind: t.kind, out: false });
+    moves.push({ a: t.y1 - t.ease, b: t.y1, kind: t.kind, out: true });
+  }
+  moves.sort((p, q) => p.a - q.a);
+  const cues: TwistCue[] = [];
+  let i = 0;
+  while (i < moves.length) {
+    const from = moves[i]!.a;
+    let end = moves[i]!.b;
+    const ins: TwistKind[] = [];
+    const outs: TwistKind[] = [];
+    while (i < moves.length && moves[i]!.a <= end + CUE_GAP) {
+      const m = moves[i++]!;
+      end = Math.max(end, m.b);
+      (m.out ? outs : ins).push(m.kind);
+    }
+    const out = ins.length === 0;
+    const hold = holdVector(poseAt(twists, end + 2, calm));
+    cues.push({
+      y: from - CUE_LEAD,
+      kinds: (out ? outs : ins).sort(flipFirst),
+      out,
+      turns: [...ins, ...outs].some((k) => k === 'dive' || k === 'side'),
+      from,
+      end,
+      holdX: hold.x,
+      holdY: hold.y,
+    });
+  }
+  return cues;
+}

@@ -139,7 +139,13 @@ test('real touch: press/release steer, past 30 % of level 1, multi-touch and can
       console.warn(`switch ${switches}: due ${next}, sent at ${d.tick}, after frame tick ${a.tick} dir ${a.dir} x ${a.x}`);
     }
     if (switches === 1) {
-      const a = await data(page);
+      // A release applies from the first tick ending at or after it: depending on where the
+      // touch landed inside the frame that tick is in this frame or the next one.
+      let a = await data(page);
+      if (a.dir !== -1) {
+        await frame();
+        a = await data(page);
+      }
       expect(a.held).toBe(false);
       expect(a.dir).toBe(-1);
       sawRelease = true;

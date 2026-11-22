@@ -8,7 +8,7 @@ import { createRng, hashSeed, type Rng } from '@oyun/core/pure';
 import { TrackBuilder } from './builder';
 import { emit, OPEN_H, PORT_H, type PatternKind, type Seg } from './patterns';
 import type { SpeedProfile, Track, Twist } from './track';
-import { easeFor, rockPeriod } from './twist';
+import { CUE_LEAD, easeFor, rockPeriod } from './twist';
 
 export const ENDLESS_SPEED: SpeedProfile = { base: 480, creep: 0.0035, max: 650 };
 
@@ -38,7 +38,13 @@ export interface EndlessTrack {
   qs: number[];
   /** True for the segments that are gate blocks. */
   gated: boolean[];
+  /** Pattern of each segment ('gate' for a gate block). */
+  kinds: (PatternKind | 'gate')[];
 }
+
+/** Twist stretches never sit on a segment harder than this, nor on a needle or a rhythm run. */
+export const TWIST_MAX_Q = 0.6;
+const CRUX_KINDS: readonly (PatternKind | 'gate')[] = ['needle', 'rhythm'];
 
 const lerp = (a: number, b: number, t: number): number => a + (b - a) * Math.min(1, Math.max(0, t));
 
@@ -66,14 +72,25 @@ function pickKind(rng: Rng, q: number): PatternKind {
 /**
  * Twist stretches (pure, presentation only): some plain segments above TWIST_FROM_Y are shown
  * leaning, rocking or zoomed out. A stretch covers one segment, easing in around the join
- * before it and out around the join after it (joins are the standard port). Never on a gate
+ * before it and out around the join after it (joins are the standard port). Never on a crux:
+ * not on a needle or a rhythm run, not on anything harder than TWIST_MAX_Q, and not beside a
+ * needle or a rhythm run either (the eases reach a little into the neighbours). Never on a gate
  * block or beside one (a FAST gate would speed the roll up), never two in a row. Drawn from
  * their own stream, three numbers per segment whatever the outcome, so a longer build of the
- * same seed keeps the stretches it had.
+ * same seed keeps the stretches it had, and the shaft is the same with or without them.
  */
-function twistStretches(rng: Rng, start: number, joins: readonly number[], gated: readonly boolean[], vMax: number): Twist[] {
+function twistStretches(
+  rng: Rng,
+  start: number,
+  joins: readonly number[],
+  gated: readonly boolean[],
+  kinds: readonly (PatternKind | 'gate')[],
+  qs: readonly number[],
+  vMax: number,
+): Twist[] {
   const out: Twist[] = [];
   let last = -9;
+  let lastEnd = -Infinity;
   for (let i = 0; i < joins.length; i++) {
     const roll = rng.next();
     const pick = rng.next();
@@ -85,9 +102,13 @@ function twistStretches(rng: Rng, start: number, joins: readonly number[], gated
     const ease = easeFor(kind, amount, vMax);
     if (a - ease / 2 < TWIST_FROM_Y || i - last < 2 || i + 1 >= joins.length) continue;
     if (gated[i] || gated[i - 1] || gated[i + 1]) continue;
-    if (roll >= 0.34 || b - a < ease + 500) continue;
+    if (qs[i]! > TWIST_MAX_Q || CRUX_KINDS.includes(kinds[i]!) || CRUX_KINDS.includes(kinds[i - 1]!) || CRUX_KINDS.includes(kinds[i + 1]!)) continue;
+    if (roll >= 0.5 || b - a < ease + 500) continue;
+    // The view has settled from the stretch before by the time this one's cue comes up.
+    if (a - ease / 2 - CUE_LEAD - 60 < lastEnd) continue;
     out.push({ kind, y0: a - ease / 2, y1: b + ease / 2, ease, amount, period: kind === 'rock' ? rockPeriod(amount, vMax) : 0 });
     last = i;
+    lastEnd = b + ease / 2;
   }
   return out;
 }
@@ -121,17 +142,19 @@ export function buildEndless(seed: number, opts: EndlessOptions = {}): EndlessTr
   const joins: number[] = [];
   const qs: number[] = [];
   const gated: boolean[] = [];
+  const kinds: (PatternKind | 'gate')[] = [];
   for (let i = 0; i < n; i++) {
     const { segs, q } = segmentFor(pick, i);
     for (const s of segs) emit(b, s, ctx);
     joins.push(b.y);
     qs.push(q);
     gated.push(segs.length > 1);
+    kinds.push(segs.length > 1 ? 'gate' : (segs[0]!.k as PatternKind));
   }
   b.straight(200, PORT_H);
   if (opts.dive) b.twists.push({ ...DIVE_TWIST });
-  if (opts.twists !== false) for (const t of twistStretches(rng.fork('twists'), start, joins, gated, speed.max)) b.twists.push(t);
-  return { track: b.finish(), joins, qs, gated };
+  if (opts.twists !== false) for (const t of twistStretches(rng.fork('twists'), start, joins, gated, kinds, qs, speed.max)) b.twists.push(t);
+  return { track: b.finish(), joins, qs, gated, kinds };
 }
 
 /** Local calendar date as YYYY-MM-DD (one daily shaft per day, wherever the player is). */

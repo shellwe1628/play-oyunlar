@@ -106,6 +106,41 @@ describe('a save from before world 5 loads with nothing lost', () => {
     expect(again.data.levels).toHaveLength(50);
   });
 
+  it('level 40 reached but not beaten: nothing moves, and world 5 stays locked', () => {
+    const o = old();
+    // The same save one boss earlier: level 40 tried 143 times, best 87 %.
+    o.data.levels[39] = { best: 87, attempts: 143, gemMask: 1, done: false, stars: 0, bestDate: '2026-11-21' };
+    const d = load(JSON.stringify(o)).data;
+    expect(d.unlocked).toBe(40);
+    expect(d.levels[39]).toEqual({ best: 87, attempts: 143, gemMask: 1, done: false, stars: 0, bestDate: '2026-11-21' });
+    expect(totalStars(d)).toBe(81); // enough stars, but the boss still stands
+    expect(worldUnlocked(d, 5)).toBe(false);
+    expect(levelOpen(d, 41)).toBe(false);
+    expect(levelToPlay(d)).toBe(40);
+    expect(d.levels.slice(40).every((l) => !l.done && l.attempts === 0 && l.stars === 0)).toBe(true);
+  });
+
+  it('level 40 beaten with fewer than 80 stars: level 41 is reached but world 5 stays locked until the stars are there', () => {
+    const o = old();
+    // The same save with fewer stars: two on levels 1-18, one on levels 19-30 (62 in all with world 4's).
+    for (let i = 0; i < 30; i++) o.data.levels[i] = { ...o.data.levels[i], stars: i < 18 ? 3 : 1 };
+    const d = load(JSON.stringify(o)).data;
+    const stars = totalStars(d);
+    expect(stars).toBe(18 * 2 + 12 + 14);
+    expect(stars).toBeGreaterThanOrEqual(60); // world 4 is open
+    expect(stars).toBeLessThan(80); // world 5 is not
+    expect(d.levels[39]!.done).toBe(true);
+    expect(d.unlocked).toBe(41);
+    expect(worldUnlocked(d, 5)).toBe(false);
+    expect(levelOpen(d, 41)).toBe(false);
+    expect(levelToPlay(d)).toBe(40);
+    // Earning the missing stars on old levels opens it, with no boss to beat again.
+    let id = 19;
+    while (totalStars(d) < 80) recordLevelRun(d, id++, { percent: 100, gemMask: 7, finished: true, nearMisses: 0 });
+    expect(worldUnlocked(d, 5)).toBe(true);
+    expect(levelToPlay(d)).toBe(41);
+  });
+
   it('a save that had not reached level 40 is not pushed forward', () => {
     const o = old();
     o.data.unlocked = 23;

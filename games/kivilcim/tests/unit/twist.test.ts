@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { TrackBuilder } from '../../src/sim/builder';
 import { SHAFT_W } from '../../src/sim/constants';
-import { buildEndless, DIVE_TWIST } from '../../src/sim/endless';
+import { buildEndless, DIVE_TWIST, TWIST_MAX_Q } from '../../src/sim/endless';
 import { buildLevel, buildLevelParts, CRUX_Q, LEVEL_COUNT, levelInfo } from '../../src/sim/levels';
 import { TWIST_H } from '../../src/sim/patterns';
 import { RunSim } from '../../src/sim/run';
@@ -12,6 +12,7 @@ import {
   BASE_AHEAD,
   BASE_CLEAR,
   CALM_ROCK,
+  CUE_LEAD,
   DIVE_Y,
   holdVector,
   lookahead,
@@ -26,6 +27,7 @@ import {
   project,
   SIDE_X,
   SPARK_Y,
+  twistCues,
   twistWeight,
   viewRange,
   type Pose,
@@ -210,7 +212,7 @@ describe('twists are presentation only', () => {
     expect(longer.track.twists.slice(0, a.track.twists.length)).toEqual(a.track.twists);
     let some = 0;
     for (let seed = 1; seed <= 20; seed++) some += buildEndless(seed, { segments: 60 }).track.twists.length;
-    expect(some).toBeGreaterThan(20);
+    expect(some).toBeGreaterThan(30);
   });
 
   it('endless twist stretches keep the lookahead, roll slowly and never touch a gate block', () => {
@@ -220,7 +222,7 @@ describe('twists are presentation only', () => {
     let lowClear = Infinity;
     for (const seed of [1, 2, 3, 5, 8, 13, 21, 34]) {
       for (const dive of [false, true]) {
-        const { track, joins, gated } = buildEndless(seed, { segments: 60, dive });
+        const { track, joins, gated, kinds, qs } = buildEndless(seed, { segments: 60, dive });
         const stretchesHere = track.twists.filter((t) => t.ease > 0);
         stretches += stretchesHere.length;
         for (const t of stretchesHere) {
@@ -228,6 +230,14 @@ describe('twists are presentation only', () => {
           expect(track.gates.filter((g) => g.y >= t.y0 && g.y <= t.y1), `seed ${seed}`).toEqual([]);
           const i = joins.findIndex((y) => y > t.y0 + t.ease / 2 + 1);
           expect([gated[i - 1], gated[i], gated[i + 1]], `seed ${seed} segment ${i}`).toEqual([false, false, false]);
+          // Never on a crux: not a needle or a rhythm run (nor beside one), nothing above 0.6 difficulty.
+          expect(['needle', 'rhythm'], `seed ${seed} segment ${i} is a ${kinds[i]}`).not.toContain(kinds[i]);
+          expect(['needle', 'rhythm'], `seed ${seed} segment ${i - 1}`).not.toContain(kinds[i - 1]);
+          expect(['needle', 'rhythm'], `seed ${seed} segment ${i + 1}`).not.toContain(kinds[i + 1]);
+          expect(qs[i], `seed ${seed} segment ${i}`).toBeLessThanOrEqual(TWIST_MAX_Q);
+          // The stretch is that one segment: it eases in around the join before and out around the join after.
+          expect(t.y0 + t.ease / 2, `seed ${seed}`).toBeCloseTo(i === 0 ? t.y0 + t.ease / 2 : joins[i - 1]!, 6);
+          expect(t.y1 - t.ease / 2, `seed ${seed}`).toBeCloseTo(joins[i]!, 6);
           expect(Math.abs(t.kind === 'far' ? 0 : t.amount), `seed ${seed}`).toBeLessThanOrEqual(MAX_TILT);
         }
         const tl = kinematics(track);
@@ -250,7 +260,7 @@ describe('twists are presentation only', () => {
       }
     }
     console.warn(`endless twist stretches (8 seeds x 60 segments, plain and dive): ${stretches} stretches, lowest lookahead ${lowEdge} px (clear ${lowClear} px), fastest roll ${worstRoll.toFixed(1)} deg/s`);
-    expect(stretches).toBeGreaterThan(30);
+    expect(stretches).toBeGreaterThan(20);
     expect(lowEdge).toBeGreaterThan(BASE_AHEAD - AHEAD_STEP);
     expect(lowClear).toBeGreaterThan(BASE_CLEAR - AHEAD_STEP);
     expect(worstRoll).toBeLessThanOrEqual(MAX_ROLL_DPS + 0.5);
@@ -481,5 +491,137 @@ describe('world 5: the twists on levels 41-50', () => {
 
   it('a bare builder track has no twists (old test tracks are untouched)', () => {
     expect(new TrackBuilder({ speed: 500 }).straight(900, 200).finish().twists).toEqual([]);
+  });
+});
+
+/** A twist is settled at y when it is fully off or fully on (nothing is easing). */
+const settledAt = (twists: readonly Twist[], y: number): boolean =>
+  twists.every((t) => {
+    const w = twistWeight(t, y);
+    return w === 0 || w === 1;
+  });
+
+/**
+ * Walk a track tick by tick. Every time the view leaves a settled pose, the cue for that change
+ * must already be up, raised while the view was still settled, and it must name the twists that
+ * are coming in. Returns how many changes of view were met.
+ */
+function checkCues(track: Track, what: string): number {
+  const twists = track.twists;
+  const cues = twistCues(twists);
+  const tl = kinematics(track);
+  let was = true;
+  let departures = 0;
+  for (let j = 1; j <= tl.n; j++) {
+    const y = tl.y[j]!;
+    const now = settledAt(twists, y);
+    if (was && !now) {
+      departures++;
+      const cue = cues.find((c) => y >= c.from && y <= c.end);
+      expect(cue, `${what}: no cue for the change at y ${Math.round(y)}`).toBeDefined();
+      // Raised before the pose began to move: at least 300 px and half a second earlier.
+      expect(cue!.y, `${what} y ${Math.round(y)}`).toBeLessThanOrEqual(y - 300);
+      let k = j;
+      while (k > 0 && tl.y[k]! > cue!.y) k--;
+      expect((j - k) / 120, `${what} y ${Math.round(y)}: seconds between the cue and the change`).toBeGreaterThanOrEqual(0.5);
+      // ... and nothing was moving between the cue and the change.
+      for (let i = k; i < j; i++) expect(settledAt(twists, tl.y[i]!), `${what}: the view moves at y ${Math.round(tl.y[i]!)}, before the change the cue at ${Math.round(cue!.y)} announces`).toBe(true);
+      // It names what is coming.
+      const incoming = twists.filter((t) => t.ease > 0 && t.y0 >= cue!.from - 1 && t.y0 <= cue!.end);
+      expect(cue!.out, `${what} y ${Math.round(y)}`).toBe(incoming.length === 0);
+      for (const t of incoming) expect(cue!.kinds, `${what} y ${Math.round(y)}`).toContain(t.kind);
+    }
+    was = now;
+  }
+  expect(departures, what).toBe(cues.length);
+  // Every twist has a cue of its own kind, up before anything in its chamber moves.
+  for (const t of twists) {
+    if (t.ease <= 0) continue;
+    const cue = cues.find((c) => !c.out && c.kinds.includes(t.kind) && t.y0 >= c.from - 1 && t.y0 + t.ease <= c.end + 1);
+    expect(cue, `${what}: ${t.kind} at ${Math.round(t.y0)} has no cue`).toBeDefined();
+    expect(cue!.y + CUE_LEAD, `${what}: ${t.kind}`).toBeLessThanOrEqual(t.y0);
+  }
+  return departures;
+}
+
+/** Hold's direction on screen under the pose at y, worked out from two projected points. */
+function holdOnScreen(twists: readonly Twist[], y: number): { x: number; y: number } {
+  const p = poseAt(twists, y);
+  const m = poseMatrix(p);
+  const a = project(p, m, 300, y, y, { x: 0, y: 0 });
+  const b = project(p, m, 310, y + 10, y, { x: 0, y: 0 });
+  const len = Math.hypot(b.x - a.x, b.y - a.y);
+  return { x: (b.x - a.x) / len, y: (b.y - a.y) / len };
+}
+
+describe('cues: the player is told before the view moves', () => {
+  it('levels 41-50: at every change of view the banner and arrow are already up, also in chained chambers', () => {
+    let changes = 0;
+    let chained = 0;
+    for (const id of VORTEX) {
+      const track = buildLevel(id);
+      changes += checkCues(track, `level ${id}`);
+      // A chained chamber: twists ease out and others ease in under one cue, raised before the first.
+      for (const c of twistCues(track.twists)) {
+        const outs = track.twists.filter((t) => t.y1 - t.ease >= c.from - 1 && t.y1 <= c.end + 1);
+        if (!c.out && outs.length) {
+          chained++;
+          expect(c.from, `level ${id}`).toBeCloseTo(Math.min(...outs.map((t) => t.y1 - t.ease)), 6);
+          expect(c.y, `level ${id}`).toBeCloseTo(c.from - CUE_LEAD, 6);
+        }
+      }
+    }
+    expect(changes).toBeGreaterThanOrEqual(40);
+    expect(chained).toBeGreaterThanOrEqual(6); // levels 46 to 50 chain their chambers
+  });
+
+  it('endless and dive: the same for every twist stretch', () => {
+    let changes = 0;
+    for (const seed of [1, 2, 3, 5, 8, 13, 21, 34]) {
+      for (const dive of [false, true]) changes += checkCues(buildEndless(seed, { segments: 60, dive }).track, `seed ${seed}${dive ? ' dive' : ''}`);
+    }
+    expect(changes).toBeGreaterThan(20);
+  });
+
+  it('the cue list of a chained level reads in order: what comes in, never a late "back to normal"', () => {
+    const c47 = twistCues(buildLevel(47).twists).map((c) => `${c.out ? 'normal' : c.kinds.join('+')}${c.turns ? '!' : ''}`);
+    expect(c47).toEqual(['side!', 'dive!', 'normal!', 'near', 'normal']);
+    const c50 = twistCues(buildLevel(50).twists).map((c) => `${c.out ? 'normal' : c.kinds.join('+')}${c.turns ? '!' : ''}`);
+    expect(c50).toEqual(['dive!', 'side!', 'normal!', 'dive+tilt!', 'normal!']);
+    const c49 = twistCues(buildLevel(49).twists).map((c) => `${c.out ? 'normal' : c.kinds.join('+')}${c.turns ? '!' : ''}`);
+    expect(c49).toEqual(['far+tilt', 'side!', 'dive!', 'normal!']);
+  });
+
+  it('the arrow points the way hold goes once the view has settled (side, dive, stacked and chained)', () => {
+    const R = Math.SQRT1_2;
+    for (const id of VORTEX) {
+      const { twists } = buildLevel(id);
+      for (const c of twistCues(twists)) {
+        const want = holdOnScreen(twists, c.end + 2);
+        expect(c.holdX, `level ${id} cue at ${Math.round(c.y)}`).toBeCloseTo(want.x, 6);
+        expect(c.holdY, `level ${id} cue at ${Math.round(c.y)}`).toBeCloseTo(want.y, 6);
+      }
+    }
+    // Dive: down and right. Back to normal: up and right.
+    const c41 = twistCues(buildLevel(41).twists);
+    expect([c41[0]!.holdX, c41[0]!.holdY].map((v) => Math.round(v * 1000) / 1000)).toEqual([0.707, 0.707]);
+    expect([c41[1]!.holdX, c41[1]!.holdY].map((v) => Math.round(v * 1000) / 1000)).toEqual([0.707, -0.707]);
+    // Side: hold = up while the flight runs right, which is up and right on screen.
+    const c44 = twistCues(buildLevel(44).twists);
+    expect(c44[0]!.kinds).toEqual(['side']);
+    expect(c44[0]!.holdX).toBeCloseTo(R, 6);
+    expect(c44[0]!.holdY).toBeCloseTo(-R, 6);
+    // Stacked: dive under a lean of -6 degrees turns the dive's arrow by the lean (39 degrees below the horizontal).
+    const stacked = twistCues(buildLevel(45).twists).find((c) => c.kinds.join('+') === 'dive+tilt')!;
+    expect(stacked.holdX).toBeCloseTo(Math.cos((39 * Math.PI) / 180), 6);
+    expect(stacked.holdY).toBeCloseTo(Math.sin((39 * Math.PI) / 180), 6);
+    // ... and level 50's dive under +10 degrees (55 degrees below the horizontal).
+    const boss = twistCues(buildLevel(50).twists).find((c) => c.kinds.join('+') === 'dive+tilt')!;
+    expect(boss.holdX).toBeCloseTo(Math.cos((55 * Math.PI) / 180), 6);
+    expect(boss.holdY).toBeCloseTo(Math.sin((55 * Math.PI) / 180), 6);
+    // Chained: side straight into dive announces the dive, with the dive's arrow.
+    const chained = twistCues(buildLevel(47).twists)[1]!;
+    expect(chained.kinds).toEqual(['dive']);
+    expect([chained.holdX, chained.holdY].map((v) => Math.round(v * 1000) / 1000)).toEqual([0.707, 0.707]);
   });
 });

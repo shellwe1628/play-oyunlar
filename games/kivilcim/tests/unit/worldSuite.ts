@@ -6,6 +6,7 @@ import { createRng } from '@oyun/core/pure';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { wallsInBounds } from '../../src/sim/builder';
 import { DT, NEAR_PX } from '../../src/sim/constants';
+import { RunSim } from '../../src/sim/run';
 import { humanRate, reference } from '../../src/sim/human';
 import { buildLevel, levelInfo, WORLD_SIZE } from '../../src/sim/levels';
 import { MECHANICS, type Mechanic } from '../../src/sim/patterns';
@@ -93,6 +94,24 @@ export function worldSuite(world: number): void {
 
     it('the "clean" star is possible: a finishing plan exists with no near miss (margin above NEAR_PX)', () => {
       for (const id of ids) expect(res.get(id)!.marginPx, `level ${id}`).toBeGreaterThan(NEAR_PX + 1);
+    });
+
+    it('the clean finish is flown, not only measured: a plan at that clearance and hold replays with no near miss', () => {
+      // The margin above comes from a bisection, and feasibility is not always monotonic in the
+      // clearance (level 50: yes at 11.75, no at 11.5). So the star's own condition is checked
+      // directly: solve at the suite's clearance and hold, then replay the plan tick for tick.
+      for (const id of ids) {
+        const t = tracks.get(id)!;
+        const plan = solve(prepare(t), { minClear: NEAR_PX + 1, minHoldTicks: K_REF });
+        expect(plan, `level ${id}`).not.toBeNull();
+        const r = replay(t, plan!.held);
+        expect(r.finished, `level ${id}`).toBe(true);
+        expect(r.minClear, `level ${id}`).toBeGreaterThanOrEqual(NEAR_PX + 1);
+        expect(r.minInterval, `level ${id}`).toBeGreaterThanOrEqual(K_REF);
+        const sim = new RunSim(t);
+        for (let j = 0; j < plan!.held.length && sim.alive && !sim.finished; j++) sim.step(plan!.held[j] === 1);
+        expect([sim.finished, sim.nearMisses], `level ${id}`).toEqual([true, 0]);
+      }
     });
 
     it('margin and window shrink strictly inside the world', () => {

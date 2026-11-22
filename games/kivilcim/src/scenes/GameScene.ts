@@ -36,13 +36,13 @@ import { EdgeQueue } from '../sim/input';
 import { buildEndless, dailyKey, dailySeed, DIVE_STREAM } from '../sim/endless';
 import { buildLevel, isBoss, LEVEL_COUNT, levelInfo, worldOf } from '../sim/levels';
 import { ACHIEVEMENTS, FLOW_MAX, progressScore, RANKS, rankOf, settle, totalStars, type MetaGain } from '../sim/meta';
-import { MECHANICS, TWIST_LEAD, type Mechanic } from '../sim/patterns';
+import { MECHANICS, type Mechanic } from '../sim/patterns';
 import { endlessUnlocked, levelOpen, levelToPlay, recordDaily, recordDive, recordEndless, recordLevelRun, recordStats, shouldShowInterstitial } from '../sim/progress';
 import { RunSim } from '../sim/run';
 import { COLOR_SHIFT_STYLES, TIERS, TRAILS } from '../sim/skins';
 import { K_REF, prepare, solve } from '../sim/solver';
 import { sdf, segmentAt, TWIST_KINDS, wallXAt, type GateKind, type Track, type TwistKind } from '../sim/track';
-import { holdVector, lookahead, mirrored, NORMAL_POSE, poseAt, poseMatrix, project, SPARK_Y, viewRange, type Mat, type Pose, type Pt } from '../sim/twist';
+import { lookahead, mirrored, NORMAL_POSE, poseAt, poseMatrix, project, SPARK_Y, twistCues, viewRange, type Mat, type Pose, type Pt, type TwistCue } from '../sim/twist';
 import { ENDLESS_THEMES, GATE_COLORS, PALETTE, PALETTES, type Palette } from '../textures';
 import { bigText, fitText, IconTile, MenuCard, NeonButton, type MenuHit } from '../ui';
 import { SCENES, UNLOCKED_KEY } from './keys';
@@ -67,14 +67,6 @@ const RAD = Math.PI / 180;
 /** A flip passes through zero; a container's scale must not (its matrix has to stay invertible). */
 const offZero = (k: number): number => (Math.abs(k) < 0.02 ? (k < 0 ? -0.02 : 0.02) : k);
 
-/** A twist banner due when the spark reaches y: twists easing in, or out (back to normal). */
-interface TwistEvent {
-  y: number;
-  kinds: TwistKind[];
-  out: boolean;
-  /** End of the ease the banner announces (the hold arrow stays a little past it). */
-  end: number;
-}
 /** Title: height of the neon sign (logo) under the safe top edge. */
 const SIGN_Y = 272;
 const DT_MS = DT * 1000;
@@ -211,7 +203,9 @@ export class GameScene extends OyunScene {
   private hand = 1;
   /** Reduced motion: a number that changes when the pose switches (0 = none yet). */
   private poseKey = 0;
-  private twistEvents: TwistEvent[] = [];
+  private twistEvents: TwistCue[] = [];
+  /** Kinds of the cue last raised (test hook). */
+  private cueKinds: TwistKind[] = [];
   private twistEventIdx = 0;
   /** The hold arrow shows until the spark passes this height; its direction on screen. */
   private arrowUntil = -1;
@@ -267,6 +261,8 @@ export class GameScene extends OyunScene {
   private holdText!: Phaser.GameObjects.Text;
   private readyBody!: Phaser.GameObjects.Container;
   private deadBody!: Phaser.GameObjects.Container;
+  /** The death card sits low: the spark died near the top of the screen. */
+  private deadLow = false;
   private diveTile!: MenuCard;
   private worldFx!: World;
   private edgeFx!: EdgeFx;
@@ -404,6 +400,13 @@ export class GameScene extends OyunScene {
     this.calm = isCalm(this);
     this.frameA = 0;
     this.rankUp = null;
+    // One texture per batch, the path Phaser already takes on phones. With several textures in
+    // a batch its shader picks the sampler by comparing an interpolated varying with a constant
+    // (`outTexDatum == float(i)`, else transparent); a software rasteriser (a desktop browser
+    // without hardware acceleration, every headless test) does not interpolate that constant
+    // exactly across a rotated triangle, and pixels of walls and bars drop out under a lean.
+    const renderer = this.game.renderer;
+    if (renderer instanceof Phaser.Renderer.WebGL.WebGLRenderer && renderer.renderNodes.maxParallelTextureUnits !== 1) renderer.renderNodes.setMaxParallelTextureUnits(1);
     this.fx = new URLSearchParams(location.search).get('fx') !== '0';
     this.twistOn = this.fx && new URLSearchParams(location.search).get('twist') !== '0';
     Object.assign(this.pose, NORMAL_POSE);
@@ -1171,37 +1174,12 @@ export class GameScene extends OyunScene {
     }
   }
 
-  /** Banners due along this track: one per chamber (twists easing in, or the view going back). */
+  /**
+   * Banners due along this track: one per chamber, raised before the pose starts to move (the
+   * cues are worked out in sim/twist.ts, where the tests check them against the poses).
+   */
   private buildTwistEvents(keep = false): void {
-    const ev: TwistEvent[] = [];
-    if (this.twistOn) {
-      const tw = this.track.twists.filter((t) => t.ease > 0);
-      const order = (k: TwistKind): number => (k === 'dive' || k === 'side' ? 0 : 1);
-      const starts = new Map<number, TwistEvent>();
-      for (const t of tw) {
-        const key = Math.round(t.y0);
-        const e = starts.get(key) ?? { y: t.y0 - TWIST_LEAD - 150, kinds: [], out: false, end: t.y0 };
-        e.kinds.push(t.kind);
-        e.kinds.sort((a, b) => order(a) - order(b));
-        e.end = Math.max(e.end, t.y0 + t.ease);
-        starts.set(key, e);
-      }
-      const ends = new Map<number, TwistEvent>();
-      for (const t of tw) {
-        const from = t.y1 - t.ease;
-        // A chamber that eases straight into the next twist announces that one instead.
-        if (tw.some((o) => o !== t && o.y0 >= from - 1 && o.y0 <= t.y1 + 400)) continue;
-        const key = Math.round(from / 400);
-        const e = ends.get(key) ?? { y: from - 220, kinds: [], out: true, end: t.y1 };
-        e.kinds.push(t.kind);
-        e.kinds.sort((a, b) => order(a) - order(b));
-        e.y = Math.min(e.y, from - 220);
-        e.end = Math.max(e.end, t.y1);
-        ends.set(key, e);
-      }
-      ev.push(...starts.values(), ...ends.values());
-      ev.sort((a, b) => a.y - b.y);
-    }
+    const ev = this.twistOn ? twistCues(this.track.twists, this.calm) : [];
     this.twistEvents = ev;
     this.twistEventIdx = 0;
     if (keep) while (this.twistEventIdx < ev.length && ev[this.twistEventIdx]!.y <= this.sim.y) this.twistEventIdx++;
@@ -1216,7 +1194,8 @@ export class GameScene extends OyunScene {
       // A banner the spark is already past (a continue from a gate) is not shown late.
       if (sim.y > e.end) continue;
       const main = e.kinds[0]!;
-      const turns = main === 'dive' || main === 'side';
+      const turns = e.turns;
+      this.cueKinds = e.kinds;
       const name = (k: TwistKind): string => this.t(`twist.${k}` as 'twist.dive');
       const text = e.out ? this.t('twist.normal') : e.kinds.length > 1 ? this.t('twist.and', { a: name(main), b: name(e.kinds[1]!) }) : name(main);
       const sub = e.out ? (turns ? this.t('twist.normalHint') : '') : this.t(`twist.${main}Hint` as 'twist.diveHint');
@@ -1232,20 +1211,22 @@ export class GameScene extends OyunScene {
       this.gateText.setAlpha(0);
       this.flashGateText(text, sub, color, 60);
       if (first || turns) {
+        // Up from before the view starts to move until it is well into the change (a chained
+        // chamber unfolds one view and folds the next: the banner stays through both).
+        const through = Math.min(3400, ((e.end - e.y) / Math.max(200, sim.speed)) * 1000 - 250);
+        const stay = Math.max(first ? 2000 : 1300, through);
         this.tweens.killTweensOf(this.gateSub);
         this.gateSub.setAlpha(sub ? 1 : 0);
-        this.tweens.add({ targets: this.gateSub, alpha: 0, delay: first ? 2400 : 1700, duration: 300 });
+        this.tweens.add({ targets: this.gateSub, alpha: 0, delay: stay + 400, duration: 300 });
         this.tweens.killTweensOf(this.gateText);
-        this.tweens.add({ targets: this.gateText, alpha: 0, delay: first ? 2000 : 1300, duration: 300 });
+        this.tweens.add({ targets: this.gateText, alpha: 0, delay: stay, duration: 300 });
       }
       this.rimPulse(color, 0.5);
       this.oyun.audio.play('pop');
       this.oyun.platform.haptic('light');
       // The arrow points where hold will go once the view has settled.
-      const after = poseAt(this.track.twists, e.end + 2, this.calm);
-      const hv = holdVector(after);
-      this.arrowX = hv.x;
-      this.arrowY = hv.y;
+      this.arrowX = e.holdX;
+      this.arrowY = e.holdY;
       this.arrowUntil = e.end + (turns ? 900 : 300);
     }
     const show = sim.y < this.arrowUntil && this.phase === 'playing';
@@ -1508,9 +1489,9 @@ export class GameScene extends OyunScene {
     gameSave(this.oyun).update((d) => void (gain = settle(d, rankBefore)));
     const g = gain as MetaGain | null;
     // One slot at the bottom edge (under the ad button when one is showing), clear of the spark.
-    // In Dive mode the death card sits lower (its retry prompt is at the bottom edge), so the
-    // chips go above the spark instead.
-    const chipY = this.mode === 'dive' && this.twistOn ? this.layout.top + 210 : this.layout.bottom - (button ? 42 : 70);
+    // When the death card sits low (a death under a dived view) its prompt and button take the
+    // bottom edge, so the chips go above the spark instead.
+    const chipY = this.deadLow && this.phase === 'dead' ? this.layout.top + 210 : this.layout.bottom - (button ? 42 : 70);
     if (!g) {
       if (extra.length) awardChips(this, extra, chipY);
       return;
@@ -1635,7 +1616,9 @@ export class GameScene extends OyunScene {
       let shown = b.visible;
       for (let p = b.parentContainer; p && shown; p = p.parentContainer) shown = p.visible;
       if (!shown) continue;
-      if (Math.abs(x - b.x) < 230 && Math.abs(y - b.y) < 60) return true;
+      // The death card's body can sit lower than the card (a death under a dived view).
+      const by = b.y + (b.parentContainer === this.deadBody ? this.deadBody.y : 0);
+      if (Math.abs(x - b.x) < 230 && Math.abs(y - by) < 60) return true;
     }
     return false;
   }
@@ -1880,6 +1863,9 @@ export class GameScene extends OyunScene {
     save.update((d) => recordStats(d, sim.bestEdge, this.bestFlowRun));
     this.endTrial();
     const canContinue = this.mode === 'level' && !this.continueUsed && this.gateSnap !== null;
+    // A death under a dived view (Dive mode, a dive stretch of a level) happens near the top of
+    // the screen: the card sits lower, clear of the spark, and the award chips go above it.
+    this.deadLow = this.twistOn && this.sy < 600;
     this.settleMeta(rankSeen, canContinue, rewardLines);
     this.soClose = this.mode === 'level' && pct >= 85;
     this.bestDelta = this.newBest ? (this.mode === 'level' ? pct - prevBest : best - prevBest) : 0;
@@ -1903,8 +1889,12 @@ export class GameScene extends OyunScene {
     else this.deadBadge.setText(this.t('dead.newBest')).setVisible(this.newBest && prevBest > 0);
     fitText(this.deadBadge, this.layout.width - 60, 46);
     this.continueBtn.setVisible(canContinue).setEnabled(true);
-    // Dive mode: the spark is near the top of the screen, so the card sits lower, clear of it.
-    this.deadBody.setY(this.mode === 'dive' && this.twistOn ? 300 : 0);
+    const L = this.layout;
+    const lift = this.deadLow ? 300 : 0;
+    this.deadBody.setY(lift);
+    // With the card low, the retry prompt tucks under its band and the continue button takes the bottom edge.
+    this.deadRetry.setY(L.cy + (this.deadLow && canContinue ? 176 : 230));
+    this.continueBtn.setY((this.deadLow ? L.bottom - 62 : L.bottom - 150) - lift);
   }
 
   private shatter(): void {
@@ -1924,8 +1914,20 @@ export class GameScene extends OyunScene {
     const sh = SHATTER[this.fx ? this.shapeIdx : 3] ?? SHATTER[3]!;
     this.shards.setTexture(sh.tex);
     this.shards.setParticleSpeed(sh.speed[0], sh.speed[1]);
-    // Shards fall down the screen whichever way the view is flipped.
-    this.shards.setParticleGravity(0, sh.gravity * (this.pose.fold === 1 && this.pose.flip < 0 ? -1 : 1));
+    // Shards fall down the screen whichever way the view is turned: screen-down, taken back
+    // through the pose into the world's own axes (up in a dive, toward the left wall sideways).
+    const pm = this.mat;
+    const det = pm.a * pm.d - pm.b * pm.c;
+    let gx = 0;
+    let gy = 1;
+    if (Math.abs(det) > 1e-4) {
+      const ix = -pm.c / det;
+      const iy = pm.a / det;
+      const len = Math.hypot(ix, iy) || 1;
+      gx = ix / len;
+      gy = iy / len;
+    }
+    this.shards.setParticleGravity(gx * sh.gravity, gy * sh.gravity);
     this.shards.setParticleTint(0xffffff);
     this.shards.explode(Math.floor(sh.count * 0.45), x, y);
     this.shards.setParticleTint(tr.tail);
@@ -2932,6 +2934,7 @@ export class GameScene extends OyunScene {
       nextGate: sim.gateIndex < this.track.gates.length ? this.track.gates[sim.gateIndex]!.kind : '',
       autopilot: this.autopilot,
       canContinue: this.continueBtn.visible && this.phase === 'dead',
+      deadCardY: this.phase === 'dead' ? this.deadBody.y : -1,
       frameJs: this.frameJs.summary(),
       frameUpdate: this.frameUpdate.summary(),
       flow: this.flow,
@@ -2954,6 +2957,10 @@ export class GameScene extends OyunScene {
       ahead: { ...lookahead(this.track, this.pose, this.ry) },
       sparkScreen: { x: Math.round(this.sx), y: Math.round(this.sy) },
       holdArrow: this.holdArrow.visible,
+      holdArrowDir: { x: Math.round(this.arrowX * 1000) / 1000, y: Math.round(this.arrowY * 1000) / 1000 },
+      cueKinds: [...this.cueKinds],
+      poseAnchor: { x: Math.round(this.pose.ax * 100) / 100, y: Math.round(this.pose.ay * 100) / 100 },
+      viewY: Math.round(this.ry * 100) / 100,
       banner: this.gateText.alpha > 0.2 ? this.gateText.text : '',
       diveBest: save.diveBest,
       endlessBest: save.endlessBest,

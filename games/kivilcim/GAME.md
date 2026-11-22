@@ -258,11 +258,16 @@ generated beat.
     enough to keep the whole shaft on screen for the base lookahead and are centred sideways.
     Twists of different families stack (dive + lean, far + lean); dive and side never do.
   - **Where the view changes**: only in a twist chamber (`patterns.ts` `twist` segment): a wide
-    (560 px), empty, straight stretch with no gate, hazard or gem (tested). The banner comes up
-    350 px (about 0.6 s) before the change starts and a second before its middle, where the gate
-    is. It sits in the HUD band, names the twist and says what hold does, and a
-    gold arrow from the spark points where hold will go once the view has settled; the first
-    time a twist is met, and whenever hold changes direction, the banner stays about 2 s. A
+    (560 px), empty, straight stretch with no gate, hazard or gem (tested). There is one cue
+    per chamber (`twistCues` in `sim/twist.ts`): the banner and the hold arrow come up 350 px
+    (at least half a second) before the pose starts to move, also when a chamber eases one
+    twist out and the next one in (levels 46 to 50 chain chambers that way: the cue then names
+    the twist that is coming and stays up through both changes). Tested tick by tick on levels
+    41-50 and on endless stretches: at every departure from a settled view the cue is already
+    up and nothing moved since it came up. The banner sits in the HUD band, names the twist and
+    says what hold does; the gold arrow from the spark points where hold will go once the view
+    has settled (tested against the pose for side, stacked and chained twists); the first time
+    a twist is met, and whenever hold changes direction, the banner stays about 2 s or more. A
     gate with the twist's own glyphs marks the middle of the change (dive: chevrons parting both
     ways, side: quarter-turn arrows, lean: slanted strokes, sway: swaying strokes, zoom: brackets
     spreading or closing); the way back is a mint band, "NORMAL VIEW". Never on the launch,
@@ -292,11 +297,17 @@ generated beat.
     end, in world 5's palettes. Own ready plate and death card (both sit below the spark), own
     best (`diveBest`, `diveDate`), a gem per 250 m as in Endless, two feats (500 m, 1500 m),
     counted in the score beside the endless best (cap 200). Unlocks with Endless (level 3).
-  - **Endless and Daily**: above 300 m, about one segment in nine is shown leaning (6-9
-    degrees), swaying (5) or zoomed out (0.82), easing in around the join before it and out
-    around the join after it; never a gate block or a segment beside one, never two in a row
-    (106 stretches in 16 sampled runs of 60 segments; lookahead never under the normal view's,
-    roll at most 11.5 degrees a second: tested).
+    Any death under a dived view, a dive stretch of a level included, gets the low card: the
+    band sits below the spark, the retry prompt tucks under it, the continue button takes the
+    bottom edge and the award chips go above the spark. Death shards fall down the screen
+    whichever way the view is turned (the gravity is taken back through the pose).
+  - **Endless and Daily**: above 300 m, some segments are shown leaning (6-9 degrees), swaying
+    (5) or zoomed out (0.82), easing in around the join before the segment and out around the
+    join after it. Never on a crux: not a needle or a rhythm run, not beside one, nothing above
+    difficulty 0.6 (so they stop where the shaft gets hard, around the twentieth segment); never a gate
+    block or a segment beside one; always far enough from the stretch before for its own cue
+    to come up on a settled view (44 stretches in 16 sampled runs of 60 segments, two or three
+    a run; lookahead never under the normal view's, roll at most 11 degrees a second: tested).
     Drawn from `rng.fork('twists')` after the shaft is built: the geometry is the same with or
     without them (tested), so the daily shaft is the same for everyone.
   - **Save**: still version 3. `normalize` grows `levels` from 40 to 50 and adds the dive
@@ -401,6 +412,16 @@ hardest level by margin, window and the model's finish rate.
 The solver and the model do not know about twists: these numbers are for the geometry. What a
 twist costs a person is not modelled (see Unfinished).
 
+Two cautions about that table. Level 50's margin of 11.33 px is what the bisection returns, and
+feasibility is not monotonic in the clearance there (a plan exists at 11.75, none at 11.5, none
+from 12), so the number is not a bound in either direction; the suite therefore also solves
+every level of a world at the clean star's own clearance (NEAR_PX + 1 = 11 px, 100 ms holds)
+and replays that plan tick for tick with no near miss. And the twist chambers are geometry:
+`TWIST_LEAD`, `TWIST_TAIL` (`patterns.ts`) and `MAX_ROLL_DPS` (through `easeFor`, which sets
+how long a lean's chamber is) move everything after them in levels 41-50, including which
+beat lines gates and lasers land on. They are not free presentation knobs: changing one means
+re-running the world 5 suite and re-reading this table.
+
 Lookahead under each twist (`tests/unit/twist.test.ts`, every level 41-50, every second tick).
 The normal view shows 930 px ahead of the spark to the screen edge, 700 px of it below the HUD
 band; in time, the tightest existing view is that at the fastest speed the game reaches (endless
@@ -462,13 +483,20 @@ One-time income: level gems 120, stars 240 (2 each), world clears
 - Content round, own update per frame, autopilot, load ~4: level 10 avg 2.35 ms (max 14.3),
   level 40 avg 2.29 (max 13.1), level 30 avg 2.04 (max 9.6), level 20 avg 1.83 (max 8.0). New
   hazards are drawn with one Graphics per frame (no baking), so no mid-run hitch.
-- Twist round. Unit: 202 tests (17 files); e2e: 24 tests. Sim hash, tick, position and gems on
-  a stepped clock are the same with twists on, with `?twist=0` and with `?fx=0` (levels 41 dive,
-  42 lean, 44 side; 41 and 48 again in the fx on/off test; an endless run with and without its
-  stretches). Own update per frame on this machine's GPU (headless Chrome, D3D11, RTX 3060 Ti,
-  real clock, autopilot, last 240 frames): level 10 normal view avg 0.28 ms (step+render 1.16),
-  level 44 sideways 0.16 (0.80), level 42 leaning 0.18 (0.81): no cost that shows on a desktop
-  GPU. Not measured on a phone.
+- Twist round. Unit: 212 tests (17 files); e2e: 33 tests, run twice in a row after the review
+  fixes, 33 of 33 both times. Sim hash, tick, position and gems on a stepped clock are the same with twists
+  on, with `?twist=0` and with `?fx=0` (levels 41 dive, 42 lean and sway, 43 zoom in, 44 side,
+  45 dive under a lean, 47 a chained chamber; 41 and 48 again in the fx on/off test; an endless
+  run with and without its stretches). Own update per frame on this machine's GPU (headless
+  Chrome, D3D11, RTX 3060 Ti, real clock, autopilot, last 240 frames): level 10 normal view avg
+  0.28 ms (step+render 1.16), level 44 sideways 0.16 (0.80), level 42 leaning 0.18 (0.81): no
+  cost that shows on a desktop GPU. Not measured on a phone.
+- One texture per batch (`GameScene.create`, see "Unfinished" for why). Level 50 on the
+  autopilot, real clock, the setting flipped every 1.5 s between Phaser's default (16 units)
+  and 1. Draw calls per frame: 25.7 -> 38.9 on software GL, 25.6 -> 39.1 on the GPU (about 13
+  more, +52 %; 37 in the normal view, 38-40 dived or sideways, 42-43 mid-fold). Step+render
+  time per frame: 1.87 -> 1.79 ms on software GL (318 and 346 frames in the same 21 s: no
+  slower), 1.37 -> 1.27 ms on the GPU at a steady 60 fps. Phones always ran this path.
 - Human model and seeds: the streams the table uses (seed 1000+id) start with finishes on
   levels 8-10 (L8 `FFF.......F.`, L9 `F......F.F..`, L10 `.F.F........`); over 200 attempts they
   give the table's 29.0 / 26.5 / 10.0 %, fresh seeds 32.0 / 22.5 / 13.5 %. Lucky starts, not a
@@ -513,9 +541,15 @@ One-time income: level gems 120, stars 240 (2 each), world clears
   a person: whether a fold disorients, whether the sideways view at zoom 0.67 is comfortable on
   a small phone, and what each twist costs in finish rate are unknown. The solver and the human
   model fly the geometry only.
-- Headless Chromium's software GL (SwiftShader) drops screen-aligned blocks out of the wall
-  chunks whenever the view is rotated (holes in the walls under a lean or a sway); the same
-  frames are complete on a real GPU (D3D11, RTX 3060 Ti) and on WARP. Not seen on a phone GPU.
-  The round's screenshots (`tests/artifacts/girdap/`, `shots.mjs`) use the real GPU.
-- A death under a dive stretch of a *level* shows the death card over the spark (in Dive mode
-  the card sits lower). Dive has no online board (the boards live in `store/apps.json`).
+- Fixed, kept here because it will bite again if the setting is lost: under a software
+  rasteriser (headless Chromium's SwiftShader, a desktop browser without hardware acceleration)
+  walls and bars showed screen-aligned holes whenever the view was rotated. Phaser 4.2.1's
+  multi-texture shader (`GetTexture-glsl.js`) picks its sampler with `outTexDatum == float(i)`
+  and falls through to transparent; that varying is constant over a quad, but a software
+  rasteriser does not interpolate it exactly across a rotated triangle. `GameScene.create()`
+  sets `renderNodes.setMaxParallelTextureUnits(1)`, the path Phaser takes by itself on phones.
+  `tests/e2e/twists.spec.ts` samples both walls under a lean (level 42) and a dive under a lean
+  (level 45) in default headless Chromium, and as a control turns the default back on and
+  expects the holes (38 and 20 of its samples). The screenshots in `tests/artifacts/girdap/`
+  are taken on that software GL.
+- Dive has no online board (the boards live in `store/apps.json`).

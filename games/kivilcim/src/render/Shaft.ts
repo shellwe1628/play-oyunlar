@@ -23,18 +23,26 @@ export const VIEW_ABOVE = 1000;
 /**
  * Wall filler beside the shaft (seen only when a twist shows what lies outside x 0..720): a flat
  * wall-coloured quad per side, and the chunks' diagonal stripes as plain images of one 512 px
- * tile, kept on the chunks' 64 px stripe lattice.
+ * tile, kept on the chunks' 64 px stripe lattice. Half way through a fold the view is squashed
+ * along one diagonal and shows several times as much of the world along it, so the flat quads
+ * reach far out (FLAT_W, FLAT_AHEAD, FLAT_BEHIND); only the striped tiles stay near the screen.
+ * The shaft itself is left open beyond the chunks drawn: closing it turned the middle of a dive
+ * flip, where the view is edge-on, into a dark blink.
  *
- * Note for whoever tests this headless: Chromium's software GL (SwiftShader) drops screen-aligned
- * blocks out of rotated quads when these large quads are in the same frame (holes in the walls
- * under a lean); the same frames are complete on a real GPU (D3D11) and on WARP. The round's
- * screenshots were taken with --use-angle=d3d11.
+ * (Walls once showed holes under a lean in software-rendered browsers. That was not this
+ * filler: Phaser's multi-texture shader picks its sampler with `outTexDatum == float(i)` and a
+ * software rasteriser does not interpolate that constant exactly across a rotated triangle.
+ * GameScene.create() now runs one texture per batch, as phones always did; an e2e test samples
+ * the walls under a lean in headless Chromium.)
  */
 const FILL_TILE = 512;
 const FILL_COLS = 2;
 const FILL_ROWS = 7;
 const FILL_W = FILL_TILE * FILL_COLS;
 const FILL_H = FILL_TILE * FILL_ROWS;
+const FLAT_W = 6000;
+const FLAT_AHEAD = 9000;
+const FLAT_BEHIND = 7000;
 
 interface Slot {
   key: string;
@@ -118,7 +126,7 @@ export class ShaftView {
     // Wall filler either side of the shaft, behind everything: plain wall with the chunks'
     // diagonal stripes, so a leaning, zoomed-out or sideways view never shows a hole.
     for (let i = 0; i < 2; i++) {
-      const fill = scene.add.image(0, 0, 'flash').setOrigin(0, 0).setDisplaySize(FILL_W, FILL_H);
+      const fill = scene.add.image(0, 0, 'flash').setOrigin(0, 0).setDisplaySize(FLAT_W, FLAT_AHEAD + FLAT_BEHIND);
       world.add(fill);
       this.fills.push(fill);
     }
@@ -228,8 +236,7 @@ export class ShaftView {
     const fy = -(Math.floor((sy + FILL_H * 0.7) / 64) * 64);
     let n = 0;
     for (let i = 0; i < 2; i++) {
-      const fx = i === 0 ? -FILL_W : SHAFT_W;
-      this.fills[i]!.setPosition(i === 0 ? fx + 2 : fx - 2, fy);
+      this.fills[i]!.setPosition(i === 0 ? 2 - FLAT_W : SHAFT_W - 2, -(sy + FLAT_AHEAD));
       // Stripe tiles on the 64 px lattice (the right side starts at 704, under the last chunk px).
       const sx0 = i === 0 ? -FILL_W : SHAFT_W - 16;
       for (let c = 0; c < FILL_COLS; c++) for (let r = 0; r < FILL_ROWS; r++) this.fillStripes[n++]!.setPosition(sx0 + c * FILL_TILE, fy + r * FILL_TILE);

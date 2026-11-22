@@ -2,14 +2,17 @@
  * Ledges as floating islands, in each world's materials (the 2D game's drawThemeLedge in 3D):
  * a soft cap (grass / snow / sand / moss) with lumps along its rim, a bevelled body with pebbles
  * or strata, and a faceted rock tapering to a point underneath, plus the world's own detail
- * (grass tufts and flowers, icicles, a cactus, a hanging lantern). The player's island carries a
- * banner and an arrow crate; sliding islands wear an iron clamp, swinging ones rope rings.
+ * (grass tufts and flowers, icicles, a cactus, a hanging lantern). The modes' arena (Sunset
+ * Canyon) has its own: a mesa of banded red sandstone under an overhanging caprock, stepped in
+ * and out band by band, with dry grass, a cairn or a sun-bleached skull on top. The player's
+ * island carries a banner and an arrow crate; sliding islands wear an iron clamp, swinging ones
+ * rope rings.
  *
  * Geometry is exact where it matters: the cap's top face is at `ledge.y`, the body spans
  * `ledge.x … x + w` and `y … y + h`. One merged, vertex-coloured mesh per island.
  */
 import * as THREE from 'three';
-import type { Theme } from '@okcu/anim/themes';
+import type { ArenaTheme as Theme } from './themes';
 import type { World } from '@sim/world';
 import { m, sx, sy } from '../../coords';
 import { INK, LANTERN, easeOutBack, glowTexture, jitter, merge, mixHex, roundedBox, seeded, shadeHex, solid, tintHex } from './util';
@@ -136,18 +139,32 @@ export function buildLedge(wPx: number, hPx: number, th: Theme, seed: number, ki
       out.copy(capSide).lerp(cap, 0.5 + 0.5 * Math.sin(p.x * 9 + p.z * 5)).lerp(capLight, top * (0.75 + 0.25 * Math.sin(p.x * 6.3 + p.z * 11)));
     }),
   );
-  // lumps along the rim: grass hanging over, snow pillows, sand drifts
   const lumpC = shadeHex(th.cap, 0.96);
   const zf = D / 2 + o - 0.07;
-  for (let x = -W / 2 + 0.11; x <= W / 2 - 0.1; x += 0.225) {
-    const r = (th.id === 'snow' ? 0.1 : 0.082) + rand() * 0.03;
-    parts.push(lump(r, x + (rand() - 0.5) * 0.04, -capH + 0.035, zf, lumpC));
-    parts.push(lump(r, x + 0.1, -capH + 0.04, -zf, lumpC));
-  }
-  for (let z = -D / 2 + 0.2; z <= D / 2 - 0.22; z += 0.25) {
-    const r = 0.08 + rand() * 0.03;
-    parts.push(lump(r, -W / 2 - o + 0.07, -capH + 0.035, z, lumpC));
-    parts.push(lump(r, W / 2 + o - 0.07, -capH + 0.035, z, lumpC));
+  if (th.id === 'canyon') {
+    // a caprock: a hard slab that overhangs the softer bands under it, chipped along its edge
+    const lip = new THREE.Color(mixHex(th.cap, th.bodyDark, 0.45));
+    parts.push(
+      solid(roundedBox(W + 0.24, 0.13, D + 0.2, 0.045, 2).translate(0, -capH + 0.02, 0), (out, _p, n) => {
+        out.copy(n.y < -0.3 ? lip : capSide);
+      }),
+    );
+    for (let x = -W / 2 + 0.16; x <= W / 2 - 0.12; x += 0.34) {
+      const r = 0.05 + rand() * 0.035;
+      parts.push(solid(jitter(new THREE.IcosahedronGeometry(r, 0), 0.2, seed + Math.round(x * 10)).scale(1.4, 0.7, 1).translate(x + (rand() - 0.5) * 0.08, -capH - 0.03, zf + 0.05), lumpC, true));
+    }
+  } else {
+    // lumps along the rim: grass hanging over, snow pillows, sand drifts
+    for (let x = -W / 2 + 0.11; x <= W / 2 - 0.1; x += 0.225) {
+      const r = (th.id === 'snow' ? 0.1 : 0.082) + rand() * 0.03;
+      parts.push(lump(r, x + (rand() - 0.5) * 0.04, -capH + 0.035, zf, lumpC));
+      parts.push(lump(r, x + 0.1, -capH + 0.04, -zf, lumpC));
+    }
+    for (let z = -D / 2 + 0.2; z <= D / 2 - 0.22; z += 0.25) {
+      const r = 0.08 + rand() * 0.03;
+      parts.push(lump(r, -W / 2 - o + 0.07, -capH + 0.035, z, lumpC));
+      parts.push(lump(r, W / 2 + o - 0.07, -capH + 0.035, z, lumpC));
+    }
   }
 
   // ---- body: spans the collision rectangle
@@ -159,7 +176,17 @@ export function buildLedge(wPx: number, hPx: number, th: Theme, seed: number, ki
       out.copy(body).lerp(bodyLow, t * 0.8 + 0.12 * Math.sin(p.x * 7 + p.z * 4 + p.y * 9));
     }),
   );
-  if (th.id === 'desert' || th.id === 'sky') {
+  if (th.id === 'canyon') {
+    // banded sandstone: rust, cream and dark bands of uneven thickness, each stepping in or out a
+    // little, so the mesa's face is ledged like a weathered cliff
+    const tones = [0xf0c690, th.bodyDark, 0xdf7a44, mixHex(th.bodyDark, th.under, 0.5)];
+    for (let y = -0.33, i = 0; y > -H + 0.12; i++) {
+      const t = i % 3 === 1 ? 0.11 : 0.065;
+      const out = i % 2 ? 0.07 : 0.035;
+      parts.push(solid(roundedBox(W + out, t, D + out, 0.024, 1).translate((rand() - 0.5) * 0.02, y - t / 2, 0), tones[i % 4]!));
+      y -= t + 0.085 + rand() * 0.05;
+    }
+  } else if (th.id === 'desert' || th.id === 'sky') {
     // sandstone strata (the citadel's marble has gold seams instead)
     for (let y = -0.36, i = 0; y > -H + 0.14; y -= i === 0 ? 0.2 : 0.24, i++) {
       parts.push(solid(roundedBox(W + 0.05, i % 2 ? 0.06 : 0.08, D + 0.05, 0.028, 1).translate(0, y, 0), th.id === 'sky' ? (i % 2 ? 0xe0b84a : 0xf2d27a) : th.bodyDark));
@@ -201,6 +228,30 @@ export function buildLedge(wPx: number, hPx: number, th: Theme, seed: number, ki
       const x = -W / 2 + 0.18 + rand() * (W - 0.36);
       parts.push(...tuft(x, D / 2 - 0.1 - rand() * 0.08, tc, rand));
       parts.push(...tuft(-x * 0.8, -D / 2 + 0.14 + rand() * 0.1, tc, rand));
+    }
+  }
+  if (th.id === 'canyon') {
+    // dry grass along the back edge, and a cairn or a sun-bleached skull to one side
+    const straw = 0xd9b45a;
+    const nT = kind === 'player' ? 4 : 2;
+    for (let i = 0; i < nT; i++) {
+      const x = -W / 2 + 0.2 + rand() * (W - 0.4);
+      parts.push(...tuft(x, -D / 2 + 0.16 + rand() * 0.12, straw, rand));
+    }
+    const px = kind === 'player' ? W * 0.12 : (seed % 2 ? -1 : 1) * (W / 2 - 0.26);
+    const pz = -D / 2 + 0.3;
+    if (seed % 3 === 0 && kind !== 'player') {
+      const bone = 0xf3e6cc;
+      parts.push(solid(new THREE.SphereGeometry(0.075, 8, 6).scale(1.25, 0.85, 1).translate(px, 0.06, pz), bone));
+      parts.push(solid(roundedBox(0.09, 0.055, 0.1, 0.02, 1).translate(px + 0.085, 0.035, pz), shadeHex(bone, 0.9)));
+      for (const zz of [-1, 1]) parts.push(solid(new THREE.ConeGeometry(0.018, 0.13, 5).rotateX((zz * Math.PI) / 2.6).translate(px - 0.03, 0.1, pz + zz * 0.09), bone, true));
+    } else {
+      const stones = [0.1, 0.075, 0.052];
+      let y = 0;
+      stones.forEach((r, i) => {
+        parts.push(solid(jitter(new THREE.IcosahedronGeometry(r, 0), 0.16, seed + i * 5).scale(1.25, 0.7, 1.1).translate(px + (rand() - 0.5) * 0.02, y + r * 0.62, pz), i % 2 ? th.cap : mixHex(th.body, th.cap, 0.4), true));
+        y += r * 1.2;
+      });
     }
   }
   if (th.id === 'meadow') {

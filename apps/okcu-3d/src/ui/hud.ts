@@ -17,14 +17,17 @@ import { canUpgrade, type ChestKind } from '@sim/arsenal';
 import { bowTier } from '@sim/bow';
 import { CHAPTERS, stageOf, STAGES } from '@sim/chapters';
 import { openQueuedChest } from '@sim/chests';
+import { RUSH_BOSSES } from '@sim/modes';
 import { progressScore, rankOf } from '@sim/progress';
 import { boughtToday, peekOffers } from '@sim/shop';
 import { WEAPON_IDS, WEAPON_MAX } from '@sim/weapons';
 import type { GameEvent, World } from '@sim/world';
 import type { Frame, Game, Module, Stage } from '../contract';
+import { nextAngle } from '../view/angles';
 import { createChestScreen } from './chest';
 import { calmMotion, EASE, el, injectStyle, Label, rerenderLabels, roundButton, setLabelRes, Timers } from './dom';
 import { css, rgba } from './gfx';
+import { tag } from './juice';
 import { createMenus } from './menus';
 import { todayKey } from './save';
 import { createShell, type TabId } from './shell';
@@ -95,6 +98,15 @@ export function createHud(stage: Stage, game: Game): Module {
   const objText = new Label(hudGroup, CX, top + 124, '', { size: 28, color: PALETTE.cream, stroke: 8 });
   const bowText = new Label(hudGroup, 24, top + 46, '', { size: 24, color: PALETTE.cream, stroke: 7, originX: 0 });
   const bonusText = new Label(hudGroup, CX, top + 170, '', { size: 40, color: PALETTE.gold, stroke: 10 });
+  // Blitz (sim/modes.ts): the clock in the wave line's place (red and beating in its last ten
+  // seconds; never a shake) and the score under it
+  const clockText = new Label(hudGroup, CX, top + 74, '', { size: 62, color: PALETTE.cream, stroke: 14 });
+  const clockHot = new Label(hudGroup, CX, top + 74, '', { size: 62, color: PALETTE.danger, stroke: 14 });
+  const scoreText = new Label(hudGroup, CX, top + 130, '', { size: 32, color: PALETTE.gold, stroke: 8 });
+  /** 1 → 0 after a hit took seconds off the Blitz clock (the clock jumps) */
+  let clockPop = 0;
+  /** the Blitz clock and score are showing */
+  let clockUp = false;
   const coinText = new Label(hudGroup, HUD.coinTextRight, top, '0', { size: 44, color: PALETTE.coin, stroke: 10, originX: 1 });
   const focusText = new Label(hudGroup, HUD.focusX, HUD.focusY - 92, '', { size: 30, color: PALETTE.focus, stroke: 8 });
   // the focus gauge is tapped to unleash when full; a tap there never starts a drag
@@ -114,6 +126,29 @@ export function createHud(stage: Stage, game: Game): Module {
     audio.play('tap');
     openPause();
   });
+  // top left, under the weapon's name (the right column is the pause button's and the wind sock's):
+  // the camera angle, Side → Angled → Low → Side. The stage glides there and remembers it; it is the
+  // view only, aiming is the same on every angle. The new angle's name shows under the button for a moment.
+  let camNote: Label | null = null;
+  const dropCamNote = (): void => {
+    camNote?.destroy();
+    camNote = null;
+  };
+  const camBtn = roundButton(cornerGroup, 64, top + 132, 80, 'camera', unlock, () => {
+    audio.play('tap');
+    stage.setAngle(nextAngle(stage.angle));
+    dropCamNote();
+    const note = new Label(cornerGroup, 64, top + 200, t(`cam.${stage.angle}`), { size: 28, color: PALETTE.cream, stroke: 7 });
+    camNote = note;
+    if (note.width > 112) note.setScale(112 / note.width);
+    if (!calmMotion()) note.el.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 140, easing: 'ease-out' });
+    const out = note.el.animate([{ opacity: 1 }, { opacity: 0 }], { delay: 1100, duration: 260, fill: 'forwards' });
+    out.onfinish = () => {
+      if (camNote === note) dropCamNote();
+    };
+  });
+  camBtn.el.title = t('cam.title');
+  camBtn.el.dataset.testid = 'camera';
 
   // ---- transient texts: banners, callouts, floats
   const banners = new Set<HTMLElement>();
@@ -297,6 +332,8 @@ export function createHud(stage: Stage, game: Game): Module {
       shellQuiet = true;
       game.startRun({ chapter: c > last ? 0 : c < 0 ? last : c });
     },
+    // a mode's ready screen: back to the menu on the Events tab, with a run of chapters behind it
+    leaveMode: () => titleOn('events'),
   });
   // the main menu's tabs: Ranks still opens the full screen of menus.ts
   const shell = createShell(ui, shellGroup, {
@@ -311,6 +348,8 @@ export function createHud(stage: Stage, game: Game): Module {
       title.quiet();
       game.startRun({ daily: !game.daily });
     },
+    // the Events tab's modes (Blitz, Boss Rush): a new world on the arena, ready for the first shot
+    mode: (m) => game.startRun({ mode: m, quick: true }),
     toast: (head, sub) => queueToast(head, sub, PALETTE.gold),
     changed: () => syncBadges(),
     chest: (p) => chests.play(p),
@@ -366,7 +405,7 @@ export function createHud(stage: Stage, game: Game): Module {
   }
   const cards = createCards(ui, cardGroup, clearTransients, (syn) => callout(t('cards.synergy', { s: t(`syn.${syn}`) }), PALETTE.focus, 56));
   const result = createResult(ui, resultGroup, {
-    replay: () => game.startRun({ daily: game.daily, quick: true }),
+    replay: () => game.startRun({ daily: game.daily, mode: game.mode, quick: true }),
     // ResultScene.revive → GameScene with revive: the same world, from the same wave, half health;
     // coins and best were banked as the run went, the revived run banks only what it adds
     revive: () => {
@@ -410,7 +449,7 @@ export function createHud(stage: Stage, game: Game): Module {
     },
     restart: () => {
       tracker.bank(game.w);
-      game.startRun({ daily: game.daily, quick: true });
+      game.startRun({ daily: game.daily, mode: game.mode, quick: true });
     },
     // 2D: back from the shop or ranks is a fresh title, so a change shows on the next run at once;
     // opened from a tab, the shell comes back on the tab that was up before it
@@ -497,6 +536,9 @@ export function createHud(stage: Stage, game: Game): Module {
   const objectiveText = (kind: string, limit: number): string => t(`obj.${kind}`, { n: limit });
 
   function waveLabel(w: World): string {
+    // a mode has no chapter: Boss Rush counts its bosses, Blitz shows its clock instead
+    if (w.rush) return t('mode.hud.boss', { n: w.rush.boss + 1, m: RUSH_BOSSES });
+    if (w.blitz) return '';
     const p = stageOf(w.wave);
     if (p.endless) return t('hud.endlessWave', { n: w.wave - CHAPTERS * STAGES });
     return `${t('hud.chapterNo', { n: p.chapter + 1 })} · ${t('hud.stage', { s: p.stage })}`;
@@ -573,12 +615,21 @@ export function createHud(stage: Stage, game: Game): Module {
     const obj = e.objective ? objectiveText(e.objective, e.limit) : null;
     // a grown field (hard widens it every chapter from the second): said at the first two
     // widenings of a run, after the banner
-    if (w.span > 1 && !seen.has(`tip-grow-${w.span}`) && growTips < 2) {
+    // (not in a mode: its arena is the size it is)
+    if (w.span > 1 && !w.mode && !seen.has(`tip-grow-${w.span}`) && growTips < 2) {
       growTips += 1;
       const key = `grow-${w.span}`;
       later(1.7, () => teach(key, t('hud.fieldGrows')));
     }
-    if (e.boss) {
+    if (e.boss && w.rush && w.rush.boss === 0) {
+      // Boss Rush begins: the mode's name first (its rule stood on the ready screen), then the
+      // first boss's own line
+      showBanner(t('mode.go.bossrush'), null);
+      const boss = e.boss;
+      later(1.75, (now) => {
+        if (now.phase === 'play' && now.rush?.boss === 0) showBanner(t(`boss.${boss}`), t(`boss.tip.${boss}`));
+      });
+    } else if (e.boss) {
       showBanner(t(`boss.${e.boss}`), t(`boss.tip.${e.boss}`));
     } else if (e.stage === 1 && wave > 1 && !stageOf(wave).endless) {
       // a new chapter: its name over the cross-fade into the new world
@@ -801,6 +852,29 @@ export function createHud(stage: Stage, game: Game): Module {
         case 'cards':
           treasurePick = e.treasure;
           break;
+        case 'modeStart':
+          // Blitz's intro: its name, briefly (its rule stood on the ready screen and every second
+          // counts; a rush is announced with its first boss, onWaveStart)
+          if (e.mode === 'blitz') {
+            audio.play('win', { volume: 0.5 });
+            showBanner(t('mode.go.blitz'), null);
+          }
+          break;
+        case 'blitzHit':
+          // Blitz: the hit's seconds leave the clock (it jumps, a tag says how many; no shake)
+          clockPop = 1;
+          if (e.cost > 0) tag(hudGroup, CX + 128, top + 74, t('mode.hud.hit', { n: Math.round(e.cost) }), { color: PALETTE.danger, ink: 0xffffff, size: 28, rise: 26, hold: 700 });
+          break;
+        case 'land':
+          // Blitz: an archer dropped in
+          audio.playPreset(SFX.slam, { volume: 0.3 });
+          break;
+        case 'modeEnd':
+          // the clock ran out, or the last boss fell: the call, then the result card
+          clearTransients();
+          audio.play('win', { volume: 0.7 });
+          callout(t(`mode.end.${e.mode}`), PALETTE.gold, 72);
+          break;
         case 'dying':
           audio.play('lose');
           break;
@@ -906,6 +980,26 @@ export function createHud(stage: Stage, game: Game): Module {
     const bannerUp = painter.t < bannerUntil;
     waveText.setText(showWave ? waveLabel(w) : '').setVisible(!bannerUp);
     objText.setText(w.objective && showWave ? objectiveText(w.objective.kind, w.objective.limit) : '').setVisible(!bannerUp);
+    // Blitz: the clock (whole seconds) and the score; the clock stays up under a banner
+    const bz = w.blitz;
+    clockPop = Math.max(0, clockPop - real * 3.5);
+    if (bz && w.phase !== 'title') {
+      const s = Math.ceil(bz.left - 1e-6);
+      const txt = `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+      const hot = bz.left <= 10;
+      // the last ten seconds beat once a second: a swell at each second's start that dies away
+      const beat = hot && w.phase === 'play' && !calmMotion() ? 0.2 * (bz.left - Math.floor(bz.left)) ** 3 : 0;
+      const k = 1 + beat + (calmMotion() ? 0 : clockPop * 0.22);
+      clockText.setText(hot ? '' : txt).setScale(k);
+      clockHot.setText(hot ? txt : '').setScale(k);
+      scoreText.setText(t('mode.hud.score', { n: bz.score })).setVisible(!bannerUp);
+      clockUp = true;
+    } else if (clockUp) {
+      clockUp = false;
+      clockText.setText('');
+      clockHot.setText('');
+      scoreText.setText('');
+    }
     const level = game.bowLevel;
     // the run's weapon and its level (hard, the 3D build); the classic setting still shows the forged bow
     if (w.difficulty === 'hard') bowText.setText(`${t(`weapon.${w.meta.weapon}`)} · ${t('weapons.lv', { n: w.meta.wlevel })}`);
@@ -991,6 +1085,11 @@ export function createHud(stage: Stage, game: Game): Module {
       // the corner: pause in play, nothing on the title, over the result or a menu
       const phase = w.phase;
       pauseBtn.el.style.display = phase !== 'title' && phase !== 'over' && !menus.pauseOpen && !menus.open ? '' : 'none';
+      // the camera button keeps the pause button company
+      if (camBtn.el.style.display !== pauseBtn.el.style.display) {
+        camBtn.el.style.display = pauseBtn.el.style.display;
+        dropCamNote();
+      }
       // the HUD fades in with the first shot and out under the result card
       hudAlpha = w.phase === 'title' ? 0 : result.shown ? Math.max(0, hudAlpha - real / 0.2) : Math.min(1, hudAlpha + real / 0.3);
 
@@ -1008,13 +1107,18 @@ export function createHud(stage: Stage, game: Game): Module {
       // dead → the result card, a beat after the fall
       if (w.phase === 'over' && !result.shown && !resultPending) {
         resultPending = true;
-        clearTransients();
+        // (a mode that ended by its own rule keeps its closing call up until the card comes)
+        const called = w.mode !== null && w.player.alive;
+        if (!called) clearTransients();
         clearToasts();
         // GameScene.finish: bank everything (and the daily), then the result a beat later
         const run = tracker.finish(w);
-        later(0.35, () => {
-          // the rewarded offers: revive once per run; double the coins not doubled yet (a real run only)
-          const ads = { revive: game.canRevive, double: game.testRun || !w.bank ? 0 : Math.max(0, run.coins - doubledCoins) };
+        // (a mode that ended by its own rule first has its call: "TIME'S UP!", "ALL SIX DOWN!")
+        later(called ? 1.15 : 0.35, () => {
+          if (called) clearTransients();
+          // the rewarded offers: revive once per run; double the coins not doubled yet (a real run
+          // only, and never a mode run: it pays for its knockouts and nothing more)
+          const ads = { revive: game.canRevive, double: game.testRun || !w.bank || w.mode ? 0 : Math.max(0, run.coins - doubledCoins) };
           result.show(run, ads);
           // ResultScene: a higher rank than the one last celebrated plays the ceremony
           const rank = rankOf(progressScore(game.save.data).total);

@@ -39,6 +39,7 @@ import type { SaveData } from '@sim/meta';
 import { progressScore, RANKS, rankOf } from '@sim/progress';
 import type { ChestPlay } from './chest';
 import { calmMotion, EASE, el, fitText, iconCanvas, mix, pressable, roundButton, TAB_BAR_H } from './dom';
+import type { Mode } from '@sim/modes';
 import { createEventsPane, type EventsPane } from './events';
 import { css, Gfx, rgba } from './gfx';
 import { centreIn, countTo, flyTo, pop, rectIn, sparkle, tag } from './juice';
@@ -59,6 +60,8 @@ export interface ShellHooks {
   rebuild: (tab: TabId) => void;
   /** the daily run on / off (the Events tab's button); the shell comes back on Home */
   daily: () => void;
+  /** start a mode (the Events tab's Blitz or Boss Rush): a new world, ready for its first shot */
+  mode: (mode: Mode) => void;
   /** a small piece of good news at the top (the HUD's toast) */
   toast: (head: string, sub: string) => void;
   /** the shell changed the save (a free chest claimed, a weapon levelled, a buy): the badges again */
@@ -682,7 +685,7 @@ export function createShell(ui: Ui, parent: HTMLElement, hooks: ShellHooks): She
       if (!shopPane) shopPane = createShopPane(ui, shop, paneTop, paneBot, shopHooks, !animate);
       else shopPane.refresh();
     }
-    if (next === 'events' && events && !eventsPane) eventsPane = createEventsPane(ui, events, paneTop, paneBot, { daily: () => hooks.daily() }, !animate);
+    if (next === 'events' && events && !eventsPane) eventsPane = createEventsPane(ui, events, paneTop, paneBot, { daily: () => hooks.daily(), mode: (m) => hooks.mode(m) }, !animate);
     const from = paneOf(prev) ? prev : ret;
     sides(next === 'home', animate);
     slide(from, next, animate);

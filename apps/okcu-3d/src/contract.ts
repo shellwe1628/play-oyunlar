@@ -11,7 +11,9 @@
 import type * as THREE from 'three';
 import type { Platform, RewardedResult, SaveStore } from '@oyun/core/pure';
 import type { SaveData } from '@sim/meta';
+import type { Mode } from '@sim/modes';
 import type { GameEvent, World } from '@sim/world';
+import type { CameraAngle } from './view/angles';
 
 export interface AimState {
   /** pointer went down here / is here now, in LOGICAL px (720 × 1280 frame) */
@@ -56,6 +58,13 @@ export interface Stage {
    * the menu's free middle band, clear of the side buttons and PLAY, and eases back for play
    */
   menu(on: boolean): void;
+  /** the camera angle the player has chosen (view/angles.ts: side, angled, low) */
+  readonly angle: CameraAngle;
+  /**
+   * choose a camera angle: the eye glides there (reduced motion: a cut) and the choice is
+   * remembered. View only: the gameplay plane, `toScreen` and `toLogical` are the same on every angle
+   */
+  setAngle(angle: CameraAngle): void;
   /** per-frame housekeeping (shake decay, theme fades) then draw */
   render(frame: Frame): void;
 }
@@ -94,6 +103,8 @@ export interface RunOptions {
   /** straight back from the result screen: the small title */
   quick?: boolean;
   seed?: number;
+  /** a mode (the Events tab's Blitz or Boss Rush) instead of a run of chapters; never the daily */
+  mode?: Mode | null;
 }
 
 /** The only way UI code acts on the game. */
@@ -111,6 +122,8 @@ export interface Game {
   readonly chapter: number;
   /** the current title was opened straight from the result screen */
   readonly quick: boolean;
+  /** the mode the current world plays (sim/modes.ts), null for a run of chapters */
+  readonly mode: Mode | null;
   /** this run does not touch the save (URL test switches ?wave ?bow ?armor ?chapter) */
   readonly testRun: boolean;
   /** the distribution platform (main.ts detects it like core's createGame: VITE_OYUN_PLATFORM, native shell, ?platform=) */

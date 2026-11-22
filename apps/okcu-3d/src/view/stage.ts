@@ -23,11 +23,23 @@
  * window to `span` times the frame, anchored at the bottom left where the player stands, so the
  * farthest island still fits a portrait phone; the camera glides out to it as the wave drops in.
  * Every effect above works on top of that base view, in its screen space.
+ *
+ * Camera angles (view/angles.ts): Side, Angled and Low are eye offsets on top of all of the above.
+ * The plane z = 0 does not move on screen for any of them (the lens shift), so aiming, the pointer
+ * and the DOM overlay are the same on every angle; only things with depth are seen from another
+ * side. The offset scales with the eye's distance, so the direction holds through the zooms and
+ * the grown field. The player's choice glides in over ANGLE_GLIDE (reduced motion: a cut) and is
+ * remembered (localStorage, not the game save; ?angle=side|angled|low overrides it for a test).
+ * A boss's entrance and a boss's knockout swing the eye from Low to Side under their zoom and end
+ * on the player's angle: never while a shot is being aimed, never with reduced motion.
+ * The backdrop is authored for the Side eye with narrow margins, so it is sheared by the same
+ * offset (backdropShear): it looks exactly as it does from the Side and never shows an edge.
  */
 import * as THREE from 'three';
 import { PLAYER_LEDGE } from '@sim/tuning';
 import type { Frame, Stage } from '../contract';
 import { FRAME_H, FRAME_W, LOGICAL_H, LOGICAL_W, PX_PER_M } from '../coords';
+import { ANGLE_GLIDE, ANGLES, backdropShear, CINE_ENTRANCE, CINE_KNOCKOUT, cineEye, lensShift, mixEye, parseAngle, type CameraAngle, type Eye, type Lens } from './angles';
 
 /** vertical field of view of the resting frame, degrees (gentle perspective) */
 export const FOV = 22;
@@ -48,6 +60,10 @@ const FAR = 600;
 /** names other modules of this renderer can look the lights up by (the arena tints them per world) */
 export const SUN_NAME = 'okcu-sun';
 export const HEMI_NAME = 'okcu-hemi';
+/** the backdrop's root group (arena/backdrop.ts names it); the stage shears it against the camera angle */
+const BACKDROP_NAME = 'okcu-backdrop';
+/** where the chosen camera angle is kept (a presentation setting, not part of the game save) */
+const ANGLE_KEY = 'oyun:okcu-3d:angle';
 
 /** reduced motion: the system setting, or ?calm=1 */
 export const CALM =
@@ -100,6 +116,35 @@ export function createStage(root: HTMLElement): Stage {
   camera.matrixAutoUpdate = true;
   const dist0 = REST_DIST;
 
+  // ---- the camera angle: ?angle= for a test, else the remembered choice, else Side
+  const urlAngle = parseAngle(new URLSearchParams(location.search).get('angle'));
+  let stored: CameraAngle | null = null;
+  try {
+    stored = parseAngle(localStorage.getItem(ANGLE_KEY));
+  } catch {
+    /* no storage: the choice lasts for the session */
+  }
+  let angle: CameraAngle = urlAngle ?? stored ?? 'side';
+  /** the eye offset in use (metres at the resting distance), and the glide that leads to the chosen angle */
+  const eye: Eye = { ...ANGLES[angle] };
+  const glideFrom: Eye = { ...eye };
+  let glideK = 1;
+  /** the chosen angle's eye this frame (mid-glide: on its way) */
+  const baseEye: Eye = { ...eye };
+  /** a cinematic swing in progress: real seconds in, of how many (0: none) */
+  let cineT = 0;
+  let cineLen = 0;
+  const lens: Lens = { l: 0, r: 0, t: 0, b: 0 };
+  // the backdrop hangs in a sheared group, so it keeps its Side look whatever the eye does
+  const shearGroup = new THREE.Group();
+  shearGroup.name = 'okcu-backdrop-shear';
+  shearGroup.matrixAutoUpdate = false;
+  scene.add(shearGroup);
+  let backdropIn = false;
+  const shear: Eye = { x: 0, y: 0 };
+  let shearX = 0;
+  let shearY = 0;
+
   // ---- camera state (logical px, like the 2D game's world layer)
   let zoom = 0;
   let punch = 0;
@@ -132,20 +177,65 @@ export function createStage(root: HTMLElement): Stage {
     const hw = FRAME_W / 2 / z;
     const hh = FRAME_H / 2 / z;
     const d = dist0 / z;
-    const ex = wx + swayX;
-    const ey = wy + EYE_LIFT + swayY;
+    // the angle's offset grows with the distance: the same direction at every zoom
+    const ex = wx + swayX + eye.x / z;
+    const ey = wy + EYE_LIFT + swayY + eye.y / z;
     camera.position.set(ex, ey, d);
     camera.rotation.set(0, 0, roll);
-    const k = NEAR / d;
     // the window's centre as the (rolled) camera sees it: the roll turns the view about the
     // window's centre, like the 2D camera, not about the lifted eye
-    const c = Math.cos(roll);
-    const s = Math.sin(roll);
-    const lx = (wx - ex) * c + (wy - ey) * s;
-    const ly = -(wx - ex) * s + (wy - ey) * c;
-    camera.projectionMatrix.makePerspective((lx - hw) * k, (lx + hw) * k, (ly + hh) * k, (ly - hh) * k, NEAR, FAR);
+    lensShift(wx, wy, hw, hh, ex, ey, d, roll, NEAR, lens);
+    camera.projectionMatrix.makePerspective(lens.l, lens.r, lens.t, lens.b, NEAR, FAR);
     camera.projectionMatrixInverse.copy(camera.projectionMatrix).invert();
     camera.updateMatrixWorld(true);
+  }
+
+  /** The eye for this frame: the glide to the chosen angle, or a cinematic swing over it. */
+  function stepEye(frame: Frame): void {
+    const real = frame.real;
+    if (glideK < 1) glideK = CALM ? 1 : Math.min(1, glideK + real / ANGLE_GLIDE);
+    mixEye(glideFrom, ANGLES[angle], glideK, baseEye);
+    if (cineLen > 0 && (frame.aim || frame.w.phase === 'title')) {
+      // a shot is being aimed (or the run is gone): let go of the swing, glide home from where the eye is
+      cineLen = 0;
+      glideFrom.x = eye.x;
+      glideFrom.y = eye.y;
+      glideK = 0;
+      mixEye(glideFrom, ANGLES[angle], glideK, baseEye);
+    }
+    if (cineLen > 0) {
+      cineT += real;
+      if (cineT >= cineLen) cineLen = 0;
+    }
+    if (cineLen > 0) cineEye(cineT, cineLen, baseEye, eye);
+    else {
+      eye.x = baseEye.x;
+      eye.y = baseEye.y;
+    }
+    // the backdrop: adopt it once the arena has made it, then lean it against the eye
+    if (!backdropIn) {
+      const root = scene.children.find((o) => o.name === BACKDROP_NAME);
+      if (root) {
+        shearGroup.add(root);
+        backdropIn = true;
+      }
+    }
+    backdropShear(eye, dist0, shear);
+    if (shear.x !== shearX || shear.y !== shearY) {
+      shearX = shear.x;
+      shearY = shear.y;
+      // x += shearX · z, y += shearY · z
+      shearGroup.matrix.elements[8] = shearX;
+      shearGroup.matrix.elements[9] = shearY;
+      shearGroup.matrixWorldNeedsUpdate = true;
+    }
+  }
+
+  /** A cinematic swing (Low to Side, home to the chosen angle): not with reduced motion, not while aiming. */
+  function swing(frame: Frame, seconds: number): void {
+    if (CALM || frame.aim) return;
+    cineT = 0;
+    cineLen = seconds;
   }
 
   function resize(): void {
@@ -191,6 +281,7 @@ export function createStage(root: HTMLElement): Stage {
             zoom = 0.14;
             focusX = e.x;
             focusY = e.y;
+            swing(frame, CINE_KNOCKOUT);
           } else if (frame.w.phase === 'play' || frame.w.phase === 'clear') {
             // the wave's finishing knockout: a slow push-in on the last one to fall
             if (frame.w.enemies.every((x) => !x.alive)) {
@@ -210,6 +301,7 @@ export function createStage(root: HTMLElement): Stage {
             introZoom = 0.2;
             focusX = boss.anchorX;
             focusY = (L ? L.y : boss.anchorY) - 110;
+            swing(frame, CINE_ENTRANCE);
           }
           break;
         }
@@ -263,6 +355,22 @@ export function createStage(root: HTMLElement): Stage {
     menu(on) {
       menuOn = on;
     },
+    get angle() {
+      return angle;
+    },
+    setAngle(next) {
+      if (next === angle) return;
+      angle = next;
+      // glide from wherever the chosen-angle eye is now (a switch mid-glide does not jump)
+      glideFrom.x = baseEye.x;
+      glideFrom.y = baseEye.y;
+      glideK = CALM ? 1 : 0;
+      try {
+        localStorage.setItem(ANGLE_KEY, next);
+      } catch {
+        /* no storage: the choice lasts for the session */
+      }
+    },
     shake(strength) {
       // shakes asked for in one frame do not stack: the strongest one counts (a barrage's dozen hits)
       shakeAsk = Math.max(shakeAsk, strength);
@@ -271,6 +379,7 @@ export function createStage(root: HTMLElement): Stage {
       const real = frame.real;
       clock += real;
       readEvents(frame);
+      stepEye(frame);
       if (shakeAsk > 0) {
         trauma = Math.min(TRAUMA_MAX, Math.max(0, trauma + shakeAsk * (CALM ? 0.25 : 1)));
         shakeAsk = 0;

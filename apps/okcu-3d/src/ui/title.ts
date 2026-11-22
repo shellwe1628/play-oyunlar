@@ -10,6 +10,8 @@
  *          first shot.
  * The first shot starts the run from either state (dragging on the open sky works in the menu
  * too), exactly as before; the result screen's Replay comes straight back in the ready state.
+ * A mode world (Blitz, Boss Rush, started from the Events tab) is always in the ready state: its
+ * name and rule stand under the hint, and the menu button leaves the mode (back to the Events tab).
  *
  * Everything lives in the HUD's logical 720 × 1280 layer; the parts follow the real screen edges
  * and safe areas (`Ui.view`), so tall phones put the extra height in the middle.
@@ -47,6 +49,8 @@ export interface TitleScreen {
 export interface TitleHooks {
   /** chapter select: the next (1) or previous (-1) chapter reached, wrapping round */
   chapter: (dir: 1 | -1) => void;
+  /** the menu button on a mode's ready screen: leave the mode (the menu comes back on the Events tab) */
+  leaveMode: () => void;
 }
 
 /** Green "easy" / orange "tough" on the chapter card (the player's power against the chapter's recommended power). */
@@ -206,7 +210,8 @@ export function createTitle(ui: Ui, parent: HTMLElement, hooks: TitleHooks): Tit
     const on = (m: Mode) => () => mode === m && root !== null;
     if (calm) root.classList.add('ok-calm');
     const chapter = Math.min(CHAPTERS, game.chapter);
-    const where = daily ? t('title.dailyOn', { d: todayKey() }) : chapter >= CHAPTERS ? t(`chapter.${CHAPTERS}`) : `${t('title.chapter', { n: chapter + 1 })} · ${t(`chapter.${chapter}`)}`;
+    const played = game.mode;
+    const where = played ? `${t(`mode.${played}`)} · ${t('mode.arena')}` : daily ? t('title.dailyOn', { d: todayKey() }) : chapter >= CHAPTERS ? t(`chapter.${CHAPTERS}`) : `${t('title.chapter', { n: chapter + 1 })} · ${t(`chapter.${chapter}`)}`;
 
     // ---- the hanging sign: two ropes, a plank, the name in wobbly letters, an arrow stuck in it
     const signTop = top + 112;
@@ -393,13 +398,19 @@ export function createTitle(ui: Ui, parent: HTMLElement, hooks: TitleHooks): Tit
     menuBtn.dataset.testid = 'title-menu';
     menuBtn.setAttribute('aria-label', t('core.menu'));
     for (const y of [27, 42, 57]) el('div', 'ok-m-burger', menuBtn).style.top = `${y}px`;
-    pressable(menuBtn, on('ready'), ui.unlock, tap(() => setMode('menu')));
+    pressable(menuBtn, on('ready'), ui.unlock, tap(() => (played ? hooks.leaveMode() : setMode('menu'))));
     const hintY = Math.min(Math.max(top + 300, 250), 440);
     const hP = part(readyG, CX, hintY, 'scale(0.4)', 0);
     hint = L(new Label(hP, 0, 0, t('title.drag'), { size: 56, color: PALETTE.white, wrap: 640, stroke: 15 }));
     const sP = part(readyG, CX, hintY + hint.height / 2 + 30, 'translateY(-30px)', 120);
-    const sub = L(new Label(sP, 0, 0, where, { size: 34, color: daily ? PALETTE.gold : (WORLD_TINT[chapter] ?? PALETTE.cream), stroke: 10 }));
+    const sub = L(new Label(sP, 0, 0, where, { size: 34, color: played || daily ? PALETTE.gold : (WORLD_TINT[chapter] ?? PALETTE.cream), stroke: 10 }));
     if (sub.width > 640) sub.setScale(640 / sub.width);
+    if (played) {
+      // a mode's rule in one line, under its name
+      const rP = part(readyG, CX, hintY + hint.height / 2 + 30 + sub.height / 2 + 34, 'translateY(-30px)', 200);
+      const rule = L(new Label(rP, 0, 0, t(`mode.tip.${played}`), { size: 28, color: PALETTE.cream, stroke: 8 }));
+      if (rule.width > 640) rule.setScale(640 / rule.width);
+    }
     // in the menu state the sound button is the shell's (its top bar)
     const sndP = part(readyG, 658, top + 62, 'translateX(140px)', 0);
     const snd = roundButton(sndP, 0, 0, 92, ui.audio.muted ? 'sound-off' : 'sound-on', ui.unlock, () => {
@@ -433,7 +444,9 @@ export function createTitle(ui: Ui, parent: HTMLElement, hooks: TitleHooks): Tit
   function show(w: World, keepMode: boolean, quiet: boolean): void {
     drop();
     world = w;
-    if (!keepMode) mode = ui.game.quick ? 'ready' : 'menu';
+    // (a mode world has no menu state: it is entered from the Events tab, ready to shoot)
+    if (ui.game.mode) mode = 'ready';
+    else if (!keepMode) mode = ui.game.quick ? 'ready' : 'menu';
     soft = quiet;
     build(w);
     soft = false;

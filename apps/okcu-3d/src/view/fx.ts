@@ -21,7 +21,6 @@
  * (wave, boss, "Phase 2!"), the objective result line and the one-time tips.
  */
 import * as THREE from 'three';
-import { THEMES, themeIndex } from '@okcu/anim/themes';
 import { STRINGS } from '@okcu/strings';
 import { PALETTE } from '@okcu/textures';
 import { bowGlow } from '@sim/bow';
@@ -31,6 +30,7 @@ import { type EnemyType } from '@sim/combat';
 import { type GameEvent, type World } from '@sim/world';
 import { type Frame, type FxView, type Stage } from '../contract';
 import { m, sx, sy } from '../coords';
+import { themeOf } from './arena/themes';
 import { CALM } from './stage';
 import { hueColor, mixWhite, TILE } from './fx/atlas';
 import { SpriteBatch } from './fx/batch';
@@ -245,7 +245,7 @@ export function createFx(stage: Stage): FxView {
   }
 
   function handle(e: GameEvent, w: World): void {
-    const theme = THEMES[themeIndex(w.wave)] ?? THEMES[0]!;
+    const theme = themeOf(w);
     switch (e.t) {
       case 'shot': {
         if (w.stats.weapon !== 'bow') {
@@ -320,9 +320,18 @@ export function createFx(stage: Stage): FxView {
         fx.ring(e.x, e.y, PALETTE.danger, 1.1);
         fx.flash(e.x, e.y, PALETTE.danger, 150, 0.14, 0.8);
         fx.streaks(e.x, e.y, dir + Math.PI, 1.5, 5, mixWhite(PALETTE.danger, 0.4), 700);
-        text.damage(-1, e.x, e.y, e.dmg, PALETTE.danger, true);
+        // (Blitz: no health is lost; what the hit cost is said by 'blitzHit')
+        if (e.dmg > 0) text.damage(-1, e.x, e.y, e.dmg, PALETTE.danger, true);
         break;
       }
+      case 'blitzHit':
+        // Blitz: the hit took seconds off the clock
+        if (e.cost > 0) text.word(-1, e.x, e.y - 30, `−${Math.round(e.cost)} ${lang === 'tr' ? 'sn' : 's'}`, PALETTE.danger, 52);
+        break;
+      case 'land':
+        // Blitz: an archer dropped in (a puff at its feet; no shake, there is one every few seconds)
+        fx.puffs(e.x, e.y, 3, PALETTE.dust, 110);
+        break;
       case 'blocked':
         fx.ring(e.x, e.y, PALETTE.bubble, 1.8, 0.4);
         fx.sparks(e.x, e.y, 8, PALETTE.bubble, 260);
@@ -363,7 +372,8 @@ export function createFx(stage: Stage): FxView {
           const colors = [PALETTE.gold, PALETTE.pink, PALETTE.bubble, PALETTE.leaf, PALETTE.white];
           for (let i = 0; i < 5; i++) fx.shards(e.x, e.y - 20, -Math.PI / 2, colors[i]!, 6, 560);
           fx.flash(e.x, e.y, PALETTE.gold, 380, 0.5, 0.6);
-          callout(t('hud.loot'), PALETTE.gold, 80);
+          // (a mode's boss bursts with no coins in it: no "LOOT!")
+          if (e.coins > 0) callout(t('hud.loot'), PALETTE.gold, 80);
         } else {
           // an elite's chest pops open
           fx.ring(e.x, e.y, PALETTE.gold, 1.8, 0.35);
@@ -676,7 +686,7 @@ export function createFx(stage: Stage): FxView {
         fx.puffs(x.anchorX, fy, 4, PALETTE.white, 140);
         if (big) {
           // a heavy landing: the ledge coughs up its own stuff and dust rolls out low both ways, at the feet
-          const theme = THEMES[themeIndex(w.wave)] ?? THEMES[0]!;
+          const theme = themeOf(w);
           fx.shards(x.anchorX, fy, Math.PI / 2, theme.debris, CALM ? 4 : 8, 380);
           for (let side = -1; side <= 1; side += 2) {
             fx.spawn('puff', x.anchorX + side * 20, fy, side * 300, -20, { life: 0.6, drag: 4, scale: 0.5, scaleEnd: 1.4, tint: PALETTE.dust, alpha: 0.75 });

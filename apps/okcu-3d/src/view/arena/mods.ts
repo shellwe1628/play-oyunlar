@@ -6,7 +6,7 @@
  * Each one eases in and out with its stage; nothing here feeds back into the simulation.
  */
 import * as THREE from 'three';
-import type { Theme } from '@okcu/anim/themes';
+import type { ArenaTheme as Theme } from './themes';
 import { fieldRight, fieldTop } from '@sim/chapters';
 import { PLAYER_LEDGE } from '@sim/tuning';
 import { BASE_SLIDE, type World } from '@sim/world';

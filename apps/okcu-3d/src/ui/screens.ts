@@ -3,6 +3,8 @@
  * onPickCard / onExtra) and the result card (core ResultScene shell + games/okcu ResultScene
  * lines, revive and double coins). Same positions, sizes, colours and timings as the 2D game, in
  * its logical px. The rewarded buttons (▶ AD) go through `Ui.rewarded` (the platform adapter).
+ * A mode run (Blitz, Boss Rush: `RunResult.mode`) uses the same result card with its own score,
+ * best and lines; Boss Rush adds a row of six pips, one per boss beaten.
  */
 import type { Audio } from '@oyun/core/pure';
 import { drawBadge } from '@okcu/scenes/gear';
@@ -13,13 +15,14 @@ import { canUpgrade, type ChestKind } from '@sim/arsenal';
 import { countCards, synergyFor, type CardId, type SynergyId } from '@sim/cards';
 import { CHAPTERS } from '@sim/chapters';
 import { UPGRADE_IDS, upgradeCost } from '@sim/meta';
+import { RUSH_BOSSES } from '@sim/modes';
 import { progressScore, RANKS, rankOf } from '@sim/progress';
 import { WEAPON_IDS } from '@sim/weapons';
 import type { World } from '@sim/world';
 import type { Game, Stage } from '../contract';
 import { button, calmMotion, EASE, el, fitText, iconCanvas, Label, pressable, roundButton, Sketch, type ButtonHandle } from './dom';
 import { Gfx } from './gfx';
-import { centreIn, confetti, countTo, pop, shineLoop, sparkle, sunburst } from './juice';
+import { centreIn, confetti, countTo, pop, popIn, shineLoop, sparkle, sunburst } from './juice';
 import type { RunResult } from './progress';
 import { drawChestIcon } from './shop';
 
@@ -371,18 +374,43 @@ export function createResult(ui: Ui, parent: HTMLElement, hooks: ResultHooks): R
         badge.textContent = t('core.newBest');
         badge.style.visibility = 'hidden';
       }
-      el('div', 'cap', inner).textContent = t('core.score');
+      // a mode run (Blitz, Boss Rush) has its own score, best and lines
+      const md = r.mode;
+      const rush = md !== null && md.result.mode === 'bossrush';
+      // (the game's own caption is "wave reached": a mode has its own)
+      el('div', 'cap', inner).textContent = rush ? t('mode.result.bosses') : md ? t('mode.result.score') : t('core.score');
       scoreEl = el('div', 'score', inner);
       scoreEl.textContent = '0';
-      el('div', 'best', inner).textContent = t('core.best', { n: r.best });
-      const where = r.chapter >= CHAPTERS ? t(`chapter.${CHAPTERS}`) : t('result.chapter', { c: t(`chapter.${r.chapter}`), s: r.stage });
+      if (md && rush) {
+        // one pip per boss, the beaten ones lit, popping in as the score counts
+        const pips = el('div', '', inner);
+        pips.dataset.testid = 'result-rush-pips';
+        pips.style.cssText = 'display:flex;gap:10px;margin:-4px 0 4px';
+        const on: HTMLElement[] = [];
+        for (let i = 0; i < RUSH_BOSSES; i++) {
+          const p = el('i', '', pips);
+          const lit = i < md.result.score;
+          p.style.cssText = `width:54px;height:30px;border-radius:12px;${lit ? 'background:linear-gradient(180deg,#ffd36a,#ff9a3c);box-shadow:inset 0 0 0 3px rgba(42,24,56,.35),0 0 10px rgba(255,154,60,.5)' : 'background:rgba(255,255,255,.1);box-shadow:inset 0 0 0 2px rgba(255,255,255,.08)'}`;
+          if (lit) on.push(p);
+        }
+        popIn(on, 260, 110);
+      }
+      const bestText = !md ? t('core.best', { n: r.best }) : md.best <= 0 ? t('mode.bestNone') : rush ? t('mode.best.bossrush', { n: md.best, m: RUSH_BOSSES, t: md.bestTime.toFixed(1) }) : t('mode.best.blitz', { n: md.best });
+      el('div', 'best', inner).textContent = bestText;
+      const where = md ? `${t(`mode.${md.result.mode}`)} · ${t('mode.arena')}` : r.chapter >= CHAPTERS ? t(`chapter.${CHAPTERS}`) : t('result.chapter', { c: t(`chapter.${r.chapter}`), s: r.stage });
       // ResultScene's lines: the daily, where, coins, knockouts, the daily goal, records, new achievements
       const coinLine = r.daily ? 2 : 1;
-      const lines = [...(r.daily ? [t('result.daily', { d: r.dailyKey })] : []), where, t('result.coins', { n: r.coins }), t('result.kos', { k: r.kos, h: r.headshots })];
+      const lines = [...(r.daily ? [t('result.daily', { d: r.dailyKey })] : []), where, t('result.coins', { n: r.coins })];
+      if (md && rush) {
+        // Boss Rush: the fight time of the bosses beaten, and how it ended
+        if (md.result.score > 0) lines.push(t('mode.result.time', { t: md.result.time.toFixed(1) }));
+        lines.push(r.stoppedBy ? t('mode.result.stopped', { b: t(r.stoppedBy) }) : t('mode.result.cleared'));
+      } else lines.push(t('result.kos', { k: r.kos, h: r.headshots }));
+      if (r.chestsDone) lines.push(t('mode.result.noChest'));
       if (r.dailyChest) lines.push(t('result.dailyChest', { n: r.dailyStreak }));
-      // the run's bests, with the records screen's own captions
-      if (r.streakBest > 1) lines.push(`${t('rec.streak')} ${r.streakBest}`);
-      if (r.chainBest > 1) lines.push(`${t('rec.chain')} ${r.chainBest}`);
+      // the run's bests, with the records screen's own captions (a mode run sets no record)
+      if (!md && r.streakBest > 1) lines.push(`${t('rec.streak')} ${r.streakBest}`);
+      if (!md && r.chainBest > 1) lines.push(`${t('rec.chain')} ${r.chainBest}`);
       if (r.records.length > 0) lines.push(t('result.records'));
       for (const id of r.feats.slice(0, 2)) lines.push(`★ ${t(`feat.${id}.name`)}`);
       let coinsEl: HTMLElement | null = null;
@@ -401,13 +429,13 @@ export function createResult(ui: Ui, parent: HTMLElement, hooks: ResultHooks): R
               if (l.isConnected && l.textContent === t('result.coins', { n: 0 })) countTo(l, 0, r.coins, Math.min(900, 300 + r.coins * 4), (n) => t('result.coins', { n: Math.round(n) }));
             }, at + 120);
           }
-        } else if (i === coinLine + 1 && !calm && r.kos > 0) {
+        } else if (i === coinLine + 1 && !calm && r.kos > 0 && !rush) {
           l.textContent = t('result.kos', { k: 0, h: 0 });
           window.setTimeout(() => {
             if (l.isConnected) countTo(l, 0, 1, Math.min(800, 300 + r.kos * 30), (u) => t('result.kos', { k: Math.round(r.kos * u), h: Math.round(r.headshots * u) }));
           }, at + 120);
-        } else if (i > coinLine + 1) {
-          // bests, records and achievements: the run's trophies
+        } else if (i > coinLine + 1 && !(md && (r.chestsDone || r.stoppedBy) && i === lines.length - 1)) {
+          // bests, records and achievements: the run's trophies (not a mode run's closing note)
           l.classList.add('gold');
         }
         // the card's lines slide in one by one after the panel lands
@@ -431,11 +459,12 @@ export function createResult(ui: Ui, parent: HTMLElement, hooks: ResultHooks): R
           confetti(host, CX, 190, 520, 28);
         };
       }
-      score = r.wave;
+      score = md ? md.result.score : r.wave;
       age = 0;
       dur = Math.min(0.9, 0.2 + score * 0.04);
       done = false;
-      ui.audio.play(newBest ? 'win' : 'lose');
+      // (a Blitz always ends with the archer standing, a rush cleared is a win: neither is a loss)
+      ui.audio.play(newBest || (md && !r.stoppedBy) ? 'win' : 'lose');
       const tap = (fn: () => void) => () => {
         if (busy) return;
         ui.audio.play('tap');

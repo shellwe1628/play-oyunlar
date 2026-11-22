@@ -20,8 +20,32 @@ result card, the tabs arriving) frozen at exact times into `tools/out-cila/`; `s
 shared motion pieces they show. `tools/cila-play.mjs` takes a burst of in-play frames from the moment a
 condition on the world turns true (its header shows how to push an event into `w.events` to stage a moment).
 URL switches are listed at the top of `src/main.ts` (`seed`, `wave`, `chapter`, `bow`, `armor`,
-`auto`, `off`, `speed`). `window.__okcu3d` exposes `w` (the world), `game`, `stage`, `shoot()`,
+`auto`, `off`, `speed`, `angle`). `window.__okcu3d` exposes `w` (the world), `game`, `stage`, `shoot()`,
 `skip()`.
+
+Camera angles (`src/view/angles.ts`, applied in `src/view/stage.ts`): Side, Angled and Low are eye
+offsets of the lens-shift camera, so the gameplay plane, `toScreen` / `toLogical` and the DOM overlay
+are the same on all three; the HUD's camera button (top left in play) cycles them and the choice is
+kept in localStorage (`oyun:okcu-3d:angle`), `?angle=side|angled|low` overrides it. The backdrop is
+authored for the Side eye, so the stage shears its root group (`okcu-backdrop`) against the eye
+offset and it looks the same on every angle; a new backdrop layer needs nothing extra as long as
+it hangs under that root. `tools/acilar-shots.mjs` takes the same frozen moment on every angle
+(`shots`), prints how far the plane moved between angles and the `toLogical(toScreen(p))` round
+trip (`measure`), exercises the button (`button`) and stages the two cinematic swings (`cine`),
+into `tools/out-acilar/`.
+
+Modes (the Events tab, `src/ui/events.ts`): **Blitz** and **Boss Rush**. Their rules, numbers and
+what a mode run may write to the save are the simulation's (`games/okcu/src/sim/modes.ts`,
+`createWorld({ mode })`, tests in `games/okcu/tests/unit/modes.test.ts` and `modes-3d.test.ts`); the
+app only starts them (`Game.startRun({ mode })`, `Game.mode`), draws the Blitz clock and score in
+the HUD, and shows the result card with the mode's score and best (`RunResult.mode`). They are
+played on a seventh arena theme that is in no chapter, Sunset Canyon (`src/view/arena/themes.ts`:
+the arena's theme tables are the game's six plus this one; views pick the theme by `w.theme`,
+never by the wave). `?mode=blitz|bossrush` opens a mode directly as a test run (the save is left
+alone), `?mode=bossrush&boss=N` (1 … 6) starts the rush at that boss, and `window.__okcu3d.bot(true)`
+turns the aim bot on after the page has loaded. `tools/modlar-shots.mjs` plays both modes from the
+Events tab on a seeded save and captures the cards, the clock, the result cards and the arena
+(`--angle angled|low`, `--lang tr`) into `tools/out-modlar/`.
 
 The 2D game is the reference for how everything should look and move:
 `npm run dev -w games/okcu -- --port 5173` runs it if you want reference screenshots.
@@ -34,8 +58,10 @@ The 2D game is the reference for how everything should look and move:
 | `src/contract.ts` | the interfaces between parts (`Stage`, `Frame`, `Module`, `ArchersView`, `BowHandle`, `FxView`, `Game`) |
 | `src/coords.ts` | simulation px ↔ scene metres. Always convert through it |
 | `src/assets.ts` | loads the Mixamo FBX files from `public/assets` |
-| `src/view/stage.ts` | renderer, camera, lights, shadows, shake, screen mapping |
+| `src/view/stage.ts` | renderer, camera, lights, shadows, shake, screen mapping, camera angles |
+| `src/view/angles.ts` | the camera angles' eye offsets, glide and cinematic swing, the lens-shift maths (pure) |
 | `src/view/arena.ts` | sky and backdrop per theme, ledges, walls, movers and ropes, props, plates, targets, apples |
+| `src/view/arena/themes.ts` | the arena themes: the game's six worlds and the modes' Sunset Canyon |
 | `src/view/archers.ts`, `src/view/rig.ts` | Mixamo characters driven by the ragdoll points; bows, helmets, shields, armour |
 | `src/view/arrows.ts` | arrows, bombs, orbs, trails |
 | `src/view/fx.ts` | event effects, damage numbers, slow motion, shake requests |

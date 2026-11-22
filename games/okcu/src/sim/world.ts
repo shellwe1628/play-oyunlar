@@ -8,6 +8,8 @@
  * player's ledge sliding (`w.baseX`).
  * Scenes call `advance`, `aimAt`, `shoot`, `pickCard`, `unleash`, … and draw the state; they
  * hold no rules.
+ * `createWorld({ mode })` makes a mode world instead of a run of chapters (modes.ts: Blitz, Boss
+ * Rush; `w.mode`, `w.blitz`, `w.rush`): its own arena theme, its own end, and no chapter progress.
  */
 import { createRng, type Rng } from '@oyun/core/pure';
 import { flyArrow, hitParts, sweepCapsule } from './arrow';
@@ -17,6 +19,7 @@ import { bonusAfter, CHAPTERS, chapterStart, ENDLESS_WAVE, fieldSpan, fieldTop, 
 import { armourShare, ENEMY_DAMAGE, resolveHit, type EnemyType, type HitPart } from './combat';
 import { clamp, solveLaunchAngle, sweepAabb } from './geom';
 import { NO_META, type MetaLevels, type RunBank } from './meta';
+import { BLITZ, BLITZ_LEDGES, BLITZ_SPAN, blitzEvery, blitzHp, blitzLevel, MODE_THEME, RUSH_BOSSES, rushLevel, rushWave, type Mode } from './modes';
 import type { DailyMod, RunSummary } from './progress';
 import { BOSS_PARTS, bowOrigin, createRagdoll, LEG_HEIGHT, PARTS, PT, setPose, type Part } from './ragdoll';
 import { PLAYER_LEDGE, PLAYER_SCALE, PLAYER_X, TUNING } from './tuning';
@@ -315,6 +318,14 @@ export type GameEvent =
   | { t: 'bonusHit'; x: number; y: number; coins: number; bull: boolean; kind: Target['kind'] }
   | { t: 'bonusEnd'; kind: BonusKind; hits: number; grade: 'gold' | 'silver' | 'bronze' | 'none'; coins: number }
   | { t: 'cards'; treasure: boolean }
+  /** a mode run begins (its first arrow flies) */
+  | { t: 'modeStart'; mode: Mode }
+  /** Blitz: the player was hit; `cost` seconds came off the clock (no health is lost) */
+  | { t: 'blitzHit'; x: number; y: number; cost: number }
+  /** Blitz: an archer that dropped in has landed (its feet at x, y) */
+  | { t: 'land'; id: number; x: number; y: number }
+  /** a mode run ended by its own rule (Blitz: the clock; Boss Rush: the last boss); a rush lost to a knockout ends with 'dead' */
+  | { t: 'modeEnd'; mode: Mode; score: number }
   | { t: 'dying' }
   | { t: 'dead' };
 
@@ -431,6 +442,34 @@ export interface World {
   startChapter: number;
   /** coins/best already written to the save by the scene (survives a revive) */
   bank: RunBank | null;
+  /** the mode this world plays (modes.ts), null for a run of chapters */
+  mode: Mode | null;
+  /** Blitz's clock and score, null in every other world */
+  blitz: BlitzState | null;
+  /** Boss Rush's progress, null in every other world */
+  rush: RushState | null;
+}
+
+export interface BlitzState {
+  /** seconds left on the clock (it runs in play only) */
+  left: number;
+  /** seconds played */
+  t: number;
+  /** knockouts, a head knockout counting double */
+  score: number;
+  /** knockouts by a head hit */
+  heads: number;
+  /** hits the player took (each cost BLITZ.hitCost s) */
+  hits: number;
+}
+
+export interface RushState {
+  /** the boss being fought, 0 … RUSH_BOSSES − 1 (chapter order) */
+  boss: number;
+  /** bosses beaten so far */
+  beaten: number;
+  /** fight time of each boss beaten, seconds */
+  times: number[];
 }
 
 const ARROW_POOL = 80;
@@ -636,6 +675,8 @@ export interface WorldOptions {
   mod?: DailyMod | null;
   /** 'hard' for the 3D build (apps/okcu-3d); default 'classic' */
   difficulty?: Difficulty;
+  /** a mode world (modes.ts) instead of a run of chapters: no chapter start, no daily modifier */
+  mode?: Mode | null;
 }
 
 /** Cards in a hand drafted for a chapter-select start: five per chapter skipped. */
@@ -672,6 +713,7 @@ function newRun(): RunStats {
 export function createWorld(opts: WorldOptions): World {
   const rng = createRng(opts.seed);
   const meta = opts.meta ?? NO_META;
+  const mode = opts.mode ?? null;
   const w = {
     rng,
     brainRng: rng.fork('brain'),
@@ -681,7 +723,7 @@ export function createWorld(opts: WorldOptions): World {
     bonusRng: rng.fork('bonus'),
     seed: opts.seed,
     meta,
-    mod: opts.mod ?? null,
+    mod: mode ? null : (opts.mod ?? null),
     difficulty: opts.difficulty ?? 'classic',
     phase: 'title',
     wave: 1,
@@ -735,8 +777,11 @@ export function createWorld(opts: WorldOptions): World {
     events: [],
     spareEvents: [],
     layoutRot: 0,
-    startChapter: Math.max(0, Math.min(CHAPTERS, Math.floor(opts.startChapter ?? 0))),
+    startChapter: mode ? 0 : Math.max(0, Math.min(CHAPTERS, Math.floor(opts.startChapter ?? 0))),
     bank: null,
+    mode,
+    blitz: mode === 'blitz' ? { left: BLITZ.time, t: 0, score: 0, heads: 0, hits: 0 } : null,
+    rush: mode === 'bossrush' ? { boss: 0, beaten: 0, times: [] } : null,
   } as unknown as World;
   w.layoutRot = w.waveRng.int(0, 2);
   if (w.stats.starterCard) {
@@ -754,7 +799,9 @@ export function createWorld(opts: WorldOptions): World {
   w.rerollsLeft = w.stats.rerolls;
   w.player = makeArcher(w, 'player', PLAYER_X, PLAYER_LEDGE.y, 1, 0);
   w.player.hp = w.player.maxHp = w.stats.maxHp;
-  spawnWave(w, chapterStart(w.startChapter), true);
+  if (w.blitz) spawnBlitz(w);
+  else if (w.rush) spawnRush(w, true);
+  else spawnWave(w, chapterStart(w.startChapter), true);
   return w;
 }
 
@@ -852,8 +899,9 @@ function spawnWave(w: World, wave: number, instant: boolean): void {
   const pos = stageOf(wave);
   w.chapter = pos.chapter;
   w.stage = pos.stage;
-  w.theme = pos.theme;
-  w.level = levelOf(wave, w.difficulty);
+  // a mode world is played on its own arena; a rush boss's archers have the rush's level
+  w.theme = w.mode ? MODE_THEME : pos.theme;
+  w.level = w.rush ? rushLevel(w.rush.boss, w.difficulty) : levelOf(wave, w.difficulty);
   const def = stageDef(wave, w.waveRng, w.difficulty);
   w.stageMod = w.difficulty === 'hard' ? def.mod ?? null : null;
   w.span = fieldSpan(wave, w.difficulty);
@@ -929,7 +977,8 @@ function spawnWave(w: World, wave: number, instant: boolean): void {
   w.shieldLeft = w.stats.shieldCharges;
   const kind = objectiveFor(wave, w.waveRng);
   w.objective = kind ? { kind, limit: 10 + 5 * w.enemies.length, hit: false, heads: 0, multi: false } : null;
-  if (!pos.endless) w.run.chapterStage[pos.chapter] = Math.max(w.run.chapterStage[pos.chapter]!, pos.stage);
+  // (a mode world never reports chapter progress)
+  if (!pos.endless && !w.mode) w.run.chapterStage[pos.chapter] = Math.max(w.run.chapterStage[pos.chapter]!, pos.stage);
   w.waveT0 = w.time;
   // the title's wave is announced by startRun when the first arrow flies
   if (!instant) pushWaveStart(w);
@@ -988,6 +1037,7 @@ function startRun(w: World): void {
   w.phase = 'play';
   w.phaseT = 0;
   w.waveT0 = w.time;
+  if (w.mode) w.events.push({ t: 'modeStart', mode: w.mode });
   pushWaveStart(w);
 }
 
@@ -1008,6 +1058,134 @@ export function startBonusNow(w: World, kind: BonusKind): void {
   for (const e of w.enemies) if (!e.gone) poof(w, e);
   w.enemies.length = 0;
   startBonus(w, kind);
+}
+
+// ---------------------------------------------------------------- modes (modes.ts)
+
+/** The wave after a card pick: the next stage, or the rush's next boss. */
+function nextWave(w: World): void {
+  if (w.rush) {
+    w.rush.boss = Math.min(RUSH_BOSSES - 1, w.rush.boss + 1);
+    spawnRush(w, false);
+  } else spawnWave(w, w.wave + 1, false);
+}
+
+/** Boss Rush: the current boss on its chapter's boss stage, the player back at full health. */
+function spawnRush(w: World, instant: boolean): void {
+  spawnWave(w, rushWave(w.rush!.boss), instant);
+  const p = w.player;
+  if (p.alive) p.hp = p.maxHp;
+}
+
+/** Tests and tools: fight rush boss `boss` (0 … 5) right now. */
+export function rushJump(w: World, boss: number, dropIn = false): void {
+  if (!w.rush) return;
+  w.rush.boss = Math.max(0, Math.min(RUSH_BOSSES - 1, Math.floor(boss)));
+  w.phase = 'play';
+  w.phaseT = 0;
+  spawnRush(w, !dropIn);
+}
+
+/** Blitz: the arena's mesas, no wind, no objective, the first archers already standing. */
+function spawnBlitz(w: World): void {
+  w.wave = 1;
+  w.chapter = 0;
+  w.stage = 1;
+  w.theme = MODE_THEME;
+  w.level = blitzLevel(w.meta.wlevel);
+  w.stageMod = null;
+  w.span = BLITZ_SPAN;
+  w.ceiling = -Infinity;
+  clearProps(w);
+  w.enemies.length = 0;
+  w.layout = BLITZ_LEDGES.map((l) => ({ x: l.x, y: l.y, w: l.w, h: l.h ?? 58 }));
+  w.ledges = [{ ...PLAYER_LEDGE }, ...w.layout.map((l) => ({ ...l }))];
+  w.wind = 0;
+  w.gustEvery = 0;
+  w.gustT = 0;
+  w.objective = null;
+  w.shieldLeft = w.stats.shieldCharges;
+  for (let i = 0; i < BLITZ.field; i++) blitzArcher(w, true, i);
+  w.waveT0 = w.time;
+}
+
+/**
+ * Blitz: one more plain archer on a free place (a seeded pick; a place still holding a fallen body
+ * only when nothing else is free). `instant`: already standing (the title); else it waits `wait`
+ * seconds out of sight above its place (its `spawnT` counts up from −wait, `updateBlitz`) and then
+ * drops in.
+ */
+function blitzArcher(w: World, instant: boolean, order = 0, wait = 0): boolean {
+  // the fallen that have poofed are forgotten, so the list stays short over a whole minute
+  for (let i = w.enemies.length - 1; i >= 0; i--) if (w.enemies[i]!.gone) w.enemies.splice(i, 1);
+  let free: number[] = [];
+  for (let i = 1; i < w.ledges.length; i++) if (!w.enemies.some((e) => e.ledge === i)) free.push(i);
+  if (free.length === 0) for (let i = 1; i < w.ledges.length; i++) if (!w.enemies.some((e) => e.alive && e.ledge === i)) free.push(i);
+  if (free.length === 0) return false;
+  // the first one stands on the near mesa: an easy opening shot, as a run's first stage
+  if (instant && order === 0) free = [free[0]!];
+  const at = free[w.waveRng.int(0, free.length - 1)]!;
+  const L = w.ledges[at]!;
+  const e = makeArcher(w, 'archer', L.x + L.w / 2, L.y, -1, at);
+  e.hp = e.maxHp = blitzHp(w.meta.wlevel);
+  e.aimPenalty = BLITZ.wild;
+  e.brain = 'wait';
+  e.timer = BLITZ.grace + order * 0.6 + w.brainRng.range(0, BLITZ.graceJitter);
+  if (!instant) {
+    // well above the top of the view while it waits (the drop itself starts 900 px up, as every drop-in)
+    e.brain = 'spawn';
+    e.spawnT = -wait;
+    e.anchorY -= BLITZ_WAIT_UP;
+    translateBody(e.body, 0, -BLITZ_WAIT_UP);
+  }
+  w.enemies.push(e);
+  return true;
+}
+
+/** Blitz: how far above its place the next archer waits, px (out of sight over the lowest mesa too) */
+const BLITZ_WAIT_UP = 1600;
+
+/**
+ * Blitz, every tick of play: the clock runs down and archers keep dropping in (modes.ts BLITZ).
+ * The next archer is always there already, waiting out of sight over its place for its turn: the
+ * field is never "all down" (no wave ever ends in Blitz), and its place is taken.
+ */
+function updateBlitz(w: World): void {
+  const b = w.blitz!;
+  b.t += DT;
+  b.left = Math.max(0, b.left - DT);
+  if (b.left <= 0) {
+    endMode(w);
+    return;
+  }
+  let next: Archer | null = null;
+  let onField = 0;
+  for (const e of w.enemies) {
+    if (!e.alive) continue;
+    if (e.brain === 'spawn' && e.spawnT < 0) next = e;
+    else onField += 1;
+  }
+  if (!next) {
+    blitzArcher(w, false, 0, blitzEvery(w.meta.wlevel));
+    return;
+  }
+  // its turn comes after `blitzEvery` seconds; with the field full it waits, and drops as one falls
+  next.spawnT = Math.min(onField >= BLITZ.cap ? -DT : 0, next.spawnT + DT);
+}
+
+/**
+ * A mode run ends by its own rule (Blitz: the clock ran out; Boss Rush: the sixth boss fell): the
+ * world is over with the player standing, and nothing in the air or still burning scores after it.
+ */
+function endMode(w: World): void {
+  if (!w.mode || w.phase === 'over') return;
+  w.phase = 'over';
+  w.phaseT = 0;
+  w.player.draw = 0;
+  w.volleyQueue = 0;
+  for (const a of w.arrows) if (a.active && a.state === 0) a.active = false;
+  for (const e of w.enemies) e.burn = 0;
+  w.events.push({ t: 'modeEnd', mode: w.mode, score: w.blitz ? w.blitz.score : (w.rush?.beaten ?? 0) });
 }
 
 // ---------------------------------------------------------------- player input
@@ -1199,7 +1377,7 @@ export function pickCard(w: World, index: number): boolean {
   w.offer = [];
   w.phase = 'play';
   w.phaseT = 0;
-  spawnWave(w, w.wave + 1, false);
+  nextWave(w);
   return true;
 }
 
@@ -1222,7 +1400,8 @@ export function addExtraCard(w: World): boolean {
 
 /** Rewarded: once per run, continue with half health. */
 export function revive(w: World): boolean {
-  if (w.phase !== 'over' || w.revived) return false;
+  // a mode run ends for good
+  if (w.phase !== 'over' || w.revived || w.mode) return false;
   w.revived = true;
   const old = w.player;
   w.player = makeArcher(w, 'player', playerX(w), PLAYER_LEDGE.y, 1, 0);
@@ -1304,14 +1483,23 @@ function tick(w: World): void {
   updatePlates(w);
   updateArrows(w);
   updateProps(w);
-  if (w.phase === 'play') updateApples(w);
+  // (Blitz has no health to mend: no apples)
+  if (w.phase === 'play' && !w.blitz) updateApples(w);
   if (w.phase === 'bonus') updateBonus(w);
   switch (w.phase) {
     case 'play':
-      if (w.enemies.every((e) => !e.alive)) clearWave(w);
+      // Blitz has no waves: its field is refilled until the clock runs out
+      if (w.blitz) updateBlitz(w);
+      else if (w.enemies.every((e) => !e.alive)) clearWave(w);
       break;
     case 'clear':
       if (w.phaseT >= TUNING.clearDelay) {
+        if (w.rush) {
+          // Boss Rush: no bonus round; a card pick, then the next boss, and the end after the last
+          if (w.rush.boss >= RUSH_BOSSES - 1) endMode(w);
+          else openCards(w);
+          break;
+        }
         const bonus = bonusAfter(w.wave);
         if (bonus && !w.bonus) startBonus(w, bonus);
         else openCards(w);
@@ -1332,11 +1520,12 @@ function tick(w: World): void {
 function clearWave(w: World): void {
   w.phase = 'clear';
   w.phaseT = 0;
-  const coins = Math.round((2 + w.level) * coinMul(w));
+  // a mode pays for knockouts only (modes.ts)
+  const coins = w.mode ? 0 : Math.round((2 + w.level) * coinMul(w));
   w.run.coins += coins;
   heal(w, clearHeal(w));
   w.events.push({ t: 'waveClear', wave: w.wave, coins });
-  if (w.stage === STAGES && !stageOf(w.wave).endless) w.run.chapterStage[w.chapter] = STAGES + 1;
+  if (w.stage === STAGES && !stageOf(w.wave).endless && !w.mode) w.run.chapterStage[w.chapter] = STAGES + 1;
   const o = w.objective;
   if (o) {
     let ok: boolean;
@@ -1389,7 +1578,7 @@ function openCards(w: World): void {
     // every card is maxed out: straight on to the next wave
     w.phase = 'play';
     w.phaseT = 0;
-    spawnWave(w, w.wave + 1, false);
+    nextWave(w);
     return;
   }
   w.phase = 'cards';
@@ -1713,6 +1902,11 @@ function poof(w: World, a: Archer): void {
 
 function knockOut(w: World, a: Archer, cause: KoCause): void {
   if (!a.alive) return;
+  // Blitz: the player cannot be knocked out (a hit costs time, damagePlayer)
+  if (a.type === 'player' && w.blitz) {
+    a.hp = Math.max(1, a.hp);
+    return;
+  }
   a.alive = false;
   a.hp = 0;
   a.koCause = cause;
@@ -1732,6 +1926,10 @@ function knockOut(w: World, a: Archer, cause: KoCause): void {
   r.kos += 1;
   if (r.firstKoShot === 0) r.firstKoShot = Math.max(1, r.shots);
   const head = cause === 'head';
+  if (w.blitz && w.phase === 'play') {
+    w.blitz.score += head ? 2 : 1;
+    if (head) w.blitz.heads += 1;
+  }
   let coins = 3 + Math.floor(w.level / 2) + (head ? (w.mod === 'heads' ? 4 : 2) : 0);
   coins = Math.round(coins * coinMul(w));
   r.coins += coins;
@@ -1752,15 +1950,21 @@ function knockOut(w: World, a: Archer, cause: KoCause): void {
   }
   gainFocus(w, FX.focusKo);
   if (head && w.objective) w.objective.heads += 1;
-  // loot bursts out of bosses and elites
+  // loot bursts out of bosses and elites (a mode pays for the knockout only, modes.ts: its
+  // bosses burst for the show, with no coins in it)
   if (a.type === 'boss' || a.type === 'elite') {
     const ch = a.bossKind ? BOSS_KINDS.indexOf(a.bossKind) : w.chapter;
-    const loot = Math.round((a.type === 'boss' ? 25 + 10 * ch : 10 + 3 * Math.min(CHAPTERS, w.chapter)) * coinMul(w));
+    const loot = w.mode ? 0 : Math.round((a.type === 'boss' ? 25 + 10 * ch : 10 + 3 * Math.min(CHAPTERS, w.chapter)) * coinMul(w));
     r.coins += loot;
     w.events.push({ t: 'loot', x: hx, y: hy, coins: loot, kind: a.type });
   }
   if (a.type === 'boss') {
-    r.bossKills.push({ kind: BOSS_KINDS.indexOf(a.bossKind ?? 'shields'), time: Math.round((w.time - w.waveT0) * 10) / 10 });
+    const time = Math.round((w.time - w.waveT0) * 10) / 10;
+    // a rush keeps its own count: a mode's boss knockouts are no chapter's (no record, no reward)
+    if (w.rush) {
+      w.rush.beaten += 1;
+      w.rush.times.push(time);
+    } else if (!w.mode) r.bossKills.push({ kind: BOSS_KINDS.indexOf(a.bossKind ?? 'shields'), time });
     w.treasure = true;
     // the summoner's spell breaks: its imps go down with it
     for (const e of w.enemies) if (e.alive && e.type === 'imp') knockOut(w, e, 'blast');
@@ -1842,6 +2046,8 @@ function brain(w: World, a: Archer): void {
   if (a.chill > 0) a.chill = Math.max(0, a.chill - DT);
   if (a.blinkCd > 0) a.blinkCd -= DT;
   if (a.brain === 'spawn') {
+    // (Blitz: the next archer waits its turn out of sight, `updateBlitz` counts it in)
+    if (a.spawnT < 0) return;
     a.spawnT += DT;
     const t = Math.min(1, a.spawnT / 0.55);
     const lift = 900 * (1 - t) * (1 - t);
@@ -1864,6 +2070,7 @@ function brain(w: World, a: Archer): void {
     if (t >= 1) {
       a.brain = 'wait';
       a.crouch = 1;
+      if (w.blitz) w.events.push({ t: 'land', id: a.id, x: a.anchorX, y: a.anchorY + LEG_HEIGHT * a.scale });
     }
     return;
   }
@@ -2985,7 +3192,8 @@ function hitEnemy(w: World, a: Arrow, e: Archer, part: Part, hx: number, hy: num
     r.chain += 1;
     r.chainBest = Math.max(r.chainBest, r.chain);
     if (r.chain >= 2) {
-      const coins = Math.round(r.chain * coinMul(w));
+      // (a mode pays for knockouts only)
+      const coins = w.mode ? 0 : Math.round(r.chain * coinMul(w));
       r.coins += coins;
       w.events.push({ t: 'chain', n: r.chain, x: hx, y: hy, coins });
       gainFocus(w, 0.04 * r.chain);
@@ -3067,8 +3275,15 @@ function damagePlayer(w: World, part: HitPart, dmg: number, x: number, y: number
   // under the recommended power a chapter boss hits harder (BOSS_POWER_GATE)
   const boss = by >= 0 ? w.enemies.find((e) => e.id === by && e.type === 'boss') : undefined;
   if (boss) dmg *= bossHurtMul(w) * (boss.rage ? 2 : 1);
-  // a bonus round never knocks the player out
-  const amount = w.phase === 'bonus' ? Math.min(dmg, Math.max(0, p.hp - 1)) : dmg;
+  // a bonus round never knocks the player out; in Blitz a hit takes time off the clock, never health
+  let amount = w.phase === 'bonus' ? Math.min(dmg, Math.max(0, p.hp - 1)) : dmg;
+  if (w.blitz) {
+    amount = 0;
+    const cost = w.phase === 'play' ? Math.min(BLITZ.hitCost, w.blitz.left) : 0;
+    w.blitz.left -= cost;
+    w.blitz.hits += 1;
+    w.events.push({ t: 'blitzHit', x, y, cost });
+  }
   p.hp -= amount;
   p.hurt = 0;
   p.body.muscle = Math.min(p.body.muscle, 0.12);
@@ -3304,11 +3519,15 @@ export function targetPoint(e: Archer, where: 'head' | 'chest' | 'weak'): { x: n
 
 /** Wave reached: the wave being played, or the next one once this one is cleared. */
 export function reachedWave(w: World): number {
+  // a mode world reaches no wave of any chapter
+  if (w.mode) return 0;
   return w.phase === 'clear' || w.phase === 'cards' || w.phase === 'bonus' ? w.wave + 1 : w.wave;
 }
 
 /** What the run has done so far (records, achievements, the result screen). */
 export function summarize(w: World, daily = false): RunSummary {
+  // a mode world reports nothing the records, the chapters or the achievements could count
+  if (w.mode) return { reached: 0, kos: 0, headChain: 0, streak: 0, multi: 0, focusUses: 0, bossKills: [], chapterStage: Array<number>(CHAPTERS).fill(0), bonusGold: 0, barrelBest: 0, ropeDrops: 0, endless: 0, daily: false };
   const r = w.run;
   const reached = reachedWave(w);
   return {

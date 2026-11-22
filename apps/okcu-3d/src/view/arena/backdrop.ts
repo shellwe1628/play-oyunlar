@@ -2,7 +2,8 @@
  * The world behind the action, per theme: a gradient sky, sun or moon, stars, far ranges, near
  * hills with their trees / pines / cacti / lantern strings, a foreground rise, mist between the
  * layers, distant floating islands, drifting clouds and the ambient weather (pollen, snow, sand,
- * fireflies; the 2D game's worlds.ts in depth).
+ * fireflies; the 2D game's worlds.ts in depth). The seventh world, Sunset Canyon, is the modes'
+ * arena and exists only here (./themes.ts).
  *
  * Every layer is a group at its own depth, scaled so that it is authored in the gameplay plane's
  * logical px (like the 2D art) yet sits far behind it: the camera's sway, kick, zoom and shake
@@ -11,9 +12,9 @@
  * layers and raises the new one while sky, sun, clouds and lights blend.
  */
 import * as THREE from 'three';
-import { THEMES, type Theme } from '@okcu/anim/themes';
 import { LOGICAL_H, LOGICAL_W, m, sx, sy } from '../../coords';
-import { EYE_LIFT, HEMI_NAME, REST_DIST, SUN_NAME } from '../stage';
+import { CALM, EYE_LIFT, HEMI_NAME, REST_DIST, SUN_NAME } from '../stage';
+import { ARENA_THEMES as THEMES, type ArenaTheme as Theme } from './themes';
 import { INK, LANTERN, PINK, baked, dotTexture, easeInOut, glowTexture, jitter, merge, mixHex, shadeHex, tintHex } from './util';
 
 const W = LOGICAL_W;
@@ -694,7 +695,182 @@ function buildSky(set: WorldSet, th: Theme): void {
   }
 }
 
-const BUILDERS = [buildMeadow, buildSnow, buildDesert, buildNight, buildVolcano, buildSky] as const;
+/** logical x of the canyon's low sun: the far stone arch stands around it */
+const CANYON_SUN_X = W * 0.33;
+
+/**
+ * Sunset Canyon (the modes' arena): a low sun in a stone arch, banded buttes and spires in the
+ * haze, a terraced canyon floor with rim walls rising at both sides, boulders and dead trees
+ * throwing long shadows away from the sun, a tumbleweed rolling through and vultures circling.
+ */
+function buildCanyon(set: WorldSet, th: Theme): void {
+  const sky = th.skyBottom;
+  const band = new THREE.Color(th.farShade);
+  const cream = new THREE.Color(0xf6c58e);
+  /** flat-topped steps: a canyon's skyline is mesas, not hills */
+  const step = (v: number, size: number): number => Math.floor(v / size) * size;
+
+  // ---- far: the plateau the canyon was cut out of, pale in the evening haze (the sun sets behind it)
+  const far2 = makeLayer(set.root, 310);
+  const pale = mixHex(th.far, sky, 0.55);
+  addMesh(far2, ridge((x) => H * 0.615 - (Math.sin(x * 0.0034 + 0.6) > 0.25 ? 64 : 0) - (Math.sin(x * 0.0071 + 2) > 0.55 ? 30 : 0), tintHex(pale, 0.14), pale, mixHex(pale, sky, 0.45), 150, 10));
+
+  // ---- buttes, spires and the arch
+  const far = makeLayer(set.root, 200);
+  const base = H * 0.65;
+  const parts: THREE.BufferGeometry[] = [];
+  // sun-kissed where the rock faces the light, deep plum where it does not
+  const lit = mixHex(th.far, 0xffb884, 0.42);
+  const shade = mixHex(th.farShade, 0x3a1d4a, 0.45);
+  /** strata bands and a sunlit cream cap on a column standing on `base` */
+  const banded = (h: number, seed: number) => (out: THREE.Color, p: THREE.Vector3): void => {
+    const t = (p.y - sy(base)) / m(h) + 0.012 * Math.sin(p.x * 5 + seed);
+    if ((t > 0.18 && t < 0.24) || (t > 0.44 && t < 0.52) || (t > 0.7 && t < 0.74)) out.lerp(band, 0.62);
+    else if (t > 0.88) out.lerp(cream, 0.3);
+  };
+  const column = (x: number, w: number, h: number, seed: number, taper = 12): THREE.BufferGeometry => {
+    const g = jitter(new THREE.CylinderGeometry(m(Math.max(6, w / 2 - taper)), m(w / 2), m(h), 8, 6), 0.035, seed).rotateY(seed).scale(1, 1, 0.5).translate(sx(x), sy(base) + m(h) / 2, 0);
+    return baked(g, lit, shade, true, banded(h, seed));
+  };
+  // wide mesas and thin spires, [centre x, width, height]
+  const rocks: [number, number, number][] = [
+    [-170, 210, 250],
+    [-20, 54, 330],
+    [520, 60, 420],
+    [585, 190, 290],
+    [760, 70, 360],
+    [900, 230, 240],
+  ];
+  rocks.forEach(([x, w, h], i) => parts.push(column(x, w, h, i + 2, w < 100 ? 8 : 22)));
+  // the arch: two piers and a span of rock over them, with the sun in its opening
+  const ax = CANYON_SUN_X;
+  const archH = 300;
+  const archR = 168;
+  parts.push(column(ax - archR, 100, archH + 10, 21, 6), column(ax + archR, 112, archH + 10, 22, 6));
+  parts.push(
+    baked(jitter(new THREE.TorusGeometry(m(archR), m(52), 7, 14, Math.PI), 0.03, 23).scale(1, 0.82, 0.55).translate(sx(ax), sy(base - archH), 0), lit, shade, true, (out, p) => {
+      // the inside of the span is in its own shadow, its crown catches the last light
+      const d = Math.hypot(p.x - sx(ax), (p.y - sy(base - archH)) / 0.82);
+      if (d < m(archR - 14)) out.lerp(band, 0.6);
+      else if (d > m(archR + 34)) out.lerp(cream, 0.28);
+    }),
+  );
+  parts.push(ridge(() => base - 3, th.far, mixHex(th.far, th.farShade, 0.45), th.farShade, 150, 300));
+  addMesh(far, merge(parts));
+  addMesh(makeLayer(set.root, 150), mist(H * 0.57, H * 0.675, H * 0.8, mixHex(sky, 0xffd9a0, 0.5), 0.36), mistMat);
+
+  // ---- near: the terraced canyon floor, its rim walls rising toward both edges of the view
+  const near = makeLayer(set.root, 80);
+  const yNear = (x: number): number => H * 0.752 - step(Math.max(0, 60 - x) * 1.25, 46) - step(Math.max(0, x - 690) * 1.05, 52) - step(Math.abs(Math.sin(x * 0.0052 + 1.1)) * 46, 23);
+  const np: THREE.BufferGeometry[] = [ridge(yNear, tintHex(th.near, 0.34), th.near, th.nearShade, 64, 10)];
+  const dark = mixHex(th.nearShade, INK, 0.35);
+  /** the floor in shadow: a shade of the floor itself, not a line drawn on it */
+  const shadowC = mixHex(th.near, th.nearShade, 0.78);
+  /** a long evening shadow on the floor, thrown away from the sun */
+  const shadow = (out: THREE.BufferGeometry[], x: number, y: number, len: number, t: number, color: number): void => {
+    const dir = x >= CANYON_SUN_X ? 1 : -1;
+    out.push(bar(x + dir * 6, y + 4, x + dir * len, y + 4 + len * 0.12, t, color));
+  };
+  /** a dead tree: a leaning trunk and a few bare branches */
+  const tree = (out: THREE.BufferGeometry[], x: number, y: number, k: number, color: number): void => {
+    out.push(bar(x, y, x + 6 * k, y - 46 * k, 6 * k, color));
+    out.push(bar(x + 4 * k, y - 30 * k, x + 26 * k, y - 52 * k, 3.5 * k, color));
+    out.push(bar(x + 5 * k, y - 40 * k, x - 16 * k, y - 62 * k, 3.5 * k, color));
+    out.push(bar(x + 6 * k, y - 46 * k, x + 12 * k, y - 72 * k, 3 * k, color));
+    out.push(bar(x + 26 * k, y - 52 * k, x + 34 * k, y - 66 * k, 2.4 * k, color));
+  };
+  for (let i = -1; i < 7; i++) {
+    const x = 60 + i * 150 + ((((i * 47) % 60) + 60) % 60);
+    const y = yNear(x) + 10;
+    const r = 13 + ((((i * 5) % 3) + 3) % 3) * 6;
+    np.push(baked(jitter(new THREE.IcosahedronGeometry(m(r), 0), 0.2, i + 9).scale(1.35, 0.85, 0.8).translate(sx(x), sy(y - r * 0.4), 0), tintHex(th.near, 0.2), shadeHex(th.nearShade, 0.8), true));
+    shadow(np, x, y + 2, 120 + r * 3, 10, shadowC);
+    if (((i % 3) + 3) % 3 === 1) {
+      tree(np, x + 62, y + 2, 1, dark);
+      shadow(np, x + 62, y + 4, 150, 6, shadowC);
+    }
+  }
+  addMesh(near, merge(np));
+  set.layers.push(far2, far, near);
+  addMesh(makeLayer(set.root, 52), mist(H * 0.75, H * 0.85, H * 0.97, mixHex(sky, th.near, 0.4), 0.28), mistMat);
+
+  // ---- fore: the near rim in deep shade, with scrub
+  const fore = makeLayer(set.root, 30);
+  const yFore = (x: number): number => H * 0.915 - step(Math.abs(Math.sin(x * 0.0046 + 2.4)) * 52, 26) - Math.sin(x * 0.015) * 5;
+  const foreC = mixHex(th.nearShade, th.farShade, 0.4);
+  const fp: THREE.BufferGeometry[] = [ridge(yFore, tintHex(foreC, 0.3), foreC, shadeHex(foreC, 0.62), 60, 10)];
+  const scrub = shadeHex(foreC, 0.55);
+  for (let i = 0; i < 7; i++) {
+    const x = -110 + i * 160 + ((i * 53) % 50);
+    const y = yFore(x) + 8;
+    if (i % 2 === 0) {
+      const g = jitter(new THREE.IcosahedronGeometry(m(18 + (i % 3) * 6), 0), 0.2, i + 4).scale(1.3, 0.8, 0.8).translate(sx(x), sy(y - 6), 0);
+      fp.push(baked(g, tintHex(foreC, 0.16), shadeHex(foreC, 0.66), true));
+    } else {
+      // a dry bush: a fan of twigs
+      for (let b = -2; b <= 2; b++) fp.push(bar(x, y, x + b * 11, y - 30 + Math.abs(b) * 5, 3, scrub));
+    }
+    if (i === 3) tree(fp, x + 70, y + 2, 1.5, scrub);
+  }
+  addMesh(fore, merge(fp));
+  set.layers.push(fore);
+
+  addIslands(set, th, [
+    [96, 300, 42, 130],
+    [268, 600, 26, 165],
+    [652, 208, 32, 150],
+  ], th.cap);
+
+  // ---- a tumbleweed rolling down the canyon, and vultures turning over it
+  const rollLayer = makeLayer(set.root, 34);
+  set.layers.push(rollLayer);
+  const weedC = mixHex(0xcaa25a, foreC, 0.35);
+  const weed = addMesh(rollLayer, baked(jitter(new THREE.IcosahedronGeometry(m(13), 1), 0.22, 31), tintHex(weedC, 0.2), shadeHex(weedC, 0.6), true));
+  const birdLayer = makeLayer(set.root, 120);
+  set.layers.push(birdLayer);
+  const N_BIRDS = 3;
+  const birdGeo = new THREE.BufferGeometry();
+  const birdPos = new Float32Array(N_BIRDS * 2 * 9);
+  birdGeo.setAttribute('position', new THREE.BufferAttribute(birdPos, 3));
+  const birds = new THREE.Mesh(birdGeo, new THREE.MeshBasicMaterial({ color: mixHex(th.farShade, INK, 0.55), side: THREE.DoubleSide, toneMapped: false }));
+  birds.frustumCulled = false;
+  birdLayer.group.add(birds);
+
+  set.animate = (now) => {
+    // reduced motion: no tumbleweed, and the vultures hang where they are
+    const t = CALM ? 0 : now;
+    // it rolls across in 16 s, hopping, then waits out of sight
+    const k = (t % 23) / 16;
+    weed.visible = k < 1 && !CALM;
+    if (weed.visible) {
+      const x = -140 + k * (W + 300);
+      const hop = Math.abs(Math.sin(t * 2.7)) * 30;
+      weed.position.set(sx(x), sy(yFore(x) - 10 - hop), 0);
+      weed.rotation.z = -t * 3.4;
+    }
+    for (let i = 0; i < N_BIRDS; i++) {
+      const a = t * 0.32 + i * 2.2;
+      const x = CANYON_SUN_X + 150 + Math.cos(a) * (84 + i * 22);
+      const y = 300 + i * 22 + Math.sin(a) * 26;
+      const f = 5 + Math.sin(t * 1.4 + i * 1.9) * 3;
+      // wings held out on the glide: they lean into the turn
+      const lean = Math.sin(a) * 5;
+      for (let s = 0; s < 2; s++) {
+        const o = (i * 2 + s) * 9;
+        const dir = s ? 1 : -1;
+        birdPos[o] = sx(x);
+        birdPos[o + 1] = sy(y);
+        birdPos[o + 3] = sx(x + dir * 15);
+        birdPos[o + 4] = sy(y - f + dir * lean);
+        birdPos[o + 6] = sx(x + dir * 4);
+        birdPos[o + 7] = sy(y + 4);
+      }
+    }
+    birdGeo.getAttribute('position').needsUpdate = true;
+  };
+}
+
+const BUILDERS = [buildMeadow, buildSnow, buildDesert, buildNight, buildVolcano, buildSky, buildCanyon] as const;
 
 // ---------------------------------------------------------------- lighting per world
 
@@ -714,6 +890,8 @@ const LIGHTS: readonly LightPreset[] = [
   { sun: 0xffb887, sunI: 2.5, sky: 0xd09a90, ground: 0xc0502e, hemiI: 1.45 },
   // the citadel: bright warm sunrise, white cloud bounce from below
   { sun: 0xfff0d8, sunI: 2.6, sky: 0xe0ecff, ground: 0xf2ece0, hemiI: 1.45 },
+  // the canyon: a low orange sun, a rosy sky fill and red rock bouncing up from the floor
+  { sun: 0xffd2a4, sunI: 2.7, sky: 0xffd6c4, ground: 0xb4685c, hemiI: 1.3 },
 ];
 
 // ---------------------------------------------------------------- the backdrop
@@ -757,7 +935,7 @@ export function createBackdrop(scene: THREE.Scene): Backdrop {
   let clock = 0;
 
   const sunPos = (th: Theme): [number, number, number] =>
-    th.id === 'desert' ? [W * 0.5, H * 0.5, 110] : th.id === 'volcano' ? [W * 0.22, H * 0.2, 74] : th.id === 'sky' ? [W * 0.3, H * 0.46, 92] : [W * 0.74, H * 0.17, 56];
+    th.id === 'desert' ? [W * 0.5, H * 0.5, 110] : th.id === 'volcano' ? [W * 0.22, H * 0.2, 74] : th.id === 'sky' ? [W * 0.3, H * 0.46, 92] : th.id === 'canyon' ? [CANYON_SUN_X, H * 0.5, 128] : [W * 0.74, H * 0.17, 56];
 
   function blendTo(i: number, k: number): void {
     const th = THEMES[i]!;
@@ -930,7 +1108,7 @@ export function createBackdrop(scene: THREE.Scene): Backdrop {
   let ambientKind: Theme['ambient'] | null = null;
 
   /** how many points each weather draws (embers: rising sparks; wisps: streaks, like the sand) */
-  const ambientCount = (k: Theme['ambient']): number => (k === 'fireflies' ? 18 : k === 'meadow' ? 16 : k === 'embers' ? 34 : N_AMBIENT);
+  const ambientCount = (k: Theme['ambient']): number => (k === 'fireflies' ? 18 : k === 'meadow' ? 16 : k === 'embers' ? 34 : k === 'dust' ? 40 : N_AMBIENT);
   function setAmbient(th: Theme): void {
     ambientKind = th.ambient;
     const streaks = th.ambient === 'sand' || th.ambient === 'wisps';
@@ -939,13 +1117,15 @@ export function createBackdrop(scene: THREE.Scene): Backdrop {
     sandMat.color.setHex(th.ambient === 'wisps' ? 0xffffff : th.capLight);
     sandMat.opacity = th.ambient === 'wisps' ? 0.55 : 0.45;
     const glowing = th.ambient === 'fireflies' || th.ambient === 'embers';
+    const dust = th.ambient === 'dust';
     ambMat.blending = glowing ? THREE.AdditiveBlending : THREE.NormalBlending;
-    ambMat.map = glowing ? glowTexture() : dotTexture();
-    ambMat.size = ptSize(th.ambient === 'fireflies' ? 26 : th.ambient === 'embers' ? 16 : th.ambient === 'snow' ? 7 : 4.5);
-    ambMat.opacity = th.ambient === 'snow' ? 0.8 : glowing ? 1 : 0.55;
+    // dust: soft, big, faint motes that catch the low sun
+    ambMat.map = glowing || dust ? glowTexture() : dotTexture();
+    ambMat.size = ptSize(th.ambient === 'fireflies' ? 26 : th.ambient === 'embers' ? 16 : dust ? 20 : th.ambient === 'snow' ? 7 : 4.5);
+    ambMat.opacity = th.ambient === 'snow' ? 0.8 : glowing ? 1 : dust ? 0.5 : 0.55;
     ambMat.needsUpdate = true;
     ambient.geometry.setDrawRange(0, ambientCount(th.ambient));
-    const c = th.ambient === 'fireflies' ? tmp.setHex(0xe8ff7a) : th.ambient === 'embers' ? tmp.setHex(0xff8a3a) : tmp.setHex(0xffffff);
+    const c = th.ambient === 'fireflies' ? tmp.setHex(0xe8ff7a) : th.ambient === 'embers' ? tmp.setHex(0xff8a3a) : dust ? tmp.setHex(0xffd9a2) : tmp.setHex(0xffffff);
     for (let i = 0; i < N_AMBIENT; i++) ambCol.setXYZ(i, c.r, c.g, c.b);
     ambCol.needsUpdate = true;
   }
@@ -975,6 +1155,13 @@ export function createBackdrop(scene: THREE.Scene): Backdrop {
           ax[i] = ax[i]! + (60 + av[i]! * 70 + wind * 0.9) * dt;
           ay[i] = ay[i]! + Math.sin(t * 0.8 + ap[i]!) * 8 * dt;
           break;
+        case 'dust':
+          // motes drifting down the canyon on the evening air, lifting and settling as they go
+          // (reduced motion: they hang in the light)
+          if (CALM) break;
+          ax[i] = ax[i]! + (14 + av[i]! * 22 + wind * 0.5) * dt;
+          ay[i] = ay[i]! + Math.sin(t * 0.6 + ap[i]!) * 9 * dt - 2 * dt;
+          break;
         default:
           ay[i] = ay[i]! - (8 + av[i]! * 10) * dt;
           ax[i] = ax[i]! + Math.sin(t + ap[i]!) * 10 * dt;
@@ -1001,7 +1188,7 @@ export function createBackdrop(scene: THREE.Scene): Backdrop {
     const n = ambientCount(th.ambient);
     for (let i = 0; i < n; i++) {
       const s = (REST_DIST + az[i]!) / REST_DIST;
-      const y = fire ? ay[i]! * 0.55 + 380 : th.ambient === 'meadow' ? ay[i]! * 0.6 + 300 : ay[i]!;
+      const y = fire ? ay[i]! * 0.55 + 380 : th.ambient === 'meadow' ? ay[i]! * 0.6 + 300 : th.ambient === 'dust' ? ay[i]! * 0.7 + 300 : ay[i]!;
       ambPos.setXYZ(i, sx(ax[i]!) * s * 1.15, EYE_LIFT + (sy(y) - EYE_LIFT) * s, -az[i]!);
       if (fire) {
         const a = 0.35 + 0.65 * Math.max(0, Math.sin(t * 2.4 + ap[i]! * 3));

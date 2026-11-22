@@ -3,7 +3,7 @@
  * live under ./arena: the themed backdrop, the ledges (floating islands), the stage objects and
  * the stage modifiers (ceiling, fog, the sliding base's rail).
  */
-import { THEMES } from '@okcu/anim/themes';
+import { ARENA_THEMES as THEMES } from './arena/themes';
 import type { Module, Stage } from '../contract';
 import { createBackdrop } from './arena/backdrop';
 import { createLedges } from './arena/ledges';

@@ -59,6 +59,26 @@ export interface Arsenal {
   reveals: Reveal[];
   /** weapons unlocked but not yet looked at on the Weapons tab (its "new" badge; `markWeaponsSeen` clears it) */
   unseen: WeaponId[];
+  /** the Events tab's modes (sim/modes.ts): personal bests and the day's run chests */
+  modes: ModeSave;
+}
+
+/**
+ * What the modes keep: Blitz's best score; Boss Rush's most bosses beaten in one rush
+ * (0 … CHAPTERS) and the summed fight time of that rush in seconds (ties are broken by it: lower
+ * is better; 0 while no boss was beaten); and the run chests the modes gave on `chestDay` (a mode
+ * run is short, so only the first few of a day earn one: modes.ts MODE_CHESTS_PER_DAY).
+ */
+export interface ModeSave {
+  blitz: number;
+  rush: number;
+  rushTime: number;
+  chestDay: string;
+  chestsUsed: number;
+}
+
+export function freshModeSave(): ModeSave {
+  return { blitz: 0, rush: 0, rushTime: 0, chestDay: '', chestsUsed: 0 };
 }
 
 /** A day key: `YYYY-MM-DD`. */
@@ -67,12 +87,24 @@ export const DAY_FORMAT = /^\d{4}-\d{2}-\d{2}$/;
 export function freshArsenal(): Arsenal {
   const weapons = {} as Record<WeaponId, WeaponState>;
   for (const id of WEAPON_IDS) weapons[id] = { owned: id === 'bow', level: 1, shards: 0 };
-  return { selected: 'bow', weapons, chests: [], runChest: -1, welcome: false, freeChestAt: 0, adCoinsDay: '', adCoinsUsed: 0, shopDay: '', shopBought: [], shopOffers: [], boughtLooks: [], rankFloor: 0, migrated: true, chestsOpened: 0, celestial: false, reveals: [], unseen: [] };
+  return { selected: 'bow', weapons, chests: [], runChest: -1, welcome: false, freeChestAt: 0, adCoinsDay: '', adCoinsUsed: 0, shopDay: '', shopBought: [], shopOffers: [], boughtLooks: [], rankFloor: 0, migrated: true, chestsOpened: 0, celestial: false, reveals: [], unseen: [], modes: freshModeSave() };
 }
 
 const obj = (v: unknown): Record<string, unknown> => (typeof v === 'object' && v !== null && !Array.isArray(v) ? (v as Record<string, unknown>) : {});
 const nat = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) && v >= 0 ? Math.floor(v) : 0);
 const dayStr = (v: unknown): string => (typeof v === 'string' && DAY_FORMAT.test(v) ? v : '');
+
+/**
+ * Any stored value → a valid mode save: bests whole and non-negative, at most CHAPTERS bosses, no
+ * time without a boss; the chest count only with a real day key.
+ */
+export function repairModeSave(v: unknown): ModeSave {
+  const o = obj(v);
+  const rush = Math.min(CHAPTERS, nat(o.rush));
+  const t = typeof o.rushTime === 'number' && Number.isFinite(o.rushTime) && o.rushTime > 0 ? Math.round(o.rushTime * 10) / 10 : 0;
+  const chestDay = dayStr(o.chestDay);
+  return { blitz: nat(o.blitz), rush, rushTime: rush > 0 ? t : 0, chestDay, chestsUsed: chestDay ? nat(o.chestsUsed) : 0 };
+}
 
 /**
  * Any stored value → a valid arsenal: unknown weapon ids and chest kinds dropped, levels clamped
@@ -116,6 +148,7 @@ export function repairArsenal(v: unknown): Arsenal {
   base.reveals = [...new Set(reveals.filter((r): r is Reveal => (r === 'celestial' ? base.celestial : WEAPON_IDS.includes(r as WeaponId) && base.weapons[r as WeaponId].owned)))];
   const unseen: unknown[] = Array.isArray(a.unseen) ? a.unseen : [];
   base.unseen = [...new Set(unseen.filter((id): id is WeaponId => WEAPON_IDS.includes(id as WeaponId) && id !== 'bow' && base.weapons[id as WeaponId].owned))];
+  base.modes = repairModeSave(a.modes);
   return base;
 }
 

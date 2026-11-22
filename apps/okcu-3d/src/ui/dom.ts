@@ -372,7 +372,7 @@ export function button(parent: HTMLElement, x: number, y: number, text: string, 
   };
 }
 
-export type RoundIcon = 'sound-on' | 'sound-off' | 'pause' | 'home' | 'replay';
+export type RoundIcon = 'sound-on' | 'sound-off' | 'pause' | 'home' | 'replay' | 'camera';
 
 /** The core's round icon button (visual 96 px). Returns a setter for its glyph. */
 export function roundButton(parent: HTMLElement, x: number, y: number, size: number, icon: RoundIcon, onDown: () => void, onTap: () => void): { el: HTMLElement; setIcon(icon: RoundIcon): void } {
@@ -404,6 +404,13 @@ export function roundButton(parent: HTMLElement, x: number, y: number, size: num
     if (name === 'replay') {
       g.beginPath().arc(0, 0, u * 0.45, -2.6, 2.2).strokePath();
       g.fillTriangle(-u * 0.62, -u * 0.5, -u * 0.12, -u * 0.42, -u * 0.5, -u * 0.05);
+      return;
+    }
+    // a film camera (the play HUD's camera-angle button): body, lens hood, two reels
+    if (name === 'camera') {
+      g.fillRoundedRect(-u * 0.66, -u * 0.2, u * 0.9, u * 0.66, 5);
+      g.fillTriangle(u * 0.2, u * 0.13, u * 0.68, -u * 0.2, u * 0.68, u * 0.46);
+      g.fillCircle(-u * 0.44, -u * 0.38, u * 0.2).fillCircle(u * 0.0, -u * 0.42, u * 0.24);
       return;
     }
     g.fillRect(-u * 0.6, -u * 0.22, u * 0.3, u * 0.44);

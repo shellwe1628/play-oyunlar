@@ -20,7 +20,6 @@
  */
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
-import { THEMES, themeIndex } from '@okcu/anim/themes';
 import { PALETTE } from '@okcu/textures';
 import { bowGlow } from '@sim/bow';
 import { TUNING } from '@sim/tuning';
@@ -28,6 +27,7 @@ import { type Arrow, ROCKET } from '@sim/world';
 import { type Game, type Module, type Stage } from '../contract';
 import { m, PX_PER_M, sx, sy } from '../coords';
 import { LEDGE_DEPTH } from './arena/ledges';
+import { themeOf } from './arena/themes';
 import { hueColor, TILE } from './fx/atlas';
 import { SpriteBatch } from './fx/batch';
 import { Ribbons } from './fx/ribbons';
@@ -316,7 +316,7 @@ export function createArrows(stage: Stage, game: Game): Module {
       let nOrbs = 0;
 
       const multi = w.stats.volleys > 1 || w.stats.splitPairs > 0;
-      const dark = THEMES[themeIndex(w.wave)]?.dark ?? false;
+      const dark = themeOf(w).dark;
       const glow = bowGlow(w.meta.bow);
       const glowCol = glow.cycle ? hueColor((skyT * 0.25) % 1) : glow.color;
 

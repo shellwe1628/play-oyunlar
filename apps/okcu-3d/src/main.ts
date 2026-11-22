@@ -12,6 +12,10 @@
  *   ?difficulty=classic  the 2D game's difficulty (the 3D build plays 'hard')
  *   ?weapon=ID   force a weapon (bow, crossbow, spear, boomerang, sling, firework) at its saved level
  *   ?celestial=1 force the celestial weapon look on (0: off), whatever the save says
+ *   ?mode=blitz|bossrush  open a mode (sim/modes.ts) straight away, as a test run (the save is left alone);
+ *                with ?mode=bossrush, ?boss=N (1 … 6) starts the rush at that boss
+ *   ?angle=side|angled|low  the camera angle for this page load (read by view/stage.ts; without it
+ *                the angle last chosen with the HUD's camera button, else side)
  *
  * Without switches every run is set up from the save (ui/save.ts) the way the 2D game does it:
  * `metaOf3d(save)` (shop upgrades + the selected weapon at its level), the chapter select, the daily run. ?bow, ?armor,
@@ -40,6 +44,7 @@ import { CAREFUL, planShot } from '@sim/aimbot';
 import { BOW_MAX } from '@sim/bow';
 import { bowEquivalent, levelForBow, WEAPON_IDS } from '@sim/weapons';
 import { metaOf3d, newBank, NO_META, UPGRADES } from '@sim/meta';
+import { MODES, type Mode } from '@sim/modes';
 import { dailyChallenge } from '@sim/progress';
 import type { Difficulty } from '@sim/waves';
 import {
@@ -52,6 +57,7 @@ import {
   addExtraCard,
   reroll,
   revive,
+  rushJump,
   shoot,
   takeEvents,
   unleash,
@@ -81,7 +87,7 @@ const num = (key: string, fallback: number): number => {
 };
 const off = new Set((params.get('off') ?? '').split(',').filter(Boolean));
 const speed = num('speed', 1);
-const auto = params.get('auto') === '1';
+let auto = params.get('auto') === '1';
 
 const root = document.getElementById('stage')!;
 const stage = createStage(root);
@@ -116,7 +122,7 @@ platform.onLifecycle(() => {
 });
 let adShowing = false;
 const forcedWeapon = WEAPON_IDS.find((id) => id === params.get('weapon')) ?? null;
-const testRun = ['bow', 'armor', 'chapter', 'wave', 'weapon'].some((k) => params.has(k));
+const testRun = ['bow', 'armor', 'chapter', 'wave', 'weapon', 'mode'].some((k) => params.has(k));
 /** the 3D build plays the harder setting; ?difficulty=classic for comparison */
 const difficulty: Difficulty = params.get('difficulty') === 'classic' ? 'classic' : 'hard';
 // Online board (Play Games, adults only): real play only, never test runs or the classic setting.
@@ -126,6 +132,8 @@ const randomSeed = (): number => Math.floor(Math.random() * 2 ** 31);
 /** the run being played: daily or not, the quick title; and the chapter select's choice (the 2D `session.chapter`) */
 let mode: { daily: boolean; quick: boolean } = { daily: false, quick: false };
 let chapterPick = 0;
+/** the mode being played (the Events tab's Blitz or Boss Rush; ?mode= opens one), null for a run of chapters */
+let play: Mode | null = MODES.find((id) => id === params.get('mode')) ?? null;
 
 /** GameScene.create: the daily run is the same for everyone, so upgrades and the bow do not apply. */
 function newWorld(seed: number): World {
@@ -145,8 +153,9 @@ function newWorld(seed: number): World {
   if (params.has('armor')) meta.hp = Math.max(0, Math.min(UPGRADES.hp.max, Math.round(num('armor', 0))));
   chapterPick = Math.max(0, Math.min(d.chapter, chapterPick));
   const startChapter = params.has('chapter') ? Math.round(num('chapter', 0)) : daily ? 0 : chapterPick;
-  const w = createWorld({ seed: daily ? hashSeed(`okcu-daily-${key}`) : seed, meta, startChapter, mod: daily ? dailyChallenge(key).mod : null, difficulty });
-  if (params.has('wave')) jumpToWave(w, Math.round(num('wave', 1)));
+  const w = createWorld({ seed: daily ? hashSeed(`okcu-daily-${key}`) : seed, meta, startChapter, mod: daily ? dailyChallenge(key).mod : null, difficulty, mode: play });
+  if (play === 'bossrush' && params.has('boss')) rushJump(w, Math.round(num('boss', 1)) - 1);
+  else if (params.has('wave') && !play) jumpToWave(w, Math.round(num('wave', 1)));
   // what this run has written to the save (banked by the UI as the run goes)
   w.bank = testRun ? null : newBank(d);
   return w;
@@ -200,6 +209,9 @@ const game: Game = {
   get quick() {
     return mode.quick;
   },
+  get mode() {
+    return play;
+  },
   testRun,
   platform,
   get adShowing() {
@@ -232,7 +244,9 @@ const game: Game = {
     world.player.draw = 0;
   },
   startRun(opts: RunOptions = {}) {
-    mode = { daily: opts.daily ?? false, quick: opts.quick ?? false };
+    // a mode is its own kind of run: never the daily
+    play = opts.mode ?? null;
+    mode = { daily: play ? false : (opts.daily ?? false), quick: opts.quick ?? false };
     if (opts.chapter !== undefined) chapterPick = opts.chapter;
     paused = false;
     aim = null;
@@ -274,7 +288,8 @@ const game: Game = {
     return addExtraCard(world);
   },
   get canRevive() {
-    return world.phase === 'over' && !world.revived;
+    // (a mode run ends for good)
+    return world.phase === 'over' && !world.revived && !world.mode;
   },
   revive() {
     if (!revive(world)) return false;
@@ -287,7 +302,7 @@ const game: Game = {
     unleash(world);
   },
   restart(seed) {
-    game.startRun({ daily: mode.daily, quick: true, ...(seed !== undefined ? { seed } : {}) });
+    game.startRun({ daily: mode.daily, mode: play, quick: true, ...(seed !== undefined ? { seed } : {}) });
   },
 };
 
@@ -357,6 +372,10 @@ async function start(): Promise<void> {
         advance(world, 1 / 60);
         takeEvents(world);
       }
+    },
+    /** turn the aim bot on or off (as ?auto=1), for tools that first tap their way somewhere (a mode) */
+    bot(on: boolean) {
+      auto = on;
     },
   };
   (window as unknown as { __okcu3d: typeof hook }).__okcu3d = hook;

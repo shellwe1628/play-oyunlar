@@ -9,11 +9,12 @@ import type { CardId } from './cards';
 import { CHAPTERS, ENDLESS_WAVE, stageOf } from './chapters';
 import { clamp, minLaunchSpeed, sweepAabb } from './geom';
 import { NO_META, type MetaLevels } from './meta';
+import type { Mode } from './modes';
 import { PARTS, PT } from './ragdoll';
 import { TUNING } from './tuning';
 import type { Difficulty } from './waves';
 import { WEAPONS, weaponPerks, type Projectile, type WeaponId } from './weapons';
-import { advance, aliveEnemies, arcClear, arrowSpeed, BOOM, canShoot, createWorld, pickCard, playerOrigin, playerX, reachedWave, ROCKET, shoot, solveWithWind, SPEAR_LIFE, takeEvents, targetPoint, unleash, type Archer, type World } from './world';
+import { advance, aliveEnemies, arcClear, arrowSpeed, BOOM, canShoot, createWorld, pickCard, playerOrigin, playerX, reachedWave, ROCKET, shoot, solveWithWind, SPEAR_LIFE, takeEvents, targetPoint, unleash, type Archer, type GameEvent, type World } from './world';
 
 export interface Profile {
   /** std dev of the launch angle error, radians */
@@ -472,6 +473,10 @@ export interface RunOptions {
   difficulty?: Difficulty;
   /** called after every step */
   each?: (w: World) => void;
+  /** called after every step with that step's events (valid only during the call) */
+  events?: (events: readonly GameEvent[], w: World) => void;
+  /** play a mode world (modes.ts) instead of a run of chapters */
+  mode?: Mode;
   /** the selected weapon and its level (hard); override `meta`'s */
   weapon?: WeaponId;
   wlevel?: number;
@@ -481,7 +486,7 @@ export interface RunOptions {
 export function playRun(seed: number, rng: Rng, p: Profile, opts: RunOptions | MetaLevels = {}, maxTime = 2400): RunReport {
   const o: RunOptions = 'hp' in opts ? { meta: opts } : opts;
   const meta: MetaLevels = { ...(o.meta ?? NO_META), ...(o.weapon ? { weapon: o.weapon } : {}), ...(o.wlevel !== undefined ? { wlevel: o.wlevel } : {}) };
-  const w = createWorld({ seed, meta, startChapter: o.startChapter ?? 0, difficulty: o.difficulty ?? 'classic' });
+  const w = createWorld({ seed, meta, startChapter: o.startChapter ?? 0, difficulty: o.difficulty ?? 'classic', mode: o.mode ?? null });
   let wait = 0;
   let need = p.think + rng.next() * (p.thinkJitter ?? 0);
   const step = 1 / 30;
@@ -514,7 +519,8 @@ export function playRun(seed: number, rng: Rng, p: Profile, opts: RunOptions | M
       }
     }
     advance(w, step);
-    takeEvents(w);
+    const events = takeEvents(w);
+    o.events?.(events, w);
     o.each?.(w);
   }
   const reached = reachedWave(w);

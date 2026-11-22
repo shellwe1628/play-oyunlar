@@ -5,7 +5,7 @@
  * simulation's rectangles and circles; pooled by array index, geometries and materials shared.
  */
 import * as THREE from 'three';
-import type { Theme } from '@okcu/anim/themes';
+import type { ArenaTheme as Theme } from './themes';
 import { TUNING } from '@sim/tuning';
 import type { World } from '@sim/world';
 import { m, sx, sy } from '../../coords';

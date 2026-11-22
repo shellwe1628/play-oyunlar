@@ -112,7 +112,7 @@ export function worldSuite(world: number): void {
         for (let j = 0; j < plan!.held.length && sim.alive && !sim.finished; j++) sim.step(plan!.held[j] === 1);
         expect([sim.finished, sim.nearMisses], `level ${id}`).toEqual([true, 0]);
       }
-    });
+    }, 120_000); // ten full solves: well over the 5 s default on a CI runner
 
     it('margin and window shrink strictly inside the world', () => {
       for (const id of ids.slice(1)) {

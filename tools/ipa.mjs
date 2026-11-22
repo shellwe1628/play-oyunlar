@@ -4,6 +4,8 @@
 //                                          no signing, no Apple account needed (CI: ios-dene.yml)
 //   node tools/ipa.mjs <slug>              signed archive + build/<slug>-appstore.ipa
 //   node tools/ipa.mjs <slug> --upload     signed archive, uploaded straight to App Store Connect
+//   node tools/ipa.mjs <slug> --adhoc      ad hoc ("release testing") build/<slug>-adhoc.ipa for the
+//                                          iPhones registered in the account (installs without TestFlight)
 //
 // Per-app settings come from store/apps.json (bundle id = applicationId unless ios.bundleId,
 // names, ios.version, ios.gameCenter); nothing in games/<slug>/ is edited. Each run builds from
@@ -37,6 +39,7 @@ const ALLOWED_URLS = new Set(['http://www.w3.org/2000/svg', 'http://www.w3.org/1
 const SIGNING_ENV = ['APPLE_TEAM_ID', 'ASC_KEY_ID', 'ASC_ISSUER_ID', 'ASC_KEY_PATH'];
 const UNSIGNED = process.argv.includes('--unsigned');
 const UPLOAD = process.argv.includes('--upload');
+const ADHOC = process.argv.includes('--adhoc');
 
 const t0 = Date.now();
 const step = (msg) => console.log(`\n=== ${msg}`);
@@ -95,7 +98,7 @@ function loadApp(slug) {
   const cfg = JSON.parse(readFileSync(join(ROOT, 'store', 'apps.json'), 'utf8'));
   const app = cfg.apps.find((a) => a.slug === slug);
   const slugs = cfg.apps.map((a) => a.slug).join(', ');
-  if (!slug || slug.startsWith('-')) fail(`usage: node tools/ipa.mjs <slug> [--unsigned|--upload]   (one of: ${slugs})`);
+  if (!slug || slug.startsWith('-')) fail(`usage: node tools/ipa.mjs <slug> [--unsigned|--upload|--adhoc]   (one of: ${slugs})`);
   if (!app) fail(`store/apps.json has no app "${slug}" (has: ${slugs})`);
   const ios = app.ios ?? {};
   const bundleId = ios.bundleId ?? app.applicationId;
@@ -153,7 +156,7 @@ async function ascApi(sign, method, path, payload) {
   return j;
 }
 
-const profileName = (app) => `play-oyunlar ${app.bundleId} App Store`;
+const profileName = (app) => `play-oyunlar ${app.bundleId} ${ADHOC ? 'Ad Hoc' : 'App Store'}`;
 
 /** The App Store profile for this app (created when missing or stale), installed for Xcode. */
 async function installProfile(app, sign) {
@@ -165,12 +168,24 @@ async function installProfile(app, sign) {
   const name = profileName(app);
   const existing = (await ascApi(sign, 'GET', `/v1/profiles?filter[name]=${encodeURIComponent(name)}&include=certificates&limit=10`)).data;
   const certIds = new Set(certs.map((c) => c.id));
-  let profile = existing.find((p) => p.attributes.profileState === 'ACTIVE' && p.relationships?.certificates?.data?.some((c) => certIds.has(c.id)));
+  // ad hoc: always a fresh profile, so it lists every iPhone registered right now
+  let profile = ADHOC ? undefined : existing.find((p) => p.attributes.profileState === 'ACTIVE' && p.relationships?.certificates?.data?.some((c) => certIds.has(c.id)));
+  const devices = ADHOC ? (await ascApi(sign, 'GET', '/v1/devices?filter[platform]=IOS&filter[status]=ENABLED&limit=100')).data : [];
+  if (ADHOC && !devices.length) fail('ad hoc needs at least one registered iPhone (developer account -> Devices)');
+  if (ADHOC) console.log(`ad hoc devices: ${devices.length}`);
   for (const p of existing) if (p !== profile) await ascApi(sign, 'DELETE', `/v1/profiles/${p.id}`);
   if (!profile) {
     profile = (
       await ascApi(sign, 'POST', '/v1/profiles', {
-        data: { type: 'profiles', attributes: { name, profileType: 'IOS_APP_STORE' }, relationships: { bundleId: { data: { type: 'bundleIds', id: bundle.id } }, certificates: { data: certs.map((c) => ({ type: 'certificates', id: c.id })) } } },
+        data: {
+          type: 'profiles',
+          attributes: { name, profileType: ADHOC ? 'IOS_APP_ADHOC' : 'IOS_APP_STORE' },
+          relationships: {
+            bundleId: { data: { type: 'bundleIds', id: bundle.id } },
+            certificates: { data: certs.map((c) => ({ type: 'certificates', id: c.id })) },
+            ...(ADHOC ? { devices: { data: devices.map((d) => ({ type: 'devices', id: d.id })) } } : {}),
+          },
+        },
       })
     ).data;
   }
@@ -398,7 +413,7 @@ async function xcode(app, work, sign) {
   const opts = join(work, 'ExportOptions.plist');
   writeFileSync(
     opts,
-    `<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n<plist version="1.0"><dict>\n<key>method</key><string>app-store-connect</string>\n<key>destination</key><string>${UPLOAD ? 'upload' : 'export'}</string>\n<key>teamID</key><string>${sign.team}</string>\n${sign.p12 ? `<key>signingStyle</key><string>manual</string>\n<key>signingCertificate</key><string>Apple Distribution</string>\n<key>provisioningProfiles</key><dict><key>${app.bundleId}</key><string>${profileName(app)}</string></dict>` : '<key>signingStyle</key><string>automatic</string>'}\n<key>uploadSymbols</key><true/>\n<key>manageAppVersionAndBuildNumber</key><false/>\n</dict></plist>\n`,
+    `<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n<plist version="1.0"><dict>\n<key>method</key><string>${ADHOC ? 'release-testing' : 'app-store-connect'}</string>\n<key>destination</key><string>${UPLOAD ? 'upload' : 'export'}</string>\n<key>teamID</key><string>${sign.team}</string>\n${sign.p12 ? `<key>signingStyle</key><string>manual</string>\n<key>signingCertificate</key><string>Apple Distribution</string>\n<key>provisioningProfiles</key><dict><key>${app.bundleId}</key><string>${profileName(app)}</string></dict>` : '<key>signingStyle</key><string>automatic</string>'}\n${ADHOC ? '<key>thinning</key><string>&lt;none&gt;</string>\n' : '<key>uploadSymbols</key><true/>\n'}<key>manageAppVersionAndBuildNumber</key><false/>\n</dict></plist>\n`,
   );
   step(UPLOAD ? 'export + upload to App Store Connect' : 'export .ipa');
   const exportDir = join(work, 'export');
@@ -451,8 +466,9 @@ verify(app, appPath, info);
 if (exportDir && !UPLOAD) {
   const ipa = readdirSync(exportDir).find((f) => f.endsWith('.ipa'));
   if (!ipa) fail('export produced no .ipa');
-  copyFileSync(join(exportDir, ipa), join(OUT_DIR, `${app.slug}-appstore.ipa`));
-  console.log(`\nIPA: build/${app.slug}-appstore.ipa`);
+  const out = `${app.slug}-${ADHOC ? 'adhoc' : 'appstore'}.ipa`;
+  copyFileSync(join(exportDir, ipa), join(OUT_DIR, out));
+  console.log(`\nIPA: build/${out}`);
 }
-writeFileSync(join(OUT_DIR, `${app.slug}-ios.json`), `${JSON.stringify({ slug: app.slug, bundleId: app.bundleId, version: app.version, build, commit: info.commit, builtAt: info.builtAt, mode: UNSIGNED ? 'unsigned' : UPLOAD ? 'upload' : 'export' }, null, 2)}\n`);
+writeFileSync(join(OUT_DIR, `${app.slug}-ios.json`), `${JSON.stringify({ slug: app.slug, bundleId: app.bundleId, version: app.version, build, commit: info.commit, builtAt: info.builtAt, mode: UNSIGNED ? 'unsigned' : UPLOAD ? 'upload' : ADHOC ? 'adhoc' : 'export' }, null, 2)}\n`);
 console.log(`done in ${((Date.now() - t0) / 1000).toFixed(0)} s`);

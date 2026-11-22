@@ -4,4 +4,5 @@ export const SCENES = {
   dig: 'dig',
   museum: 'museum',
   ranks: 'ranks',
+  map: 'map',
 } as const;

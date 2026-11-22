@@ -4,16 +4,18 @@ import Phaser from 'phaser';
 import { gameOnline } from '../online';
 import { backgroundAware, session, type Session } from '../session';
 import { SFX } from '../sfx';
-import { ACHIEVEMENTS, at, BOSS, FOSSIL_BY_ID, FOSSILS, GRADE_COLORS, LAYERS, LUCK_BOOST, METEOR, PITY, RANKS, RELIC, TIERS, UPGRADE_ORDER, VEIN, type UpgradeId } from '../sim/data';
-import { NEWS_TIP, type DigSim, type Find, type OfflineHaul, type SimEvent, type TapResult } from '../sim/dig';
+import { ACHIEVEMENTS, at, BOSS, FOSSIL_BY_ID, FOSSILS, GRADE_COLORS, LAYERS, LUCK_BOOST, METEOR, PITY, RANKS, RELIC, RUSH, TIERS, UPGRADE_ORDER, VEIN, WEAK, type UpgradeId } from '../sim/data';
+import { NEWS_TIP, type DigSim, type Find, type OfflineHaul, type RushResult, type SimEvent, type TapResult } from '../sim/dig';
 import { badgeKey } from '../art/badges';
 import { questText, today } from './progress';
 import { fossilKey, PALETTE } from '../textures';
 import { shade } from '../art/fossils';
 import { addCardLife } from '../fx/CardLife';
 import { Helper } from '../fx/Helper';
-import { calmShake, countTo, edgeFlash } from '../fx/Motion';
+import { rushClock, sharpPips, travelDir, waitParts, weakRing } from '../fx/model';
+import { calmShake, countTo, edgeFlash, Motes } from '../fx/Motion';
 import { initSeen } from '../fx/seen';
+import { cover, uncover } from '../fx/Travel';
 import { Particles } from '../fx/Particles';
 import { Pickaxe } from '../fx/Pickaxe';
 import { Scenery } from '../fx/Scenery';
@@ -39,11 +41,26 @@ interface Chip {
   last: string;
 }
 
+/** A round button at the side of the dig site (the depth map, the Dig Rush). */
+interface SiteButton {
+  box: Phaser.GameObjects.Container;
+  img: Phaser.GameObjects.Image;
+  text: Phaser.GameObjects.Text;
+  zone: Phaser.GameObjects.Zone;
+  x: number;
+  y: number;
+}
+
+/** Find kinds listed on the rush result card (the rest is counted in one line). */
+const RUSH_ROWS = 4;
+
 /**
  * The dig: tappable site with the stratum block, combo meter, glints, HUD readouts, the upgrade
- * drawer, the reveal ceremony, one-time tips and the offline-haul popup. Draws sim state and
- * forwards input. Test actions: tap {n}, glint, buy {id}, advance {seconds}, travel {layer},
- * museum, drawer, dismiss, boost, claim, double, pause, tip.
+ * drawer, the reveal ceremony, one-time tips and the offline-haul popup; the weak spot and the
+ * sharp-eye count, the depth-map and Dig Rush buttons, the rush itself and its result card.
+ * Draws sim state and forwards input. Test actions: tap {n}, glint, buy {id}, advance {seconds},
+ * travel {layer}, museum, drawer, dismiss, boost, claim, double, pause, tip, map, rush,
+ * waitWeak {seconds}, tapWeak, close.
  */
 export class DigScene extends OyunScene {
   protected override autoPause = true;
@@ -131,12 +148,35 @@ export class DigScene extends OyunScene {
   /** Species found but not yet looked at in the museum: a count on the Museum button. */
   private unseen = 0;
   private museumBadge!: { box: Phaser.GameObjects.Container; text: Phaser.GameObjects.Text };
+  private mapButton!: SiteButton;
+  private rushButton!: SiteButton & { ring: Phaser.GameObjects.Graphics; num: Phaser.GameObjects.Text; nudge: Phaser.GameObjects.Arc; key: string; share: number };
+  /** The weak spot on the block: the hit area, a mark, a target ring that closes in, the ×N it deals. */
+  private weak!: { box: Phaser.GameObjects.Container; ring: Phaser.GameObjects.Arc; mark: Phaser.GameObjects.Image; label: Phaser.GameObjects.Text; shown: boolean; mult: number; r0: number };
+  /** The sharp-eye count: an eye, the multiplier of the next precise hit and five pips. */
+  private sharp!: { box: Phaser.GameObjects.Container; text: Phaser.GameObjects.Text; pips: Phaser.GameObjects.Graphics; shown: number };
+  /** While a rush runs: its own light on the site, a frame, the two counters. */
+  private rushFx: {
+    light: Phaser.GameObjects.Container;
+    frame: Phaser.GameObjects.Graphics;
+    motes: Motes;
+    counters: Phaser.GameObjects.Container;
+    blocks: Phaser.GameObjects.Text;
+    finds: Phaser.GameObjects.Text;
+    shown: string;
+    second: number;
+  } | null = null;
+  /** A finished rush waiting for its card (it never opens over another popup). */
+  private rushResult: RushResult | null = null;
+  private rushCard: { box: Phaser.GameObjects.Container; claim: Button; result: RushResult } | null = null;
 
   constructor() {
     super(SCENES.dig);
   }
 
-  create(): void {
+  create(data?: object): void {
+    // Arriving from the depth map: the descent that started there finishes here.
+    const arrival = data as { arrive?: number; from?: number } | undefined;
+    const arriving = arrival?.arrive === 1 || arrival?.arrive === -1;
     // Every return to the dig: Play Games starts (adults only) and a higher score goes up.
     void gameOnline(this.oyun).sync();
     this.ses = session(this.oyun);
@@ -175,6 +215,9 @@ export class DigScene extends OyunScene {
     this.lastHit = false;
     this.affordable = -1;
     this.hop = null;
+    this.rushFx = null;
+    this.rushResult = null;
+    this.rushCard = null;
     // one calm camera: shakes are capped and never add up (a break + a find + a fusion at once)
     calmShake(this);
     this.sim.setClock(Date.now());
@@ -205,6 +248,7 @@ export class DigScene extends OyunScene {
     this.buildHeader();
     this.buildGlint();
     this.buildFooter();
+    this.buildSite();
     this.coins = Array.from({ length: COINS }, () => ({ img: this.add.image(0, 0, 'ico-dust').setDepth(990).setVisible(false), t: 1, dur: 1, x0: 0, y0: 0, cx: 0, cy: 0 }));
     this.drawer = new Drawer(this, this.sim, this.hpY + 32, (id) => this.onBuy(id));
     this.reveal = new Reveal({
@@ -237,9 +281,13 @@ export class DigScene extends OyunScene {
     this.syncGlint();
     this.refreshProgress(true);
     this.syncUnseen();
-    this.enter();
+    if (arriving) this.arrive(arrival?.arrive === 1 ? 1 : -1, arrival?.from ?? this.sim.layer);
+    else this.enter();
+    if (this.sim.rushActive) this.enterRush(false);
     this.oyun.platform.gameplayStart();
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+      // leaving the dig ends a rush (what it broke counts for the best)
+      this.sim.stopRush();
       // a rank-up not yet celebrated waits for the next visit
       if (this.pendingRank >= 0) this.ses.pendingEvents.push({ kind: 'rank', rank: this.pendingRank });
       this.oyun.platform.gameplayStop();
@@ -260,6 +308,8 @@ export class DigScene extends OyunScene {
     const hy = L.top + 60;
     this.pauseButton = iconButton(this, L.left + 60, hy, 'pause', () => this.openPauseMenu());
     this.layerTitle = outlined(this, L.cx, hy, '', 46, PALETTE.sand, 8);
+    // the layer name opens the depth map (between the two arrows, which stay as a shortcut)
+    hitZone(this, L.cx, hy, 240, 88, () => this.openMap());
     // arrows sit between the pause button (left edge) and the screen edge, clear of both
     const ax = 172;
     const arrow = (dir: -1 | 1): Phaser.GameObjects.Graphics => {
@@ -278,7 +328,7 @@ export class DigScene extends OyunScene {
     this.rankRing = this.add.circle(rx, hy, 40).setStrokeStyle(6, PALETTE.glint, 1).setVisible(false);
     this.tweens.add({ targets: this.rankRing, scale: 1.4, alpha: 0, duration: 900, repeat: -1 });
     this.rankBadge = this.add.image(rx, hy, badgeKey(this, this.sim.rank)).setScale(0.55);
-    hitZone(this, rx, hy, 96, 96, () => this.goTo(SCENES.ranks));
+    hitZone(this, rx, hy, 96, 96, () => this.leave(SCENES.ranks));
 
     const cy = L.top + 152;
     const mk = (x: number, icon: string, color: number): Chip => {
@@ -315,8 +365,8 @@ export class DigScene extends OyunScene {
   private buildFooter(): void {
     const L = this.layout;
     this.strip = this.add.container(L.cx + 20, L.bottom - 300);
-    this.museumButton = button(this, L.cx - 168, L.bottom - 76, this.t('dig.museum'), () => this.goTo(SCENES.museum), { width: 300, height: 104, fontSize: 40, variant: 'secondary' });
-    this.upgradesButton = button(this, L.cx + 168, L.bottom - 76, this.t('dig.upgrades'), () => this.drawer.toggle(), { width: 300, height: 104, fontSize: 40 });
+    this.museumButton = button(this, L.cx - 168, L.bottom - 76, this.t('dig.museum'), () => this.leave(SCENES.museum), { width: 300, height: 104, fontSize: 40, variant: 'secondary' });
+    this.upgradesButton = button(this, L.cx + 168, L.bottom - 76, this.t('dig.upgrades'), () => (this.sim.rushActive ? this.note(this.t('rush.busy')) : this.drawer.toggle()), { width: 300, height: 104, fontSize: 40 });
     this.boostButton = button(this, L.cx, L.bottom - 190, this.t('dig.boost'), () => void this.onBoost(), { width: 360, height: 88, fontSize: 34, variant: 'secondary', ad: true });
     this.museumButton.setDepth(400);
     this.upgradesButton.setDepth(400);
@@ -373,7 +423,7 @@ export class DigScene extends OyunScene {
       this.reveal.dismiss();
       return;
     }
-    if (this.popup || this.ceremony) return;
+    if (this.popup || this.ceremony || this.rushCard) return;
     if (this.hint) {
       const h = this.hint;
       this.hint = null;
@@ -384,10 +434,13 @@ export class DigScene extends OyunScene {
     // where the finger landed on the block face (0..1): a meteor's star core cares
     const face = { x: (x - (this.block.x - BLOCK_W / 2)) / BLOCK_W, y: (y - (this.block.y - this.blockH / 2)) / this.blockH };
     const corePos = this.block.corePos;
+    const weakPos = this.weakPos();
+    const weakMult = this.sim.weakMult;
     this.heft = this.sim.blockHp / Math.max(1e-9, this.sim.digPower * this.sim.tapMult);
-    const r = hold !== undefined ? this.sim.charge(hold) : this.sim.tap(face);
+    const r = hold !== undefined ? this.sim.charge(hold, face) : this.sim.tap(face);
     const layer = at(LAYERS, this.sim.layer);
     if (r.core && corePos) this.coreHit(corePos.x, corePos.y);
+    if (r.precise && weakPos) this.preciseHit(weakPos.x, weakPos.y, weakMult, r.sharp);
     this.oyun.audio.playPreset(SFX.dig, { pitch: Math.round(this.sim.combo * 7), volume: 0.8 });
     if (charged >= VEIN.maxCharge - 0.01) {
       this.oyun.audio.playPreset(SFX.clang);
@@ -399,7 +452,7 @@ export class DigScene extends OyunScene {
     const by = Phaser.Math.Clamp(y, this.block.y - this.blockH / 2 + 20, this.block.y + this.blockH / 2 - 20);
     this.block.hit(bx - this.block.x, by - this.block.y);
     if (FX_ON) {
-      const power = r.core ? 2 : charged > 1 ? 1.6 : 1;
+      const power = r.core || r.precise ? 2 : charged > 1 ? 1.6 : 1;
       this.block.impact(bx - this.block.x, power);
       this.pick.strike(bx, by);
       // the pick swings in from the right: most chips are thrown up and away to the left, a
@@ -423,8 +476,10 @@ export class DigScene extends OyunScene {
       const layer = at(LAYERS, this.sim.layer);
       this.oyun.audio.playPreset(SFX.crack, { pitch: this.heft > 20 ? -3 : 0 });
       // heavier blocks break with more weight: bigger shake, a short freeze, more rubble
-      const w = Math.min(1, Math.log10(Math.max(1, this.heft)) / 1.6);
-      this.juice.shake(0.12 + 0.28 * w);
+      // (a rush breaks several blocks a second: no shake and no freeze there at all)
+      const rush = this.sim.rushActive || r.find?.rush === true;
+      const w = rush ? 0 : Math.min(1, Math.log10(Math.max(1, this.heft)) / 1.6);
+      if (!rush) this.juice.shake(0.12 + 0.28 * w);
       if (FX_ON && !this.oyun.reducedMotion && w > 0.5) this.juice.hitStop(Math.round(30 + 50 * w));
       this.oyun.platform.haptic(w > 0.7 ? 'medium' : 'light');
       this.breakBlock(at(layer.bands, 1), at(layer.bands, 3), 7 + Math.round(5 * w));
@@ -734,6 +789,424 @@ export class DigScene extends OyunScene {
     }
   }
 
+  // ------------------------------------------------------------------ side buttons, depth map
+
+  /** A round button beside the block: icon on a disc, a short caption under it. */
+  private siteButton(x: number, y: number, icon: string, caption: string, onTap: () => void): SiteButton {
+    const box = this.add.container(x, y).setDepth(240);
+    const g = this.add.graphics();
+    g.fillStyle(PALETTE.shadow, 0.5).fillCircle(0, 5, 44);
+    g.fillStyle(PALETTE.dirt, 1).fillCircle(0, 0, 44);
+    g.lineStyle(4, PALETTE.ochre, 1).strokeCircle(0, 0, 42);
+    const img = this.add.image(0, -1, icon).setScale(0.95);
+    const text = outlined(this, 0, 62, caption, 24, PALETTE.sand, 6);
+    fitText(text, 118);
+    box.add([g, img, text]);
+    // below the glint (depth 301): a glint that lands here is still the thing a tap takes
+    const zone = hitZone(this, x, y + 12, 100, 124, onTap).setDepth(241);
+    return { box, img, text, zone, x, y };
+  }
+
+  /** The depth map (left of the block), the Dig Rush (right), the weak spot and the sharp-eye count. */
+  private buildSite(): void {
+    const L = this.layout;
+    const y = this.site.top + 118;
+    this.mapButton = this.siteButton(L.left + 62, y, 'ico-map', this.t('map.menu'), () => this.openMap());
+    const rx = L.right - 62;
+    const nudge = this.add.circle(rx, y, 46).setStrokeStyle(6, 0xffd23f, 1).setDepth(239).setVisible(false);
+    this.tweens.add({ targets: nudge, scale: 1.45, alpha: 0, duration: 900, repeat: -1 });
+    const rush = this.siteButton(rx, y, 'ico-rush', this.t('dig.rush'), () => this.onRush());
+    const ring = this.add.graphics();
+    const num = outlined(this, 0, 0, '', 44, 0xffffff, 8).setVisible(false);
+    rush.box.add([ring, num]);
+    this.rushButton = { ...rush, ring, num, nudge, key: '', share: -1 };
+
+    // weak spot: drawn over the block face, under the HP bar and the status line
+    const r0 = Math.min(84, this.blockH * 0.21);
+    const box = this.add.container(0, 0).setDepth(58).setVisible(false);
+    const area = this.add.ellipse(0, 0, WEAK.radius * 2 * BLOCK_W, WEAK.radius * 2 * this.blockH, 0xffe27a, 0.16);
+    const glow = this.add.image(0, 0, 'glow').setTint(0xffd27a).setScale(1.1).setAlpha(0.6);
+    const mark = this.add.image(0, 0, 'weak-mark').setTint(0xfff0b8);
+    const closing = this.add.circle(0, 0, r0).setStrokeStyle(5, 0xffffff, 0.95);
+    const times = outlined(this, 0, 0, '', 28, 0xffd23f, 6);
+    box.add([area, glow, mark, closing, times]);
+    this.weak = { box, ring: closing, mark, label: times, shown: false, mult: 0, r0 };
+
+    // sharp eye: under the rush button, only while a streak is alive
+    const sx = rx;
+    const sy = this.site.top + 276;
+    const sbox = this.add.container(sx, sy).setDepth(240).setVisible(false);
+    const stext = outlined(this, 0, 30, '', 28, 0xffd23f, 6);
+    const pips = this.add.graphics();
+    sbox.add([this.add.image(0, -4, 'ico-eye'), stext, pips]);
+    hitZone(this, sx, sy + 20, 100, 100, () => {
+      if (this.sim.sharpEye > 0) this.showTip('sharp', this.t('tip.sharp'), true);
+    }).setDepth(241);
+    this.sharp = { box: sbox, text: stext, pips, shown: -1 };
+  }
+
+  /** Leave the dig for another screen: not in the middle of a rush. */
+  private leave(key: string, data?: object): void {
+    if (this.sim.rushActive) {
+      this.note(this.t('rush.busy'));
+      return;
+    }
+    if (this.rushCard || this.travelling) return;
+    this.goTo(key, data);
+  }
+
+  private openMap(): void {
+    if (this.reveal.blocking || this.popup || this.ceremony || this.dailyBox) return;
+    this.leave(SCENES.map, { from: 'dig' });
+  }
+
+  /** Arriving from the depth map: the sheet of strata that covered the map runs off here. */
+  private arrive(dir: 1 | -1, from: number): void {
+    this.travelling = true;
+    uncover(this, null, from, this.sim.layer, dir, () => {
+      this.travelling = false;
+      this.juice.pop(this.block, 0.7, 260);
+      if (FX_ON) this.fx.emit(this.block.x, this.blockY + this.blockH / 2, 12, { tint: at(at(LAYERS, this.sim.layer).bands, 2), speed: [80, 260], angle: -Math.PI / 2, spread: 2.6, life: [0.4, 0.8], scale: [1, 2], endScale: 1.6, alpha: 0.4, drag: 2 });
+    });
+  }
+
+  // ------------------------------------------------------------------ weak spot
+
+  /** Where the weak spot is on screen (it rides on the block), or null. */
+  private weakPos(): { x: number; y: number } | null {
+    const w = this.sim.weakSpot;
+    if (!w || this.sim.block.kind === 'meteor') return null;
+    return { x: this.block.x + (w.x - 0.5) * BLOCK_W, y: this.block.y + (w.y - 0.5) * this.blockH };
+  }
+
+  /** The target: a mark with a ring that closes in as the spot runs out, and the ×N it deals. */
+  private updateWeak(): void {
+    const pos = this.weakPos();
+    const w = this.weak;
+    const spot = this.sim.weakSpot;
+    if (!pos || !spot) {
+      if (w.shown) {
+        w.shown = false;
+        w.box.setVisible(false);
+      }
+    } else {
+      const reduced = this.oyun.reducedMotion;
+      if (!w.shown) {
+        w.shown = true;
+        w.box.setVisible(true).setScale(reduced ? 1 : 0.4).setAlpha(1);
+        if (!reduced) this.tweens.add({ targets: w.box, scale: 1, duration: 140, ease: 'Back.easeOut' });
+      }
+      const ring = weakRing(spot.life);
+      w.box.setPosition(pos.x, pos.y);
+      w.ring.setRadius(34 + (w.r0 - 34) * ring.open);
+      w.ring.setStrokeStyle(5, ring.blink ? 0xffd23f : 0xffffff, 0.95);
+      if (!reduced && FX_ON) {
+        w.mark.setRotation(this.fxClock * 1.4);
+        w.box.setAlpha(ring.blink ? 0.55 + 0.45 * Math.abs(Math.sin(this.fxClock * 14)) : 1);
+      }
+      const m = this.sim.weakMult;
+      if (m !== w.mult) {
+        w.mult = m;
+        w.label.setText(this.t('hud.weak', { n: mult(this, m) }));
+      }
+      // the number sits on the side of the mark that is clear of the block edge
+      w.label.setPosition(spot.x > 0.6 ? -52 : 52, spot.y < 0.4 ? 30 : -30);
+    }
+    // sharp eye
+    const n = this.sim.sharpEye;
+    const sh = this.sharp;
+    if (n !== sh.shown) {
+      const rose = n > sh.shown && sh.shown >= 0;
+      sh.shown = n;
+      sh.box.setVisible(n > 0);
+      if (n > 0) {
+        sh.text.setText(this.t('hud.weak', { n: mult(this, this.sim.weakMult) }));
+        const lit = sharpPips(n);
+        const g = sh.pips.clear();
+        for (let i = 0; i < 5; i++) g.fillStyle(i < lit ? 0xffd23f : 0x000000, i < lit ? 1 : 0.45).fillCircle(-32 + i * 16, 56, 6);
+        if (rose && FX_ON && !this.oyun.reducedMotion) this.juice.pop(sh.box, 1.3, 220);
+      }
+    }
+  }
+
+  /** A precise hit: a crisp star where it bit, chips, a ring, the ×N floating up, a rising tick. */
+  private preciseHit(x: number, y: number, m: number, sharp: number): void {
+    // each step of the sharp eye rings a little higher
+    this.oyun.audio.playPreset(SFX.clang, { pitch: 9, volume: 0.45 });
+    this.oyun.audio.playPreset(SFX.tick, { pitch: 3 + Math.min(5, sharp) * 2 });
+    this.oyun.platform.haptic('medium');
+    if (FX_ON) {
+      const reduced = this.oyun.reducedMotion;
+      const flake = shade(at(at(LAYERS, this.sim.layer).bands, 2), 0.5);
+      this.fx.emit(x, y, 8, { texture: 'chip', tint: flake, speed: [220, 460], life: [0.3, 0.55], scale: [0.6, 1.1], endScale: 0.5, gravity: 1300, spin: 14 });
+      this.fx.emit(x, y, 6, { texture: 'spark', tint: 0xffe27a, speed: [140, 320], life: [0.2, 0.4], scale: [0.4, 0.8], drag: 2 });
+      if (!reduced) {
+        const star = this.add.image(x, y, 'spark').setTint(0xffffff).setScale(3.4).setDepth(330);
+        this.tweens.add({ targets: star, scale: 0.6, angle: 60, alpha: 0, duration: 220, ease: 'Cubic.easeOut', onComplete: () => star.destroy() });
+      }
+      const ring = this.add.circle(x, y, 30).setStrokeStyle(7, 0xffe27a, 1).setDepth(330);
+      this.tweens.add({ targets: ring, scale: reduced ? 1.6 : 2.6, alpha: 0, duration: 280, ease: 'Cubic.easeOut', onComplete: () => ring.destroy() });
+    }
+    // named at the foot of the block: a find pops out of its upper half, and its odds stay readable
+    const tx = Phaser.Math.Clamp(x, this.block.x - 130, this.block.x + 130);
+    this.juice.floatText(tx, this.blockY + this.blockH / 2 - 50, this.t('dig.precise', { n: mult(this, m) }), { color: 0xffd23f, size: 34 + Math.min(4, sharp - 1) * 2, rise: 46, duration: 620 });
+    if (sharp >= 2) this.showTip('sharp', this.t('tip.sharp'));
+  }
+
+  // ------------------------------------------------------------------ Dig Rush
+
+  /** "2 h 14 min" / "14 min" / "40 s". */
+  private waitText(seconds: number): string {
+    const p = waitParts(seconds);
+    return p.unit === 'h' ? this.t('rush.wait.h', { h: p.h, m: p.m }) : p.unit === 'm' ? this.t('rush.wait.m', { m: p.m }) : this.t('rush.wait.s', { s: p.s });
+  }
+
+  /** The rush button: start it, or say when the next one comes. */
+  private onRush(): void {
+    const s = this.sim;
+    if (s.rushActive || !s.rushOpen || this.rushCard) return;
+    if (this.reveal.blocking || this.popup || this.ceremony || this.dailyBox || this.travelling) return;
+    if (!s.rushReady) {
+      this.note(this.t('rush.cool', { t: this.waitText(s.rushWait) }), { duration: 2200 });
+      return;
+    }
+    s.setClock(Date.now());
+    if (!s.startRush()) return;
+    this.oyun.platform.track('rush_start', { layer: s.layer });
+    this.enterRush(true);
+    this.ses.flush();
+  }
+
+  /** The site in rush light: a warm sky, slow rays, rising sparks, a frame; the two counters. */
+  private enterRush(banner: boolean): void {
+    if (this.rushFx) return;
+    const L = this.layout;
+    const top = this.site.top;
+    const bottom = this.site.bottom;
+    const w = L.right - L.left;
+    const light = this.add.container(0, 0).setDepth(-4).setAlpha(0);
+    const g = this.add.graphics();
+    const n = 12;
+    for (let i = 0; i < n; i++) g.fillStyle(i < n / 2 ? 0xffb347 : 0xff7a2a, 0.27 - 0.13 * (i / (n - 1))).fillRect(L.left, top + ((bottom - top) * i) / n, w, (bottom - top) / n + 1);
+    const rays = ([-1, 1] as const).map((d) => this.add.image(L.cx + d * 250, top - 30, 'ray').setOrigin(0.5, 0).setScale(3.2, (bottom - top + 60) / 360).setTint(0xffe2a0).setAlpha(0.3).setRotation(-d * 0.32).setBlendMode(Phaser.BlendModes.ADD));
+    light.add([g, ...rays]);
+    const motes = new Motes(this, { x: L.left + 20, y: top + 10, w: w - 40, h: bottom - top - 20, count: FX_ON ? 16 : 0, colors: [0xffd27a, 0xffffff, 0xff9a40], alpha: 0.8, texture: 'spark', scale: [0.3, 0.7], rise: -46, depth: -3, additive: true });
+    const frame = this.add.graphics().setDepth(249).setAlpha(0);
+    for (let i = 0; i < 4; i++) frame.lineStyle(14 - i * 3, i % 2 ? 0xfff0b8 : 0xffb347, 0.16 + i * 0.07).strokeRect(L.left + i * 3, top + i * 3, w - i * 6, bottom - top - i * 6);
+    this.tweens.add({ targets: [light, frame], alpha: 1, duration: 350 });
+    // blocks and finds, where the map button was (the map is closed during a rush)
+    const counters = this.add.container(L.left + 62, top + 104).setDepth(240);
+    const plaque = this.add.graphics();
+    const texts: Phaser.GameObjects.Text[] = [];
+    ([['rush.blocks', 0], ['rush.finds', 96]] as const).forEach(([key, dy]) => {
+      plaque.fillStyle(PALETTE.shadow, 0.5).fillRoundedRect(-56, dy - 38, 112, 84, 16);
+      plaque.fillStyle(PALETTE.dirt, 1).fillRoundedRect(-56, dy - 42, 112, 84, 16);
+      plaque.lineStyle(3, 0xffb347, 1).strokeRoundedRect(-56, dy - 42, 112, 84, 16);
+      const cap = label(this, 0, dy - 22, this.t(key), { size: 22, color: PALETTE.sand });
+      fitText(cap, 100);
+      const num = outlined(this, 0, dy + 12, '0', 38, 0xffffff, 6);
+      counters.add(cap);
+      texts.push(num);
+    });
+    counters.addAt(plaque, 0);
+    counters.add(texts);
+    this.rushFx = { light, frame, motes, counters, blocks: at(texts, 0), finds: at(texts, 1), shown: '', second: -1 };
+    this.mapButton.box.setVisible(false);
+    this.mapButton.zone.disableInteractive();
+    if (this.drawer.open) this.drawer.toggle(false);
+    this.museumButton.setEnabled(false);
+    this.upgradesButton.setEnabled(false);
+    // the assistant stands back for the rush, and cheers you on
+    if (banner) this.helper.cheer();
+    // the rush block replaces the one being dug (it comes back afterwards)
+    this.block.renew(this.sim.block.kind, this.sim.echoLayer);
+    this.block.setDamage(0);
+    this.refreshHud(true);
+    if (banner) {
+      this.oyun.audio.playPreset(SFX.fanfare, { pitch: 5 });
+      tierPattern(this, ['medium', 'heavy']);
+      const title = outlined(this, L.cx, top + 86, this.t('rush.title'), 64, 0xffd23f, 12).setDepth(332);
+      fitText(title, L.width - 60);
+      const sub = outlined(this, L.cx, top + 142, this.t('rush.sub', { s: RUSH.seconds }), 28, 0xffffff, 6).setDepth(332);
+      fitText(sub, BLOCK_W - 10);
+      this.juice.pop(title, 0.3, 360);
+      this.tweens.add({ targets: [title, sub], alpha: 0, delay: 1200, duration: 400, onComplete: () => {
+        title.destroy();
+        sub.destroy();
+      } });
+      if (FX_ON) this.fx.emit(L.cx, top + 86, 18, { texture: 'spark', tint: 0xffd27a, speed: [160, 420], life: [0.5, 0.9], scale: [0.5, 1.1], drag: 1.5 });
+    }
+  }
+
+  /** The rush button doubles as the rush clock; the counters follow the sim. */
+  private refreshRush(real: number): void {
+    const s = this.sim;
+    const b = this.rushButton;
+    const active = s.rushActive;
+    const clock = rushClock(s.rushLeft);
+    const wait = active || !s.rushOpen || s.rushReady ? '' : this.waitText(s.rushWait);
+    const key = `${s.rushOpen}|${active}|${s.rushReady}|${clock.seconds}|${wait}`;
+    if (key !== b.key) {
+      b.key = key;
+      b.box.setVisible(s.rushOpen);
+      if (s.rushOpen) b.zone.setInteractive({ useHandCursor: true });
+      else b.zone.disableInteractive();
+      b.nudge.setVisible(s.rushOpen && s.rushReady && !active);
+      b.img.setVisible(!active).setAlpha(s.rushReady ? 1 : 0.45);
+      b.num.setVisible(active).setText(String(clock.seconds)).setColor(cssColor(clock.last ? 0xff6a4a : 0xffffff));
+      b.text.setText(active ? '' : wait || this.t('dig.rush')).setColor(cssColor(wait ? PALETTE.sand : 0xffd23f));
+      fitText(b.text, 106);
+      if (!active) b.ring.clear();
+      if (s.rushOpen && s.rushReady) this.showTip('rush', this.t('tip.rush'));
+    }
+    const fx = this.rushFx;
+    if (!active || !fx) return;
+    // the ring drains with the clock
+    if (Math.abs(clock.share - b.share) > 0.003) {
+      b.share = clock.share;
+      b.ring.clear();
+      b.ring.lineStyle(9, 0x000000, 0.45).strokeCircle(0, 0, 40);
+      b.ring.lineStyle(9, clock.last ? 0xff6a4a : 0xffd23f, 1).beginPath().arc(0, 0, 40, -Math.PI / 2, -Math.PI / 2 + clock.share * Math.PI * 2, false).strokePath();
+    }
+    const shown = `${s.rushBlocks}|${s.rushFinds}`;
+    if (shown !== fx.shown) {
+      fx.shown = shown;
+      fx.blocks.setText(big(this, s.rushBlocks));
+      fx.finds.setText(big(this, s.rushFinds));
+      fitText(fx.blocks, 100);
+      fitText(fx.finds, 100);
+    }
+    fx.motes.update(real);
+    // the last 10 s pulse: the clock beats and ticks each second, the frame breathes (no shake)
+    if (clock.last) {
+      if (clock.seconds !== fx.second) {
+        fx.second = clock.seconds;
+        this.oyun.audio.playPreset(SFX.tick, { pitch: 10 - clock.seconds, volume: 0.7 });
+      }
+      if (FX_ON && !this.oyun.reducedMotion) {
+        const beat = Math.abs(Math.sin(this.fxClock * Math.PI * 2));
+        b.num.setScale(1 + 0.14 * beat);
+        fx.frame.setAlpha(0.55 + 0.45 * beat);
+      }
+    }
+  }
+
+  /** The rush is over: the site goes back to normal and the result waits for its card. */
+  private exitRush(result: RushResult | null): void {
+    const fx = this.rushFx;
+    if (fx) {
+      this.rushFx = null;
+      for (const m of fx.motes.list) m.destroy();
+      fx.counters.destroy(true);
+      this.tweens.add({ targets: [fx.light, fx.frame], alpha: 0, duration: 300, onComplete: () => {
+        fx.light.destroy(true);
+        fx.frame.destroy();
+      } });
+    }
+    this.rushButton.num.setScale(1);
+    this.rushButton.share = -1;
+    this.mapButton.box.setVisible(true);
+    this.mapButton.zone.setInteractive({ useHandCursor: true });
+    this.museumButton.setEnabled(true);
+    this.upgradesButton.setEnabled(true);
+    // the block that was being dug before the rush is back, with the damage it had
+    this.block.renew(this.sim.block.kind, this.sim.echoLayer);
+    this.block.setDamage(this.sim.blockDamage / this.sim.blockHp);
+    this.hpShown = this.hpTarget = 1 - this.sim.blockDamage / this.sim.blockHp;
+    this.hpBar.setValue(this.hpShown);
+    this.refreshHud(true);
+    if (result) {
+      this.rushResult = result;
+      this.oyun.platform.track('rush_end', { layer: result.layer, blocks: result.blocks, record: result.record });
+    }
+    this.ses.flush();
+  }
+
+  /** Result card: blocks (and the personal best), dust, finds rarest first; everything counts up. */
+  private showRushCard(res: RushResult): void {
+    const L = this.layout;
+    const box = this.add.container(0, 0).setDepth(955);
+    const shadeRect = this.add.rectangle(L.cx, L.height / 2, L.width + 40, L.height + 40, 0x000000, 0.75).setInteractive();
+    shadeRect.setAlpha(0);
+    this.tweens.add({ targets: shadeRect, alpha: 1, duration: 200 });
+    const record = res.record && res.best > 0;
+    const rows = res.finds.slice(0, RUSH_ROWS);
+    const more = res.finds.length - rows.length;
+    const fresh = res.finds.filter((f) => f.isNew).length;
+    const rowH = 62;
+    const cardH = 120 + 70 + 50 + 62 + 48 + rows.length * rowH + (more > 0 ? 40 : 0) + 96 + 150;
+    const card = panel(this, L.cx, L.cy, 640, cardH, { color: PALETTE.dirtLight });
+    let y = -cardH / 2 + 64;
+    const title = label(this, 0, y, this.t('rush.over'), { size: 52, color: PALETTE.ochreLight });
+    y += 78;
+    const blocks = label(this, 0, y, '', { size: 50, color: 0xffffff });
+    y += 56;
+    const bestLine = label(this, 0, y, record ? `${this.t('rush.record')}  ${this.t('rush.best', { n: big(this, res.blocks) })}` : this.t('rush.best', { n: big(this, Math.max(res.best, res.blocks)) }), { size: 30, color: record ? 0xffd23f : PALETTE.sand });
+    y += 60;
+    const dust = label(this, 0, y, '', { size: 44, color: PALETTE.dust });
+    y += 54;
+    const found = label(this, 0, y, this.t('rush.found', { finds: counted(this, 'n.finds', res.rolls), k: fresh }), { size: 28, color: PALETTE.sand });
+    fitText(found, 580);
+    card.add([title, blocks, bestLine, dust, found]);
+    y += 54;
+    rows.forEach((f, i) => {
+      const tier = at(TIERS, f.fossil.tier);
+      const ry = y + i * rowH;
+      const g = this.add.graphics();
+      g.fillStyle(PALETTE.dirt, 1).fillRoundedRect(-290, ry - 27, 580, 54, 14);
+      if (f.fossil.tier > 0) g.lineStyle(3, tier.color, 1).strokeRoundedRect(-290, ry - 27, 580, 54, 14);
+      const icon = this.add.image(-258, ry, fossilKey(f.fossil.id)).setScale(0.3);
+      const name = label(this, -226, ry, this.t('rush.row', { name: fossilName(this, f.fossil), n: f.n }) + (f.isNew ? `  ${this.t('reveal.new')}` : ''), { size: 26, color: f.isNew ? PALETTE.ochreLight : 0xffffff }).setOrigin(0, 0.5);
+      fitText(name, 330, 0.7);
+      const odds = label(this, 276, ry, oddsText(this, f.fossil.odds), { size: 26, color: f.fossil.tier === 0 ? PALETTE.sand : tier.color }).setOrigin(1, 0.5);
+      fitText(odds, 170, 0.7);
+      const row = [g, icon, name, odds];
+      card.add(row);
+      if (FX_ON && !this.oyun.reducedMotion) {
+        for (const o of row) o.setAlpha(0);
+        this.tweens.add({ targets: row, alpha: 1, delay: 420 + i * 110, duration: 160 });
+      }
+    });
+    y += rows.length * rowH;
+    if (more > 0) {
+      card.add(label(this, 0, y - 6, this.t('rush.more', { n: more }), { size: 24, color: PALETTE.sand }));
+      y += 40;
+    }
+    const luck = label(this, 0, y + 6, this.t('rush.luck'), { size: 24, color: PALETTE.luck });
+    fitText(luck, 580);
+    const next = label(this, 0, y + 42, this.t('rush.next', { t: this.waitText(this.sim.rushWait) }), { size: 24, color: PALETTE.sand });
+    fitText(next, 580);
+    card.add([luck, next]);
+    const claim = button(this, L.cx, L.cy + cardH / 2 - 84, this.t('offline.claim'), () => this.closeRushCard(), { width: 400, height: 100 });
+    box.add([shadeRect, card, claim]);
+    this.rushCard = { box, claim, result: res };
+    this.juice.pop(card, 0.5, 320);
+    // the numbers count up (the card was laid out for the final ones, so nothing shifts)
+    countTo(this, 0, res.blocks, 650, (v) => blocks.setText(this.t('rush.broke', { blocks: counted(this, 'n.blocks', Math.round(v)) })), 16, 200);
+    countTo(this, 0, res.dust, 700, (v) => dust.setText(this.t('rush.dust', { n: big(this, Math.round(v)) })), 14, 420);
+    if (record) {
+      this.oyun.audio.playPreset(SFX.fanfare);
+      tierPattern(this, ['medium', 'success']);
+      this.time.delayedCall(700, () => {
+        if (this.rushCard?.box !== box) return;
+        this.juice.pop(bestLine, 1.25, 260);
+        if (FX_ON) this.fx.emit(L.cx, L.cy + bestLine.y, 16, { texture: 'spark', tint: 0xffd23f, speed: [140, 360], life: [0.4, 0.8], scale: [0.5, 1], drag: 1.5 });
+      });
+    } else this.oyun.audio.play('coin');
+    this.syncUnseen();
+    this.refreshHud(true);
+    this.refreshStrip();
+  }
+
+  private closeRushCard(): void {
+    const c = this.rushCard;
+    if (!c) return;
+    this.rushCard = null;
+    if (FX_ON && c.result.dust > 0) this.flyDust(this.layout.cx, this.layout.cy, 8);
+    this.tweens.add({ targets: c.box, alpha: 0, duration: 180, onComplete: () => c.box.destroy(true) });
+    this.refreshHud(true);
+  }
+
   // ------------------------------------------------------------------ fever
 
   private startFever(): void {
@@ -769,7 +1242,7 @@ export class DigScene extends OyunScene {
   /** A rank-up: everything pauses for the new badge, its name and what comes next. */
   /** The ceremony starts only when nothing else is up and the player has not touched for 1 s. */
   private maybeRankUp(): void {
-    if (this.pendingRank < 0 || this.ceremony || this.reveal.busy || this.popup || this.dailyBox || this.travelling) return;
+    if (this.pendingRank < 0 || this.ceremony || this.reveal.busy || this.popup || this.dailyBox || this.travelling || this.sim.rushActive || this.rushCard || this.rushResult) return;
     if (this.fxClock < this.rankNotBefore || this.fxClock - this.lastInput < QUIET_BEFORE_CEREMONY) return;
     // never an older rank than the one already held (see afterBuy: not every rise arrives as an event)
     const r = Math.max(this.pendingRank, this.sim.rank);
@@ -838,7 +1311,7 @@ export class DigScene extends OyunScene {
   // ------------------------------------------------------------------ daily dig
 
   private openDaily(): void {
-    if (this.dailyBox || this.popup || this.ceremony || this.reveal.blocking) return;
+    if (this.dailyBox || this.popup || this.ceremony || this.reveal.blocking || this.sim.rushActive || this.rushCard) return;
     const day = today();
     const got = this.sim.claimDaily(day);
     if (!got) return;
@@ -925,7 +1398,7 @@ export class DigScene extends OyunScene {
       if (f > 0) g.lineStyle(10, f >= 0.8 ? 0xffd23f : PALETTE.luck, 1).beginPath().arc(0, 0, 36, -Math.PI / 2, -Math.PI / 2 + f * Math.PI * 2).strokePath();
       this.streak.text.setText(String(PITY - dry));
     }
-    this.dailyButton.setVisible(s.dailyOpen(today()));
+    this.dailyButton.setVisible(s.dailyOpen(today()) && !s.rushActive);
   }
 
   private onGlintTap(): void {
@@ -943,8 +1416,12 @@ export class DigScene extends OyunScene {
   }
 
   private onTravel(layer: number): void {
-    if (this.reveal.blocking || this.popup) return;
+    if (this.reveal.blocking || this.popup || this.rushCard) return;
     if (layer < 0 || layer >= LAYERS.length) return;
+    if (this.sim.rushActive) {
+      this.note(this.t('rush.busy'));
+      return;
+    }
     if (layer > this.sim.unlocked) {
       this.oyun.audio.play('hit', { volume: 0.4 });
       this.showTip('locked', `${this.t('dig.locked', { n: big(this, this.sim.unlockPowerOf(layer)) })}. ${this.t('tip.power')}`, true);
@@ -956,7 +1433,7 @@ export class DigScene extends OyunScene {
     if (!this.sim.travel(layer)) return;
     this.oyun.audio.playPreset(SFX.flip);
     this.oyun.platform.haptic('light');
-    this.travelFx(layer > from ? 1 : -1, () => {
+    this.travelFx(from, () => {
       this.scenery.setLayer(layer);
       this.block.setLayer(layer).setKind(this.sim.block.kind, this.sim.echoLayer);
       this.rubble.clear();
@@ -1122,47 +1599,20 @@ export class DigScene extends OyunScene {
   }
 
   /** Short descent (deeper) or ascent between layers: strata rush past, the new place appears. */
-  private travelFx(dir: 1 | -1, swap: () => void): void {
-    const L = this.layout;
+  private travelFx(from: number, swap: () => void): void {
+    const to = this.sim.layer;
+    const dir = travelDir(from, to);
     this.travelling = true;
-    const g = this.add.graphics().setDepth(1400);
-    const from = at(LAYERS, Math.max(0, this.sim.layer - Math.max(0, dir)));
-    const to = at(LAYERS, this.sim.layer);
-    const h = L.height;
-    for (let i = 0; i < 18; i++) {
-      const src = i < 9 ? (dir > 0 ? from : to) : dir > 0 ? to : from;
-      g.fillStyle(at(src.bands, i % src.bands.length), 1).fillRect(-20, i * (h / 6), L.width + 40, h / 6 + 2);
-      g.fillStyle(0x000000, 0.15).fillRect(-20, i * (h / 6) + h / 6 - 10, L.width + 40, 10);
-    }
-    // bands enter from the bottom when going down, from the top when going up
-    g.setY(dir > 0 ? h : -3 * h);
-    this.oyun.audio.playPreset(SFX.flip, { pitch: dir > 0 ? -5 : 5 });
-    this.tweens.add({
-      targets: g,
-      y: dir > 0 ? -2 * h : 0,
-      duration: 260,
-      ease: 'Cubic.easeIn',
-      onComplete: () => {
-        swap();
-        const name = outlined(this, L.cx, L.cy, this.t(`layer.${to.id}`), 64, 0xffffff, 12).setDepth(1401);
-        fitText(name, L.width - 60);
-        this.juice.pop(name, 0.5, 240);
-        this.tweens.add({ targets: name, alpha: 0, y: L.cy - dir * 80, delay: 260, duration: 300, onComplete: () => name.destroy() });
-        this.tweens.add({
-          targets: g,
-          y: dir > 0 ? -3 * h : h,
-          duration: 280,
-          ease: 'Cubic.easeOut',
-          onComplete: () => {
-            g.destroy();
-            this.travelling = false;
-            this.juice.pop(this.block, 0.7, 260);
-            // landing: a thump and a puff of the new layer's dust
-            this.juice.shake(0.2);
-            if (FX_ON) this.fx.emit(this.block.x, this.blockY + this.blockH / 2, 12, { tint: at(to.bands, 2), speed: [80, 260], angle: -Math.PI / 2, spread: 2.6, life: [0.4, 0.8], scale: [1, 2], endScale: 1.6, alpha: 0.4, drag: 2 });
-          },
-        });
-      },
+    // bands enter from the bottom when going down, from the top when going up (fx/Travel.ts)
+    cover(this, from, to, dir, (sheet) => {
+      swap();
+      uncover(this, sheet, from, to, dir, () => {
+        this.travelling = false;
+        this.juice.pop(this.block, 0.7, 260);
+        // landing: a thump and a puff of the new layer's dust
+        this.juice.shake(0.2);
+        if (FX_ON) this.fx.emit(this.block.x, this.blockY + this.blockH / 2, 12, { tint: at(at(LAYERS, to).bands, 2), speed: [80, 260], angle: -Math.PI / 2, spread: 2.6, life: [0.4, 0.8], scale: [1, 2], endScale: 1.6, alpha: 0.4, drag: 2 });
+      });
     });
   }
 
@@ -1420,11 +1870,21 @@ export class DigScene extends OyunScene {
         sp.setScale(0.15 + tw * 0.75).setAlpha(0.3 + tw * 0.7);
       });
     }
-    if (!this.reveal.blocking && !this.popup && !this.ceremony && !this.dailyBox) {
+    if (!this.reveal.blocking && !this.popup && !this.ceremony && !this.dailyBox && !this.rushCard) {
       this.step(this.juice.scaledDelta(Math.min(delta, 250)) / 1000);
       const haul = this.ses.takeHaul();
       if (haul) this.showOfflinePopup(haul);
     }
+    // a rush that ended (the clock ran out, or the app was left): back to normal, then its card
+    const ended = this.sim.takeRushResult();
+    if (ended || (this.rushFx && !this.sim.rushActive)) this.exitRush(ended);
+    if (this.rushResult && !this.rushCard && !this.popup && !this.ceremony && !this.dailyBox && !this.reveal.blocking) {
+      const res = this.rushResult;
+      this.rushResult = null;
+      this.showRushCard(res);
+    }
+    this.updateWeak();
+    this.refreshRush(real);
     if (this.tip && this.time.now > this.tip.until) this.closeTip();
     const b = this.sim.block;
     this.block.animate(real, b.kind === 'unstable' && b.timer > 0 ? 1 - b.timer / 6 : 0, this.sim.combo);
@@ -1460,6 +1920,10 @@ export class DigScene extends OyunScene {
       this.showTip('glint', this.t('tip.glint'));
     }
     if (r.glintAppeared || r.glintExpired) this.syncGlint();
+    if (r.weakAppeared) {
+      this.oyun.audio.playPreset(SFX.tick, { pitch: -4, volume: 0.5 });
+      this.showTip('weak', this.t('tip.weak'));
+    }
     if (this.sim.glint) {
       const life = this.sim.glint.life;
       this.glint.setAlpha(life < 1 ? 0.4 + 0.6 * Math.abs(Math.sin(life * 12)) : 1);
@@ -1616,7 +2080,7 @@ export class DigScene extends OyunScene {
     }
     this.affordable = affordable;
     if (affordable > 0 && !this.popup) this.showTip('dust', this.t('tip.dust'));
-    this.boostButton.setEnabled(boost <= 0);
+    this.boostButton.setEnabled(boost <= 0 && !s.rushActive);
     this.boostButton.setLabel(boost > 0 ? this.t('hud.boost', { s: boost }) : this.t('dig.boost'));
   }
 
@@ -1627,7 +2091,12 @@ export class DigScene extends OyunScene {
     const twist = at(LAYERS, s.layer).twist;
     let text = '';
     let color = 0xffffff;
-    switch (b.kind) {
+    // a rush says what its finds roll at: the tap luck on screen, nothing else
+    // (it makes way for the luck caption of a card being revealed; the luck chip always shows it)
+    if (s.rushActive && b.kind !== 'golden') {
+      text = this.reveal.busy ? '' : this.t('rush.status', { n: mult(this, s.luck) });
+      color = 0xffd27a;
+    } else switch (b.kind) {
       case 'vein':
         text = this.t('hud.hold');
         color = 0xc8d8e8;
@@ -1717,7 +2186,7 @@ export class DigScene extends OyunScene {
     if (this.ceremony) this.closeCeremony();
     else if (this.dailyBox) this.closeDaily();
     else if (this.reveal.blocking) this.reveal.dismiss();
-    else if (!this.popup) this.onDigTap(this.block.x, this.block.y);
+    else if (!this.popup && !this.rushCard) this.onDigTap(this.block.x, this.block.y);
   }
 
   protected override testState() {
@@ -1759,8 +2228,24 @@ export class DigScene extends OyunScene {
       dailyStreak: s.dailyStreak,
       ceremony2: this.ceremony ? 'rank' : this.dailyBox ? 'daily' : null,
       /** Anything covering the dig that a tap would close or that swallows taps. */
-      overlay: this.ceremony ? 'rank' : this.dailyBox ? 'daily' : this.popup ? 'offline' : this.reveal.blocking ? 'grand' : null,
-      overlayReady: this.ceremony ? this.ceremonyReady : this.reveal.blocking ? this.reveal.canDismiss : this.dailyBox !== null || this.popup !== null,
+      overlay: this.ceremony ? 'rank' : this.dailyBox ? 'daily' : this.popup ? 'offline' : this.rushCard ? 'rush' : this.reveal.blocking ? 'grand' : null,
+      overlayReady: this.ceremony ? this.ceremonyReady : this.reveal.blocking ? this.reveal.canDismiss : this.dailyBox !== null || this.popup !== null || this.rushCard !== null,
+      weak: s.weakSpot ? { x: Math.round(this.weakPos()?.x ?? 0), y: Math.round(this.weakPos()?.y ?? 0), life: Math.round(s.weakSpot.life * 100) / 100, mult: s.weakMult } : null,
+      sharp: s.sharpEye,
+      precise: s.preciseHits,
+      rush: {
+        open: s.rushOpen,
+        ready: s.rushReady,
+        active: s.rushActive,
+        left: Math.round(s.rushLeft * 10) / 10,
+        blocks: s.rushBlocks,
+        finds: s.rushFinds,
+        best: s.rushBest,
+        count: s.rushCount,
+        wait: Math.ceil(s.rushWait),
+      },
+      rushCard: this.rushCard ? { blocks: this.rushCard.result.blocks, dust: this.rushCard.result.dust, rolls: this.rushCard.result.rolls, kinds: this.rushCard.result.finds.length, record: this.rushCard.result.record, best: this.rushCard.result.best } : null,
+      travelling: this.travelling,
       rankPending: this.pendingRank >= 0,
       status: this.statusText.text,
       lastFind: last && s.lastFind ? { id: last.id, odds: last.odds, grade: s.lastFind.grade, luck: Math.round(s.lastFind.luck * 100) / 100, source: s.lastFind.source } : null,
@@ -1791,6 +2276,12 @@ export class DigScene extends OyunScene {
         streak: pos(this.streak),
         pick: this.pick.state,
         core: this.block.corePos ? pos(this.block.corePos) : null,
+        map: { x: Math.round(this.mapButton.x), y: Math.round(this.mapButton.y) },
+        rush: { x: Math.round(this.rushButton.x), y: Math.round(this.rushButton.y) },
+        rushClaim: this.rushCard ? pos(this.rushCard.claim) : null,
+        title: pos(this.layerTitle),
+        hp: pos(this.hpBar),
+        statusLine: pos(this.statusText),
       },
     };
   }
@@ -1832,8 +2323,27 @@ export class DigScene extends OyunScene {
         if (this.reveal.blocking) this.reveal.dismiss();
         else if (!this.popup && !this.ceremony) this.onDigTap(this.block.x, this.block.y, typeof p === 'number' ? p : VEIN.fullHold);
       },
-      ranks: () => this.goTo(SCENES.ranks),
+      ranks: () => this.leave(SCENES.ranks),
       daily: () => this.dailyButton.fire(),
+      /** The depth map button / the rush button, as a finger would press them. */
+      map: () => this.openMap(),
+      rush: () => this.onRush(),
+      /** Let time pass (in steps, like `advance`) until a weak spot shows; at most `p` seconds (default 20). */
+      waitWeak: (p: unknown) => {
+        let left = typeof p === 'number' ? p : 20;
+        while (left > 0 && !this.sim.weakSpot && !this.reveal.blocking && !this.popup && !this.rushCard) {
+          this.step(0.1);
+          left -= 0.1;
+        }
+        this.updateWeak();
+        this.refreshHud(true);
+      },
+      /** A tap right on the weak spot (a plain tap on the block centre when there is none). */
+      tapWeak: () => {
+        const w = this.weakPos();
+        if (this.reveal.blocking) this.reveal.dismiss();
+        else if (!this.popup && !this.ceremony && !this.rushCard) this.onDigTap(w?.x ?? this.block.x, w?.y ?? this.block.y);
+      },
       /**
        * Look at a ceremony without earning it (screenshots of the presentation): plays the reveal
        * of the most common fossil at `odds` or rarer, the rank-up of the current rank, or a
@@ -1850,6 +2360,7 @@ export class DigScene extends OyunScene {
       close: () => {
         this.closeCeremony();
         this.closeDaily();
+        this.closeRushCard();
       },
     };
   }

@@ -19,10 +19,12 @@ import {
   PITY,
   PRESSURE,
   RELIC,
+  RUSH,
   SCORE,
   TWIN,
   UNSTABLE,
   VEIN,
+  WEAK,
   rankOf,
   type Achievement,
   FOSSIL_BY_ID,
@@ -39,7 +41,70 @@ import {
   type Fossil,
   type SetBonusKind,
   type UpgradeId, at } from './data';
+import { cooldown } from './clock';
 import { effectiveLuck, layerFossils, LUCKY_TIER, rollFossil, rollRare } from './loot';
+
+/** A weak spot on the block face (0..1 of its width and height) and the seconds it stays. */
+export interface WeakSpot {
+  x: number;
+  y: number;
+  life: number;
+}
+
+/** Weak spots: damage only, on their own rng stream (nothing here ever touches a roll). */
+export interface WeakState {
+  /** Seconds until the next spot may appear (-1 = not scheduled yet). */
+  in: number;
+  /** The wait after the spot showing now, drawn together with it (every spot costs the same draws). */
+  gap: number;
+  spot: WeakSpot | null;
+  /** Cell (0..8) of the last spot: the next one is never in the same place. */
+  cell: number;
+  /** Precise hits in a row (the "sharp eye" count); a spot left to expire ends it. */
+  streak: number;
+  /** Precise hits ever made. */
+  hits: number;
+  /** State of the weak-spot rng stream; 0 = not seeded yet. */
+  rng: number;
+}
+
+/** Dig Rush: the event in progress, the personal best and the wall-clock cooldown. */
+export interface RushState {
+  /** Seconds left of the rush in progress (0 = none). */
+  left: number;
+  /** This rush so far. */
+  blocks: number;
+  dust: number;
+  rolls: number;
+  /** fossil id → copies found in this rush. */
+  found: Record<string, number>;
+  /** Species first found in this rush. */
+  fresh: string[];
+  /** The block (and the damage on it) that was being dug when the rush started; it comes back after. */
+  held: { block: BlockState; damage: number } | null;
+  /** Most blocks ever broken in one rush, and rushes played. */
+  best: number;
+  count: number;
+  /** Wall-clock ms from which the next rush may start (0 = no cooldown running). */
+  readyAt: number;
+  /** Latest wall-clock ms this save has ever seen: only moves forward (see clock.ts). */
+  seen: number;
+  /** State of the rush rng stream; 0 = not seeded yet. */
+  rng: number;
+}
+
+/** What one rush brought, for its result card. */
+export interface RushResult {
+  layer: number;
+  blocks: number;
+  dust: number;
+  rolls: number;
+  /** Rarest first. */
+  finds: { fossil: Fossil; n: number; isNew: boolean }[];
+  /** The personal best before this rush, and whether this rush beat it. */
+  best: number;
+  record: boolean;
+}
 
 export interface GlintState {
   /** Position inside the dig site, 0..1. */
@@ -114,6 +179,8 @@ export interface DigSave {
   rank: number;
   /** Wall-clock ms most recently injected by the scene (for record dates). */
   clock: number;
+  weak: WeakState;
+  rush: RushState;
 }
 
 export type BlockKind = 'normal' | 'vein' | 'unstable' | 'twin' | 'golden' | 'cavein' | 'boss' | 'pressure' | 'meteor' | 'echo';
@@ -173,6 +240,8 @@ export function defaultSave(): DigSave {
     records: { rare: [], sets: {}, layerStart: [0] },
     rank: 0,
     clock: 0,
+    weak: { in: -1, gap: WEAK.minGap, spot: null, cell: -1, streak: 0, hits: 0, rng: 0 },
+    rush: { left: 0, blocks: 0, dust: 0, rolls: 0, found: {}, fresh: [], held: null, best: 0, count: 0, readyAt: 0, seen: 0, rng: 0 },
   };
 }
 
@@ -219,6 +288,8 @@ export interface Find {
   pity: boolean;
   /** Block this came from. */
   block: BlockKind;
+  /** Found in a Dig Rush (set only then). Rolled at the tap luck on screen, like any tap find. */
+  rush?: true;
 }
 
 export interface TapResult {
@@ -233,6 +304,10 @@ export interface TapResult {
   core: boolean;
   /** Dust paid by the break (0 if it did not break). */
   dust: number;
+  /** This tap landed on the weak spot (×WEAK.mult damage and up; luck is untouched). */
+  precise: boolean;
+  /** Precise hits in a row including this one (0 when it was not precise). */
+  sharp: number;
 }
 
 export interface TickResult {
@@ -241,6 +316,9 @@ export interface TickResult {
   assistantHits: number;
   glintAppeared: boolean;
   glintExpired: boolean;
+  /** A weak spot appeared / went away un-hit (expired, or made way for a glint). */
+  weakAppeared: boolean;
+  weakExpired: boolean;
   events: SimEvent[];
   /** Blocks the assistant broke (cave-in rubble breaks without a find). */
   breaks: number;
@@ -356,6 +434,30 @@ export function sanitizeSave(raw: Partial<DigSave> | undefined): DigSave {
   if (d.records.rare.length === 0 && d.stats.bestId) d.records.rare = [{ id: d.stats.bestId, odds: d.stats.bestOdds, at: 0 }];
   d.rank = int(raw.rank, 0, 99);
   d.clock = num(raw.clock);
+  const state = (v: unknown): number => (typeof v === 'number' && Number.isInteger(v) ? v >>> 0 : 0);
+  // Weak spots (saves from before them start with none and the first one scheduled on load).
+  const w = raw.weak;
+  const face = (v: number): number => Math.min(0.85, Math.max(0.15, v));
+  const sp = w?.spot;
+  d.weak = {
+    in: typeof w?.in === 'number' && Number.isFinite(w.in) && w.in >= 0 ? Math.min(w.in, WEAK.maxGap) : -1,
+    gap: Math.min(WEAK.maxGap, num(w?.gap, WEAK.minGap)),
+    spot: sp && typeof sp === 'object' && Number.isFinite(sp.x) && Number.isFinite(sp.y) && num(sp.life) > 0 ? { x: face(sp.x), y: face(sp.y), life: Math.min(WEAK.life, num(sp.life)) } : null,
+    cell: int(w?.cell, -1, 8),
+    streak: int(w?.streak),
+    hits: int(w?.hits),
+    rng: state(w?.rng),
+  };
+  // Dig Rush: the best and the cooldown are kept; a rush that was running when the app closed is
+  // over (what it broke counts for the best) and the block that was being dug comes back.
+  const r = raw.rush;
+  d.rush = { ...d.rush, best: int(r?.best), count: int(r?.count), readyAt: num(r?.readyAt), seen: Math.max(num(r?.seen), d.lastSeen), rng: state(r?.rng) };
+  if (num(r?.left) > 0) {
+    d.rush.best = Math.max(d.rush.best, int(r?.blocks));
+    d.rush.count += 1;
+    d.block = sanitizeBlock(r?.held?.block, d.layer);
+    d.damage = num(r?.held?.damage);
+  }
   return d;
 }
 
@@ -441,6 +543,14 @@ export function scoreOf(s: Pick<DigSave, 'discovered' | 'best' | 'sets' | 'deepe
 export class DigSim {
   private readonly s: DigSave;
   private readonly rng: Rng;
+  /**
+   * Weak spots and the Dig Rush draw from their own streams (forked from the seed by label, which
+   * consumes nothing), so the main stream gives exactly what it gave before they existed.
+   */
+  private readonly weakRng: Rng;
+  private readonly rushRng: Rng;
+  /** The result of a rush that just ended, until the scene takes it. */
+  private rushDone: RushResult | null = null;
   private pendingOfflineDust = 0;
   /** Cached collection power (invalidated on every change to the collection). */
   private powerCache = -1;
@@ -450,10 +560,77 @@ export class DigSim {
   constructor(seed: number, save?: Partial<DigSave>) {
     this.s = sanitizeSave(save);
     this.rng = createRng(seed);
+    this.weakRng = this.rng.fork('weak');
+    this.rushRng = this.rng.fork('rush');
     if (this.s.rng !== 0) this.rng.setState(this.s.rng);
+    if (this.s.weak.rng !== 0) this.weakRng.setState(this.s.weak.rng);
+    if (this.s.rush.rng !== 0) this.rushRng.setState(this.s.rush.rng);
     // A brand-new dig shows its first glint early so players meet it; later ones come every 20-40 s.
-    if (this.s.glintIn < 0 && !this.s.glint) this.s.glintIn = this.s.stats.rolls === 0 && this.s.stats.taps === 0 ? GLINT.first : this.nextGlintGap();
+    const fresh = this.s.stats.rolls === 0 && this.s.stats.taps === 0;
+    if (this.s.glintIn < 0 && !this.s.glint) this.s.glintIn = fresh ? GLINT.first : this.nextGlintGap();
+    // ...and its first weak spot earlier still (own stream: the glint draw above is untouched).
+    if (this.s.weak.in < 0 && !this.s.weak.spot) this.s.weak.in = fresh ? WEAK.first : this.nextWeakGap();
     this.checkUnlocks();
+  }
+
+  // ---------------------------------------------------------------- weak spots and the rush (read)
+
+  /** The weak spot showing on the block now, or null. */
+  get weakSpot(): Readonly<WeakSpot> | null {
+    return this.s.weak.spot;
+  }
+  /** Damage multiplier a precise hit deals right now (×4, +0.5 per precise hit in a row, up to ×6). */
+  get weakMult(): number {
+    return Math.min(WEAK.maxMult, WEAK.mult + WEAK.step * this.s.weak.streak);
+  }
+  /** Precise hits in a row (no spot left to expire between them). */
+  get sharpEye(): number {
+    return this.s.weak.streak;
+  }
+  get preciseHits(): number {
+    return this.s.weak.hits;
+  }
+  /** Whether a tap at `at` (0..1 block face) would land on the weak spot. */
+  onWeak(at?: { x: number; y: number }): boolean {
+    const w = this.s.weak.spot;
+    if (!w || !at || !Number.isFinite(at.x) || !Number.isFinite(at.y) || this.s.block.kind === 'meteor') return false;
+    return (at.x - w.x) ** 2 + (at.y - w.y) ** 2 <= WEAK.radius ** 2;
+  }
+
+  /** The rush is offered at all: Topsoil has enough species in the museum. */
+  get rushOpen(): boolean {
+    return this.setProgress(0).found >= RUSH.species;
+  }
+  get rushActive(): boolean {
+    return this.s.rush.left > 0;
+  }
+  /** Seconds left of the rush in progress. */
+  get rushLeft(): number {
+    return this.s.rush.left;
+  }
+  get rushBlocks(): number {
+    return this.s.rush.blocks;
+  }
+  get rushDust(): number {
+    return this.s.rush.dust;
+  }
+  get rushFinds(): number {
+    return this.s.rush.rolls;
+  }
+  /** Most blocks ever broken in one rush. */
+  get rushBest(): number {
+    return this.s.rush.best;
+  }
+  get rushCount(): number {
+    return this.s.rush.count;
+  }
+  /** Seconds of wall-clock time until the next rush may start (0 = now). */
+  get rushWait(): number {
+    return cooldown(this.s.rush.readyAt, this.s.rush.seen, 0).seconds;
+  }
+  /** A rush can start right now. */
+  get rushReady(): boolean {
+    return this.rushOpen && !this.rushActive && this.rushWait <= 0;
   }
 
   // ---------------------------------------------------------------- new systems (read)
@@ -585,7 +762,10 @@ export class DigSim {
   }
   /** Inject the wall clock (ms) so records can carry dates; pure otherwise. */
   setClock(ms: number): void {
-    if (Number.isFinite(ms) && ms > 0) this.s.clock = ms;
+    if (!Number.isFinite(ms) || ms <= 0) return;
+    this.s.clock = ms;
+    // the rush cooldown counts from the latest time ever seen: a clock wound back changes nothing
+    this.s.rush.seen = cooldown(this.s.rush.readyAt, this.s.rush.seen, ms).seen;
   }
 
   // ---------------------------------------------------------------- derived values
@@ -750,6 +930,8 @@ export class DigSim {
   get blockHp(): number {
     const k = this.s.block.kind;
     const m = k === 'twin' ? TWIN.hp : k === 'golden' ? GOLDEN.hp : k === 'cavein' ? CAVEIN.hp : k === 'boss' ? BOSS.hp : 1;
+    // a rush block: a fixed share of the layer's normal health
+    if (this.s.rush.left > 0) return Math.max(1, Math.ceil(this.hpOf(this.s.layer) * m * RUSH.hp));
     return Math.ceil(this.hpOf(this.s.layer) * m);
   }
 
@@ -775,7 +957,7 @@ export class DigSim {
 
   /**
    * A tap on the dig site. `at` is where it landed on the block face (0..1 of its width and
-   * height); only a meteor block cares (its star core). Without it a tap misses the core.
+   * height): a meteor block's star core and the weak spot care. Without it a tap hits neither.
    */
   tap(at?: { x: number; y: number }): TapResult {
     return this.strike(1, false, at);
@@ -792,8 +974,8 @@ export class DigSim {
    * A charged strike (hold, then release). On a hard vein the damage grows with the hold, from
    * ×0.25 (an instant tap) to ×5 dig power at a 0.8 s hold; on any other block it is a normal tap.
    */
-  charge(holdSeconds: number): TapResult {
-    return this.strike(this.chargeMult(holdSeconds), true);
+  charge(holdSeconds: number, at?: { x: number; y: number }): TapResult {
+    return this.strike(this.chargeMult(holdSeconds), true, this.s.block.kind === 'vein' ? at : undefined);
   }
 
   /** Damage multiplier a release after `holdSeconds` would deal on the current block. */
@@ -817,8 +999,22 @@ export class DigSim {
       this.s.block.x = this.rng.range(0.22, 0.78);
       this.s.block.y = this.rng.range(0.25, 0.75);
     }
-    const r = this.hit('tap', this.baseLuck * this.comboMult, mult * veinWeak * pressure * fever * (core ? METEOR.core : 1));
+    // The weak spot: this tap alone deals more. Nothing about the roll changes (same luck, same
+    // stream); the spot is used up and the next one is scheduled from the weak-spot stream.
+    const precise = this.onWeak(at);
+    let weak = 1;
+    if (precise) {
+      const w = this.s.weak;
+      weak = this.weakMult;
+      w.spot = null;
+      w.in = w.gap;
+      w.streak += 1;
+      w.hits += 1;
+    }
+    const r = this.hit('tap', this.baseLuck * this.comboMult, mult * veinWeak * pressure * fever * (core ? METEOR.core : 1) * weak);
     r.core = core;
+    r.precise = precise;
+    r.sharp = precise ? this.s.weak.streak : 0;
     this.s.combo = Math.min(1, this.s.combo + COMBO.perTap);
     this.s.idle = 0;
     if (this.s.fever <= 0) {
@@ -847,8 +1043,10 @@ export class DigSim {
 
   /** Advance time: combo drain, glint timer, boost timer, assistant digging. */
   tick(dt: number): TickResult {
-    const out: TickResult = { finds: [], assistantHits: 0, glintAppeared: false, glintExpired: false, events: [], breaks: 0 };
+    const out: TickResult = { finds: [], assistantHits: 0, glintAppeared: false, glintExpired: false, weakAppeared: false, weakExpired: false, events: [], breaks: 0 };
     if (!(dt > 0)) return out;
+    // during a rush the glint timer holds and the assistant stands back: the blocks are yours
+    const rushing = this.s.rush.left > 0;
     this.s.stats.playSeconds += dt;
     // fever: when it ends the combo drops back
     if (this.s.fever > 0) {
@@ -878,16 +1076,45 @@ export class DigSim {
         this.s.glintIn = this.nextGlintGap();
         out.glintExpired = true;
       }
-    } else {
+    } else if (!rushing) {
       this.s.glintIn -= dt;
       if (this.s.glintIn <= 0) {
         this.s.glint = { x: this.rng.range(0.15, 0.85), y: this.rng.range(0.15, 0.85), life: GLINT.life, luck: this.baseLuck * this.comboMult * GLINT.luck };
         out.glintAppeared = true;
       }
     }
+    // weak spot (own stream): shows for WEAK.life, never appears while a glint is up or on a
+    // meteor block (its core is the target there), and makes way if a glint appears
+    const w = this.s.weak;
+    if (w.spot) {
+      if (this.s.glint) {
+        w.spot = null;
+        w.in = 0; // back as soon as the glint is gone; the sharp eye is not broken
+        out.weakExpired = true;
+      } else {
+        w.spot.life -= dt;
+        if (w.spot.life <= 0) {
+          w.spot = null;
+          w.streak = 0;
+          w.in = w.gap;
+          out.weakExpired = true;
+        }
+      }
+    } else {
+      w.in = Math.max(0, w.in - dt);
+      if (w.in <= 0 && !this.s.glint && this.s.block.kind !== 'meteor') {
+        this.spawnWeak();
+        out.weakAppeared = true;
+      }
+    }
+    // the rush clock
+    if (rushing) {
+      this.s.rush.left = Math.max(0, this.s.rush.left - dt);
+      if (this.s.rush.left === 0) this.rushDone = this.finishRush();
+    }
     // assistant
     const rate = this.assistantRate;
-    if (rate > 0) {
+    if (rate > 0 && !rushing) {
       this.s.assistantAcc += rate * dt;
       while (this.s.assistantAcc >= 1) {
         this.s.assistantAcc -= 1;
@@ -915,6 +1142,7 @@ export class DigSim {
 
   travel(layer: number): boolean {
     if (!Number.isInteger(layer) || layer < 0 || layer > this.s.unlocked || layer === this.s.layer) return false;
+    if (this.s.rush.left > 0) return false; // a rush stays on its layer
     this.s.layer = layer;
     this.s.damage = 0;
     this.newBlock();
@@ -934,6 +1162,8 @@ export class DigSim {
     const haul: OfflineHaul = { seconds: 0, hits: 0, blocks: 0, dust: 0, found: {}, newSpecies: [], fusions: 0, best: null, unlocked: null, lucks: [], notable: [], rolls: 0, quests: [], questDust: 0 };
     // The rewarded boost is a wall-clock 60 s: time away uses it up, and offline rolls never get it.
     if (elapsedSeconds > 0) this.s.boost = Math.max(0, this.s.boost - elapsedSeconds);
+    // Leaving the app ends a rush (what it broke counts); time away never digs rush blocks.
+    if (elapsedSeconds > 0 && this.s.rush.left > 0) this.rushDone = this.finishRush();
     const rate = this.assistantRate;
     if (!(elapsedSeconds > 0) || rate <= 0) return haul;
     haul.seconds = Math.min(elapsedSeconds, this.offlineCap);
@@ -1033,7 +1263,8 @@ export class DigSim {
   }
 
   private hit(source: FindSource, luck: number, mult = 1): TapResult {
-    const out: TapResult = { damage: 0, find: null, extra: [], events: [], broke: false, dust: 0, core: false };
+    const out: TapResult = { damage: 0, find: null, extra: [], events: [], broke: false, dust: 0, core: false, precise: false, sharp: 0 };
+    const rushing = this.s.rush.left > 0;
     const b = this.s.block;
     const damage = this.digPower * mult;
     out.damage = damage;
@@ -1060,9 +1291,12 @@ export class DigSim {
     out.broke = true;
     const layer = this.s.layer;
     const baseDust = this.blockDust(layer); // priced before the hp ramp moves on
-    this.s.broken[layer] = this.blocksBroken(layer) + 1;
+    // rush blocks are counted on their own: they never harden the stratum or move the boss on
+    if (rushing) this.s.rush.blocks += 1;
+    else this.s.broken[layer] = this.blocksBroken(layer) + 1;
     this.s.damage = 0;
     let dustMult = b.kind === 'golden' ? GOLDEN.dust : b.kind === 'cavein' ? CAVEIN.dust : b.kind === 'boss' ? BOSS.dust : 1;
+    if (rushing) dustMult *= RUSH.dust;
     if (source !== 'offline' && this.s.fever > 0) dustMult *= FEVER.dust;
     if (source === 'tap') {
       const t = this.s.stats.playSeconds;
@@ -1076,6 +1310,7 @@ export class DigSim {
     const dust = Math.ceil(baseDust * dustMult);
     this.s.dust += dust;
     out.dust = dust;
+    if (rushing) this.s.rush.dust += dust;
     if (b.kind === 'cavein') {
       // rubble: no fossil, just dust
       this.newBlock(out.events);
@@ -1092,7 +1327,7 @@ export class DigSim {
       this.s.stats.echoes += 1;
       out.extra.push(this.roll(source, luck, 0, out.events, b.echo));
     }
-    if (LAYERS[layer]?.twist === 'relic' && this.relics < RELIC.max && this.rng.next() < RELIC.chance) {
+    if (!rushing && LAYERS[layer]?.twist === 'relic' && this.relics < RELIC.max && this.rng.next() < RELIC.chance) {
       const had = this.relics;
       this.s.fragments += 1;
       this.powerCache = -1;
@@ -1118,6 +1353,13 @@ export class DigSim {
   /** Choose the next block: golden anywhere (after the first 40 finds), else the layer's twist. */
   private newBlock(events?: SimEvent[]): void {
     const layer = this.s.layer;
+    if (this.s.rush.left > 0) {
+      // a rush block: plain, or golden at the usual chance (drawn from the rush stream)
+      const golden = this.s.stats.rolls >= GOLDEN.after && this.rushRng.next() < GOLDEN.chance;
+      this.s.block = { kind: golden ? 'golden' : 'normal', timer: -1 };
+      if (golden && events) events.push({ kind: 'golden' });
+      return;
+    }
     const twist = LAYERS[layer]?.twist ?? 'none';
     let kind: BlockKind = 'normal';
     const broken = this.blocksBroken(layer);
@@ -1136,6 +1378,11 @@ export class DigSim {
       this.s.block.y = this.rng.range(0.25, 0.75);
     }
     if (kind === 'echo') this.s.block.echo = Math.min(layer - 1, Math.floor(this.rng.next() * layer));
+    // a star core is the target on a meteor block: a weak spot showing makes way (sharp eye kept)
+    if (kind === 'meteor' && this.s.weak.spot) {
+      this.s.weak.spot = null;
+      this.s.weak.in = 0;
+    }
     if (events) {
       if (kind === 'golden') events.push({ kind: 'golden' });
       if (kind === 'cavein') events.push({ kind: 'cavein' });
@@ -1152,7 +1399,10 @@ export class DigSim {
   private roll(source: FindSource, luck: number, dust = 0, events: SimEvent[] = [], layer = this.s.layer): Find {
     const applied = effectiveLuck(layer, luck);
     const pity = this.s.dry >= PITY;
-    const fossil = pity ? rollRare(layer, this.rng) : rollFossil(layer, applied, this.rng);
+    // a rush find is a tap find from the same table at the same luck; only its stream differs
+    const rush = this.s.rush.left > 0 && source === 'tap';
+    const rng = rush ? this.rushRng : this.rng;
+    const fossil = pity ? rollRare(layer, rng) : rollFossil(layer, applied, rng);
     this.s.dry = fossil.tier >= LUCKY_TIER ? 0 : this.s.dry + 1;
     if (source === 'glint') {
       dust = this.blockDust(layer);
@@ -1170,7 +1420,87 @@ export class DigSim {
     const unlocked = this.checkUnlocks();
     this.saveRng();
     if (pity) events.push({ kind: 'pity' });
-    return { fossil, grade: c.grade, fusions: c.fusions, isNew: c.isNew, source, luck: applied, dust, setCompleted: c.setCompleted, unlocked, powerGain: this.digPower - powerBefore, pity, block: this.s.block.kind };
+    const find: Find = { fossil, grade: c.grade, fusions: c.fusions, isNew: c.isNew, source, luck: applied, dust, setCompleted: c.setCompleted, unlocked, powerGain: this.digPower - powerBefore, pity, block: this.s.block.kind };
+    if (rush) {
+      const r = this.s.rush;
+      r.rolls += 1;
+      r.found[fossil.id] = (r.found[fossil.id] ?? 0) + 1;
+      if (c.isNew) r.fresh.push(fossil.id);
+      find.rush = true;
+    }
+    return find;
+  }
+
+  // ---------------------------------------------------------------- Dig Rush
+
+  /**
+   * Start a rush on the current layer: RUSH.seconds of blocks at RUSH.hp of the normal health.
+   * The block being dug is set aside and comes back afterwards. False when it is not ready.
+   */
+  startRush(): boolean {
+    if (!this.rushReady) return false;
+    const r = this.s.rush;
+    r.held = { block: { ...this.s.block }, damage: this.s.damage };
+    r.left = RUSH.seconds;
+    r.blocks = 0;
+    r.dust = 0;
+    r.rolls = 0;
+    r.found = {};
+    r.fresh = [];
+    r.readyAt = r.seen + RUSH.cooldown * 1000;
+    this.rushDone = null;
+    this.s.damage = 0;
+    this.newBlock();
+    this.saveRng();
+    return true;
+  }
+
+  /** End the rush now (the dig screen is being left). Returns its result, or null if none ran. */
+  stopRush(): RushResult | null {
+    return this.s.rush.left > 0 ? this.finishRush() : null;
+  }
+
+  /** The result of a rush that ended since the last call (time ran out, or the app was left). */
+  takeRushResult(): RushResult | null {
+    const r = this.rushDone;
+    this.rushDone = null;
+    return r;
+  }
+
+  private finishRush(): RushResult {
+    const r = this.s.rush;
+    const finds = Object.entries(r.found)
+      .map(([id, n]) => ({ fossil: FOSSIL_BY_ID.get(id)!, n, isNew: r.fresh.includes(id) }))
+      .sort((a, b) => b.fossil.odds - a.fossil.odds || (a.fossil.id < b.fossil.id ? -1 : 1));
+    const result: RushResult = { layer: this.s.layer, blocks: r.blocks, dust: r.dust, rolls: r.rolls, finds, best: r.best, record: r.blocks > r.best };
+    r.best = Math.max(r.best, r.blocks);
+    r.count += 1;
+    r.left = 0;
+    // the block that was being dug before the rush comes back as it was
+    this.s.block = r.held ? r.held.block : { kind: 'normal', timer: -1 };
+    this.s.damage = r.held ? r.held.damage : 0;
+    r.held = null;
+    r.blocks = 0;
+    r.dust = 0;
+    r.rolls = 0;
+    r.found = {};
+    r.fresh = [];
+    this.saveRng();
+    return result;
+  }
+
+  /** A new weak spot: one of nine cells of the block face, never the cell of the one before. */
+  private spawnWeak(): void {
+    const w = this.s.weak;
+    const cell = w.cell < 0 ? this.weakRng.int(0, 8) : (w.cell + 1 + this.weakRng.int(0, 7)) % 9;
+    w.cell = cell;
+    w.spot = { x: 0.25 + (cell % 3) * 0.25 + this.weakRng.range(-0.03, 0.03), y: 0.25 + Math.floor(cell / 3) * 0.25 + this.weakRng.range(-0.03, 0.03), life: WEAK.life };
+    // the wait after this spot is drawn now, so the stream advances the same however the spot ends
+    w.gap = this.nextWeakGap();
+  }
+
+  private nextWeakGap(): number {
+    return this.weakRng.range(WEAK.minGap, WEAK.maxGap);
   }
 
   /** Keep the five rarest species ever found, each with the date of its first find. */
@@ -1205,6 +1535,7 @@ export class DigSim {
    */
   expedition(): boolean {
     if (!this.canExpedition) return false;
+    if (this.s.rush.left > 0) this.finishRush();
     const t = this.s.stats.playSeconds - this.s.expedition.runStart;
     this.s.expedition.best = this.s.expedition.best > 0 ? Math.min(this.s.expedition.best, t) : t;
     this.s.expedition.count += 1;
@@ -1269,6 +1600,8 @@ export class DigSim {
 
   private saveRng(): void {
     this.s.rng = this.rng.getState();
+    this.s.weak.rng = this.weakRng.getState();
+    this.s.rush.rng = this.rushRng.getState();
   }
 }
 

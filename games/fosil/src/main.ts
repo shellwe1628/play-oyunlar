@@ -2,6 +2,7 @@ import { createGame } from '@oyun/core';
 import meta from '../oyun.config.json';
 import { DigScene } from './scenes/DigScene';
 import { SCENES } from './scenes/keys';
+import { MapScene } from './scenes/MapScene';
 import { MenuScene } from './scenes/MenuScene';
 import { MuseumScene } from './scenes/MuseumScene';
 import { RanksScene } from './scenes/RanksScene';
@@ -14,7 +15,7 @@ void createGame({
   orientation: meta.orientation === 'landscape' ? 'landscape' : 'portrait',
   strings: STRINGS,
   textures: TEXTURES,
-  scenes: [MenuScene, DigScene, MuseumScene, RanksScene],
+  scenes: [MenuScene, DigScene, MuseumScene, RanksScene, MapScene],
   start: SCENES.menu,
   menu: SCENES.menu,
   theme: {

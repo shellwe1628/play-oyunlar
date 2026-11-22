@@ -11,7 +11,7 @@ import { backgroundAware, session } from '../session';
 import { at, FOSSIL_BY_ID, FOSSILS, LAYERS, RANKS, TIERS, type Fossil } from '../sim/data';
 import { fossilKey, PALETTE } from '../textures';
 import { SCENES } from './keys';
-import { big, fitText, fossilName, oddsText, outlined } from './ui';
+import { big, fitText, fossilName, hitZone, oddsText, outlined } from './ui';
 
 /** Linear mix of two 0xRRGGBB colours. */
 function mix(a: number, b: number, t: number): number {
@@ -57,6 +57,7 @@ export class MenuScene extends MenuShell {
   private museumX = 0;
   private ranksX = 0;
   private motes: Motes[] = [];
+  private mapAt = { x: 0, y: 0 };
 
   constructor() {
     super(SCENES.menu);
@@ -116,6 +117,25 @@ export class MenuScene extends MenuShell {
     this.fillRanks(this.ranksButton, cardW, sim.rank, sim.score.total);
 
     muteButton(this, L.right - 76, L.top + 76).setDepth(50);
+    this.drawMapButton(L.left + 68, L.top + 62);
+  }
+
+  /** The depth map, top left: the whole dig in cross-section. */
+  private drawMapButton(x: number, y: number): void {
+    const c = this.add.container(x, y).setDepth(50);
+    const g = this.add.graphics();
+    g.fillStyle(PALETTE.shadow, 0.5).fillCircle(0, 5, 42);
+    g.fillStyle(PALETTE.dirt, 1).fillCircle(0, 0, 42);
+    g.lineStyle(4, PALETTE.ochre, 1).strokeCircle(0, 0, 40);
+    const caption = outlined(this, 0, 58, this.t('map.menu'), 24, PALETTE.sand, 6);
+    fitText(caption, 110);
+    c.add([g, this.add.image(0, -1, 'ico-map').setScale(0.9), caption]);
+    this.mapAt = { x, y };
+    hitZone(this, x, y + 10, 100, 120, () => this.openMap()).setDepth(51);
+  }
+
+  private openMap(): void {
+    this.goTo(SCENES.map, { from: 'menu' });
   }
 
   // ---------------------------------------------------------------- backdrop
@@ -597,6 +617,7 @@ export class MenuScene extends MenuShell {
       ...super.testActions(),
       museum: () => this.museumButton.fire(),
       ranks: () => this.ranksButton.fire(),
+      map: () => this.openMap(),
     };
   }
 
@@ -608,7 +629,7 @@ export class MenuScene extends MenuShell {
       score: sim.score.total,
       rank: sim.rank,
       // where the buttons sit once the entrance settles (logical px), for real-touch tests
-      ui: { play: pos(this.playButton), museum: { x: this.museumX, y: Math.round(this.museumButton?.y ?? 0) }, ranks: { x: this.ranksX, y: Math.round(this.ranksButton?.y ?? 0) } },
+      ui: { play: pos(this.playButton), museum: { x: this.museumX, y: Math.round(this.museumButton?.y ?? 0) }, ranks: { x: this.ranksX, y: Math.round(this.ranksButton?.y ?? 0) }, map: { ...this.mapAt } },
     };
   }
 }

@@ -593,6 +593,24 @@ export const METEOR = { chance: 0.4, core: 3, radius: 0.17 } as const;
 export const ECHO = { chance: 0.35 } as const;
 
 /**
+ * Weak spots (every layer, from the first block): now and then a target appears on the block
+ * face for `life` seconds. A tap within `radius` of it (block-relative 0..1 units) is a precise
+ * hit: ×`mult` damage for that tap, +`step` for every precise hit in a row before it (the "sharp
+ * eye" count, which ends when a spot is left to expire), up to ×`maxMult`. Damage only: luck and
+ * odds never change. `first` is the wait before the first spot of a brand-new dig.
+ */
+export const WEAK = { first: 4, minGap: 6, maxGap: 9, life: 2.2, radius: 0.17, mult: 4, step: 0.5, maxMult: 6 } as const;
+
+/**
+ * Dig Rush: `seconds` on the current layer where every block has `hp` of the layer's normal
+ * health and pays `dust` of its normal dust; each break rolls the layer's normal table at your
+ * tap luck. Only plain and golden blocks; the assistant rests; rush blocks do not harden the
+ * stratum. Offered once Topsoil has `species` species; then one every `cooldown` seconds of
+ * wall-clock time (the clock never counts backwards, see clock.ts).
+ */
+export const RUSH = { seconds: 45, hp: 0.2, dust: 1, cooldown: 3 * 60 * 60, species: 4 } as const;
+
+/**
  * Expedition (prestige): open the deepest layer, then restart from Topsoil keeping the museum,
  * set bonuses, relics and records; every expedition adds a permanent dig power and dust bonus.
  * The deepest layer is the Time Rift since the depth round (it was the First Seas, index 9).

@@ -29,7 +29,8 @@ export type TrailStyleId =
   | 'fork'
   | 'bars'
   | 'prism'
-  | 'nova';
+  | 'nova'
+  | 'vortex';
 
 /** How an earned trail is unlocked (never sold). */
 export type TrailUnlock = { rank: number } | { achievement: string };
@@ -94,6 +95,7 @@ export const TRAILS: readonly TrailSkin[] = [
   { id: 'devotion', tier: 'earned', price: 0, style: 'aurora', head: 0xfff0b8, tail: 0xff8a3d, unlock: { achievement: 'daily7' } },
   { id: 'flawless', tier: 'earned', price: 0, style: 'glitter', head: 0xffffff, tail: 0xb8f0ff, unlock: { achievement: 'clean5' } },
   { id: 'voidwalker', tier: 'earned', price: 0, style: 'galaxy', head: 0xd0b8ff, tail: 0x24124f, unlock: { achievement: 'world4' } },
+  { id: 'maelstrom', tier: 'earned', price: 0, style: 'vortex', head: 0xc8fbff, tail: 0xff5fa8, unlock: { achievement: 'world5' } },
 ];
 
 /** Trails a style animates its spark colour with (top tier). */

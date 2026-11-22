@@ -7,9 +7,9 @@
  */
 import Phaser from 'phaser';
 import type { Palette } from '../textures';
-import { MOTIFS, type Motif } from './worldArt';
+import { motifOf, type Motif } from './worldArt';
 
-type Motion = 'rise' | 'fall' | 'drift' | 'radiate' | 'twinkle' | 'travel';
+type Motion = 'rise' | 'fall' | 'drift' | 'radiate' | 'twinkle' | 'travel' | 'swirl';
 
 interface Spec {
   near: number;
@@ -40,6 +40,9 @@ const SPECS: Record<Motif, Spec> = {
   grid: { near: 0.24, far: 0.12, scrollNear: 0.6, scrollFar: 0.3, driftX: 0, sprite: 'w-beam', count: 8, motion: 'fall', speed: 420, scale: [0.8, 1.6], alpha: 0.45, spin: 0 },
   bokeh: { near: 0.3, far: 0.18, scrollNear: 0.2, scrollFar: 0.1, driftX: 8, sprite: 'glow', count: 14, motion: 'drift', speed: 22, scale: [0.6, 2.2], alpha: 0.32, spin: 0 },
   embers: { near: 0.22, far: 0.12, scrollNear: 0.5, scrollFar: 0.22, driftX: 0, sprite: 'w-ember', count: 22, motion: 'rise', speed: 160, scale: [0.4, 1.2], alpha: 0.85, spin: 0 },
+  // World 5: sprites circle a point behind the shaft and are drawn into it.
+  vortex: { near: 0.24, far: 0.12, scrollNear: 0.4, scrollFar: 0.18, driftX: 12, sprite: 'w-ember', count: 20, motion: 'swirl', speed: 0.55, scale: [0.5, 1.5], alpha: 0.8, spin: 0 },
+  whirl: { near: 0.22, far: 0.13, scrollNear: 0.3, scrollFar: 0.14, driftX: -10, sprite: 'w-star4', count: 18, motion: 'swirl', speed: -0.4, scale: [0.3, 0.9], alpha: 0.9, spin: 0.9 },
 };
 
 const POOL = 22;
@@ -82,9 +85,9 @@ export class World {
     }
   }
 
-  /** Switch to theme `theme` (0..9) with palette `pal`. */
+  /** Switch to theme `theme` (0..19) with palette `pal`. */
   setTheme(theme: number, pal: Palette): void {
-    const m = MOTIFS[((theme % MOTIFS.length) + MOTIFS.length) % MOTIFS.length]!;
+    const m = motifOf(theme);
     this.motif = m;
     this.spec = SPECS[m];
     const tint = mix(pal.top2, 0xffffff, 0.45);
@@ -132,6 +135,11 @@ export class World {
         // Pulses running down circuit columns (32 px grid at 2.8× scale of the pattern).
         this.sx[i] = Math.floor(r() * (w / 32)) * 32 + 16;
         this.sy[i] = anywhere ? r() * h : -40 - r() * 400;
+        break;
+      case 'swirl':
+        // sx = angle about the eye, sy = distance from it as a share of the outer radius.
+        this.sx[i] = r() * Math.PI * 2;
+        this.sy[i] = anywhere ? 0.08 + r() * 0.92 : 1;
         break;
       case 'radiate':
         this.sx[i] = 0;
@@ -201,6 +209,17 @@ export class World {
           a *= Math.min(1, p * 3);
           break;
         }
+        case 'swirl': {
+          // Round the eye and inward: the nearer the eye, the faster the turn.
+          const d = (this.sy[i] = this.sy[i]! - dt * 0.07 * speedK * (0.5 + Math.abs(this.sv[i]!) / Math.abs(sp.speed)));
+          if (d < 0.05) this.respawn(i, false);
+          const ang = (this.sx[i] = this.sx[i]! + dt * this.sv[i]! * speedK * (0.6 + 0.9 / Math.max(0.15, d)));
+          const reach = Math.max(w, h) * 0.62;
+          s.setPosition(w / 2 + Math.cos(ang) * d * reach, h * 0.42 + Math.sin(ang) * d * reach * 0.86);
+          sc *= 0.35 + 0.65 * d;
+          a *= Math.min(1, d * 6) * Math.min(1, (1.05 - d) * 8);
+          break;
+        }
         case 'twinkle':
           a *= Math.max(0, Math.sin(this.time * 1.7 + this.sph[i]! * 3)) * (0.7 + 0.6 * pulse);
           this.sy[i] = this.sy[i]! + dy * 0.35;
@@ -218,7 +237,7 @@ export class World {
           if (this.sy[i]! < -140) this.sy[i] = h + 100;
           break;
       }
-      if (sp.motion !== 'radiate') s.setPosition(this.sx[i], this.sy[i]);
+      if (sp.motion !== 'radiate' && sp.motion !== 'swirl') s.setPosition(this.sx[i], this.sy[i]);
       s.setScale(sp.sprite === 'streak' || sp.sprite === 'w-beam' ? sc * 0.8 : sc * (1 + 0.25 * pulse), sp.sprite === 'streak' ? sc * 1.6 : sp.sprite === 'w-beam' ? sc * 2.4 : sc * (1 + 0.25 * pulse));
       s.setAlpha(Math.min(1, Math.max(0, a) * energy * 1.25));
       if (sp.spin) s.setRotation(this.time * sp.spin + this.sph[i]!);

@@ -6,7 +6,7 @@
  */
 import Phaser from 'phaser';
 
-const BODY = [0xff7a1a, 0x3ff6ff, 0x9dff3a, 0xc35bff] as const;
+const BODY = [0xff7a1a, 0x3ff6ff, 0x9dff3a, 0xc35bff, 0xff5fa8] as const;
 
 export class Boss {
   private readonly g: Phaser.GameObjects.Graphics;
@@ -19,6 +19,12 @@ export class Boss {
   private dead = 0;
   hp = 1;
   active = false;
+  /**
+   * Offset from its place (view twists): the eye stays ahead of the spark, down the screen in a
+   * dive and to the right in the sideways view, never behind the spark itself.
+   */
+  ox = 0;
+  oy = 0;
 
   constructor(
     scene: Phaser.Scene,
@@ -72,8 +78,8 @@ export class Boss {
     const col = BODY[(this.world - 1) % BODY.length]!;
     const fade = this.dead > 0 ? Math.max(0, 1 - (this.dead - 1) / 1.2) : 1;
     const s = (1 + 0.05 * pulse + 0.12 * this.hit) * (this.dead > 0 ? 1 + (this.dead - 1) * 0.6 : 1);
-    const x = this.cx + Math.sin(now / 1300) * 30;
-    const y = this.cy + Math.sin(now / 900) * 14;
+    const x = this.cx + this.ox + Math.sin(now / 1300) * 30;
+    const y = this.cy + this.oy + Math.sin(now / 900) * 14;
     this.glow.setPosition(x, y).setTint(this.hit > 0.2 ? 0xffffff : col).setAlpha((0.35 + 0.25 * pulse + 0.4 * this.hit) * fade);
     if (fade <= 0) return;
     const a = 0.62 * fade;
@@ -91,6 +97,24 @@ export class Boss {
       g.lineTo(x + Math.cos(ang + 0.5) * r0, y + Math.sin(ang + 0.5) * r0);
       g.closePath();
       g.fillPath();
+    }
+    if (this.world === 5) {
+      // The Vortex: three spiral arms turning about the eye (they thin out as it is hit).
+      const arms = 3;
+      for (let k = 0; k < arms; k++) {
+        const a0 = -now / 1500 + (k * Math.PI * 2) / arms;
+        let px = x + Math.cos(a0) * 140 * s;
+        let py = y + Math.sin(a0) * 140 * s;
+        for (let j = 1; j <= 9; j++) {
+          const aj = a0 + j * 0.2;
+          const rj = (140 + j * 15) * s;
+          const qx = x + Math.cos(aj) * rj;
+          const qy = y + Math.sin(aj) * rj;
+          g.lineStyle(Math.max(2, (12 - j) * (0.4 + 0.6 * this.hp)), j % 2 ? col : 0xffffff, a * (1 - j / 11)).lineBetween(px, py, qx, qy);
+          px = qx;
+          py = qy;
+        }
+      }
     }
     // The eye.
     g.fillStyle(0x14062b, a).fillCircle(x, y, 132 * s);

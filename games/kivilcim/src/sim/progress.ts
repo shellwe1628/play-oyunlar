@@ -33,7 +33,7 @@ export interface DailyDay {
 }
 
 export interface SaveData {
-  /** Highest level reached by finishing the one before it (1..40). Worlds also need stars. */
+  /** Highest level reached by finishing the one before it (1..50). Worlds also need stars. */
   unlocked: number;
   levels: LevelRecord[];
   /** Gem wallet. */
@@ -42,6 +42,9 @@ export interface SaveData {
   /** Best endless height (m) and the date it was flown. */
   endlessBest: number;
   endlessDate: string;
+  /** Best Dive height (m) and the date it was flown (Dive mode has its own record). */
+  diveBest: number;
+  diveDate: string;
   daily: {
     date: string;
     best: number;
@@ -81,6 +84,8 @@ export function defaults(): SaveData {
     skin: { shape: 0, trail: 0, ownedShapes: 1, ownedTrails: 1 },
     endlessBest: 0,
     endlessDate: '',
+    diveBest: 0,
+    diveDate: '',
     daily: { date: '', best: 0, streak: 0, lastDate: '', gems: [], bestStreak: 0, days: 0, paid: '', history: [] },
     finishes: 0,
     played: false,
@@ -100,6 +105,10 @@ const SHAPE_MASK = 2 ** SHAPES.length - 1;
 /**
  * Validate a loaded save, repairing nested fields an older save may lack (core fills only
  * top-level defaults). Returns false for data that cannot be trusted.
+ *
+ * This is also how a save grows: `levels` is rebuilt at LEVEL_COUNT entries around the records
+ * the save has (a 40-level save from before world 5 keeps all forty and gains ten blank ones),
+ * new fields get their defaults, and nothing a player has is dropped.
  */
 export function normalize(d: unknown): d is SaveData {
   if (typeof d !== 'object' || d === null) return false;
@@ -116,6 +125,10 @@ export function normalize(d: unknown): d is SaveData {
     const stars = done ? int(r.stars, 0, 7, 0) | STAR_FINISH : 0;
     return { best: int(r.best, 0, 100, 0), attempts: int(r.attempts, 0, 1e9, 0), gemMask: int(r.gemMask, 0, 7, 0), done, stars, bestDate: isDate(r.bestDate) ? r.bestDate : '' };
   });
+  // A save whose furthest level is already finished has reached the next one. It could not
+  // say so while that level did not exist: a 40-level save with the last boss beaten sits at
+  // 40, and must not have to beat it again to see level 41.
+  while (s.unlocked < LEVEL_COUNT && s.levels[s.unlocked - 1]!.done) s.unlocked += 1;
   const sk = { ...def.skin, ...(s.skin ?? {}) };
   s.skin = {
     shape: int(sk.shape, 0, SHAPES.length - 1, 0),
@@ -143,6 +156,9 @@ export function normalize(d: unknown): d is SaveData {
   };
   s.endlessBest = int(s.endlessBest, 0, 1e9, 0);
   s.endlessDate = isDate(s.endlessDate) ? s.endlessDate : '';
+  // Added with world 5 (saves from before it have neither field).
+  s.diveBest = int(s.diveBest, 0, 1e9, 0);
+  s.diveDate = isDate(s.diveDate) ? s.diveDate : '';
   s.finishes = int(s.finishes, 0, 1e9, 0);
   s.played = s.played === true;
   s.tutorial = s.tutorial === true;
@@ -255,6 +271,20 @@ export function recordEndless(d: SaveData, height: number, gems: number, date = 
   if (newBest) {
     d.endlessBest = Math.floor(height);
     d.endlessDate = date || d.endlessDate;
+  }
+  return { newBest, prevBest, milestoneGems };
+}
+
+/** Dive mode: the endless rules (gems, a gem per 250 m), its own best height. */
+export function recordDive(d: SaveData, height: number, gems: number, date = ''): { newBest: boolean; prevBest: number; milestoneGems: number } {
+  const prevBest = d.diveBest;
+  const milestoneGems = ENDLESS_MILESTONE_GEMS * Math.floor(height / 250);
+  d.gems += gems + milestoneGems;
+  d.stats.attempts += 1;
+  const newBest = height > d.diveBest;
+  if (newBest) {
+    d.diveBest = Math.floor(height);
+    d.diveDate = date || d.diveDate;
   }
   return { newBest, prevBest, milestoneGems };
 }

@@ -6,8 +6,17 @@
 import type Phaser from 'phaser';
 
 /** Motif of each level theme (palette index → world). */
-export const MOTIFS = ['rays', 'circuit', 'aurora', 'rain', 'hex', 'tunnel', 'waves', 'grid', 'bokeh', 'embers'] as const;
+export const MOTIFS = ['rays', 'circuit', 'aurora', 'rain', 'hex', 'tunnel', 'waves', 'grid', 'bokeh', 'embers', 'vortex', 'whirl'] as const;
 export type Motif = (typeof MOTIFS)[number];
+
+/**
+ * The motif a theme wears. Themes 0-9 (worlds 1-4, endless) are the ten original worlds; themes
+ * 10-19 are world 5, Vortex, which has its own two: spiral currents and broken rings.
+ */
+export function motifOf(theme: number): Motif {
+  if (theme >= 10) return theme % 2 === 0 ? 'vortex' : 'whirl';
+  return MOTIFS[((theme % 10) + 10) % 10]!;
+}
 
 /** Deterministic cosmetic noise for baking (the same art every time). */
 function lcg(seed: number): () => number {
@@ -158,6 +167,47 @@ function pattern(c: CanvasRenderingContext2D, m: Motif): void {
         c.globalAlpha = 1;
         c.fillStyle = g;
         c.fillRect(x - rad, y - rad, rad * 2, rad * 2);
+      }
+      break;
+    case 'vortex':
+      // Spiral currents: little whirlpools, each a spiral of a turn and a half.
+      c.lineWidth = 3;
+      for (let i = 0; i < 7; i++) {
+        const x = 34 + r() * (P - 68);
+        const y = 34 + r() * (P - 68);
+        const turn = r() < 0.5 ? 1 : -1;
+        const a0 = r() * Math.PI * 2;
+        const rad = 16 + r() * 14;
+        c.globalAlpha = 0.35 + r() * 0.55;
+        c.beginPath();
+        for (let k = 0; k <= 30; k++) {
+          const f = k / 30;
+          const a = a0 + turn * f * Math.PI * 3;
+          const px = x + Math.cos(a) * rad * (0.12 + 0.88 * f);
+          const py = y + Math.sin(a) * rad * (0.12 + 0.88 * f);
+          if (k === 0) c.moveTo(px, py);
+          else c.lineTo(px, py);
+        }
+        c.stroke();
+      }
+      break;
+    case 'whirl':
+      // Broken rings about the tile's centre, with beads in the gaps.
+      c.lineWidth = 3;
+      for (let k = 0; k < 4; k++) {
+        const rad = 26 + k * 28;
+        const arcs = 2 + k;
+        const a0 = r() * Math.PI * 2;
+        for (let j = 0; j < arcs; j++) {
+          const a = a0 + (j * Math.PI * 2) / arcs;
+          c.globalAlpha = 0.35 + r() * 0.5;
+          c.beginPath();
+          c.arc(P / 2, P / 2, rad, a, a + (Math.PI * 2) / arcs - 0.55);
+          c.stroke();
+          c.beginPath();
+          c.arc(P / 2 + Math.cos(a - 0.27) * rad, P / 2 + Math.sin(a - 0.27) * rad, 3, 0, Math.PI * 2);
+          c.fill();
+        }
       }
       break;
     case 'embers':

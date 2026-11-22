@@ -5,9 +5,14 @@
  *   finish → slow-motion burst → press → next level
  * The sim (src/sim) runs at a fixed 120 Hz; this scene feeds it the hold state, draws the
  * interpolated result and fires the juice. Test actions: hold, autopilot, start, tap, pause,
- * home, continue, double, levels, skins, endless, daily.
+ * home, continue, double, levels, skins, endless, daily, dive.
+ *
+ * View twists (src/sim/twist.ts): the world layer sits in a `view` container that carries the
+ * pose of the moment (flip, fold, lean, zoom); everything drawn at the spark goes through
+ * toScreen(). The HUD and the cards never move. Presentation only: the sim is not told.
  */
 import { button, followsRealTime, iconButton, MAX_FRAME_MS, muteButton, OyunScene, realTimeDelta, toast, type Button, type IconButton } from '@oyun/core';
+import type { Rng } from '@oyun/core/pure';
 import Phaser from 'phaser';
 import { Music } from '../audio/Music';
 import { HoldInput } from '../input/HoldInput';
@@ -21,27 +26,29 @@ import { ShaftView } from '../render/Shaft';
 import { ensureBadges } from '../render/badges';
 import { Boss } from '../render/Boss';
 import { MechView } from '../render/MechView';
+import { TWIST_COLORS, TWIST_OUT_COLOR, TwistView } from '../render/TwistView';
 import { awardChips, countUp, isCalm, wipeIn, wipeTo } from '../render/menuFx';
 import { hue, Trail, TRAIL_LEN } from '../render/Trail';
 import { gameOnline } from '../online';
 import { gameSave } from '../save';
 import { BEAT_PX, DT, MINI_R, SHAFT_W, SPARK_R, START_X } from '../sim/constants';
 import { EdgeQueue } from '../sim/input';
-import { buildEndless, dailyKey, dailySeed } from '../sim/endless';
+import { buildEndless, dailyKey, dailySeed, DIVE_STREAM } from '../sim/endless';
 import { buildLevel, isBoss, LEVEL_COUNT, levelInfo, worldOf } from '../sim/levels';
 import { ACHIEVEMENTS, FLOW_MAX, progressScore, RANKS, rankOf, settle, totalStars, type MetaGain } from '../sim/meta';
-import { MECHANICS, type Mechanic } from '../sim/patterns';
-import { endlessUnlocked, levelOpen, levelToPlay, recordDaily, recordEndless, recordLevelRun, recordStats, shouldShowInterstitial } from '../sim/progress';
+import { MECHANICS, TWIST_LEAD, type Mechanic } from '../sim/patterns';
+import { endlessUnlocked, levelOpen, levelToPlay, recordDaily, recordDive, recordEndless, recordLevelRun, recordStats, shouldShowInterstitial } from '../sim/progress';
 import { RunSim } from '../sim/run';
 import { COLOR_SHIFT_STYLES, TIERS, TRAILS } from '../sim/skins';
 import { K_REF, prepare, solve } from '../sim/solver';
-import { sdf, segmentAt, wallXAt, type GateKind, type Track } from '../sim/track';
+import { sdf, segmentAt, TWIST_KINDS, wallXAt, type GateKind, type Track, type TwistKind } from '../sim/track';
+import { holdVector, lookahead, mirrored, NORMAL_POSE, poseAt, poseMatrix, project, SPARK_Y, viewRange, type Mat, type Pose, type Pt } from '../sim/twist';
 import { ENDLESS_THEMES, GATE_COLORS, PALETTE, PALETTES, type Palette } from '../textures';
 import { bigText, fitText, IconTile, MenuCard, NeonButton, type MenuHit } from '../ui';
 import { SCENES, UNLOCKED_KEY } from './keys';
 import { TRIAL_KEY } from './SkinsScene';
 
-export type Mode = 'level' | 'endless' | 'daily';
+export type Mode = 'level' | 'endless' | 'daily' | 'dive';
 type Phase = 'title' | 'ready' | 'playing' | 'resume' | 'dead' | 'finishing' | 'finished';
 
 export interface GameStart {
@@ -51,8 +58,23 @@ export interface GameStart {
   phase?: 'title' | 'ready';
 }
 
-/** Screen y of the spark (it climbs; the shaft scrolls down past it). */
-const SPARK_Y = 930;
+/** Dive mode wears world 5's palettes, stepping through them with depth. */
+const DIVE_THEMES = [10, 13, 16, 11, 14, 17, 12, 15, 18, 19] as const;
+/** Registry key: Dive mode's seed stream (kept for the session, across scene restarts). */
+const DIVE_RNG_KEY = 'kvDiveRng';
+const RAD = Math.PI / 180;
+
+/** A flip passes through zero; a container's scale must not (its matrix has to stay invertible). */
+const offZero = (k: number): number => (Math.abs(k) < 0.02 ? (k < 0 ? -0.02 : 0.02) : k);
+
+/** A twist banner due when the spark reaches y: twists easing in, or out (back to normal). */
+interface TwistEvent {
+  y: number;
+  kinds: TwistKind[];
+  out: boolean;
+  /** End of the ease the banner announces (the hold arrow stays a little past it). */
+  end: number;
+}
 /** Title: height of the neon sign (logo) under the safe top edge. */
 const SIGN_Y = 272;
 const DT_MS = DT * 1000;
@@ -176,6 +198,25 @@ export class GameScene extends OyunScene {
   private mechCueIdx = 0;
   private bossSections = 1;
   private rankUp: Phaser.GameObjects.Container | null = null;
+  /** View twists on (off under ?fx=0 and ?twist=0: every stretch is shown in the normal view). */
+  private twistOn = true;
+  private readonly pose: Pose = { ...NORMAL_POSE };
+  private readonly mat: Mat = { a: 1, b: 0, c: 0, d: 1 };
+  private readonly pt: Pt = { x: 0, y: 0 };
+  private readonly range = { below: 380, above: 1000 };
+  /** Screen position of the spark this frame, and the view's heading (degrees) and handedness. */
+  private sx = START_X;
+  private sy = SPARK_Y;
+  private heading = 0;
+  private hand = 1;
+  /** Reduced motion: a number that changes when the pose switches (0 = none yet). */
+  private poseKey = 0;
+  private twistEvents: TwistEvent[] = [];
+  private twistEventIdx = 0;
+  /** The hold arrow shows until the spark passes this height; its direction on screen. */
+  private arrowUntil = -1;
+  private arrowX = 1;
+  private arrowY = -1;
 
   // timing (performance.now)
   private deathAt = 0;
@@ -219,7 +260,14 @@ export class GameScene extends OyunScene {
   private bestDelta = 0;
 
   // view
+  private view!: Phaser.GameObjects.Container;
   private world!: Phaser.GameObjects.Container;
+  private twistView!: TwistView;
+  private holdArrow!: Phaser.GameObjects.Graphics;
+  private holdText!: Phaser.GameObjects.Text;
+  private readyBody!: Phaser.GameObjects.Container;
+  private deadBody!: Phaser.GameObjects.Container;
+  private diveTile!: MenuCard;
   private worldFx!: World;
   private edgeFx!: EdgeFx;
   private demoTrail!: Trail;
@@ -357,6 +405,12 @@ export class GameScene extends OyunScene {
     this.frameA = 0;
     this.rankUp = null;
     this.fx = new URLSearchParams(location.search).get('fx') !== '0';
+    this.twistOn = this.fx && new URLSearchParams(location.search).get('twist') !== '0';
+    Object.assign(this.pose, NORMAL_POSE);
+    this.poseKey = 0;
+    this.twistEvents = [];
+    this.twistEventIdx = 0;
+    this.arrowUntil = -1;
     this.simHash = 2166136261;
     this.speedK = 1;
     this.milestones = [];
@@ -386,12 +440,20 @@ export class GameScene extends OyunScene {
     this.backdrop = new Backdrop(this, this.pal, width, height);
     this.worldFx = new World(this, width, height);
     this.worldFx.setVisible(this.fx);
-    this.world = this.add.container(0, SPARK_Y).setDepth(0);
+    // The view carries the pose (where the pivot sits on screen, lean, zoom, flip); the world
+    // inside it scrolls. In the normal view the two add up to the one container the game
+    // always had, at (0, SPARK_Y + height).
+    this.view = this.add.container(START_X, SPARK_Y).setDepth(0);
+    this.world = this.add.container(-START_X, 0);
+    this.view.add(this.world);
     this.shaft = new ShaftView(this, this.world);
     this.shaft.fx = this.fx;
     this.edgeFx = new EdgeFx(this, this.world);
     this.mech = new MechView(this, this.world);
     this.mech.fx = this.fx;
+    this.twistView = new TwistView(this, this.world);
+    this.twistView.on = this.twistOn;
+    this.shaft.screenY = (wx, wy) => this.toScreen(wx, wy).y;
     for (let i = 0; i < 2; i++) {
       const band = this.add.tileSprite(0, 0, 400, 24, 'gate-band-plain').setVisible(false).setAlpha(0.6);
       const text = bigText(this, 0, 0, '', 40, PALETTE.gold).setVisible(false);
@@ -578,13 +640,19 @@ export class GameScene extends OyunScene {
     // While controls are swapped, a tag rides under the spark.
     this.flipTag = bigText(this, cx, SPARK_Y + 58, this.t('hud.flipped'), 26, GATE_COLORS.flip).setVisible(false);
     this.cue = bigText(this, cx, SPARK_Y - 190, '', 84, PALETTE.gold).setAlpha(0);
+    // Twists: an arrow from the spark shows which way "hold" goes under the new view.
+    this.holdArrow = this.add.graphics().setVisible(false);
+    this.holdArrow.fillStyle(PALETTE.ink, 0.85).fillTriangle(50, 0, 12, -27, 12, 27).fillRect(-32, -13, 46, 26);
+    this.holdArrow.fillStyle(PALETTE.gold, 1).fillTriangle(42, 0, 16, -18, 16, 18).fillRect(-28, -8, 46, 16);
+    this.holdArrow.fillStyle(0xffffff, 0.8).fillRect(-28, -8, 40, 5);
+    this.holdText = bigText(this, 0, 0, this.t('twist.hold'), 30, PALETTE.gold).setVisible(false);
     // Flow meter: five pips under the level chip.
     this.flowPips = this.add.graphics();
     this.flowText = bigText(this, L.left + 88, top + 150, '', 22, PALETTE.gold);
     // Boss health (boss levels only), in place of the attempt line.
     const bossLabel = bigText(this, cx, top + 200, '', 24, 0xff8aa0);
     this.boss = new Boss(this, L.cx, L.top + 470, bossLabel);
-    this.hud.add([pill, this.chip, this.barBg, this.barFill, this.barHead, this.barBest, this.slotPing, this.pctText, this.attemptText, ...this.gemSlots, this.edgeText, this.gateText, this.gateSub, this.flipTag, this.cue, this.flowPips, this.flowText, this.boss.bar, bossLabel]);
+    this.hud.add([pill, this.chip, this.barBg, this.barFill, this.barHead, this.barBest, this.slotPing, this.pctText, this.attemptText, ...this.gemSlots, this.edgeText, this.gateText, this.gateSub, this.flipTag, this.cue, this.holdArrow, this.holdText, this.flowPips, this.flowText, this.boss.bar, bossLabel]);
     this.pauseBtn = iconButton(this, L.right - 70, top + 70, 'pause', () => this.openPauseMenu());
     this.pauseBtn.setDepth(101);
   }
@@ -594,7 +662,8 @@ export class GameScene extends OyunScene {
    *   a neon sign bolted across the shaft (logo, tagline) · your rank chip, top left
    *   the level plate and a big PLAY capsule with a fuse spark running round it
    *   the ignition ring around the waiting spark (a press anywhere outside the menu starts the run)
-   *   a glass control deck at the bottom: Levels, Shop, Endless, Daily, each with a live status.
+   *   a glass control deck at the bottom: Levels, Shop, and Endless, Dive, Daily, each with a
+ *   live status.
    */
   private buildTitle(): void {
     const L = this.layout;
@@ -735,12 +804,15 @@ export class GameScene extends OyunScene {
     const go = (fn: () => void) => () => this.menuGo(fn);
     const levels = new MenuCard(this, xl, rowA, cw, ch, 'ic-levels', this.t('title.levels'), 0x5aa8ff, 0x2a6bff, go(() => this.leave(SCENES.levels)));
     const skins = new MenuCard(this, xr, rowA, cw, ch, 'ic-skins', this.t('title.skins'), 0x3dffb0, 0x16b886, go(() => this.leave(SCENES.skins)));
-    this.endlessTile = new MenuCard(this, xl, rowB, cw, ch, 'ic-endless', this.t('title.endless'), 0xff6fb5, 0xff3d8b, go(() => this.openEndless()));
-    const daily = new MenuCard(this, xr, rowB, cw, ch, 'ic-daily', this.t('title.daily'), 0xffaa4a, 0xff8a1a, go(() => this.openDaily()));
-    this.titleCards = [levels, skins, this.endlessTile, daily];
+    // The bottom row holds the three run modes, side by side across the same span.
+    const c3 = (2 * cw + 20 - 2 * 12) / 3;
+    this.endlessTile = new MenuCard(this, L.cx - c3 - 12, rowB, c3, ch, 'ic-endless', this.t('title.endless'), 0xff6fb5, 0xff3d8b, go(() => this.openEndless()));
+    this.diveTile = new MenuCard(this, L.cx, rowB, c3, ch, 'ic-dive', this.t('title.dive'), 0x5fd8ff, 0x1a8fe0, go(() => this.openDive()));
+    const daily = new MenuCard(this, L.cx + c3 + 12, rowB, c3, ch, 'ic-daily', this.t('title.daily'), 0xffaa4a, 0xff8a1a, go(() => this.openDaily()));
+    this.titleCards = [levels, skins, this.endlessTile, this.diveTile, daily];
     deck.add(this.titleCards);
-    // Order kept for the test hooks: levels, endless, daily, skins, ranks.
-    this.titleTiles = [levels, this.endlessTile, daily, skins, this.rankChip];
+    // Order kept for the test hooks: levels, endless, daily, skins, ranks; dive joined last.
+    this.titleTiles = [levels, this.endlessTile, daily, skins, this.rankChip, this.diveTile];
 
     c.add([ringA, ringB, sign, this.titlePlate, play, deck, this.rankChip]);
     this.muteBtn = muteButton(this, L.right - 70, L.top + 70);
@@ -859,15 +931,19 @@ export class GameScene extends OyunScene {
     const L = this.layout;
     const c = this.add.container(0, 0).setDepth(200);
     // A glass plate with neon edges in the level's colour (drawn in refreshReady).
+    // Everything rides in a body that sits lower in Dive mode (the spark waits near the top).
+    const body = this.add.container(0, 0);
+    this.readyBody = body;
+    c.add(body);
     this.readyPlate = this.add.graphics();
-    c.add(this.readyPlate);
+    body.add(this.readyPlate);
     for (let k = 0; k < 3; k++) this.readyStars.push(this.add.image(L.cx + (k - 1) * 70, L.top + 456, 'star-off').setScale(1.05));
     this.readyTitle = bigText(this, L.cx, L.top + 300, '', 84);
     this.readySub = bigText(this, L.cx, L.top + 390, '', 38, PALETTE.gold);
     const tap = fitText(bigText(this, L.cx, L.cy + 40, this.t('ready.tap'), 62), L.width - 170);
     this.tweens.add({ targets: tap, scale: 1.1, alpha: 0.75, yoyo: true, repeat: -1, duration: 420, ease: 'Sine.easeInOut' });
     const tag = fitText(bigText(this, L.cx, L.cy + 120, this.t('title.tagline'), 34), L.width - 140);
-    c.add([...this.readyStars, this.readyTitle, this.readySub, tap, tag]);
+    body.add([...this.readyStars, this.readyTitle, this.readySub, tap, tag]);
     this.readyUi = c;
   }
 
@@ -917,7 +993,9 @@ export class GameScene extends OyunScene {
     this.continueBtn = button(this, L.cx, L.bottom - 150, this.t('dead.continue'), () => void this.continueRun(), { width: 380, height: 104, fontSize: 40, variant: 'secondary', ad: true });
     const adIcon = this.add.image(-150, 0, 'ic-ad').setScale(0.6);
     this.continueBtn.add(adIcon);
-    c.add([band, ...edges, this.deadBadge, this.deadPct, this.deadBarBg, this.deadBarBest, this.deadBarNow, this.deadBarMark, this.deadBest, this.deadAttempt, this.deadRetry, this.continueBtn]);
+    // The card rides in a body that sits lower in Dive mode, clear of the spark near the top.
+    this.deadBody = this.add.container(0, 0, [band, ...edges, this.deadBadge, this.deadPct, this.deadBarBg, this.deadBarBest, this.deadBarNow, this.deadBarMark, this.deadBest, this.deadAttempt, this.deadRetry, this.continueBtn]);
+    c.add(this.deadBody);
     this.deadUi = c;
   }
 
@@ -973,22 +1051,27 @@ export class GameScene extends OyunScene {
       if (this.mode === 'daily') {
         this.dailyDate = dailyKey(new Date());
         this.endlessSeed = dailySeed(this.dailyDate);
+      } else if (this.mode === 'dive') {
+        // Dive has its own seed stream: flying it never changes which endless shafts come next.
+        this.endlessSeed = this.diveRng().int(1, 2 ** 31 - 1);
       } else {
         this.endlessSeed = this.oyun.rng.int(1, 2 ** 31 - 1);
       }
       this.endlessSegments = 160;
-      this.track = buildEndless(this.endlessSeed, { segments: this.endlessSegments }).track;
-      this.pal = PALETTES[ENDLESS_THEMES[0]]!;
+      this.track = buildEndless(this.endlessSeed, { segments: this.endlessSegments, dive: this.mode === 'dive' }).track;
+      this.pal = PALETTES[this.themes()[0]!]!;
       this.endlessThemeIdx = 0;
     }
     this.plan = null;
     this.planEnd = 0;
     this.lastAutoSwitch = 0;
     this.backdrop.setPalette(this.pal);
-    this.worldFx.setTheme(this.mode === 'level' ? levelInfo(this.level).theme : ENDLESS_THEMES[0], this.pal);
+    this.worldFx.setTheme(this.mode === 'level' ? levelInfo(this.level).theme : this.themes()[0]!, this.pal);
     this.edgeFx.color = this.pal.edge;
     this.shaft.setTrack(this.track, this.pal);
     this.mech.setTrack(this.track, this.pal);
+    this.twistView.setTrack(this.track);
+    this.buildTwistEvents();
     this.shaft.showFinish = this.mode === 'level';
     const boss = this.mode === 'level' && isBoss(this.level);
     this.boss.setLevel(worldOf(this.level), boss);
@@ -1010,6 +1093,172 @@ export class GameScene extends OyunScene {
     this.music.theme = this.mode === 'level' ? levelInfo(this.level).theme : 4;
     const save = gameSave(this.oyun).data;
     this.attempts = this.mode === 'level' ? save.levels[this.level - 1]!.attempts : 0;
+  }
+
+  /** Palette themes an endless-style mode steps through. */
+  private themes(): readonly number[] {
+    return this.mode === 'dive' ? DIVE_THEMES : ENDLESS_THEMES;
+  }
+
+  private diveRng(): Rng {
+    let rng = this.registry.get(DIVE_RNG_KEY) as Rng | undefined;
+    if (!rng) {
+      rng = this.oyun.rng.fork(DIVE_STREAM);
+      this.registry.set(DIVE_RNG_KEY, rng);
+    }
+    return rng;
+  }
+
+  // ───────────────────────────────────────────────────────────── view twists
+
+  /** Screen position of world point (x, y) under the pose of this frame (a shared scratch point). */
+  private toScreen(x: number, y: number): Pt {
+    return project(this.pose, this.mat, x, y, this.ry, this.pt);
+  }
+
+  /**
+   * Work out the view for the spark's height and put the world there. In the normal view this
+   * is exactly the old placement: the world container at (0, SPARK_Y + height).
+   */
+  private applyPose(): void {
+    const p = this.pose;
+    if (this.twistOn && this.track.twists.length) poseAt(this.track.twists, this.ry, this.calm, p);
+    else Object.assign(p, NORMAL_POSE);
+    const m = poseMatrix(p, this.mat);
+    const folding = p.fold < 1;
+    const view = this.view;
+    view.setPosition(p.ax, p.ay);
+    view.rotation = (p.tilt + (folding ? 45 : 0)) * RAD;
+    view.setScale(p.zoom * (folding ? offZero(p.fold) : 1), p.zoom * (folding ? 1 : offZero(p.flip)));
+    const world = this.world;
+    if (folding) {
+      // R(-45°) about the pivot (START_X, -height).
+      const c = Math.SQRT1_2;
+      world.rotation = -45 * RAD;
+      world.setPosition(-(c * START_X - c * this.ry), -(-c * START_X - c * this.ry));
+    } else {
+      world.rotation = 0;
+      world.setPosition(-START_X, this.ry);
+    }
+    const s = this.toScreen(this.rx, this.ry);
+    this.sx = s.x;
+    this.sy = s.y;
+    // Heading of the flight on screen (0 = up) and whether the view is mirrored.
+    this.heading = Math.atan2(-m.c, m.d) / RAD;
+    this.hand = m.a * m.d - m.b * m.c < 0 ? -1 : 1;
+    viewRange(p, this.range);
+    // On a track with twists the stretch just flown stays drawn: a fold shows it again at once.
+    if (this.twistOn && this.track.twists.length) this.range.below = Math.max(this.range.below, 700);
+    this.shaft.viewBelow = this.range.below;
+    this.shaft.viewAbove = this.range.above;
+    this.mech.below = this.range.below + 40;
+    this.mech.above = this.range.above + 50;
+    // World labels stay readable: mirrored back when the view is mirrored, turned upright in
+    // the sideways view.
+    const flipped = mirrored(p);
+    this.shaft.labelFlipY = flipped ? -1 : 1;
+    this.shaft.labelRot = flipped && folding ? -90 * RAD : 0;
+    this.shaft.labelGap = flipped && folding ? 170 : 66;
+    if (this.calm) {
+      // Reduced motion: twists switch instead of moving; a short dip in brightness marks it.
+      const key = p.flip * 1000 + p.fold * 100 + p.tilt * 10 + p.zoom;
+      if (this.poseKey !== 0 && key !== this.poseKey && this.phase === 'playing') {
+        this.tweens.killTweensOf(view);
+        view.setAlpha(0.35);
+        this.tweens.add({ targets: view, alpha: 1, duration: 280 });
+      }
+      this.poseKey = key;
+    }
+  }
+
+  /** Banners due along this track: one per chamber (twists easing in, or the view going back). */
+  private buildTwistEvents(keep = false): void {
+    const ev: TwistEvent[] = [];
+    if (this.twistOn) {
+      const tw = this.track.twists.filter((t) => t.ease > 0);
+      const order = (k: TwistKind): number => (k === 'dive' || k === 'side' ? 0 : 1);
+      const starts = new Map<number, TwistEvent>();
+      for (const t of tw) {
+        const key = Math.round(t.y0);
+        const e = starts.get(key) ?? { y: t.y0 - TWIST_LEAD - 150, kinds: [], out: false, end: t.y0 };
+        e.kinds.push(t.kind);
+        e.kinds.sort((a, b) => order(a) - order(b));
+        e.end = Math.max(e.end, t.y0 + t.ease);
+        starts.set(key, e);
+      }
+      const ends = new Map<number, TwistEvent>();
+      for (const t of tw) {
+        const from = t.y1 - t.ease;
+        // A chamber that eases straight into the next twist announces that one instead.
+        if (tw.some((o) => o !== t && o.y0 >= from - 1 && o.y0 <= t.y1 + 400)) continue;
+        const key = Math.round(from / 400);
+        const e = ends.get(key) ?? { y: from - 220, kinds: [], out: true, end: t.y1 };
+        e.kinds.push(t.kind);
+        e.kinds.sort((a, b) => order(a) - order(b));
+        e.y = Math.min(e.y, from - 220);
+        e.end = Math.max(e.end, t.y1);
+        ends.set(key, e);
+      }
+      ev.push(...starts.values(), ...ends.values());
+      ev.sort((a, b) => a.y - b.y);
+    }
+    this.twistEvents = ev;
+    this.twistEventIdx = 0;
+    if (keep) while (this.twistEventIdx < ev.length && ev[this.twistEventIdx]!.y <= this.sim.y) this.twistEventIdx++;
+  }
+
+  /** Twist banners as their chambers come up, and the hold arrow while the view changes. */
+  private updateTwists(now: number): void {
+    const sim = this.sim;
+    const ev = this.twistEvents;
+    while (this.twistEventIdx < ev.length && ev[this.twistEventIdx]!.y <= sim.y) {
+      const e = ev[this.twistEventIdx++]!;
+      // A banner the spark is already past (a continue from a gate) is not shown late.
+      if (sim.y > e.end) continue;
+      const main = e.kinds[0]!;
+      const turns = main === 'dive' || main === 'side';
+      const name = (k: TwistKind): string => this.t(`twist.${k}` as 'twist.dive');
+      const text = e.out ? this.t('twist.normal') : e.kinds.length > 1 ? this.t('twist.and', { a: name(main), b: name(e.kinds[1]!) }) : name(main);
+      const sub = e.out ? (turns ? this.t('twist.normalHint') : '') : this.t(`twist.${main}Hint` as 'twist.diveHint');
+      const color = e.out ? TWIST_OUT_COLOR : TWIST_COLORS[main];
+      // The first time a twist is met (and whenever hold changes direction) the banner stays
+      // long enough to be read; later a lean or a zoom is a short callout.
+      const save = gameSave(this.oyun);
+      let bits = 0;
+      for (const k of e.kinds) bits |= 1 << (MECHANICS.length + TWIST_KINDS.indexOf(k));
+      const first = !e.out && (save.data.cues & bits) !== bits;
+      if (first) save.update((d) => void (d.cues |= bits));
+      this.tweens.killTweensOf([this.gateText, this.gateSub]);
+      this.gateText.setAlpha(0);
+      this.flashGateText(text, sub, color, 60);
+      if (first || turns) {
+        this.tweens.killTweensOf(this.gateSub);
+        this.gateSub.setAlpha(sub ? 1 : 0);
+        this.tweens.add({ targets: this.gateSub, alpha: 0, delay: first ? 2400 : 1700, duration: 300 });
+        this.tweens.killTweensOf(this.gateText);
+        this.tweens.add({ targets: this.gateText, alpha: 0, delay: first ? 2000 : 1300, duration: 300 });
+      }
+      this.rimPulse(color, 0.5);
+      this.oyun.audio.play('pop');
+      this.oyun.platform.haptic('light');
+      // The arrow points where hold will go once the view has settled.
+      const after = poseAt(this.track.twists, e.end + 2, this.calm);
+      const hv = holdVector(after);
+      this.arrowX = hv.x;
+      this.arrowY = hv.y;
+      this.arrowUntil = e.end + (turns ? 900 : 300);
+    }
+    const show = sim.y < this.arrowUntil && this.phase === 'playing';
+    this.holdArrow.setVisible(show);
+    this.holdText.setVisible(show);
+    if (!show) return;
+    const L = this.layout;
+    const beat = this.calm ? 1 : 0.7 + 0.3 * Math.sin(now / 110);
+    const reach = this.calm ? 74 : 70 + 8 * Math.sin(now / 110);
+    this.holdArrow.setPosition(this.sx + this.arrowX * reach, this.sy + this.arrowY * reach).setRotation(Math.atan2(this.arrowY, this.arrowX)).setAlpha(beat);
+    const tx = this.sx + this.arrowX * (reach + 84);
+    const ty = this.sy + this.arrowY * (reach + 66);
+    this.holdText.setPosition(Math.min(L.width - 70, Math.max(70, tx)), Math.min(L.height - 40, Math.max(L.top + 360, ty))).setAlpha(beat);
   }
 
   private applySkin(): void {
@@ -1074,6 +1323,13 @@ export class GameScene extends OyunScene {
     this.sectionNear = 0;
     this.pctMark = 0;
     this.mechCueIdx = 0;
+    this.twistEventIdx = 0;
+    this.arrowUntil = -1;
+    this.holdArrow.setVisible(false);
+    this.holdText.setVisible(false);
+    this.tweens.killTweensOf(this.view);
+    this.view.setAlpha(1);
+    this.poseKey = 0;
     this.boss.reset();
     this.twin.setVisible(false);
     this.twinGlow.setVisible(false);
@@ -1218,11 +1474,12 @@ export class GameScene extends OyunScene {
       .lineStyle(2, PALETTE.gold, 0.6)
       .strokeRoundedRect(px - 28, py - 30, pw + 56, 60, 30);
     // Deck cards: a live line under each.
-    const [levels, skins, endless, daily] = this.titleCards as [MenuCard, MenuCard, MenuCard, MenuCard];
+    const [levels, skins, endless, dive, daily] = this.titleCards as [MenuCard, MenuCard, MenuCard, MenuCard, MenuCard];
     levels.setSub(this.t('menu.stars', { n: totalStars(save) }));
     skins.setSub(this.t('menu.gems', { n: save.gems }));
     const unlocked = endlessUnlocked(save);
     endless.setIcon(unlocked ? 'ic-endless' : 'ic-lock').setSub(unlocked ? (save.endlessBest > 0 ? this.t('dead.height', { n: save.endlessBest }) : this.t('menu.new')) : this.t('menu.locked'));
+    dive.setIcon(unlocked ? 'ic-dive' : 'ic-lock').setSub(unlocked ? (save.diveBest > 0 ? this.t('dead.height', { n: save.diveBest }) : this.t('menu.diveNew')) : this.t('menu.locked'));
     const today = save.daily.date === dailyKey(new Date());
     daily.setSub(!today ? this.t('menu.dailyNew') : save.daily.streak > 1 ? this.t('menu.streak', { n: save.daily.streak }) : this.t('daily.best', { n: save.daily.best }));
     // Rank chip: badge, rank name in its colour, points; sized to its text, clear of the mute button.
@@ -1251,7 +1508,9 @@ export class GameScene extends OyunScene {
     gameSave(this.oyun).update((d) => void (gain = settle(d, rankBefore)));
     const g = gain as MetaGain | null;
     // One slot at the bottom edge (under the ad button when one is showing), clear of the spark.
-    const chipY = this.layout.bottom - (button ? 42 : 70);
+    // In Dive mode the death card sits lower (its retry prompt is at the bottom edge), so the
+    // chips go above the spark instead.
+    const chipY = this.mode === 'dive' && this.twistOn ? this.layout.top + 210 : this.layout.bottom - (button ? 42 : 70);
     if (!g) {
       if (extra.length) awardChips(this, extra, chipY);
       return;
@@ -1310,6 +1569,9 @@ export class GameScene extends OyunScene {
 
   private refreshReady(): void {
     this.fillReady();
+    // Dive: the spark waits near the top, so the plate and the prompt sit below it (the frame
+    // loop keeps this in step with where the spark is drawn).
+    this.readyBody.setY(this.mode === 'dive' && this.twistOn ? 390 : 0);
     fitText(this.readyTitle, this.layout.width - 80);
     fitText(this.readySub, this.layout.width - 80);
     const L = this.layout;
@@ -1342,6 +1604,9 @@ export class GameScene extends OyunScene {
     if (this.mode === 'endless') {
       this.readyTitle.setText(this.t('hud.endless'));
       this.readySub.setText(save.endlessBest > 0 ? this.t('dead.height', { n: save.endlessBest }) : '');
+    } else if (this.mode === 'dive') {
+      this.readyTitle.setText(this.t('dive.title'));
+      this.readySub.setText(save.diveBest > 0 ? this.t('dead.height', { n: save.diveBest }) : this.t('dive.sub'));
     } else if (this.mode === 'daily') {
       this.readyTitle.setText(this.t('daily.title'));
       const today = save.daily.date === this.dailyDate ? save.daily.best : 0;
@@ -1366,7 +1631,10 @@ export class GameScene extends OyunScene {
     if (this.homeTile.hits(x, y)) return true;
     if (this.muteBtn.visible && Math.abs(x - this.muteBtn.x) < 60 && Math.abs(y - this.muteBtn.y) < 60) return true;
     for (const b of [this.continueBtn, this.doubleBtn]) {
-      if (!b.visible || !b.parentContainer?.visible) continue;
+      // Visible only if every container up the chain is (the cards nest a body inside the card).
+      let shown = b.visible;
+      for (let p = b.parentContainer; p && shown; p = p.parentContainer) shown = p.visible;
+      if (!shown) continue;
       if (Math.abs(x - b.x) < 230 && Math.abs(y - b.y) < 60) return true;
     }
     return false;
@@ -1481,7 +1749,7 @@ export class GameScene extends OyunScene {
     }
     if (this.boss.active) this.flashGateText(this.t('boss.fight'), this.t(`boss.${worldOf(this.level)}` as 'boss.1'), 0xff5a7a, 64);
     // Respawn pop: the spark arrives with a ring, never blocking input.
-    this.ringBurst.setVisible(true).setPosition(this.rx, SPARK_Y).setScale(0.15).setAlpha(0.9).setTint(this.pal.edge);
+    this.ringBurst.setVisible(true).setPosition(this.sx, this.sy).setScale(0.15).setAlpha(0.9).setTint(this.pal.edge);
     this.tweens.killTweensOf(this.ringBurst);
     this.tweens.add({ targets: this.ringBurst, scale: 0.9, alpha: 0, duration: 320, ease: 'Cubic.easeOut' });
     this.squash = 0.6;
@@ -1526,6 +1794,16 @@ export class GameScene extends OyunScene {
 
   private openDaily(): void {
     this.switchMode('daily');
+  }
+
+  /** Dive mode opens with Endless (after level 3). */
+  private openDive(): void {
+    if (!endlessUnlocked(gameSave(this.oyun).data)) {
+      toast(this, this.t('title.unlockDive'));
+      this.juice.squash(this.diveTile, 0.2);
+      return;
+    }
+    this.switchMode('dive');
   }
 
   private switchMode(mode: Mode, level = this.level): void {
@@ -1574,6 +1852,14 @@ export class GameScene extends OyunScene {
         this.newBest = recordEndless(d, h, sim.gemsTaken, date).newBest;
         best = d.endlessBest;
       });
+    } else if (this.mode === 'dive') {
+      // Dive: the endless rules, its own record.
+      const h = Math.floor(sim.y / 10);
+      save.update((d) => {
+        prevBest = d.diveBest;
+        this.newBest = recordDive(d, h, sim.gemsTaken, date).newBest;
+        best = d.diveBest;
+      });
     } else {
       // Daily: its own best (never the endless record); each gem of the day's shaft pays once.
       const h = Math.floor(sim.y / 10);
@@ -1617,6 +1903,8 @@ export class GameScene extends OyunScene {
     else this.deadBadge.setText(this.t('dead.newBest')).setVisible(this.newBest && prevBest > 0);
     fitText(this.deadBadge, this.layout.width - 60, 46);
     this.continueBtn.setVisible(canContinue).setEnabled(true);
+    // Dive mode: the spark is near the top of the screen, so the card sits lower, clear of it.
+    this.deadBody.setY(this.mode === 'dive' && this.twistOn ? 300 : 0);
   }
 
   private shatter(): void {
@@ -1624,6 +1912,9 @@ export class GameScene extends OyunScene {
     // A twin that hits something shatters where the twin is.
     const x = this.sim.deathCause === 'twin' ? SHAFT_W - this.rx : this.rx;
     const y = -this.ry;
+    const at = this.toScreen(x, this.ry);
+    const ax = at.x;
+    const ay = at.y;
     this.spark.setVisible(false).clearTint().setScale(1);
     this.sparkGlow.setVisible(false);
     const tr = TRAILS[gameSave(this.oyun).data.skin.trail] ?? TRAILS[0]!;
@@ -1633,7 +1924,8 @@ export class GameScene extends OyunScene {
     const sh = SHATTER[this.fx ? this.shapeIdx : 3] ?? SHATTER[3]!;
     this.shards.setTexture(sh.tex);
     this.shards.setParticleSpeed(sh.speed[0], sh.speed[1]);
-    this.shards.setParticleGravity(0, sh.gravity);
+    // Shards fall down the screen whichever way the view is flipped.
+    this.shards.setParticleGravity(0, sh.gravity * (this.pose.fold === 1 && this.pose.flip < 0 ? -1 : 1));
     this.shards.setParticleTint(0xffffff);
     this.shards.explode(Math.floor(sh.count * 0.45), x, y);
     this.shards.setParticleTint(tr.tail);
@@ -1642,10 +1934,10 @@ export class GameScene extends OyunScene {
     this.sparks.explode(this.calm ? 10 : 24, x, y);
     // A shock ring and a hit star open from the point of impact.
     this.tweens.killTweensOf([this.ringBurst, this.impact]);
-    this.ringBurst.setVisible(true).setPosition(x, SPARK_Y).setScale(0.12).setAlpha(0.95).setTint(mix(tr.tail, 0xffffff, 0.5));
+    this.ringBurst.setVisible(true).setPosition(ax, ay).setScale(0.12).setAlpha(0.95).setTint(mix(tr.tail, 0xffffff, 0.5));
     this.tweens.add({ targets: this.ringBurst, scale: this.calm ? 0.9 : 1.7, alpha: 0, duration: 340, ease: 'Cubic.easeOut' });
     if (!this.calm) {
-      this.impact.setVisible(true).setPosition(x, SPARK_Y).setScale(0.6).setAlpha(1).setAngle(0).setTint(mix(tr.head, 0xffffff, 0.6));
+      this.impact.setVisible(true).setPosition(ax, ay).setScale(0.6).setAlpha(1).setAngle(0).setTint(mix(tr.head, 0xffffff, 0.6));
       this.tweens.add({ targets: this.impact, scale: 4.2, alpha: 0, angle: 45, duration: 240, ease: 'Cubic.easeOut', onComplete: () => this.impact.setVisible(false) });
     }
     // One kick, kept low: the eye stays on the card that says how far you got.
@@ -1901,6 +2193,9 @@ export class GameScene extends OyunScene {
     this.continueUsed = true;
     this.prevX = this.rx = sim.x;
     this.prevY = this.ry = this.lastRy = sim.y;
+    // Twist banners between the gate and the place of death come up again.
+    this.buildTwistEvents(true);
+    this.arrowUntil = -1;
     this.trail.reset(sim.x, sim.y);
     this.spark.setVisible(true).clearTint().setScale(1);
     this.sparkGlow.setVisible(true);
@@ -1968,7 +2263,8 @@ export class GameScene extends OyunScene {
       this.tweens.add({ targets: cam, zoom: 1, duration: 300, ease: 'Cubic.easeOut' });
       // A ring in the gate's colour opens from the spark.
       this.tweens.killTweensOf(this.ringBurst);
-      this.ringBurst.setVisible(true).setPosition(this.sim.x, SPARK_Y).setScale(0.18).setAlpha(0.7).setTint(color);
+      const at = this.toScreen(this.sim.x, this.ry);
+      this.ringBurst.setVisible(true).setPosition(at.x, at.y).setScale(0.18).setAlpha(0.7).setTint(color);
       this.tweens.add({ targets: this.ringBurst, scale: 0.75, alpha: 0, duration: 240, ease: 'Cubic.easeOut' });
     }
     this.stars.setParticleTint(color);
@@ -2011,7 +2307,8 @@ export class GameScene extends OyunScene {
     if (this.mode === 'level' && slot) {
       // Fly the gem from the shaft into its HUD slot.
       // It swings out sideways first and dives into the slot (an arc, not a straight line).
-      const fly = this.add.image(g.x, SPARK_Y - (g.y - this.ry) - 56, 'gem').setDepth(160).setScale(0.9);
+      const from = this.toScreen(g.x, g.y);
+      const fly = this.add.image(from.x, from.y - 56, 'gem').setDepth(160).setScale(0.9);
       this.tweens.add({
         targets: fly,
         props: {
@@ -2030,7 +2327,8 @@ export class GameScene extends OyunScene {
         },
       });
     } else {
-      this.juice.floatText(g.x, SPARK_Y - (g.y - this.ry) - 40, '+1', { color: PALETTE.gem, size: 44 });
+      const from = this.toScreen(g.x, g.y);
+      this.juice.floatText(from.x, from.y - 40, '+1', { color: PALETTE.gem, size: 44 });
     }
   }
 
@@ -2050,7 +2348,8 @@ export class GameScene extends OyunScene {
     this.sparks.setParticleTint(0x3ff6ff);
     this.sparks.explode(14, from, -p.y);
     this.sparks.explode(18, sim.x, -sim.y);
-    this.ringBurst.setVisible(true).setPosition(sim.x, SPARK_Y).setScale(0.2).setAlpha(0.9).setTint(0x3ff6ff);
+    const out = this.toScreen(sim.x, this.ry);
+    this.ringBurst.setVisible(true).setPosition(out.x, out.y).setScale(0.2).setAlpha(0.9).setTint(0x3ff6ff);
     this.tweens.killTweensOf(this.ringBurst);
     this.tweens.add({ targets: this.ringBurst, scale: 0.8, alpha: 0, duration: 260, ease: 'Cubic.easeOut' });
     this.oyun.audio.playPreset([{ wave: 'sine', freq: 300, freqEnd: 1400, duration: 0.18, gain: 0.25 }], { jitter: 0 });
@@ -2202,12 +2501,14 @@ export class GameScene extends OyunScene {
         corner = true;
       }
       this.demoTrail.sample(ox, oy, corner);
-      this.demoTrail.g.setPosition(0, SPARK_Y + this.demoY);
+      // The attract trail hangs from the waiting spark, under the pose the mode starts in.
+      const dz = this.pose.zoom;
+      const df = this.pose.flip < 0 ? -1 : 1;
+      this.demoTrail.g.setPosition(this.pose.ax - START_X * dz, this.pose.ay + dz * df * this.demoY).setScale(dz, dz * df);
       this.demoTrail.draw(this.demoX, this.demoY, 0.85);
       this.rx = this.demoX;
     }
     this.charge.emitting = idlePhase && this.fx;
-    this.charge.setPosition(this.rx, SPARK_Y);
 
     // Speed gates make the world run faster or calmer (smoothed).
     const targetK = this.phase === 'playing' || this.phase === 'resume' ? sim.speedMult : 1;
@@ -2215,8 +2516,13 @@ export class GameScene extends OyunScene {
     this.shaft.sparkX = this.rx;
     this.shaft.gatesPassed = sim.gateIndex;
 
-    // World scroll and the shaft.
-    this.world.y = SPARK_Y + this.ry;
+    // World scroll, the view of the moment, and the shaft.
+    this.applyPose();
+    this.charge.setPosition(this.sx, this.sy);
+    const zoom = this.pose.zoom;
+    // A run that waits under a dived view (Dive mode; a continue inside a dive stretch) keeps
+    // its ready plate below the spark.
+    if (this.phase === 'ready') this.readyBody.setY(this.sy < 600 ? 390 : 0);
     if (this.mode !== 'level') this.updateEndlessTheme();
     // Bars at the same interpolated moment as the spark (one tick behind + alpha).
     const drawT = this.phase === 'playing' ? Math.max(0, sim.tick - 1 + alpha) * DT : sim.t;
@@ -2229,13 +2535,20 @@ export class GameScene extends OyunScene {
     this.mech.update(this.ry, this.rx, drawT, speed, pulse, now);
     // Dark sections: the light travels with the spark (and reaches well ahead of it).
     const dk = this.mech.darkness(this.ry);
-    this.dark.setVisible(dk > 0.01).setAlpha(dk).setPosition(this.rx, SPARK_Y - 170);
+    if (dk > 0.01) {
+      const dp = this.toScreen(this.rx, this.ry + 170);
+      const dz = Math.max(0.8, zoom);
+      this.dark.setPosition(dp.x, dp.y).setDisplaySize(1700 * dz, 2400 * dz).setRotation(this.pose.tilt * RAD);
+    }
+    this.dark.setVisible(dk > 0.01).setAlpha(dk);
     // Mirror sections: the twin.
     const twinOn = (this.phase === 'playing' || this.phase === 'resume' || (this.phase === 'dead' && !this.shattered)) && this.mech.inMirror(this.ry);
     this.twin.setVisible(twinOn);
     this.twinGlow.setVisible(twinOn);
-    if (this.fx) this.edgeFx.update(this.track, this.ry, this.ry - 380, this.ry + 1000, pulse, realDt, this.speedK);
+    if (this.fx) this.edgeFx.update(this.track, this.ry, this.ry - this.range.below, this.ry + this.range.above, pulse, realDt, this.speedK);
+    this.twistView.update(this.ry, this.range.below, this.range.above, pulse, now);
     this.updateMilestones();
+    this.updateTwists(now);
 
     // Spark.
     const idle = this.phase === 'title' || this.phase === 'ready';
@@ -2246,8 +2559,9 @@ export class GameScene extends OyunScene {
     const sx = base * (1 + this.squash * 0.6);
     const sy = base * (1 - this.squash * 0.4);
     if (this.phase !== 'dead') {
-      // Each shape has its own idle life (drawing only).
-      let ang = idle ? 0 : sim.dir * 30;
+      // Each shape has its own idle life (drawing only). The lean follows the view: the
+      // spark points along its flight on screen, whichever way that is.
+      let ang = this.heading + (idle ? 0 : this.hand * sim.dir * 30);
       let k = 1;
       let a = 1;
       if (this.fx) {
@@ -2265,7 +2579,7 @@ export class GameScene extends OyunScene {
             ang += Math.sin(now / 55) * 7;
             break;
           case 4:
-            ang = Math.floor(beatY / BEAT_PX) * 60;
+            ang = this.heading + Math.floor(beatY / BEAT_PX) * 60;
             break;
           case 5:
             ang += now * 0.13;
@@ -2278,23 +2592,38 @@ export class GameScene extends OyunScene {
             break;
         }
       }
-      this.spark.setPosition(this.rx, SPARK_Y + bob).setScale(sx * k, sy * k).setAngle(ang).setAlpha(a);
+      this.spark.setPosition(this.sx, this.sy + bob).setScale(sx * k * zoom, sy * k * zoom).setAngle(ang).setAlpha(a);
       if (sim.flipped) this.spark.setTint(GATE_COLORS.flip);
       else if (this.colorShift) this.spark.setTint(hue((now / 1400) % 1));
       else this.spark.clearTint();
       if (this.twin.visible) {
-        this.twin.setPosition(SHAFT_W - this.rx, SPARK_Y).setScale(sx * k, sy * k).setAngle(-ang);
-        this.twinGlow.setPosition(SHAFT_W - this.rx, SPARK_Y).setScale((r / SPARK_R) * (1.1 + pulse * 0.3));
+        const tp = this.toScreen(SHAFT_W - this.rx, this.ry);
+        this.twin.setPosition(tp.x, tp.y).setScale(sx * k * zoom, sy * k * zoom).setAngle(2 * this.heading - ang);
+        this.twinGlow.setPosition(tp.x, tp.y).setScale((r / SPARK_R) * (1.1 + pulse * 0.3) * zoom);
       }
     } else if (!this.shattered) {
-      this.spark.setPosition(this.rx, SPARK_Y);
+      this.spark.setPosition(this.sx, this.sy);
     }
-    this.sparkGlow.setPosition(this.rx, SPARK_Y + bob).setScale((r / SPARK_R) * (1.25 + pulse * 0.35 + Math.min(0.8, sim.edge * 0.15)));
+    this.sparkGlow.setPosition(this.sx, this.sy + bob).setScale((r / SPARK_R) * (1.25 + pulse * 0.35 + Math.min(0.8, sim.edge * 0.15)) * zoom);
     // Charge-up: rings keep closing in on the waiting spark; during the launch ramp the glow builds.
     const charge = idle ? 1 - ((now / 650) % 1) : 0;
-    this.sparkHalo.setPosition(this.rx, SPARK_Y + bob).setAlpha(idle ? (0.3 + 0.6 * (1 - charge)) * (0.7 + pulse * 0.3) : 0).setScale(0.12 + charge * 0.3);
-    this.edgeText.setX(Math.min(this.layout.width - 150, Math.max(150, this.rx)));
-    this.flipTag.setVisible(sim.flipped && (this.phase === 'playing' || this.phase === 'resume')).setX(Math.min(this.layout.width - 90, Math.max(90, this.rx)));
+    this.sparkHalo.setPosition(this.sx, this.sy + bob).setAlpha(idle ? (0.3 + 0.6 * (1 - charge)) * (0.7 + pulse * 0.3) : 0).setScale(0.12 + charge * 0.3);
+    // Edge combo text and the FLIPPED tag ride behind the spark (below it in the normal view,
+    // above it in a dive, under it when the flight runs sideways).
+    const hr = this.heading * RAD;
+    const side = this.pose.fold < 0;
+    // In a dive "behind" is where the banners are: there the texts sit beside the spark,
+    // on the side with more room.
+    const dive = !side && this.pose.flip < 0;
+    const room = this.sx < this.layout.cx ? 1 : -1;
+    const bx = side ? 150 : dive ? room * 1.25 : -Math.sin(hr);
+    const by = side ? 80 : dive ? -0.2 : Math.cos(hr);
+    const tagK = side ? 0.55 : dive ? 96 : 58;
+    const edgeK = side ? 1 : 122;
+    this.edgeText.setPosition(Math.min(this.layout.width - 150, Math.max(150, this.sx + bx * edgeK)), this.sy + by * edgeK);
+    this.flipTag
+      .setVisible(sim.flipped && (this.phase === 'playing' || this.phase === 'resume'))
+      .setPosition(Math.min(this.layout.width - 90, Math.max(90, this.sx + bx * tagK)), this.sy + by * tagK);
     if (this.phase === 'playing') {
       this.embers.emitting = true;
       this.embers.setPosition(this.rx, -this.ry);
@@ -2306,10 +2635,19 @@ export class GameScene extends OyunScene {
     const dyScreen = this.ry - this.lastRy + (idle ? speed * 0.3 * realDt : 0);
     this.lastRy = this.ry;
     const prog = this.mode === 'level' ? sim.progress : (this.ry % 6000) / 6000;
-    this.backdrop.update(prog, dyScreen, pulse, speed, realDt);
-    if (this.fx) this.worldFx.update(realDt, dyScreen, pulse, this.speedK);
+    // The backdrop drifts the way the shaft runs on screen: up in a dive, still when sideways.
+    const drift = dyScreen * (this.pose.fold < 1 ? Math.max(0, this.pose.fold) : this.pose.flip);
+    this.backdrop.update(prog, drift, pulse, speed, realDt);
+    if (this.fx) this.worldFx.update(realDt, drift, pulse, this.speedK);
     this.animateTitle(now, pulse);
     if (this.phase === 'finished') this.finishRays.rotation += realDt * 0.6;
+    if (this.boss.active) {
+      // The eye keeps to the far end of the view: the bottom in a dive, the right when sideways.
+      const sideT = (1 - this.pose.fold) / 2;
+      const diveT = this.pose.fold < 1 ? 0 : (1 - this.pose.flip) / 2;
+      this.boss.ox = sideT * 170;
+      this.boss.oy = diveT * 340 + sideT * 250;
+    }
     this.boss.update(this.rx, pulse, now, realDt, this.layout.cx - 200, this.layout.top + 220, 400);
     this.attemptText.setVisible(!this.boss.active);
     if (this.phase === 'playing') {
@@ -2383,10 +2721,13 @@ export class GameScene extends OyunScene {
   private growEndless(): void {
     if (this.sim.y < this.track.length - 25_000) return;
     this.endlessSegments += 160;
-    const longer = buildEndless(this.endlessSeed, { segments: this.endlessSegments }).track;
+    const longer = buildEndless(this.endlessSeed, { segments: this.endlessSegments, dive: this.mode === 'dive' }).track;
     this.track = longer;
     this.sim.setTrack(longer);
     this.shaft.replaceTrack(longer);
+    this.mech.setTrack(longer, this.pal);
+    this.twistView.setTrack(longer);
+    this.buildTwistEvents(true);
     if (this.gateSnap) this.gateSnap.setTrack(longer);
   }
 
@@ -2460,13 +2801,13 @@ export class GameScene extends OyunScene {
   private updateMilestones(): void {
     const on = this.mode !== 'level' && this.fx;
     const step = MILESTONE_M * 10;
-    const first = Math.max(1, Math.ceil((this.ry - 380) / step));
+    const first = Math.max(1, Math.ceil((this.ry - this.range.below) / step));
     for (let i = 0; i < this.milestones.length; i++) {
       const k = first + i;
       const y = k * step;
       const text = this.milestones[i]!;
       const band = this.milestoneBands[i]!;
-      const vis = on && y < this.ry + 1000;
+      const vis = on && y < this.ry + this.range.above;
       text.setVisible(vis);
       band.setVisible(vis);
       if (!vis) continue;
@@ -2478,7 +2819,7 @@ export class GameScene extends OyunScene {
       band.tilePositionX = this.time.now / 12;
       const label = this.t('hud.height', { n: k * MILESTONE_M });
       if (text.text !== label) text.setText(label);
-      text.setPosition(r - 70, -y - 34);
+      text.setPosition(r - 70, -y - 34).setScale(1, this.shaft.labelFlipY);
     }
     if (this.mode !== 'level' && this.phase === 'playing') {
       const m = Math.floor(this.sim.y / step);
@@ -2492,12 +2833,13 @@ export class GameScene extends OyunScene {
   }
 
   private updateEndlessTheme(): void {
-    const idx = Math.floor(this.ry / 6000) % ENDLESS_THEMES.length;
+    const themes = this.themes();
+    const idx = Math.floor(this.ry / 6000) % themes.length;
     if (idx === this.endlessThemeIdx) return;
     this.endlessThemeIdx = idx;
-    this.pal = PALETTES[ENDLESS_THEMES[idx]!]!;
+    this.pal = PALETTES[themes[idx]!]!;
     this.backdrop.setPalette(this.pal);
-    this.worldFx.setTheme(ENDLESS_THEMES[idx]!, this.pal);
+    this.worldFx.setTheme(themes[idx]!, this.pal);
     this.edgeFx.color = this.pal.edge;
     this.shaft.setPalette(this.pal);
     this.mech.setPalette(this.pal);
@@ -2520,14 +2862,15 @@ export class GameScene extends OyunScene {
         this.juice.pop(this.pctText, 1.5);
       }
       if (this.phase !== 'finishing' && this.phase !== 'finished') this.pctText.setText(level ? `${pct}%` : this.t('hud.height', { n: pct }));
-      const frac = level ? sim.progress : Math.min(1, save.endlessBest > 0 ? sim.y / 10 / save.endlessBest : 0);
+      const modeBest = this.mode === 'dive' ? save.diveBest : save.endlessBest;
+      const frac = level ? sim.progress : Math.min(1, modeBest > 0 ? sim.y / 10 / modeBest : 0);
       this.barFill.setDisplaySize(Math.max(1, this.barW * frac), 18);
       this.barHead.setX(this.layout.cx - this.barW / 2 + this.barW * frac).setVisible(frac > 0.004);
       const bestFrac = level ? save.levels[this.level - 1]!.best / 100 : 1;
       this.barBest.setX(this.layout.cx - this.barW / 2 + this.barW * bestFrac).setVisible(bestFrac > 0 && bestFrac < 1);
     }
     if (force) {
-      this.chip.setText(level ? this.t('hud.level', { n: this.level }) : this.mode === 'daily' ? this.t('hud.daily') : this.t('hud.endless'));
+      this.chip.setText(level ? this.t('hud.level', { n: this.level }) : this.mode === 'daily' ? this.t('hud.daily') : this.mode === 'dive' ? this.t('hud.dive') : this.t('hud.endless'));
       fitText(this.chip, 112, 34);
       this.attemptText.setText(level ? this.t('hud.attempt', { n: Math.max(1, this.attempts) }) : '');
       for (const g of this.gemSlots) g.setVisible(level);
@@ -2554,7 +2897,7 @@ export class GameScene extends OyunScene {
       gems: sim.gemsTaken,
       wallet: save.gems,
       unlocked: save.unlocked,
-      best: this.mode === 'level' ? save.levels[this.level - 1]!.best : save.endlessBest,
+      best: this.mode === 'level' ? save.levels[this.level - 1]!.best : this.mode === 'dive' ? save.diveBest : save.endlessBest,
       speed: Math.round(sim.speed),
       size: sim.radius,
       mini: sim.radius === MINI_R,
@@ -2603,6 +2946,18 @@ export class GameScene extends OyunScene {
       trail: TRAILS[this.trial >= 0 ? this.trial : save.skin.trail]?.id ?? '',
       trial: this.trial,
       world: worldOf(this.level),
+      // View twists (presentation): the pose of this frame, what it shows ahead, where the spark is drawn.
+      twistOn: this.twistOn,
+      twists: this.track.twists.length,
+      twistKinds: this.track.twists.filter((t) => sim.y >= t.y0 && sim.y <= t.y1).map((t) => t.kind),
+      pose: { flip: Math.round(this.pose.flip * 1000) / 1000, fold: Math.round(this.pose.fold * 1000) / 1000, tilt: Math.round(this.pose.tilt * 100) / 100, zoom: Math.round(this.pose.zoom * 1000) / 1000 },
+      ahead: { ...lookahead(this.track, this.pose, this.ry) },
+      sparkScreen: { x: Math.round(this.sx), y: Math.round(this.sy) },
+      holdArrow: this.holdArrow.visible,
+      banner: this.gateText.alpha > 0.2 ? this.gateText.text : '',
+      diveBest: save.diveBest,
+      endlessBest: save.endlessBest,
+      endlessSeed: this.endlessSeed,
     };
   }
 
@@ -2638,6 +2993,7 @@ export class GameScene extends OyunScene {
       daily: () => this.titleTiles[2]?.fire(),
       skins: () => this.titleTiles[3]?.fire(),
       ranks: () => this.titleTiles[4]?.fire(),
+      dive: () => this.titleTiles[5]?.fire(),
     };
   }
 }

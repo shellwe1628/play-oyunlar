@@ -7,7 +7,8 @@
 import { createRng, hashSeed, type Rng } from '@oyun/core/pure';
 import { TrackBuilder } from './builder';
 import { emit, OPEN_H, PORT_H, type PatternKind, type Seg } from './patterns';
-import type { SpeedProfile, Track } from './track';
+import type { SpeedProfile, Track, Twist } from './track';
+import { easeFor, rockPeriod } from './twist';
 
 export const ENDLESS_SPEED: SpeedProfile = { base: 480, creep: 0.0035, max: 650 };
 
@@ -15,7 +16,19 @@ export interface EndlessOptions {
   /** Number of segments (default 160: far longer than any run). */
   segments?: number;
   speed?: SpeedProfile;
+  /**
+   * View-twist stretches (lean, rock, zoom-out) over some segments above TWIST_FROM_Y. On by
+   * default; presentation only: the shaft is the same with or without them.
+   */
+  twists?: boolean;
+  /** Dive mode: the same generator, shown under one dive twist from start to end. */
+  dive?: boolean;
 }
+
+/** Endless and daily get twist stretches above this height (300 m). */
+export const TWIST_FROM_Y = 3000;
+/** Dive mode's twist: the whole shaft, no ease (the run starts flipped). */
+export const DIVE_TWIST: Readonly<Twist> = { kind: 'dive', y0: -1e9, y1: 1e9, ease: 0, amount: 0, period: 0 };
 
 export interface EndlessTrack {
   track: Track;
@@ -23,6 +36,8 @@ export interface EndlessTrack {
   joins: number[];
   /** Difficulty drawn for each segment. */
   qs: number[];
+  /** True for the segments that are gate blocks. */
+  gated: boolean[];
 }
 
 const lerp = (a: number, b: number, t: number): number => a + (b - a) * Math.min(1, Math.max(0, t));
@@ -48,6 +63,35 @@ function pickKind(rng: Rng, q: number): PatternKind {
 }
 
 /** One endless segment: a pattern, or a gate block that opens and closes its effect. */
+/**
+ * Twist stretches (pure, presentation only): some plain segments above TWIST_FROM_Y are shown
+ * leaning, rocking or zoomed out. A stretch covers one segment, easing in around the join
+ * before it and out around the join after it (joins are the standard port). Never on a gate
+ * block or beside one (a FAST gate would speed the roll up), never two in a row. Drawn from
+ * their own stream, three numbers per segment whatever the outcome, so a longer build of the
+ * same seed keeps the stretches it had.
+ */
+function twistStretches(rng: Rng, start: number, joins: readonly number[], gated: readonly boolean[], vMax: number): Twist[] {
+  const out: Twist[] = [];
+  let last = -9;
+  for (let i = 0; i < joins.length; i++) {
+    const roll = rng.next();
+    const pick = rng.next();
+    const sign = rng.next() < 0.5 ? -1 : 1;
+    const a = i === 0 ? start : joins[i - 1]!;
+    const b = joins[i]!;
+    const kind = pick < 0.4 ? 'tilt' : pick < 0.7 ? 'rock' : 'far';
+    const amount = kind === 'tilt' ? sign * (6 + Math.round(pick * 7.5)) : kind === 'rock' ? sign * 5 : 0.82;
+    const ease = easeFor(kind, amount, vMax);
+    if (a - ease / 2 < TWIST_FROM_Y || i - last < 2 || i + 1 >= joins.length) continue;
+    if (gated[i] || gated[i - 1] || gated[i + 1]) continue;
+    if (roll >= 0.34 || b - a < ease + 500) continue;
+    out.push({ kind, y0: a - ease / 2, y1: b + ease / 2, ease, amount, period: kind === 'rock' ? rockPeriod(amount, vMax) : 0 });
+    last = i;
+  }
+  return out;
+}
+
 function segmentFor(rng: Rng, i: number): { segs: Seg[]; q: number } {
   const q = Math.min(0.9, Math.max(0, 0.04 + i * 0.026 + rng.range(-0.06, 0.06)));
   const gem = rng.chance(0.3);
@@ -73,16 +117,21 @@ export function buildEndless(seed: number, opts: EndlessOptions = {}): EndlessTr
   const b = new TrackBuilder({ speed: speed.base, creep: speed.creep, maxSpeed: speed.max, startH: OPEN_H, ramp: speed.ramp ?? true });
   const ctx = { rng: sides, mini: false };
   emit(b, { k: 'open' }, ctx);
+  const start = b.y;
   const joins: number[] = [];
   const qs: number[] = [];
+  const gated: boolean[] = [];
   for (let i = 0; i < n; i++) {
     const { segs, q } = segmentFor(pick, i);
     for (const s of segs) emit(b, s, ctx);
     joins.push(b.y);
     qs.push(q);
+    gated.push(segs.length > 1);
   }
   b.straight(200, PORT_H);
-  return { track: b.finish(), joins, qs };
+  if (opts.dive) b.twists.push({ ...DIVE_TWIST });
+  if (opts.twists !== false) for (const t of twistStretches(rng.fork('twists'), start, joins, gated, speed.max)) b.twists.push(t);
+  return { track: b.finish(), joins, qs, gated };
 }
 
 /** Local calendar date as YYYY-MM-DD (one daily shaft per day, wherever the player is). */
@@ -95,3 +144,6 @@ export function dailyKey(d: Date): string {
 export function dailySeed(key: string): number {
   return hashSeed(`kivilcim-daily-${key}`);
 }
+
+/** Label of Dive mode's own seed stream (a fork of the session rng). */
+export const DIVE_STREAM = 'dive';

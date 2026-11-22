@@ -5,7 +5,9 @@ import { defaults, migrateV2, normalize, type SaveData } from './sim/progress';
 /**
  * Save schema version. v1 was the template's { best, rounds } (no game progress to keep);
  * v2 is Sparkrise's slice progress (10 levels); v3 adds worlds 2-4, stars, ranks, achievements
- * and records. Keep every migration forever.
+ * and records. World 5 and Dive mode did not need a new version: `normalize` grows `levels`
+ * from 40 to 50 entries and adds `diveBest` / `diveDate` to a v3 save in place (tested with a
+ * literal save from before them). Keep every migration forever.
  */
 export const SAVE_VERSION = 3;
 

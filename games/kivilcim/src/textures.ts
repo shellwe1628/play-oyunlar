@@ -25,6 +25,17 @@ export const PALETTES: readonly Palette[] = [
   { top: 0x3a6bff, bottom: 0xc84dff, top2: 0x00c8ff, bottom2: 0xff4fd8, wall: 0x170e5c, wallDeep: 0x070426, edge: 0xffd23d },
   { top: 0xff4fd8, bottom: 0x3de8ff, top2: 0xff7a3d, bottom2: 0x7a5cff, wall: 0x3d0a5a, wallDeep: 0x170224, edge: 0xfffb7a },
   { top: 0xffc531, bottom: 0xff2e4d, top2: 0xff6b00, bottom2: 0xc2005b, wall: 0x4a0716, wallDeep: 0x1f0208, edge: 0x58f7ff },
+  // World 5 · Vortex (10-19): deep water and storm light: teal, indigo and magenta, hot edges.
+  { top: 0x12c7d6, bottom: 0x3a2bd9, top2: 0x18e0a6, bottom2: 0x8a2bd9, wall: 0x06284a, wallDeep: 0x020d1c, edge: 0xff5fa8 },
+  { top: 0x5a3dff, bottom: 0x14b8e6, top2: 0xb03dff, bottom2: 0x1ee6c0, wall: 0x1a0c5c, wallDeep: 0x080326, edge: 0xffd84d },
+  { top: 0x0fd1b0, bottom: 0x1763ff, top2: 0x7dff5a, bottom2: 0x0fa3d1, wall: 0x05323a, wallDeep: 0x021418, edge: 0xff7a3d },
+  { top: 0xe0389a, bottom: 0x3b2fd0, top2: 0xff6a5a, bottom2: 0x6a2fd0, wall: 0x3a0a4c, wallDeep: 0x16031f, edge: 0x5ff9ff },
+  { top: 0x2a8cff, bottom: 0x16d6c2, top2: 0x6a4dff, bottom2: 0x2aff9c, wall: 0x0a2260, wallDeep: 0x040b2a, edge: 0xffe14d },
+  { top: 0x7a2bff, bottom: 0xff4f9a, top2: 0x2b5cff, bottom2: 0xff8a4d, wall: 0x2a0a5e, wallDeep: 0x100328, edge: 0x7dffb0 },
+  { top: 0x00b3a4, bottom: 0x5b2bd6, top2: 0x00d8ff, bottom2: 0xc22bd6, wall: 0x052e3c, wallDeep: 0x02121a, edge: 0xffa53b },
+  { top: 0x3d5cff, bottom: 0xff3d8b, top2: 0x12c7d6, bottom2: 0xff7a3d, wall: 0x140f5a, wallDeep: 0x070526, edge: 0xb4ff4d },
+  { top: 0xc23dff, bottom: 0x0fb8d1, top2: 0xff3d6e, bottom2: 0x3d6eff, wall: 0x360a52, wallDeep: 0x150322, edge: 0xfff35c },
+  { top: 0xff3d6e, bottom: 0x2b1fb0, top2: 0xffb03b, bottom2: 0x7a1fb0, wall: 0x40062a, wallDeep: 0x190210, edge: 0x3ff6ff },
 ];
 
 /** Endless and daily palettes cycle through these as the height grows. */
@@ -311,6 +322,18 @@ export const TEXTURES: readonly TextureRecipe[] = [
       g.lineStyle(9, 0xffffff, 1);
       g.strokeCircle(22, 36, 13);
       g.strokeCircle(50, 36, 13);
+    },
+  },
+  {
+    key: 'ic-dive',
+    width: 72,
+    height: 72,
+    draw(g) {
+      // A spark above two chevrons pointing down.
+      g.fillStyle(0xffffff, 1).fillCircle(36, 13, 8);
+      g.lineStyle(9, 0xffffff, 1);
+      g.lineBetween(14, 28, 36, 46).lineBetween(36, 46, 58, 28);
+      g.lineBetween(14, 46, 36, 64).lineBetween(36, 64, 58, 46);
     },
   },
   {

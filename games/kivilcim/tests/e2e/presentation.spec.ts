@@ -28,6 +28,8 @@ async function run(browser: Browser, fx: boolean, level: number, skipS = 0): Pro
 for (const [level, skipS, what] of [
   [6, 0, 'world 1 (walls, bars, gates, trail styles)'],
   [34, 9, 'world 4 (mirror twin, portals, dark section, moving walls drawn by MechView)'],
+  [41, 4, 'world 5 (view twists: the dive fold and the flipped view; off under fx=0)'],
+  [48, 6, 'world 5 (dive with a sway, spinners and portals under it)'],
 ] as const) {
   test(`presentation on or off, the sim runs identically: level ${level}, ${what}`, async ({ browser }) => {
     test.setTimeout(400_000);

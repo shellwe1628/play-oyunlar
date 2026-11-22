@@ -92,6 +92,31 @@ export interface Zone {
   y1: number;
 }
 
+/**
+ * View twists (presentation only, like dark sections): for a stretch of the track the camera
+ * shows the same flight differently. The sim, the solver and the human model never read them.
+ *   dive  the view is flipped top to bottom (the spark flies down the screen; hold stays right)
+ *   side  the shaft runs across the screen (the spark flies right; hold = up)
+ *   tilt  the world leans `amount` degrees (+ = the far end leans right)
+ *   rock  the world rocks slowly between -amount and +amount degrees
+ *   far   zoomed out by `amount` (< 1): more lookahead, a smaller spark
+ *   near  zoomed in by `amount` (> 1): tense, only on slow, narrow stretches
+ */
+export const TWIST_KINDS = ['dive', 'side', 'tilt', 'rock', 'far', 'near'] as const;
+export type TwistKind = (typeof TWIST_KINDS)[number];
+
+export interface Twist {
+  kind: TwistKind;
+  /** The twist eases in over [y0, y0 + ease] and out over [y1 - ease, y1] (px of climb). */
+  y0: number;
+  y1: number;
+  ease: number;
+  /** Degrees (tilt, rock) or zoom factor (far, near); unused for dive and side. */
+  amount: number;
+  /** rock: px of climb per full swing. */
+  period: number;
+}
+
 /** End of a pattern section (perfect-section callouts). */
 export interface Section {
   y: number;
@@ -134,6 +159,8 @@ export interface Track {
   mirrors: Zone[];
   /** Dark sections (presentation: lit only around the spark). */
   darks: Zone[];
+  /** View twists (presentation: how the camera shows a stretch; see Twist). */
+  twists: Twist[];
   sections: Section[];
   speed: SpeedProfile;
   startX: number;

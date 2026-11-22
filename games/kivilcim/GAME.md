@@ -197,7 +197,8 @@ generated beat.
   section, "boss down" at the finish). The sim stays pure: new hazards are in `sdf`, wind and
   portals in `RunSim.step` and the solver's transition, so the solver and human model cover them.
 - **Stars** (finish, all 3 gems in one finished run, no near miss) and **star-gated worlds**
-  (15 / 36 / 60 stars); 2 gems per new star, world clear bonus 20/30/40/50.
+  (15 / 36 / 60 stars, and 80 for world 5); 2 gems per new star, world clear bonus
+  20/30/40/50 (60 for world 5).
 - **Trail collection** (`src/sim/skins.ts`, `render/Trail.ts`): 22 trails in tiers (common, rare,
   epic, legendary, mythic, earned), animated styles up to layered mythic ones with a
   colour-shifting spark; 4 earned only (rank Comet, 7-day streak, 5 clean levels, world 4).
@@ -244,6 +245,63 @@ generated beat.
     update avg 1.31 ms (p95 7.4) with the free trail, 1.44 ms (p95 7.0) with the mythic Supernova
     trail; retry on the game clock unchanged (tap taken at 264 ms, run advancing at 297 ms at
     33 ms frames; 272 / 289 ms at 17 ms frames); presentation test: same sim hash with fx on/off.
+
+- **View twists, world 5 and Dive mode** (spec: `docs/superpowers/specs/2026-11-22-kivilcim-acilar-girdap-design.md`).
+  The camera shows the same flight differently for a stretch; the sim is not told.
+  - **Twists** (`src/sim/twist.ts`, pure; data in `track.twists`, like dark sections): a pose is a
+    function of the spark's height only, so it is deterministic and stands still while paused.
+    `dive` flips the view top to bottom (the spark sits at 33 % of the screen and flies down; hold
+    is still screen-right), `side` mirrors it across the anti-diagonal (the spark flies right from
+    the left edge, hold = up: the genre's original "hold to rise"; a mirror fold, never a turn),
+    `tilt` leans the world up to 12 degrees, `rock` sways it slowly, `far` zooms out to 0.8,
+    `near` zooms in to 1.22 (only under a SLOW gate, in a narrow stretch). Leans zoom out just
+    enough to keep the whole shaft on screen for the base lookahead and are centred sideways.
+    Twists of different families stack (dive + lean, far + lean); dive and side never do.
+  - **Where the view changes**: only in a twist chamber (`patterns.ts` `twist` segment): a wide
+    (560 px), empty, straight stretch with no gate, hazard or gem (tested). The banner comes up
+    350 px (about 0.6 s) before the change starts and a second before its middle, where the gate
+    is. It sits in the HUD band, names the twist and says what hold does, and a
+    gold arrow from the spark points where hold will go once the view has settled; the first
+    time a twist is met, and whenever hold changes direction, the banner stays about 2 s. A
+    gate with the twist's own glyphs marks the middle of the change (dive: chevrons parting both
+    ways, side: quarter-turn arrows, lean: slanted strokes, sway: swaying strokes, zoom: brackets
+    spreading or closing); the way back is a mint band, "NORMAL VIEW". Never on the launch,
+    the crux (needle and rhythm run) or the finish (tested).
+  - **Scene** (`GameScene.applyPose`, `toScreen`): the world container sits in a `view` container
+    that carries the pose; in the normal view the two add up to the old placement, so worlds
+    1-4 draw exactly as before. Everything drawn at the spark (spark, twin, glow, rings, hit
+    star, dark-section light, gem fly-off, combo text) goes through `toScreen`; the spark leans
+    along its flight on screen; world labels are mirrored back; the backdrop drifts the way the
+    shaft runs. Walls beside the shaft (seen when leaning, zoomed out or sideways) are a filler
+    with the chunks' stripes (`Shaft.ts`). The HUD, banners and cards never move.
+  - **Reduced motion**: twists switch at the gate instead of moving (a 280 ms dip in the world's
+    brightness marks it), a sway is a fixed lean of 60 % of its amplitude, the arrow does not
+    pulse. `?fx=0` turns twists off with the rest of the presentation; `?twist=0` turns only
+    them off. Roll never exceeds 12 degrees a second (levels: 11.5 measured; sways 7).
+  - **World 5, Vortex** (levels 41-50, palettes 10-19, motifs `vortex` and `whirl`: sprites
+    circle a point behind the shaft and are drawn into it): no new hazard. 41 dive, 42 lean
+    and sway, 43 zoom out and in, 44 side: each family alone on its level; 45-49 combine them
+    with the eight mechanics; 50 is the boss (dive with mirror twin and portals, side with
+    moving walls, a FAST stretch in the normal view, then dive + 10 degree lean through a dark
+    mirror section and spinners; the eye has three spiral arms that thin out as it is hit).
+    Opens after level 40 with 80 stars (two per level; the ladder is 15 / 36 / 60 / 80), world
+    clear pays 60 gems, feat "Vortex Tamer" (65) earns the Maelstrom trail (new style: an aura,
+    a neon core and little whirls along the path).
+  - **Dive mode** (title deck: Endless | Dive | Daily): the endless generator from its own seed
+    stream (`rng.fork('dive')`, kept for the session), shown under one dive twist from start to
+    end, in world 5's palettes. Own ready plate and death card (both sit below the spark), own
+    best (`diveBest`, `diveDate`), a gem per 250 m as in Endless, two feats (500 m, 1500 m),
+    counted in the score beside the endless best (cap 200). Unlocks with Endless (level 3).
+  - **Endless and Daily**: above 300 m, about one segment in nine is shown leaning (6-9
+    degrees), swaying (5) or zoomed out (0.82), easing in around the join before it and out
+    around the join after it; never a gate block or a segment beside one, never two in a row
+    (106 stretches in 16 sampled runs of 60 segments; lookahead never under the normal view's,
+    roll at most 11.5 degrees a second: tested).
+    Drawn from `rng.fork('twists')` after the shaft is built: the geometry is the same with or
+    without them (tested), so the daily shaft is the same for everyone.
+  - **Save**: still version 3. `normalize` grows `levels` from 40 to 50 and adds the dive
+    fields; a 40-level save with the last boss beaten is moved from `unlocked` 40 to 41 (it
+    could not say so before). Tested with a literal save from the 40-level build.
 
 ### Tuning numbers
 
@@ -323,13 +381,53 @@ harder than the previous world's first level, and each boss is harder than the l
 Every level of worlds 2-4 also has a finishing plan with margin above NEAR_PX (the "no near
 miss" star is possible) and a finishing all-gems plan (tested).
 
+World 5 (`tests/unit/world5.test.ts`: the same suite, unchanged; same model, 200 attempts, seed
+1000+id). It opens harder than world 4 opened and easier than its boss, and level 50 is the
+hardest level by margin, window and the model's finish rate.
+
+| Level | Twists | Len | Margin | Window | Speed | Human |
+|---|---|---|---|---|---|---|
+| 41 | dive (intro) | 37.6 s | 29.49 | 325.0 | 540 | 73.5 % |
+| 42 | lean, sway (intro) | 41.8 s | 26.95 | 308.3 | 550 | 53.0 % |
+| 43 | zoom out, zoom in (intro) | 39.8 s | 25.00 | 291.7 | 560 | 43.5 % |
+| 44 | side (intro) | 37.0 s | 22.46 | 275.0 | 570 | 38.5 % |
+| 45 | dive; dive + lean | 37.9 s | 20.90 | 258.3 | 580 | 20.5 % |
+| 46 | sway; zoom out | 36.1 s | 18.36 | 241.7 | 590 | 13.5 % |
+| 47 | side; dive; zoom in | 42.2 s | 16.21 | 233.3 | 600 | 12.5 % |
+| 48 | dive + sway; side | 37.1 s | 14.45 | 208.3 | 610 | 7.5 % |
+| 49 | zoom out + lean; side; dive | 38.5 s | 12.70 | 200.0 | 620 | 7.5 % |
+| 50 boss | dive; side; dive + lean | 47.6 s | 11.33 | 175.0 | 630 | 1.0 % |
+
+The solver and the model do not know about twists: these numbers are for the geometry. What a
+twist costs a person is not modelled (see Unfinished).
+
+Lookahead under each twist (`tests/unit/twist.test.ts`, every level 41-50, every second tick).
+The normal view shows 930 px ahead of the spark to the screen edge, 700 px of it below the HUD
+band; in time, the tightest existing view is that at the fastest speed the game reaches (endless
+cap under FAST, 897 px/s): 1.04 s and 0.78 s. Measured to an 8 px step (normal: 928 / 696):
+
+| Twist | Ahead, fully on | Clear of the HUD band | Zoom | Fastest roll |
+|---|---|---|---|---|
+| dive | 928 px | 928 px (nothing of the HUD is ahead) | 0.92 (0.79-0.85 with a lean) | - |
+| side | 936 px | 936 px | 0.67 | - |
+| lean 6-10 degrees | 984 px or more | 744 px or more | 0.85-0.89 | 11.5 deg/s |
+| sway 6-7 degrees | 976 px or more | 728 px or more | 0.91-0.92 | 7.0 deg/s |
+| zoom out | 1160 px | 872 px | 0.80 | - |
+| zoom in | 760 px = 1.76 s at its SLOW speed | 568 px = 1.31 s | 1.22 | - |
+
+During every ease the lookahead stays at or above the normal view's (tested per tick); zoom in
+is the one twist below it in px, which is why it only exists under a SLOW gate (the rule is
+tested in seconds: at least 1.04 s and 0.78 s).
+
 Progress score (`meta.ts`, pure, tested): 10 per star + 15 per level finished + endless best/10
 (cap 400) + 10 per best-streak day (cap 30) + 4 per daily day (cap 100) + 10 per trail and 5 per
 shape owned beyond the free one + 15 per feat. Ranks at 0, 60, 150, 280, 450, 650, 900, 1200,
 1550, 1950, 2400, 2900: Ember, Flicker, Spark, Glow, Flare, Blaze, Torch, Beacon, Comet, Nova,
 Pulsar, Supernova.
 
-Gem income against prices. One-time income: level gems 120, stars 240 (2 each), world clears
+Gem income against prices (the figures below are for worlds 1-4; world 5 adds level gems 30,
+stars 60, world clear 60 and feats 100 = 250 more one-time gems, and Dive pays like Endless).
+One-time income: level gems 120, stars 240 (2 each), world clears
 140, feats 425 = 925; repeating: daily streak 5-20 a day plus the day's gems, endless 1 per
 250 m. Prices: trails 3, 6, 10 (common), 15, 20, 26, 32 (rare), 40, 48, 56, 64 (epic), 80, 95,
 110, 125 (legendary), 160, 200 (mythic) = 1090, shapes 6-32 = 120; 4 trails are earned only.
@@ -364,6 +462,13 @@ Gem income against prices. One-time income: level gems 120, stars 240 (2 each), 
 - Content round, own update per frame, autopilot, load ~4: level 10 avg 2.35 ms (max 14.3),
   level 40 avg 2.29 (max 13.1), level 30 avg 2.04 (max 9.6), level 20 avg 1.83 (max 8.0). New
   hazards are drawn with one Graphics per frame (no baking), so no mid-run hitch.
+- Twist round. Unit: 202 tests (17 files); e2e: 24 tests. Sim hash, tick, position and gems on
+  a stepped clock are the same with twists on, with `?twist=0` and with `?fx=0` (levels 41 dive,
+  42 lean, 44 side; 41 and 48 again in the fx on/off test; an endless run with and without its
+  stretches). Own update per frame on this machine's GPU (headless Chrome, D3D11, RTX 3060 Ti,
+  real clock, autopilot, last 240 frames): level 10 normal view avg 0.28 ms (step+render 1.16),
+  level 44 sideways 0.16 (0.80), level 42 leaning 0.18 (0.81): no cost that shows on a desktop
+  GPU. Not measured on a phone.
 - Human model and seeds: the streams the table uses (seed 1000+id) start with finishes on
   levels 8-10 (L8 `FFF.......F.`, L9 `F......F.F..`, L10 `.F.F........`); over 200 attempts they
   give the table's 29.0 / 26.5 / 10.0 %, fresh seeds 32.0 / 22.5 / 13.5 %. Lucky starts, not a
@@ -404,3 +509,13 @@ Gem income against prices. One-time income: level gems 120, stars 240 (2 each), 
   covered by the existing speed gates.
 - Not heard: the audio mix was never listened to. Not run on a phone (frame time, haptics,
   audio latency). Levels are tuned against a model, not people.
+- Twists were looked at in screenshots (390x844) and proved harmless to the sim, never played by
+  a person: whether a fold disorients, whether the sideways view at zoom 0.67 is comfortable on
+  a small phone, and what each twist costs in finish rate are unknown. The solver and the human
+  model fly the geometry only.
+- Headless Chromium's software GL (SwiftShader) drops screen-aligned blocks out of the wall
+  chunks whenever the view is rotated (holes in the walls under a lean or a sway); the same
+  frames are complete on a real GPU (D3D11, RTX 3060 Ti) and on WARP. Not seen on a phone GPU.
+  The round's screenshots (`tests/artifacts/girdap/`, `shots.mjs`) use the real GPU.
+- A death under a dive stretch of a *level* shows the death card over the spark (in Dive mode
+  the card sits lower). Dive has no online board (the boards live in `store/apps.json`).

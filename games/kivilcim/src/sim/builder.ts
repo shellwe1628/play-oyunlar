@@ -5,7 +5,7 @@
  */
 import { BEAT_PX, DT, SHAFT_W, START_X } from './constants';
 import { kinAdvance, kinSpeed, kinStart, type Kin, type KinSource } from './run';
-import type { Bar, Block, Gate, GateKind, Gem, Laser, Pill, Portal, Section, Spinner, Track, Wind, Zone } from './track';
+import type { Bar, Block, Gate, GateKind, Gem, Laser, Pill, Portal, Section, Spinner, Track, Twist, Wind, Zone } from './track';
 
 export interface BuilderOptions {
   speed: number;
@@ -38,6 +38,8 @@ export class TrackBuilder {
   readonly portals: Portal[] = [];
   readonly mirrors: Zone[] = [];
   readonly darks: Zone[] = [];
+  /** View twists (presentation only). */
+  readonly twists: Twist[] = [];
   readonly sections: Section[] = [];
 
   private readonly kin: Kin = kinStart();
@@ -49,6 +51,11 @@ export class TrackBuilder {
     // Below the start, so the screen under the spark shows walls too.
     this.push(-900, this.c, this.h);
     this.push(0, this.c, this.h);
+  }
+
+  /** The fastest the speed profile gets without gates (px/s). */
+  get topSpeed(): number {
+    return this.opts.maxSpeed ?? this.opts.speed;
   }
 
   private profile(): Track['speed'] {
@@ -245,6 +252,7 @@ export class TrackBuilder {
       portals: byY(this.portals),
       mirrors: [...this.mirrors].sort((p, q) => p.y0 - q.y0),
       darks: [...this.darks].sort((p, q) => p.y0 - q.y0),
+      twists: [...this.twists].sort((p, q) => p.y0 - q.y0),
       sections: byY(this.sections),
       speed: this.profile(),
       startX: START_X,

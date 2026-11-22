@@ -1,7 +1,11 @@
 /**
- * Levels 1-40 in four worlds of ten (pure). World 1 (levels 1-10) is the original slice and its
+ * Levels 1-50 in five worlds of ten (pure). World 1 (levels 1-10) is the original slice and its
  * geometry is frozen. Worlds 2-4 each introduce new mechanics one at a time, alone and calm
- * (q 0) on their intro level, then combine them; every world ends on a boss level.
+ * (q 0) on their intro level, then combine them; every world ends on a boss level. World 5
+ * (Vortex) adds no new hazard: it introduces the view twists (dive, lean and rock, zoom, side),
+ * each alone on its own level, then combines them with the eight mechanics. Twists are
+ * presentation only (track.twists): the geometry they sit on is ordinary corridor, and every
+ * change of view happens in a wide, empty chamber, never on the crux.
  *
  * Levels 1-10 (pure): hand-ordered pattern sequences with per-segment difficulty, seeded only for
  * cosmetic variation (which side a pattern swings to first, bar phases). Difficulty is raised on
@@ -13,10 +17,10 @@
  */
 import { createRng } from '@oyun/core/pure';
 import { TrackBuilder } from './builder';
-import { emit, OPEN_H, PORT_H, type Mechanic, type Seg } from './patterns';
-import type { Track } from './track';
+import { emit, OPEN_H, PORT_H, type Mechanic, type PatternCtx, type Seg, type TwistSpec } from './patterns';
+import type { Track, TwistKind } from './track';
 
-export const LEVEL_COUNT = 40;
+export const LEVEL_COUNT = 50;
 export const WORLD_SIZE = 10;
 export const WORLD_COUNT = LEVEL_COUNT / WORLD_SIZE;
 
@@ -29,6 +33,8 @@ export interface LevelInfo {
   boss: boolean;
   /** Mechanic introduced on this level (calm, alone, with a one-time cue). */
   intro: Mechanic | null;
+  /** View twists introduced on this level (world 5). */
+  twists: TwistKind[];
   /** Base scroll speed, px/s. */
   speed: number;
   /** Palette index (src/textures PALETTES). */
@@ -57,6 +63,15 @@ const WN = (q: number, gem = false): Seg => ({ k: 'wind', q, gem });
 const PO = (q: number, gem = false): Seg => ({ k: 'portal', q, gem });
 const MI = (q: number, gem = false): Seg => ({ k: 'mirror', q, gem });
 const dk = (seg: Seg): Seg => ({ ...seg, dark: true });
+/** Twist chamber: the open twists ease out, then these ease in. UT = back to the normal view. */
+const TW = (...tw: TwistSpec[]): Seg => ({ k: 'twist', tw });
+const UT: Seg = { k: 'twist', tw: [] };
+const dive: TwistSpec = { kind: 'dive' };
+const side: TwistSpec = { kind: 'side' };
+const tilt = (deg: number): TwistSpec => ({ kind: 'tilt', amount: deg });
+const rock = (deg: number): TwistSpec => ({ kind: 'rock', amount: deg });
+const far = (zoom = 0.8): TwistSpec => ({ kind: 'far', amount: zoom });
+const near = (zoom = 1.22): TwistSpec => ({ kind: 'near', amount: zoom });
 
 /**
  * Crux difficulty per level. Each level's hardest stretch is a needle (sets the safety margin)
@@ -68,6 +83,7 @@ export const CRUX_Q = [
   0.3, 0.36, 0.42, 0.48, 0.54, 0.6, 0.66, 0.72, 0.78, 0.84,
   0.4, 0.45, 0.51, 0.57, 0.63, 0.69, 0.74, 0.79, 0.84, 0.89,
   0.5, 0.55, 0.6, 0.65, 0.7, 0.75, 0.8, 0.85, 0.9, 0.94,
+  0.53, 0.59, 0.64, 0.69, 0.74, 0.79, 0.835, 0.88, 0.92, 0.95,
 ] as const;
 /** Vertical leg of each level's rhythm crux (px): the turn interval is leg / speed. */
 export const RHYTHM_LEG = [
@@ -75,24 +91,25 @@ export const RHYTHM_LEG = [
   175, 169, 162, 155, 148, 140, 132, 124, 115, 106,
   165, 159, 153, 147, 140, 133, 125, 118, 109, 103,
   159, 153, 147, 141, 135, 128, 120, 113, 105, 99,
+  158, 153, 147, 141, 134, 127, 120, 112, 105, 96,
 ] as const;
 
 const LEVELS: LevelInfo[] = [
   // 1 · first contact: wide shafts, slow zigzags, one easy slalom. No gates.
-  { id: 1, world: 1, boss: false, intro: null, speed: 470, theme: 0, segs: [O, D(0), W(0, true), Z(0), D(0), S(0), W(0.05), D(0, true), S(0.02), Z(0.02), N(0.08), D(0), R(1, true), D(0)] },
+  { id: 1, world: 1, boss: false, intro: null, twists: [], speed: 470, theme: 0, segs: [O, D(0), W(0, true), Z(0), D(0), S(0), W(0.05), D(0, true), S(0.02), Z(0.02), N(0.08), D(0), R(1, true), D(0)] },
   // 2 · speed gates, slow first (alone, in an easy stretch); bars appear.
-  { id: 2, world: 1, boss: false, intro: null, speed: 485, theme: 1, segs: [O, Z(0.06), G('slow'), D(0.1), W(0.1, true), Z(0.08), G('normal'), S(0.1), B(0), N(0.16), S(0.12, true), N(0.18), D(0), R(2, true), D(0.1)] },
+  { id: 2, world: 1, boss: false, intro: null, twists: [], speed: 485, theme: 1, segs: [O, Z(0.06), G('slow'), D(0.1), W(0.1, true), Z(0.08), G('normal'), S(0.1), B(0), N(0.16), S(0.12, true), N(0.18), D(0), R(2, true), D(0.1)] },
   // 3 · mini gate alone in easy ground; first fast stretch.
-  { id: 3, world: 1, boss: false, intro: null, speed: 500, theme: 2, segs: [O, Z(0.18), B(0.15), G('mini'), D(0.1), W(0, true), G('big'), S(0.2), N(0.2), G('fast'), D(0), W(0), G('normal'), W(0.1, true), N(0.26), B(0.2), N(0.28), D(0), R(3, true), D(0.15)] },
+  { id: 3, world: 1, boss: false, intro: null, twists: [], speed: 500, theme: 2, segs: [O, Z(0.18), B(0.15), G('mini'), D(0.1), W(0, true), G('big'), S(0.2), N(0.2), G('fast'), D(0), W(0), G('normal'), W(0.1, true), N(0.26), B(0.2), N(0.28), D(0), R(3, true), D(0.15)] },
   // 4 · flip gate alone; then mini again.
-  { id: 4, world: 1, boss: false, intro: null, speed: 510, theme: 3, segs: [O, Z(0.28), G('flip'), D(0.1), W(0.1, true), Z(0.15), G('unflip'), B(0.3), N(0.3), G('mini'), W(0.05), S(0.1), G('big'), W(0.15, true), S(0.3), N(0.37), D(0), R(4, true), D(0.2)] },
+  { id: 4, world: 1, boss: false, intro: null, twists: [], speed: 510, theme: 3, segs: [O, Z(0.28), G('flip'), D(0.1), W(0.1, true), Z(0.15), G('unflip'), B(0.3), N(0.3), G('mini'), W(0.05), S(0.1), G('big'), W(0.15, true), S(0.3), N(0.37), D(0), R(4, true), D(0.2)] },
   // 5 · combinations begin.
-  { id: 5, world: 1, boss: false, intro: null, speed: 525, theme: 4, segs: [O, Z(0.36), B(0.35), G('fast'), W(0.1), D(0.15, true), G('normal'), N(0.38), G('flip'), Z(0.25), G('unflip'), S(0.38), G('mini'), Z(0.08, true), B(0.3), G('big'), N(0.46), D(0), R(5, true), D(0.3)] },
-  { id: 6, world: 1, boss: false, intro: null, speed: 540, theme: 5, segs: [O, Z(0.45), G('slow'), N(0.45, true), Z(0.45), G('normal'), B(0.45), G('flip'), T(0.3), Z(0.4, true), G('unflip'), G('mini'), W(0.2), S(0.3), G('big'), G('fast'), D(0.2), G('normal'), N(0.54), D(0), R(6, true), D(0.4)] },
-  { id: 7, world: 1, boss: false, intro: null, speed: 555, theme: 6, segs: [O, Z(0.42), B(0.5), G('flip'), S(0.3, true), Z(0.35), G('unflip'), N(0.42), G('fast'), W(0.3), G('normal'), G('mini'), Z(0.2, true), G('big'), T(0.4), S(0.38), N(0.6), D(0), R(7, true), D(0.5)] },
-  { id: 8, world: 1, boss: false, intro: null, speed: 570, theme: 7, segs: [O, Z(0.45), S(0.4), G('mini'), W(0.15, true), W(0.2), G('big'), N(0.25), G('fast'), W(0.35), D(0.35), G('normal'), G('flip'), S(0.38, true), Z(0.42), T(0.5), G('unflip'), B(0.6), N(0.66), D(0), R(8, true), D(0.6)] },
-  { id: 9, world: 1, boss: false, intro: null, speed: 585, theme: 8, segs: [O, Z(0.5), B(0.65), G('flip'), S(0.3, true), T(0.6), G('unflip'), G('mini'), Z(0.2), G('big'), G('fast'), W(0.3), D(0.4), G('normal'), N(0.5, true), S(0.4), G('mini'), B(0.55), G('big'), N(0.72), D(0), R(9, true), D(0.7)] },
-  { id: 10, world: 1, boss: true, intro: null, speed: 600, theme: 9, segs: [O, Z(0.55), S(0.35), G('fast'), B(0.3, true), G('normal'), G('flip'), W(0.4), T(0.6), G('unflip'), G('mini'), Z(0.35, true), G('big'), S(0.4), G('fast'), W(0.4), G('normal'), N(0.78), D(0), R(10, true), B(0.8), D(0.8)] },
+  { id: 5, world: 1, boss: false, intro: null, twists: [], speed: 525, theme: 4, segs: [O, Z(0.36), B(0.35), G('fast'), W(0.1), D(0.15, true), G('normal'), N(0.38), G('flip'), Z(0.25), G('unflip'), S(0.38), G('mini'), Z(0.08, true), B(0.3), G('big'), N(0.46), D(0), R(5, true), D(0.3)] },
+  { id: 6, world: 1, boss: false, intro: null, twists: [], speed: 540, theme: 5, segs: [O, Z(0.45), G('slow'), N(0.45, true), Z(0.45), G('normal'), B(0.45), G('flip'), T(0.3), Z(0.4, true), G('unflip'), G('mini'), W(0.2), S(0.3), G('big'), G('fast'), D(0.2), G('normal'), N(0.54), D(0), R(6, true), D(0.4)] },
+  { id: 7, world: 1, boss: false, intro: null, twists: [], speed: 555, theme: 6, segs: [O, Z(0.42), B(0.5), G('flip'), S(0.3, true), Z(0.35), G('unflip'), N(0.42), G('fast'), W(0.3), G('normal'), G('mini'), Z(0.2, true), G('big'), T(0.4), S(0.38), N(0.6), D(0), R(7, true), D(0.5)] },
+  { id: 8, world: 1, boss: false, intro: null, twists: [], speed: 570, theme: 7, segs: [O, Z(0.45), S(0.4), G('mini'), W(0.15, true), W(0.2), G('big'), N(0.25), G('fast'), W(0.35), D(0.35), G('normal'), G('flip'), S(0.38, true), Z(0.42), T(0.5), G('unflip'), B(0.6), N(0.66), D(0), R(8, true), D(0.6)] },
+  { id: 9, world: 1, boss: false, intro: null, twists: [], speed: 585, theme: 8, segs: [O, Z(0.5), B(0.65), G('flip'), S(0.3, true), T(0.6), G('unflip'), G('mini'), Z(0.2), G('big'), G('fast'), W(0.3), D(0.4), G('normal'), N(0.5, true), S(0.4), G('mini'), B(0.55), G('big'), N(0.72), D(0), R(9, true), D(0.7)] },
+  { id: 10, world: 1, boss: true, intro: null, twists: [], speed: 600, theme: 9, segs: [O, Z(0.55), S(0.35), G('fast'), B(0.3, true), G('normal'), G('flip'), W(0.4), T(0.6), G('unflip'), G('mini'), Z(0.35, true), G('big'), S(0.4), G('fast'), W(0.4), G('normal'), N(0.78), D(0), R(10, true), B(0.8), D(0.8)] },
 ];
 
 
@@ -138,7 +155,26 @@ const MORE: Def[] = [
 for (const [i, [speed, intro, segs]] of MORE.entries()) {
   const id = 11 + i;
   const w = worldOf(id);
-  LEVELS.push({ id, world: w, boss: isBoss(id), intro, speed, theme: (i % 10 + 3 * (w - 1)) % 10, segs });
+  LEVELS.push({ id, world: w, boss: isBoss(id), intro, twists: [], speed, theme: (i % 10 + 3 * (w - 1)) % 10, segs });
+}
+
+/** World 5 · Vortex: [speed, twists introduced, segments]. Palettes 10-19 are its own. */
+const VORTEX: [speed: number, twists: TwistKind[], segs: Seg[]][] = [
+  /* 41 */ [540, ['dive'], [O, TW(dive), D(0, true), W(0.25), UT, Z(0.35), TW(dive), S(0.3, true), W(0.3), UT, D(0), X(41), D(0), R(41, true), D(0.4)]],
+  /* 42 */ [550, ['tilt', 'rock'], [O, TW(tilt(8)), W(0, true), Z(0.3), UT, SP(0.4), TW(rock(6)), S(0.35, true), LZ(0.3), UT, D(0), X(42), D(0), R(42, true), D(0.4)]],
+  /* 43 */ [560, ['far', 'near'], [O, TW(far()), W(0, true), PI(0.4), UT, G('slow'), TW(near()), S(0, true), UT, G('normal'), WN(0.4), D(0), X(43), D(0), R(43, true), D(0.45)]],
+  /* 44 */ [570, ['side'], [O, TW(side), D(0, true), W(0.2), Z(0.3), UT, SN(0.45), TW(side), S(0.4, true), UT, D(0), X(44), D(0), R(44, true), D(0.5)]],
+  /* 45 */ [580, [], [O, TW(dive), SP(0.5, true), LZ(0.5), UT, PO(0.5), TW(dive, tilt(-6)), SN(0.5, true), W(0.3), UT, D(0), X(45), D(0), R(45, true), D(0.5)]],
+  /* 46 */ [590, [], [O, TW(rock(7)), PI(0.55, true), WN(0.55), TW(far()), MI(0.55, true), UT, dk(Z(0.45)), D(0), X(46), D(0), R(46, true), D(0.55)]],
+  /* 47 */ [600, [], [O, TW(side), LZ(0.55), SP(0.55, true), TW(dive), PI(0.6), UT, G('slow'), TW(near()), S(0.5, true), UT, G('normal'), D(0), X(47), D(0), R(47, true), D(0.55)]],
+  /* 48 */ [610, [], [O, TW(dive, rock(6)), SN(0.6, true), PO(0.6), TW(side), WN(0.6), LZ(0.6, true), UT, dk(PI(0.6)), D(0), X(48), D(0), R(48, true), D(0.6)]],
+  /* 49 */ [620, [], [O, TW(far(), tilt(-8)), MI(0.65, true), dk(SN(0.65)), TW(side), SP(0.65, true), PI(0.65), TW(dive), LZ(0.7), UT, D(0), X(49), D(0), R(49, true), D(0.65)]],
+  /* 50 */ [630, [], [O, TW(dive), MI(0.75), PO(0.7, true), TW(side), PI(0.75), UT, G('fast'), W(0.45), G('normal'), TW(dive, tilt(10)), dk(MI(0.75, true)), SN(0.75), UT, D(0), X(50), D(0), R(50, true), LZ(0.8), D(0.75)]],
+];
+
+for (const [i, [speed, twists, segs]] of VORTEX.entries()) {
+  const id = 41 + i;
+  LEVELS.push({ id, world: 5, boss: isBoss(id), intro: null, twists, speed, theme: 10 + i, segs });
 }
 
 export function levelInfo(id: number): LevelInfo {
@@ -147,12 +183,31 @@ export function levelInfo(id: number): LevelInfo {
   return info;
 }
 
-export function buildLevel(id: number): Track {
+/** A level's segment with the stretch of the track it was built into. */
+export interface SegRange {
+  seg: Seg;
+  y0: number;
+  y1: number;
+}
+
+/** Build a level and report where each of its segments lies (tests, cues). */
+export function buildLevelParts(id: number): { track: Track; ranges: SegRange[] } {
   const info = levelInfo(id);
   const rng = createRng(7919 * id);
   const b = new TrackBuilder({ speed: info.speed, startH: OPEN_H, ramp: true });
-  const ctx = { rng, mini: false };
-  for (const seg of info.segs) emit(b, seg, ctx);
+  const ctx: PatternCtx = { rng, mini: false };
+  const ranges: SegRange[] = [];
+  for (const seg of info.segs) {
+    const y0 = b.y;
+    emit(b, seg, ctx);
+    ranges.push({ seg, y0, y1: b.y });
+  }
+  // A twist a level forgot to close ends with the level (tests ask for none).
+  for (const t of ctx.open ?? []) t.y1 = b.y;
   b.straight(200, PORT_H);
-  return b.finish();
+  return { track: b.finish(), ranges };
+}
+
+export function buildLevel(id: number): Track {
+  return buildLevelParts(id).track;
 }

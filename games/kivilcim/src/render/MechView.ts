@@ -23,6 +23,9 @@ export class MechView {
   private pal!: Palette;
   /** Presentation switch: off draws only the lethal shapes, flat. */
   fx = true;
+  /** World px drawn behind and ahead of the spark (view twists widen it). */
+  below = 420;
+  above = 1050;
 
   constructor(scene: Phaser.Scene, world: Phaser.GameObjects.Container) {
     this.glow = scene.add.graphics().setBlendMode(Phaser.BlendModes.ADD);
@@ -67,8 +70,8 @@ export class MechView {
     gl.clear();
     const tr = this.track;
     if (!tr) return;
-    const lo = sy - 420;
-    const hi = sy + 1050;
+    const lo = sy - this.below;
+    const hi = sy + this.above;
     const fx = this.fx;
     const edge = this.pal.edge;
 

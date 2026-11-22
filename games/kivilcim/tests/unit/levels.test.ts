@@ -25,8 +25,8 @@ beforeAll(() => {
 }, 240_000);
 
 describe('levels 1-10', () => {
-  it('there are forty levels in four worlds of ten', () => {
-    expect(LEVEL_COUNT).toBe(40);
+  it('there are fifty levels in five worlds of ten', () => {
+    expect(LEVEL_COUNT).toBe(50);
     expect(WORLD_SIZE).toBe(10);
   });
 

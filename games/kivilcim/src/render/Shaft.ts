@@ -16,10 +16,25 @@ import { css } from './canvasArt';
 export const CHUNK_H = 512;
 /** Permanent chunks for the start of every track: indices -1..START_CHUNKS-2. */
 const START_CHUNKS = 4;
-const POOL = 6;
-/** World px visible below / above the spark. */
+const POOL = 10;
+/** World px visible below / above the spark in the normal view (twists widen the range). */
 export const VIEW_BELOW = 380;
 export const VIEW_ABOVE = 1000;
+/**
+ * Wall filler beside the shaft (seen only when a twist shows what lies outside x 0..720): a flat
+ * wall-coloured quad per side, and the chunks' diagonal stripes as plain images of one 512 px
+ * tile, kept on the chunks' 64 px stripe lattice.
+ *
+ * Note for whoever tests this headless: Chromium's software GL (SwiftShader) drops screen-aligned
+ * blocks out of rotated quads when these large quads are in the same frame (holes in the walls
+ * under a lean); the same frames are complete on a real GPU (D3D11) and on WARP. The round's
+ * screenshots were taken with --use-angle=d3d11.
+ */
+const FILL_TILE = 512;
+const FILL_COLS = 2;
+const FILL_ROWS = 7;
+const FILL_W = FILL_TILE * FILL_COLS;
+const FILL_H = FILL_TILE * FILL_ROWS;
 
 interface Slot {
   key: string;
@@ -78,6 +93,21 @@ export class ShaftView {
   /** Screen y of the spark and the bottom of the HUD band: labels fade out under the band. */
   sparkScreenY = 930;
   hudBottom = 300;
+  /** The stretch of the track to draw, in world px behind and ahead of the spark. */
+  viewBelow = VIEW_BELOW;
+  viewAbove = VIEW_ABOVE;
+  /**
+   * View twists: screen y of a world point (labels fade under the HUD band wherever the view
+   * puts them), and the local transform that keeps label text upright and readable when the
+   * view is mirrored.
+   */
+  screenY: ((wx: number, wy: number) => number) | null = null;
+  labelRot = 0;
+  labelFlipY = 1;
+  /** Distance of a gate's label past its band (world px). */
+  labelGap = 66;
+  private readonly fills: Phaser.GameObjects.Image[] = [];
+  private readonly fillStripes: Phaser.GameObjects.Image[] = [];
   private sy = 0;
   private finishBurstAt = -1;
 
@@ -85,6 +115,18 @@ export class ShaftView {
     private readonly scene: Phaser.Scene,
     private readonly world: Phaser.GameObjects.Container,
   ) {
+    // Wall filler either side of the shaft, behind everything: plain wall with the chunks'
+    // diagonal stripes, so a leaning, zoomed-out or sideways view never shows a hole.
+    for (let i = 0; i < 2; i++) {
+      const fill = scene.add.image(0, 0, 'flash').setOrigin(0, 0).setDisplaySize(FILL_W, FILL_H);
+      world.add(fill);
+      this.fills.push(fill);
+    }
+    for (let i = 0; i < 2 * FILL_COLS * FILL_ROWS; i++) {
+      const tile = scene.add.image(0, 0, 'wall-fill').setOrigin(0, 0);
+      world.add(tile);
+      this.fillStripes.push(tile);
+    }
     const mk = (name: string): Slot => {
       const key = `chunk-${this.id}-${name}`;
       const tex = scene.textures.createCanvas(key, SHAFT_W, CHUNK_H)!;
@@ -150,6 +192,7 @@ export class ShaftView {
     this.track = track;
     this.pal = pal;
     this.finishBurstAt = -1;
+    for (const f of this.fills) f.setTint(pal.wallDeep);
     for (const s of this.pool) {
       s.index = NaN;
       s.img.setVisible(false);
@@ -169,6 +212,7 @@ export class ShaftView {
   /** Palette change mid-track (endless): only chunks baked from now on use it. */
   setPalette(pal: Palette): void {
     this.pal = pal;
+    for (const f of this.fills) f.setTint(pal.wallDeep);
   }
 
   /**
@@ -177,8 +221,19 @@ export class ShaftView {
    */
   update(sy: number, t: number, taken: Uint8Array, pulse: number): void {
     this.sy = sy;
-    const lo = sy - VIEW_BELOW;
-    const hi = sy + VIEW_ABOVE;
+    const lo = sy - this.viewBelow;
+    const hi = sy + this.viewAbove;
+    // The filler follows the spark in steps of 64 px, so its stripes stay in line with the
+    // stripes baked into the chunks.
+    const fy = -(Math.floor((sy + FILL_H * 0.7) / 64) * 64);
+    let n = 0;
+    for (let i = 0; i < 2; i++) {
+      const fx = i === 0 ? -FILL_W : SHAFT_W;
+      this.fills[i]!.setPosition(i === 0 ? fx + 2 : fx - 2, fy);
+      // Stripe tiles on the 64 px lattice (the right side starts at 704, under the last chunk px).
+      const sx0 = i === 0 ? -FILL_W : SHAFT_W - 16;
+      for (let c = 0; c < FILL_COLS; c++) for (let r = 0; r < FILL_ROWS; r++) this.fillStripes[n++]!.setPosition(sx0 + c * FILL_TILE, fy + r * FILL_TILE);
+    }
     const first = Math.floor(lo / CHUNK_H);
     const last = Math.floor(hi / CHUNK_H);
     // Release pool chunks out of view.
@@ -323,7 +378,14 @@ export class ShaftView {
         v.idx = i;
         v.text.setText(this.gateLabel(g.kind));
       }
-      v.text.setVisible(true).setPosition((l + r) / 2, -g.y - 66).setColor(css(color)).setScale(1 + pulse * 0.08).setAlpha(this.labelAlpha(g.y + 66));
+      const ls = 1 + pulse * 0.08;
+      v.text
+        .setVisible(true)
+        .setPosition((l + r) / 2, -g.y - this.labelGap)
+        .setColor(css(color))
+        .setScale(ls, ls * this.labelFlipY)
+        .setRotation(this.labelRot)
+        .setAlpha(this.labelAlpha((l + r) / 2, g.y + this.labelGap));
     }
     for (; n < this.gatePool.length; n++) {
       const v = this.gatePool[n]!;
@@ -366,7 +428,7 @@ export class ShaftView {
       .setPosition((l + r) / 2, -y - 70 - k * 520)
       .setColor(css(PALETTE.gold))
       .setScale(1 + pulse * 0.1 + k * 0.8)
-      .setAlpha((1 - k) * this.labelAlpha(y + 70));
+      .setAlpha((1 - k) * this.labelAlpha((l + r) / 2, y + 70));
   }
 
   /** The finish label flies off (call on the crossing). */
@@ -375,8 +437,8 @@ export class ShaftView {
   }
 
   /** World label at height wy: fades as it slides under the HUD band. */
-  private labelAlpha(wy: number): number {
-    const screenY = this.sparkScreenY - (wy - this.sy);
+  private labelAlpha(wx: number, wy: number): number {
+    const screenY = this.screenY ? this.screenY(wx, wy) : this.sparkScreenY - (wy - this.sy);
     return Math.min(1, Math.max(0, (screenY - this.hudBottom) / 90));
   }
 

@@ -259,7 +259,10 @@ export class MenuCard extends NeonButton {
   }
 
   setSub(text: string): this {
-    fitText(this.sub.setText(text), this.sub.getData('maxW') as number, 22);
+    const maxW = this.sub.getData('maxW') as number;
+    fitText(this.sub.setText(text), maxW, 22);
+    // A narrow card (three in a row) squeezes a long line rather than letting it run off the card.
+    this.sub.setScale(this.sub.width > maxW ? maxW / this.sub.width : 1);
     return this;
   }
 }

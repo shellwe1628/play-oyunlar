@@ -210,23 +210,27 @@ export class RanksScene extends OyunScene {
     }
     if (tab === 'records') {
       // Endless and daily first, then the levels of one world.
-      const eb = d.endlessBest > 0 ? `${d.endlessBest} m${d.endlessDate ? `  ·  ${d.endlessDate}` : ''}` : this.t('records.none');
-      add(bigText(this, L.left + 40, top + 10, this.t('records.endless'), 28, 0xd8c8ff).setOrigin(0, 0.5));
-      add(bigText(this, L.right - 40, top + 10, eb, 28, PALETTE.gold).setOrigin(1, 0.5));
-      add(bigText(this, L.left + 40, top + 54, this.t('records.daily'), 28, 0xd8c8ff).setOrigin(0, 0.5));
-      add(bigText(this, L.right - 40, top + 54, this.t('records.streak', { n: d.daily.bestStreak }), 26, PALETTE.gold).setOrigin(1, 0.5));
+      const best = (m: number, date: string): string => (m > 0 ? `${m} m${date ? `  ·  ${date}` : ''}` : this.t('records.none'));
+      add(bigText(this, L.left + 40, top - 4, this.t('records.endless'), 26, 0xd8c8ff).setOrigin(0, 0.5));
+      add(bigText(this, L.right - 40, top - 4, best(d.endlessBest, d.endlessDate), 26, PALETTE.gold).setOrigin(1, 0.5));
+      add(bigText(this, L.left + 40, top + 30, this.t('records.dive'), 26, 0xd8c8ff).setOrigin(0, 0.5));
+      add(bigText(this, L.right - 40, top + 30, best(d.diveBest, d.diveDate), 26, PALETTE.gold).setOrigin(1, 0.5));
+      add(bigText(this, L.left + 40, top + 64, this.t('records.daily'), 26, 0xd8c8ff).setOrigin(0, 0.5));
+      add(bigText(this, L.right - 40, top + 64, this.t('records.streak', { n: d.daily.bestStreak }), 24, PALETTE.gold).setOrigin(1, 0.5));
       const hist = d.daily.history.slice(-4);
       const hs = hist.length ? hist.map((h) => `${h.date.slice(5)} ${h.best} m`).join('   ') : this.t('records.none');
-      fitText(add(bigText(this, L.cx, top + 94, hs, 24)), L.width - 70, 24);
+      fitText(add(bigText(this, L.cx, top + 98, hs, 22)), L.width - 70, 22);
       // World chips.
       for (let w = 1; w <= WORLD_COUNT; w++) {
-        const x = L.cx + (w - 2.5) * 150;
+        // Five chips across the page.
+        const cw = Math.min(150, (L.width - 40) / WORLD_COUNT);
+        const x = L.cx + (w - (WORLD_COUNT + 1) / 2) * cw;
         const g = add(this.add.graphics());
         const on = w === this.recWorld;
-        g.fillStyle(on ? PALETTE.gold : PALETTE.ui, 1).fillRoundedRect(x - 66, top + 126, 132, 48, 22);
+        g.fillStyle(on ? PALETTE.gold : PALETTE.ui, 1).fillRoundedRect(x - cw / 2 + 6, top + 126, cw - 12, 48, 22);
         const label = add(bigText(this, x, top + 150, this.t('world.n', { n: w }), 24, on ? 0x2a1018 : 0xffffff));
-        fitText(label, 120, 24);
-        const zone = add(this.add.zone(x, top + 150, 140, 60).setInteractive({ useHandCursor: true }));
+        fitText(label, cw - 26, 24);
+        const zone = add(this.add.zone(x, top + 150, cw - 4, 60).setInteractive({ useHandCursor: true }));
         zone.on(Phaser.Input.Events.GAMEOBJECT_POINTER_UP, () => {
           this.recWorld = w;
           this.show('records');
@@ -254,10 +258,11 @@ export class RanksScene extends OyunScene {
       const col = i % 2;
       const row = Math.floor(i / 2);
       const x = L.left + 30 + col * colW;
-      const y = top + 30 + row * 64;
+      // Twelve rows since world 5 (23 feats): a slightly tighter pitch keeps them on one page.
+      const y = top + 26 + row * 62;
       const got = (d.achievements & (1 << i)) !== 0;
       const g = add(this.add.graphics());
-      g.fillStyle(got ? 0x2e8a5a : PALETTE.ink, got ? 0.55 : 0.45).fillRoundedRect(x, y - 28, colW - 12, 58, 18);
+      g.fillStyle(got ? 0x2e8a5a : PALETTE.ink, got ? 0.55 : 0.45).fillRoundedRect(x, y - 28, colW - 12, 56, 18);
       const nm = add(bigText(this, x + 14, y - 10, `${got ? '✓ ' : ''}${this.t(`ach.${a.id}` as 'ach.first')}`, 24, got ? PALETTE.gold : PALETTE.white).setOrigin(0, 0.5));
       fitText(nm, colW - 100, 24);
       const ds = add(bigText(this, x + 14, y + 14, this.t(`achd.${a.id}` as 'achd.first'), 18, 0xd8c8ff).setOrigin(0, 0.5));

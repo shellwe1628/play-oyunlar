@@ -1,5 +1,5 @@
 /**
- * Level select: four worlds of ten, one world per page (tabs), cards in each level's colours
+ * Level select: five worlds of ten, one world per page (tabs), cards in each level's colours
  * with stars and best %, the boss card crowned, star gates on worlds. Test actions: pick, world,
  * back.
  */
@@ -8,7 +8,7 @@ import Phaser from 'phaser';
 import { Backdrop } from '../render/Backdrop';
 import { ensureCanvasArt } from '../render/canvasArt';
 import { countUp, drawHalo, enter, isCalm, Motes, pressable, wipeIn, wipeTo } from '../render/menuFx';
-import { ensureWorldArt, MOTIFS } from '../render/worldArt';
+import { ensureWorldArt, motifOf } from '../render/worldArt';
 import { gameSave } from '../save';
 import { totalStars, worldStars, WORLD_STAR_REQ } from '../sim/meta';
 import { levelInfo, WORLD_COUNT, WORLD_SIZE, worldOf } from '../sim/levels';
@@ -18,7 +18,7 @@ import { bigText, fitText, IconTile } from '../ui';
 import type { GameStart } from './GameScene';
 import { SCENES, UNLOCKED_KEY } from './keys';
 
-const WORLD_COLORS = [0xff7a1a, 0x3ff6ff, 0x9dff3a, 0xc35bff] as const;
+const WORLD_COLORS = [0xff7a1a, 0x3ff6ff, 0x9dff3a, 0xc35bff, 0xff5fa8] as const;
 
 export class LevelsScene extends OyunScene {
   private backdrop!: Backdrop;
@@ -158,7 +158,7 @@ export class LevelsScene extends OyunScene {
       g.fillStyle(PALETTE.ink, 0.6).fillRoundedRect(-cw / 2, -ch / 2 + 8, cw, ch, 30);
       g.fillStyle(dim(pal.top), 1).fillRoundedRect(-cw / 2, -ch / 2, cw, ch, 30);
       g.fillStyle(dim(pal.bottom), 1).fillRoundedRect(-cw / 2, 0, cw, ch / 2, { tl: 0, tr: 0, bl: 30, br: 30 });
-      const motif = MOTIFS[info.theme % MOTIFS.length]!;
+      const motif = motifOf(info.theme);
       const preview = this.add
         .tileSprite(0, 0, cw - 20, ch - 20, `wp-${motif}`)
         .setBlendMode(Phaser.BlendModes.ADD)
@@ -169,7 +169,7 @@ export class LevelsScene extends OyunScene {
       const parts: Phaser.GameObjects.GameObject[] = [g, preview, frame];
       parts.push(bigText(this, -cw / 2 + 64, -6, `${id}`, id >= 10 ? 70 : 80));
       if (info.boss) parts.push(this.add.image(-cw / 2 + 64, -62, 'ic-crown').setScale(0.55).setTint(PALETTE.gold));
-      if (info.intro) parts.push(bigText(this, -cw / 2 + 64, 54, this.t('levels.new'), 22, PALETTE.gold));
+      if (info.intro || info.twists.length) parts.push(bigText(this, -cw / 2 + 64, 54, this.t('levels.new'), 22, PALETTE.gold));
       // A level the last finish unlocked: its lock shakes, pops off and the card lights up (once).
       const unlocking = !locked && id === fresh && !rec.done;
       const reveal: (Phaser.GameObjects.Text | Phaser.GameObjects.Image)[] = [];

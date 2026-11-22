@@ -82,6 +82,18 @@ export function ensureCanvasArt(scene: Phaser.Scene): void {
     c.fillRect(0, 0, 256, 256);
   });
 
+  // Wall filler stripes: the chunks' diagonal stripes (lines x + y = 10 mod 64) on a 512 px tile.
+  make('wall-fill', 512, 512, (c) => {
+    c.strokeStyle = 'rgba(255,255,255,0.07)';
+    c.lineWidth = 14;
+    for (let k = 10 - 64; k < 1024 + 64; k += 64) {
+      c.beginPath();
+      c.moveTo(k + 20, -20);
+      c.lineTo(k - 532, 532);
+      c.stroke();
+    }
+  });
+
   make('hud-shade', 4, 320, (c) => {
     const g = c.createLinearGradient(0, 0, 0, 320);
     g.addColorStop(0, 'rgba(14,4,32,0.86)');

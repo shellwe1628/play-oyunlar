@@ -141,7 +141,7 @@ describe('save migration v2 → v3 (existing players keep levels, gems and skins
     const s = createSaveStore(saveOptions(storage, 'test'));
     expect(s.status).toBe('migrated');
     const d = s.data;
-    expect(d.levels).toHaveLength(40);
+    expect(d.levels).toHaveLength(50);
     for (let i = 0; i < 10; i++) {
       const o = v2.levels[i]!;
       expect(d.levels[i], `level ${i + 1}`).toMatchObject({ best: o.best, attempts: o.attempts, gemMask: o.gemMask, done: o.done });

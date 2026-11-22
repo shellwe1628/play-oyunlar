@@ -83,7 +83,7 @@ export class Trail {
       const k = 0.5 + 0.5 * Math.sin(tm * 9 - now / 160);
       return lerpColor(this.head0, this.tail0, k);
     }
-    if (this.style === 'aurora') return lerpColor(this.head0, this.tail0, 0.5 + 0.5 * Math.sin(tm * 5 + now / 500));
+    if (this.style === 'aurora' || this.style === 'vortex') return lerpColor(this.head0, this.tail0, 0.5 + 0.5 * Math.sin(tm * 5 + now / 500));
     return lerpColor(this.head0, this.tail0, Math.min(1, tm * 1.6));
   }
 
@@ -162,6 +162,12 @@ export class Trail {
         this.drawRibbon(hx, hy, alpha * 0.9, now, 'neon', 0);
         this.drawWalk(hx, hy, alpha, now, 'glint');
         return;
+      case 'vortex':
+        // Layered: a wide aura, a neon core, little whirls turning along the path.
+        this.drawRibbon(hx, hy, alpha * 0.45, now, 'aura', 0);
+        this.drawRibbon(hx, hy, alpha * 0.9, now, 'neon', 0);
+        this.drawWalk(hx, hy, alpha, now, 'swirl');
+        return;
       case 'nova':
         // Layered: a wide pulsing aura, flame, a cycling core, galaxy dust.
         this.drawRibbon(hx, hy, alpha * 0.5, now, 'aura', 0);
@@ -227,7 +233,7 @@ export class Trail {
   private drawWalk(hx: number, hy: number, alpha: number, now: number, style: string): void {
     const g = this.g;
     const step =
-      style === 'pixels' ? 15 : style === 'dots' ? 22 : style === 'lightning' || style === 'fork' ? 26 : style === 'bars' ? 18 : style === 'glint' ? 30 : style === 'dust' ? 9 : style === 'tongue' ? 16 : 10;
+      style === 'pixels' ? 15 : style === 'dots' ? 22 : style === 'lightning' || style === 'fork' ? 26 : style === 'bars' ? 18 : style === 'glint' ? 30 : style === 'dust' ? 9 : style === 'tongue' ? 16 : style === 'swirl' ? 46 : 10;
     const len = style === 'tongue' ? this.length * 0.6 : this.length;
     let px = hx;
     let py = hy;
@@ -310,6 +316,24 @@ export class Trail {
           const cy = qy + Math.sin(a) * rr * 0.6;
           const tw = 0.5 + 0.5 * Math.sin(now / 90 + k);
           g.fillStyle(k % 3 === 0 ? 0xffffff : lerpColor(this.head0, this.tail0, hash(k, 5)), fade * tw).fillCircle(cx, -cy, 2 + 3.5 * hash(k, 9));
+        } else if (style === 'swirl') {
+          // Whirls: two spiral arms turning about a point on the path, alternate ways.
+          const turn = (now / 240) * (k % 2 ? 1 : -1) + k * 0.9;
+          const rr = (20 + 8 * this.pulse) * (1 - tm * 0.55) * this.boost;
+          for (let arm = 0; arm < 2; arm++) {
+            const a0 = turn + arm * Math.PI;
+            let ax = qx + Math.cos(a0) * rr * 0.25;
+            let ay = qy + Math.sin(a0) * rr * 0.25;
+            for (let s = 1; s <= 3; s++) {
+              const a1 = a0 + s * 0.5;
+              const r1 = rr * (0.25 + 0.25 * s);
+              const bx = qx + Math.cos(a1) * r1;
+              const by = qy + Math.sin(a1) * r1;
+              g.lineStyle(5 - s, s === 1 ? 0xffffff : col, fade * (1 - s * 0.2)).lineBetween(ax, -ay, bx, -by);
+              ax = bx;
+              ay = by;
+            }
+          }
         } else if (style === 'tongue') {
           // Flame tongues licking out sideways.
           const wob = Math.sin(now / 45 + k * 1.3);

@@ -6,7 +6,8 @@
 import type { Rng } from '@oyun/core/pure';
 import { type TrackBuilder } from './builder';
 import { GEM_R, START_X } from './constants';
-import type { GateKind } from './track';
+import type { GateKind, Twist, TwistKind } from './track';
+import { easeFor, rockPeriod } from './twist';
 
 export const PORT_H = 170;
 /** Opening chamber: walls at the screen edges (EDGE_MIN), kept for OPEN_SAFE px of climb. */
@@ -15,12 +16,28 @@ export const OPEN_SAFE = 340;
 
 export type PatternKind = 'open' | 'wide' | 'wave' | 'zig' | 'needle' | 'slalom' | 'bars' | 'steps' | 'rhythm' | 'split' | 'laser' | 'spin' | 'piston' | 'wind' | 'portal' | 'mirror';
 
+/** A view twist asked for by a level: kind and strength (degrees or zoom factor). */
+export interface TwistSpec {
+  kind: TwistKind;
+  amount?: number;
+}
+
+/**
+ * Twist chamber: a wide, empty, straight stretch in which the view changes. Its half-width, the
+ * run-up before the change starts (the banner and the hold arrow show there) and the run-out.
+ */
+export const TWIST_H = 280;
+export const TWIST_LEAD = 200;
+export const TWIST_TAIL = 70;
+
 /** Mechanic kinds (introduced one at a time from world 2 on). */
 export const MECHANICS = ['split', 'laser', 'spin', 'wind', 'piston', 'dark', 'portal', 'mirror'] as const;
 export type Mechanic = (typeof MECHANICS)[number];
 
 export interface Seg {
-  k: PatternKind | 'gate';
+  k: PatternKind | 'gate' | 'twist';
+  /** twist: the open twists ease out, then these ease in (none = back to the normal view). */
+  tw?: TwistSpec[];
   q?: number;
   gem?: boolean;
   gate?: GateKind;
@@ -36,6 +53,8 @@ export interface PatternCtx {
   rng: Rng;
   /** Spark is mini (corridors tighten). */
   mini: boolean;
+  /** Twists eased in and not yet eased out. */
+  open?: Twist[];
 }
 
 const lerp = (a: number, b: number, t: number): number => a + (b - a) * Math.min(1, Math.max(0, t));
@@ -54,7 +73,7 @@ export function emit(b: TrackBuilder, seg: Seg, ctx: PatternCtx): void {
   const y0 = b.y;
   emitInner(b, seg, ctx);
   if (seg.dark) b.darks.push({ y0: y0 - 200, y1: b.y });
-  if (seg.k !== 'gate') b.sections.push({ y: b.y, scored: seg.k !== 'open' && seg.k !== 'wide' && (seg.q ?? 0) >= 0.1 });
+  if (seg.k !== 'gate' && seg.k !== 'twist') b.sections.push({ y: b.y, scored: seg.k !== 'open' && seg.k !== 'wide' && (seg.q ?? 0) >= 0.1 });
 }
 
 function emitInner(b: TrackBuilder, seg: Seg, ctx: PatternCtx): void {
@@ -69,6 +88,40 @@ function emitInner(b: TrackBuilder, seg: Seg, ctx: PatternCtx): void {
       b.straight(200, PORT_H);
       if (seg.gate === 'mini') ctx.mini = true;
       if (seg.gate === 'big') ctx.mini = false;
+      return;
+    }
+    case 'twist': {
+      // A calm chamber: the open twists ease out, then the new ones ease in. Presentation only:
+      // to the sim this is a wide, empty, straight corridor.
+      const open = (ctx.open ??= []);
+      const v = b.topSpeed;
+      b.taper(TWIST_H);
+      b.straight(TWIST_LEAD);
+      if (open.length) {
+        let len = 0;
+        for (const t of open) {
+          t.y1 = b.y + t.ease;
+          len = Math.max(len, t.ease);
+        }
+        open.length = 0;
+        b.straight(len);
+      }
+      const specs = seg.tw ?? [];
+      if (specs.length) {
+        let len = 0;
+        for (const sp of specs) {
+          const amount = sp.amount ?? 0;
+          const ease = easeFor(sp.kind, amount, v);
+          const t: Twist = { kind: sp.kind, y0: b.y, y1: Infinity, ease, amount, period: sp.kind === 'rock' ? rockPeriod(amount, v) : 0 };
+          b.twists.push(t);
+          open.push(t);
+          len = Math.max(len, ease);
+        }
+        b.straight(len);
+      }
+      b.straight(TWIST_TAIL);
+      b.taper(PORT_H);
+      b.straight(60);
       return;
     }
     case 'open': {

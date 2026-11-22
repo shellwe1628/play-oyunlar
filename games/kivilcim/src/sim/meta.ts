@@ -31,12 +31,15 @@ export function worldStars(d: SaveData, world: number): number {
   return s;
 }
 
-/** Total stars needed to enter world k (index k-1). */
-export const WORLD_STAR_REQ = [0, 15, 36, 60] as const;
+/**
+ * Total stars needed to enter world k (index k-1): 1.5, 1.8, 2 and again 2 stars per level
+ * played so far, so two stars a level always opens the next world.
+ */
+export const WORLD_STAR_REQ = [0, 15, 36, 60, 80] as const;
 
 /** Gems for each newly earned star, and for clearing a world's boss the first time. */
 export const GEMS_PER_STAR = 2;
-export const WORLD_CLEAR_GEMS = [20, 30, 40, 50] as const;
+export const WORLD_CLEAR_GEMS = [20, 30, 40, 50, 60] as const;
 /** Gems per 250 m milestone passed in an endless run. */
 export const ENDLESS_MILESTONE_GEMS = 1;
 /** Daily streak reward ladder (day 1, 2, ... 7); day 8 on pays the last-but-one value. */
@@ -61,6 +64,8 @@ export const SCORE_RULES = {
   /** Endless best (m) / 10, capped. */
   endlessDiv: 10,
   endlessCap: 400,
+  /** Dive best (m) / 10, capped (counted with the endless part). */
+  diveCap: 200,
   perStreakDay: 10,
   streakCap: 30,
   perDailyDay: 4,
@@ -76,7 +81,7 @@ export function scoreParts(d: SaveData): ScoreParts {
   return {
     stars: R.perStar * totalStars(d),
     levels: R.perLevel * done,
-    endless: Math.min(R.endlessCap, Math.floor(d.endlessBest / R.endlessDiv)),
+    endless: Math.min(R.endlessCap, Math.floor(d.endlessBest / R.endlessDiv)) + Math.min(R.diveCap, Math.floor(d.diveBest / R.endlessDiv)),
     daily: R.perStreakDay * Math.min(R.streakCap, d.daily.bestStreak) + R.perDailyDay * Math.min(R.dailyDaysCap, d.daily.days),
     collection: R.perTrail * (bits(d.skin.ownedTrails) - 1) + R.perShape * (bits(d.skin.ownedShapes) - 1),
     achievements: R.perAchievement * bits(d.achievements),
@@ -157,6 +162,9 @@ export const ACHIEVEMENTS: readonly Achievement[] = [
   { id: 'collector', gems: 15, check: (d) => bits(d.skin.ownedTrails) >= 8 },
   { id: 'blaze', gems: 20, check: (d) => rankOf(progressScore(d)) >= 5 },
   { id: 'stubborn', gems: 10, check: (d) => d.stats.attempts >= 100 },
+  { id: 'world5', gems: 65, check: (d) => doneUpTo(d, 50) },
+  { id: 'dive500', gems: 10, check: (d) => d.diveBest >= 500 },
+  { id: 'dive1500', gems: 25, check: (d) => d.diveBest >= 1500 },
 ];
 
 /** Flow meter levels (presentation; the best reached is saved for an achievement). */

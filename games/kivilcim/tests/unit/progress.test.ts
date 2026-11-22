@@ -25,7 +25,7 @@ describe('level progress', () => {
     const d = fresh();
     expect(d.unlocked).toBe(1);
     expect(levelToPlay(d)).toBe(1);
-    expect(d.levels).toHaveLength(40);
+    expect(d.levels).toHaveLength(50);
     expect(d.gems).toBe(0);
   });
 
@@ -69,12 +69,12 @@ describe('level progress', () => {
     expect(levelToPlay(d)).toBe(11);
   });
 
-  it('never unlocks past level 40', () => {
+  it('never unlocks past level 50', () => {
     const d = fresh();
-    for (let id = 1; id <= 40; id++) recordLevelRun(d, id, { percent: 100, gemMask: 7, finished: true, nearMisses: 0 });
-    expect(d.unlocked).toBe(40);
-    expect(levelToPlay(d)).toBe(40);
-    expect(totalStars(d)).toBe(120);
+    for (let id = 1; id <= 50; id++) recordLevelRun(d, id, { percent: 100, gemMask: 7, finished: true, nearMisses: 0 });
+    expect(d.unlocked).toBe(50);
+    expect(levelToPlay(d)).toBe(50);
+    expect(totalStars(d)).toBe(150);
   });
 
   it('endless unlocks after level 3 is finished', () => {
@@ -224,7 +224,7 @@ describe('game save', () => {
     bad.levels[1] = { best: 10, attempts: 1, gemMask: 0, done: false, stars: 7, bestDate: '' };
     const storage = memoryStorage({ 'oyun:test:save': JSON.stringify({ v: 3, data: bad }) });
     const s = createSaveStore(saveOptions(storage, 'test'));
-    expect(s.data.unlocked).toBe(40);
+    expect(s.data.unlocked).toBe(50);
     expect(s.data.gems).toBe(0);
     expect(s.data.skin.shape).toBe(0);
     expect(s.data.skin.trail).toBe(0);

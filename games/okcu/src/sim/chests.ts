@@ -49,8 +49,17 @@ export interface ChestLoot {
   unlocked: WeaponId | null;
 }
 
-/** The chest an ended run earns: wood below wave 8, silver from 8, gold from 22. */
-export function runChest(reached: number): ChestKind {
+/** stages a run must have cleared for its chest to be better than wooden */
+export const RUN_CHEST_MIN_STAGES = 3;
+
+/**
+ * The chest an ended run earns: wood below wave 8, silver from 8, gold from 22; and wood, whatever
+ * the wave, for a run that cleared fewer than RUN_CHEST_MIN_STAGES stages (`cleared`: a run started
+ * at a late chapter and lost at once reached a high wave without playing it). `cleared` omitted:
+ * the wave alone decides (callers that only know the wave).
+ */
+export function runChest(reached: number, cleared = Infinity): ChestKind {
+  if (cleared < RUN_CHEST_MIN_STAGES) return 'wood';
   return reached >= 22 ? 'gold' : reached >= 8 ? 'silver' : 'wood';
 }
 

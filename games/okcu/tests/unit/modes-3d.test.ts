@@ -12,7 +12,7 @@ import { CAREFUL, playRun } from '../../src/sim/aimbot';
 import { metaOf3d, newBank, type SaveData } from '../../src/sim/meta';
 import type { Mode } from '../../src/sim/modes';
 import { progressScore } from '../../src/sim/progress';
-import type { World } from '../../src/sim/world';
+import { advance, createWorld, rushJump, shoot, takeEvents, type World } from '../../src/sim/world';
 
 /** the app's save store with a player who has things to lose, and the little of `Game` the tracker reads */
 function setup(edit: (d: SaveData) => void = () => undefined) {
@@ -134,6 +134,77 @@ describe('3D tracker: mode runs', { timeout: 300_000 }, () => {
     expect(q.save.data.arsenal.chests).toEqual([]);
     expect(q.save.data.arsenal.modes).toEqual({ blitz: 0, rush: 0, rushTime: 0, chestDay: '', chestsUsed: 0 });
     expect(q.save.data.runs).toBe(12);
+  });
+
+  it('a quit from the pause menu in a Boss Rush (banked, never finished): its coins, no chest, no best', () => {
+    // the pause menu's Quit is `tracker.bank(w)` and a new world: the run is never finished
+    const q = setup();
+    let seen: World | null = null;
+    playRun(7, createRng(907), CAREFUL, {
+      difficulty: 'hard',
+      meta: metaOf3d(q.save.data),
+      mode: 'bossrush',
+      maxTime: 900,
+      events: (events, x) => {
+        if (!x.bank) {
+          x.bank = newBank(q.save.data);
+          q.tracker.reset(x);
+        }
+        seen = x;
+        q.tracker.frame(x);
+        for (const e of events) if (e.t === 'waveClear') q.tracker.bank(x, e.wave + 1);
+      },
+      // (stop with two bosses down and the third still standing)
+      each: (x) => {
+        if (x.rush!.beaten >= 2 && x.phase === 'play') x.time = 1e6;
+      },
+    });
+    const w = seen as World | null;
+    expect(w!.phase).toBe('play');
+    expect(w!.rush!.beaten).toBe(2);
+    expect(w!.run.coins).toBeGreaterThan(0);
+    q.tracker.bank(w!);
+    const d = q.save.data;
+    expect(d.coins).toBe(1000 + w!.run.coins);
+    expect(d.arsenal.chests).toEqual([]);
+    expect(d.arsenal.runChest).toBe(-1);
+    expect(d.arsenal.modes).toEqual({ blitz: 0, rush: 0, rushTime: 0, chestDay: '', chestsUsed: 0 });
+    expect([d.runs, d.best, d.chapter]).toEqual([12, 9, 1]);
+    expect(d.bosses).toEqual([2, 0, 0, 0, 0, 0]);
+  });
+
+  it('the rush result names the boss that stopped it, and nobody when that boss had already fallen', () => {
+    const lost = (seed: number, edit: (w: World) => void) => {
+      const s = setup((d) => {
+        d.arsenal.weapons.bow.level = 1;
+      });
+      const w = createWorld({ seed, meta: metaOf3d(s.save.data), difficulty: 'hard', mode: 'bossrush' });
+      w.bank = newBank(s.save.data);
+      s.tracker.reset(w);
+      rushJump(w, 1);
+      w.rush!.beaten = 1;
+      w.rush!.times = [4];
+      shoot(w, -1.4, 0.2);
+      edit(w);
+      for (let t = 0; t < 300 && w.phase !== 'over'; t += 1 / 30) {
+        advance(w, 1 / 30);
+        takeEvents(w);
+      }
+      expect(w.phase).toBe('over');
+      expect(w.player.alive).toBe(false);
+      return s.tracker.finish(w);
+    };
+    // stopped by the second boss (the giant), one boss beaten
+    const a = lost(31, () => undefined);
+    expect(a.mode!.result.score).toBe(1);
+    expect(a.stoppedBy).toBe('boss.giant');
+    // the same fall counted after the giant had gone down too: two beaten, nobody named
+    const b = lost(31, (w) => {
+      w.rush!.beaten = 2;
+      w.rush!.times = [4, 6];
+    });
+    expect(b.mode!.result.score).toBe(2);
+    expect(b.stoppedBy).toBeNull();
   });
 
   it('an ordinary run through the same tracker still counts: a run, the best wave, the first boss reward', () => {

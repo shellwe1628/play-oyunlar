@@ -17,7 +17,7 @@ import { bankProgress, bankStart, runOutcome } from '@sim/meta';
 import { bankMode, finishMode, modeChestsLeft, modeResult, type ModeOutcome } from '@sim/modes';
 import { bankRecords, FEATS, unlockFeats } from '@sim/progress';
 import { bankDailyChest, grantFirstBossRewards, grantRunChest } from '@sim/rewards';
-import { BOSS_KINDS, reachedWave, summarize, type World } from '@sim/world';
+import { BOSS_KINDS, reachedWave, stagesCleared, summarize, type World } from '@sim/world';
 import type { Game } from '../contract';
 import { todayKey } from './save';
 
@@ -54,7 +54,7 @@ export interface RunResult {
   chest: ChestKind | null;
   /** a mode run (Blitz, Boss Rush): its score and best; null for a run of chapters */
   mode: ModeOutcome | null;
-  /** Boss Rush lost to a boss: its name key (`boss.<kind>`); null otherwise */
+  /** Boss Rush lost to a boss it had not beaten: that boss's name key (`boss.<kind>`); null otherwise */
   stoppedBy: string | null;
   /** a mode run that earned no chest because the day's mode chests are taken */
   chestsDone: boolean;
@@ -115,7 +115,9 @@ export function createTracker(game: Game, onFeat: (id: string, coins: number) =>
     // a test run (no bank) shows its score against the saved best, and writes nothing
     const m = save.arsenal.modes;
     const shown: ModeOutcome | null = done.out ?? (r ? { result: r, best: r.mode === 'blitz' ? m.blitz : m.rush, bestTime: r.mode === 'blitz' ? 0 : m.rushTime, newBest: false, chest: null } : null);
-    const lost = w.rush && !w.player.alive ? BOSS_KINDS[w.rush.boss] : undefined;
+    // the boss that stopped a rush: the one being fought, unless it had already fallen (then
+    // nobody is named: the score says how many were beaten)
+    const lost = w.rush && !w.player.alive && w.rush.beaten <= w.rush.boss ? BOSS_KINDS[w.rush.boss] : undefined;
     return {
       wave: 0,
       coins: w.run.coins,
@@ -169,7 +171,8 @@ export function createTracker(game: Game, onFeat: (id: string, coins: number) =>
         game.save.update((d) => {
           // the run-end chest: once per run (a revived run that gets further upgrades it, RunBank.chest),
           // and only for a run that played: an arrow fired or a wave cleared
-          if (w.run.shots > 0 || w.wave > chapterStart(w.startChapter)) grantRunChest(d, b, w.wave);
+          // (wooden unless the run cleared three stages: a quick loss from a late chapter earns no more)
+          if (w.run.shots > 0 || w.wave > chapterStart(w.startChapter)) grantRunChest(d, b, w.wave, stagesCleared(w));
           if (!game.daily) return;
           dailyChest = bankDailyChest(d, key, w.wave);
           dailyStreak = d.dailyStreak;

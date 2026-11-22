@@ -19,7 +19,7 @@ import { bonusAfter, CHAPTERS, chapterStart, ENDLESS_WAVE, fieldSpan, fieldTop, 
 import { armourShare, ENEMY_DAMAGE, resolveHit, type EnemyType, type HitPart } from './combat';
 import { clamp, solveLaunchAngle, sweepAabb } from './geom';
 import { NO_META, type MetaLevels, type RunBank } from './meta';
-import { BLITZ, BLITZ_LEDGES, BLITZ_SPAN, blitzEvery, blitzHp, blitzLevel, MODE_THEME, RUSH_BOSSES, rushLevel, rushWave, type Mode } from './modes';
+import { BLITZ, BLITZ_LEDGES, BLITZ_SPAN, blitzEvery, blitzHeadKo, blitzHp, blitzLevel, MODE_THEME, RUSH_BOSSES, rushLevel, rushWave, type Mode } from './modes';
 import type { DailyMod, RunSummary } from './progress';
 import { BOSS_PARTS, bowOrigin, createRagdoll, LEG_HEIGHT, PARTS, PT, setPose, type Part } from './ragdoll';
 import { PLAYER_LEDGE, PLAYER_SCALE, PLAYER_X, TUNING } from './tuning';
@@ -976,7 +976,8 @@ function spawnWave(w: World, wave: number, instant: boolean): void {
   }
   w.shieldLeft = w.stats.shieldCharges;
   const kind = objectiveFor(wave, w.waveRng);
-  w.objective = kind ? { kind, limit: 10 + 5 * w.enemies.length, hit: false, heads: 0, multi: false } : null;
+  // (a mode has no objectives: it pays for knockouts only; the draw above keeps the rng in step)
+  w.objective = kind && !w.mode ? { kind, limit: 10 + 5 * w.enemies.length, hit: false, heads: 0, multi: false } : null;
   // (a mode world never reports chapter progress)
   if (!pos.endless && !w.mode) w.run.chapterStage[pos.chapter] = Math.max(w.run.chapterStage[pos.chapter]!, pos.stage);
   w.waveT0 = w.time;
@@ -1127,7 +1128,7 @@ function blitzArcher(w: World, instant: boolean, order = 0, wait = 0): boolean {
   const at = free[w.waveRng.int(0, free.length - 1)]!;
   const L = w.ledges[at]!;
   const e = makeArcher(w, 'archer', L.x + L.w / 2, L.y, -1, at);
-  e.hp = e.maxHp = blitzHp(w.meta.wlevel);
+  e.hp = e.maxHp = blitzHp(w.stats.weapon, w.stats.dmgMul);
   e.aimPenalty = BLITZ.wild;
   e.brain = 'wait';
   e.timer = BLITZ.grace + order * 0.6 + w.brainRng.range(0, BLITZ.graceJitter);
@@ -1169,8 +1170,10 @@ function updateBlitz(w: World): void {
     blitzArcher(w, false, 0, blitzEvery(w.meta.wlevel));
     return;
   }
-  // its turn comes after `blitzEvery` seconds; with the field full it waits, and drops as one falls
-  next.spawnT = Math.min(onField >= BLITZ.cap ? -DT : 0, next.spawnT + DT);
+  // fewer than BLITZ.field on the field (standing or on their way down): it drops at once
+  if (onField < BLITZ.field) next.spawnT = 0;
+  // else its turn comes after `blitzEvery` seconds; with the field full it waits, and drops as one falls
+  else next.spawnT = Math.min(onField >= BLITZ.cap ? -DT : 0, next.spawnT + DT);
 }
 
 /**
@@ -1533,9 +1536,10 @@ function clearWave(w: World): void {
     else if (o.kind === 'fast') ok = w.time - w.waveT0 <= o.limit;
     else if (o.kind === 'heads') ok = o.heads >= 1;
     else ok = o.multi;
-    const reward = ok ? Math.round((4 + 2 * Math.min(4, w.chapter)) * coinMul(w)) : 0;
+    // (never in a mode, whatever objective it holds)
+    const reward = ok && !w.mode ? Math.round((4 + 2 * Math.min(4, w.chapter)) * coinMul(w)) : 0;
     w.run.coins += reward;
-    if (ok) w.run.objectives += 1;
+    if (ok && !w.mode) w.run.objectives += 1;
     w.events.push({ t: 'objective', kind: o.kind, ok, coins: reward });
     w.objective = null;
   }
@@ -1931,7 +1935,8 @@ function knockOut(w: World, a: Archer, cause: KoCause): void {
     if (head) w.blitz.heads += 1;
   }
   let coins = 3 + Math.floor(w.level / 2) + (head ? (w.mod === 'heads' ? 4 : 2) : 0);
-  coins = Math.round(coins * coinMul(w));
+  // (Blitz: a share of it; its knockouts come fast, modes.ts)
+  coins = Math.round(coins * coinMul(w) * (w.blitz ? BLITZ.coinShare : 1));
   r.coins += coins;
   const hx = a.body.x[PT.head]!;
   const hy = a.body.y[PT.head]!;
@@ -1969,6 +1974,9 @@ function knockOut(w: World, a: Archer, cause: KoCause): void {
     // the summoner's spell breaks: its imps go down with it
     for (const e of w.enemies) if (e.alive && e.type === 'imp') knockOut(w, e, 'blast');
     for (const p of w.plates) p.active = false;
+    // Boss Rush: what the boss loosed and is still in the air goes with it (its arrows, orbs and
+    // lava rocks): the score is bosses beaten, and a beaten boss must not end the run
+    if (w.rush) for (const ar of w.arrows) if (ar.active && ar.owner === 'enemy' && ar.state === 0) ar.active = false;
   }
   if (w.stats.boomDmg > 0 && cause !== 'fall') boom(w, a);
 }
@@ -2142,7 +2150,8 @@ function brain(w: World, a: Archer): void {
         release(w, a);
         a.steady = false;
         a.brain = 'cool';
-        a.timer = timing.cool + w.brainRng.range(0, 0.6);
+        // (Blitz: its archers rest a little longer between shots; up to four shoot at once)
+        a.timer = timing.cool + w.brainRng.range(0, 0.6) + (w.blitz ? BLITZ.rest : 0);
       }
       break;
     }
@@ -3174,6 +3183,9 @@ function hitEnemy(w: World, a: Arrow, e: Archer, part: Part, hx: number, hy: num
   }
   if (w.stats.frostTime > 0) chillEnemy(w, e, w.stats.frostTime);
   if (e.type === 'boss') out.damage = Math.round(out.damage * underPower(w) * 100) / 100;
+  // Blitz: a head hit is always a knockout (no bullet sponges in a 60-second score attack); not
+  // the sling's, whose head hit is worth a chest hit
+  if (w.blitz && part.kind === 'head' && blitzHeadKo(w.stats.weapon)) out.ko = true;
   e.hp -= out.damage;
   checkBossPhase(w, e);
   const ko = out.ko || e.hp <= 0;
@@ -3522,6 +3534,15 @@ export function reachedWave(w: World): number {
   // a mode world reaches no wave of any chapter
   if (w.mode) return 0;
   return w.phase === 'clear' || w.phase === 'cards' || w.phase === 'bonus' ? w.wave + 1 : w.wave;
+}
+
+/**
+ * Stages cleared since the run started (from whatever chapter it started at): what the run chest
+ * asks for (chests.ts `runChest`). A mode world clears no stage of any chapter.
+ */
+export function stagesCleared(w: World): number {
+  if (w.mode) return 0;
+  return Math.max(0, reachedWave(w) - chapterStart(w.startChapter));
 }
 
 /** What the run has done so far (records, achievements, the result screen). */

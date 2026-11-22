@@ -11,7 +11,8 @@
  *   three ad-coin grants, all taken at the start of the day;
  * - the free chest is claimed whenever ready (play time drives its 4 h timer; the first is ready
  *   at once): wooden, or silver when the ad is watched;
- * - after every run: its coins, its `runChest(reached)`, and for every chapter boss beaten for the
+ * - after every run: its coins, its `runChest(reached, cleared)` (wooden unless the run cleared
+ *   RUN_CHEST_MIN_STAGES stages, as the game banks it), and for every chapter boss beaten for the
  *   first time a boss chest and that chapter's weapon (`grantBossReward`, sim/rewards.ts, the
  *   rules the 3D build banks); chests are opened at once. The daily goal's gold chest is not
  *   modelled (no daily runs are played).
@@ -42,6 +43,8 @@ export interface EconomyRun {
   coins: number;
   /** seconds */
   time: number;
+  /** stages cleared in the run (the run chest's rule); omitted: the run started at wave 1 (`reached` − 1) */
+  cleared?: number;
 }
 
 export interface EconomyOptions {
@@ -150,7 +153,7 @@ export function simulateEconomy(o: EconomyOptions): EconomyResult {
       save.bosses[c] = 1;
       grantBossReward(save, c);
     }
-    save.arsenal.chests.push(runChest(r.reached));
+    save.arsenal.chests.push(runChest(r.reached, r.cleared ?? r.reached - 1));
     openAll(save, income);
   }
 }

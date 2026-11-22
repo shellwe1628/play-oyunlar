@@ -312,6 +312,12 @@ export function createFx(stage: Stage): FxView {
         fx.sparks(e.x, e.y, 3, PALETTE.white, 200);
         break;
       case 'playerHit': {
+        // Blitz: hits keep coming all minute and cost time, not health: only a small ring where
+        // it struck (no shake, no hit-stop, no red veil over the field); 'blitzHit' says what it cost
+        if (w.blitz) {
+          fx.ring(e.x, e.y, PALETTE.danger, 1.1);
+          break;
+        }
         const dir = Math.atan2(e.vy, e.vx);
         shake(0.5);
         hitStop(60);
@@ -320,7 +326,6 @@ export function createFx(stage: Stage): FxView {
         fx.ring(e.x, e.y, PALETTE.danger, 1.1);
         fx.flash(e.x, e.y, PALETTE.danger, 150, 0.14, 0.8);
         fx.streaks(e.x, e.y, dir + Math.PI, 1.5, 5, mixWhite(PALETTE.danger, 0.4), 700);
-        // (Blitz: no health is lost; what the hit cost is said by 'blitzHit')
         if (e.dmg > 0) text.damage(-1, e.x, e.y, e.dmg, PALETTE.danger, true);
         break;
       }
@@ -634,8 +639,9 @@ export function createFx(stage: Stage): FxView {
         }
         break;
       case 'waveStart':
-        // landing thumps for archers dropping in (the first wave's were already standing)
-        if (e.wave > 1) later.push({ at: 0.56, kind: 'land' });
+        // landing thumps for archers dropping in (not for ones already standing: a run's first
+        // wave, a rush's first boss, a wave opened with ?wave=)
+        if (w.enemies.some((x) => x.brain === 'spawn')) later.push({ at: 0.56, kind: 'land' });
         break;
       case 'bonusHit':
         fx.ring(e.x, e.y, e.kind === 'apple' ? PALETTE.apple : PALETTE.gold, e.bull ? 1.8 : 1.1, 0.22);

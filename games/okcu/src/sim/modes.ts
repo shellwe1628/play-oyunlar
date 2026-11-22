@@ -4,18 +4,21 @@
  * level and the permanent upgrades; `createWorld({ mode })` builds them and world.ts runs them.
  * This file holds their numbers, what unlocks them and what a mode run may write to the save.
  *
- * Blitz: BLITZ.time seconds, plain archers dropping in on the arena's five mesas (BLITZ.field at
- * the start, then one `blitzEvery` seconds after the one before while fewer than BLITZ.cap stand;
- * with the field full the next one drops as one falls), no waves, cards or bosses. Score =
- * knockouts, a knockout by a head hit counts double. The player cannot be knocked out: a hit
- * costs BLITZ.hitCost seconds of the clock instead of health. The archers follow the weapon:
- * their health is BLITZ.hp × the weapon's power (`weaponDamage`: a head hit drops one at every
- * level; body hits: three with a new weapon, two from level 6 on, the hard rules' damage growing
- * a little faster than power), their aim and timing are `blitzLevel`'s, and a stronger weapon
- * brings them sooner (`blitzEvery`): a better weapon means more archers and more knockouts in the
- * minute. Measured with the balance tests' player (CAREFUL, NO_META but the bow's level, 8
- * seeds): 12 to 13 knockouts at level 1 (every archer that came), 18 to 20 at level 10, 24 to 28
- * at level 20; a new player's profile (STARTER) gets about 9 at any level.
+ * Blitz: BLITZ.time seconds, plain archers dropping in on the arena's five mesas, no waves, cards
+ * or bosses. Two to four are on the field: BLITZ.field stand at the start, the next one drops at
+ * once whenever fewer than BLITZ.field are on the field (a new one drops as one falls), and one
+ * more joins every `blitzEvery` seconds up to BLITZ.cap. Score = knockouts, a knockout by a head
+ * hit counts double. The player cannot be knocked out: a hit costs BLITZ.hitCost seconds of the
+ * clock instead of health.
+ * No bullet sponges: in Blitz a head hit is always a knockout, at every weapon level and with
+ * every weapon (world.ts `hitEnemy`), and the archers' health (`blitzHp`) only says how many body
+ * hits one takes: three with a new weapon, two from level 4, one from level 10 (the health is the
+ * same at every level; the weapon grows). The sling is the exception, because its head hit is
+ * worth a chest hit by its own rule: a sling's archers fall to BLITZ.slingHits hits, head or
+ * body, at every level. Their aim and timing are `blitzLevel`'s, made wild and unhurried
+ * (BLITZ.wild, BLITZ.rest) because several shoot at once and every hit costs three seconds.
+ * Measured bands: tests/unit/modes.test.ts pins them (CAREFUL and STARTER, hard, NO_META but the
+ * bow's level, seeds 1 … 8, at levels 1, 10 and 20).
  *
  * Boss Rush: the six chapter bosses in chapter order, each on its own boss stage (its ledges, wind
  * and movers) at its chapter's field size, health back to full before each and one card pick (of
@@ -28,19 +31,22 @@
  *
  * What a mode run earns (the guards, tests/unit/modes.test.ts): a mode run is short and can be
  * started again at once, so it pays little and on purpose. Coins: each knockout's own coins by the
- * run's rule (3 + level / 2, +2 for a head, × the run's coin share) and nothing else: no boss or
- * elite loot, nothing for wave clears, objectives or headshot chains. A wooden run chest when it
- * ends having shot at least once (none on quit), for the first MODE_CHESTS_PER_DAY mode runs of a
- * day only. Nothing else: it is not counted as a run, raises no best wave, chapter, record, boss
- * count, achievement, rank or daily streak, and unlocks no weapon. Its personal best goes to
- * `arsenal.modes`.
+ * run's rule (3 + level / 2, +2 for a head, × the run's coin share; in Blitz, where knockouts come
+ * fast, BLITZ.coinShare of that) and nothing else: no boss or elite loot, nothing for wave clears,
+ * objectives or headshot chains. A wooden run chest when it ends having shot at least once (none
+ * on quit), for the first MODE_CHESTS_PER_DAY mode runs of a day only (the shop's clock rule: a
+ * clock set back a day or two starts no new count, `modeChestsLeft`). Nothing else: it is not
+ * counted as a run, raises no best wave, chapter, record, boss count, achievement, rank or daily
+ * streak, and unlocks no weapon. Its personal best goes to `arsenal.modes`.
  */
-import type { ChestKind, ModeSave } from './arsenal';
+import { DAY_FORMAT, type ChestKind, type ModeSave } from './arsenal';
 import { CHAPTERS, levelOf, STAGES, type LedgeDef } from './chapters';
 import type { RunBank, SaveData } from './meta';
 import { grantRunChest } from './rewards';
+import { storedDayHolds } from './shop';
 import type { Difficulty } from './waves';
-import { weaponDamage } from './weapons';
+import { ENEMY_DAMAGE } from './combat';
+import { weaponDamage, WEAPONS, type WeaponId } from './weapons';
 import type { World } from './world';
 
 export type Mode = 'blitz' | 'bossrush';
@@ -56,24 +62,37 @@ export const BLITZ = {
   time: 60,
   /** seconds a hit on the player takes off the clock */
   hitCost: 3,
-  /** archers standing at the start, and the most on the field at once */
+  /**
+   * the fewest on the field (standing, or on their way down): they stand at the start, and the
+   * next archer drops at once whenever there are fewer; and the most on the field at once
+   */
   field: 2,
   cap: 4,
   /**
-   * seconds between two archers dropping in at weapon level 1; a stronger weapon brings them
-   * sooner (÷ damage^pace). With the field full the next one waits and drops as one falls.
+   * seconds until one more archer joins a field that already has `field` (up to `cap`), at
+   * weapon level 1; a stronger weapon brings them sooner (÷ damage^pace)
    */
-  every: 5.2,
-  pace: 0.7,
+  every: 12,
+  pace: 0.5,
   /** seconds a freshly landed archer waits before its first draw (plus up to `graceJitter`) */
   grace: 1,
   graceJitter: 0.6,
-  /** archer health at weapon level 1 (× the weapon's power, `weaponDamage`, at its level) */
-  hp: 100,
+  /**
+   * archer health against the bow, the same at every weapon level (× the weapon's own damage
+   * share, so every weapon needs the bow's count): a body hit (40 × the weapon's damage) takes
+   * three with a new weapon, two from level 4, one from level 10. A head hit is always a knockout.
+   */
+  hp: 110,
+  /** the sling (its head hit is worth a chest hit): hits, head or body, a Blitz archer takes at every level */
+  slingHits: 2,
+  /** share of a knockout's coins a Blitz knockout pays (there are many of them in the minute) */
+  coinShare: 0.4,
   /** difficulty levels (aim, timing, weight, coins) gained per weapon level */
   levelStep: 0.15,
   /** extra aim error of a Blitz archer, rad (up to four shoot at once and every hit costs 3 s) */
-  wild: 0.3,
+  wild: 0.45,
+  /** extra seconds a Blitz archer rests between two shots */
+  rest: 1.5,
 } as const;
 
 /**
@@ -100,12 +119,23 @@ export function blitzLevel(wlevel: number): number {
   return 1 + BLITZ.levelStep * (Math.max(1, wlevel) - 1);
 }
 
-/** Health of a Blitz archer for a weapon level. */
-export function blitzHp(wlevel: number): number {
-  return Math.round(BLITZ.hp * weaponDamage(wlevel));
+/**
+ * Health of a Blitz archer against `weapon`, whose arrows hit `dmgMul` times as hard as a new bow's
+ * (the run's `stats.dmgMul`: the weapon's share, its level, a starting card). It only decides
+ * the body hits: BLITZ.hp against the bow at every level (× the weapon's own share, so a spear or
+ * a boomerang needs the bow's count), and for the sling just under BLITZ.slingHits of its hits.
+ */
+export function blitzHp(weapon: WeaponId, dmgMul: number): number {
+  if (weapon === 'sling') return Math.round(BLITZ.slingHits * ENEMY_DAMAGE.body * dmgMul * 0.98);
+  return Math.round(BLITZ.hp * WEAPONS[weapon].dmgMul);
 }
 
-/** Seconds between two archers dropping in, for a weapon level. */
+/** Whether a head hit with `weapon` is a knockout in Blitz: with every weapon but the sling. */
+export function blitzHeadKo(weapon: WeaponId): boolean {
+  return WEAPONS[weapon].headMul >= 1;
+}
+
+/** Seconds until one more archer joins a field that is not short of archers, for a weapon level. */
 export function blitzEvery(wlevel: number): number {
   return BLITZ.every / weaponDamage(wlevel) ** BLITZ.pace;
 }
@@ -138,9 +168,21 @@ export function rushLevel(boss: number, d: Difficulty = 'classic'): number {
 
 // ---------------------------------------------------------------- the save
 
-/** Blitz opens once a run has been played; Boss Rush once the first chapter's boss has been beaten. */
+/**
+ * Blitz opens with the first run (a run is counted when its first arrow flies); Boss Rush once the
+ * first chapter's boss has been beaten.
+ */
 export function modeUnlocked(save: SaveData, mode: Mode): boolean {
   return mode === 'blitz' ? save.runs >= 1 : (save.bosses[0] ?? 0) > 0;
+}
+
+/**
+ * The mode a run may be started in: `mode` if it is a mode and open on this save, else null (a run
+ * of chapters). `testRun`: the app's URL test runs, which leave the save alone, may open either.
+ */
+export function allowedMode(save: SaveData, mode: Mode | null | undefined, testRun = false): Mode | null {
+  if (!mode || !MODES.includes(mode)) return null;
+  return testRun || modeUnlocked(save, mode) ? mode : null;
 }
 
 export interface ModeResult {
@@ -182,10 +224,17 @@ export function bankMode(save: SaveData, bank: RunBank, w: World): void {
 /** run chests the modes give in one day (both modes together) */
 export const MODE_CHESTS_PER_DAY = 3;
 
-/** Mode run chests still to be had on day `dayKey` ('YYYY-MM-DD'). */
+/**
+ * Mode run chests still to be had on day `dayKey` ('YYYY-MM-DD'), by the shop's clock rule
+ * (shop.ts `storedDayHolds`, ruling P): the stored day's count stands on that day and when the
+ * device clock is a day or two behind it (going back does not start a new count); any other day
+ * starts a new one (a later day, or a stored day more than DAY_SKEW_TOLERANCE days ahead: a clock
+ * once set far ahead cannot lock the chests out). A key that is not a day gives none.
+ */
 export function modeChestsLeft(save: SaveData, dayKey: string): number {
+  if (!DAY_FORMAT.test(dayKey)) return 0;
   const m = save.arsenal.modes;
-  return Math.max(0, MODE_CHESTS_PER_DAY - (m.chestDay === dayKey ? m.chestsUsed : 0));
+  return Math.max(0, MODE_CHESTS_PER_DAY - (storedDayHolds(m.chestDay, dayKey) ? m.chestsUsed : 0));
 }
 
 export interface ModeOutcome {
@@ -210,7 +259,8 @@ export function finishMode(save: SaveData, bank: RunBank, w: World, dayKey: stri
   bankMode(save, bank, w);
   const m = save.arsenal.modes;
   if (w.run.shots > 0 && bank.chest === null && modeChestsLeft(save, dayKey) > 0) {
-    if (m.chestDay !== dayKey) {
+    // (the stored day's count goes on while it holds, shop.ts `storedDayHolds`; else a new day starts)
+    if (!storedDayHolds(m.chestDay, dayKey)) {
       m.chestDay = dayKey;
       m.chestsUsed = 0;
     }

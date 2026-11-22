@@ -404,7 +404,8 @@ export function createResult(ui: Ui, parent: HTMLElement, hooks: ResultHooks): R
       if (md && rush) {
         // Boss Rush: the fight time of the bosses beaten, and how it ended
         if (md.result.score > 0) lines.push(t('mode.result.time', { t: md.result.time.toFixed(1) }));
-        lines.push(r.stoppedBy ? t('mode.result.stopped', { b: t(r.stoppedBy) }) : t('mode.result.cleared'));
+        if (r.stoppedBy) lines.push(t('mode.result.stopped', { b: t(r.stoppedBy) }));
+        else if (md.result.score >= RUSH_BOSSES) lines.push(t('mode.result.cleared'));
       } else lines.push(t('result.kos', { k: r.kos, h: r.headshots }));
       if (r.chestsDone) lines.push(t('mode.result.noChest'));
       if (r.dailyChest) lines.push(t('result.dailyChest', { n: r.dailyStreak }));
@@ -464,7 +465,7 @@ export function createResult(ui: Ui, parent: HTMLElement, hooks: ResultHooks): R
       dur = Math.min(0.9, 0.2 + score * 0.04);
       done = false;
       // (a Blitz always ends with the archer standing, a rush cleared is a win: neither is a loss)
-      ui.audio.play(newBest || (md && !r.stoppedBy) ? 'win' : 'lose');
+      ui.audio.play(newBest || (md && (!rush || md.result.score >= RUSH_BOSSES)) ? 'win' : 'lose');
       const tap = (fn: () => void) => () => {
         if (busy) return;
         ui.audio.play('tap');

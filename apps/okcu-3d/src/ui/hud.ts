@@ -639,8 +639,9 @@ export function createHud(stage: Stage, game: Game): Module {
       audio.playPreset(SFX.drum);
       if (wave > 1 || w.startChapter > 0) showBanner(e.elite ? t('hud.elite') : waveLabel(w), intro ?? obj);
     }
-    // landing thumps for archers dropping in (the first wave's archers were already standing at the title)
-    if (wave > 1) later(0.56, (now) => {
+    // landing thumps for archers dropping in (not for ones already standing: a run's first wave
+    // and a rush's first boss stood at the title)
+    if (w.enemies.some((x) => x.brain === 'spawn')) later(0.56, (now) => {
       if (now.enemies.length) audio.playPreset(SFX.slam, { volume: 0.6 });
     });
   }
@@ -674,7 +675,8 @@ export function createHud(stage: Stage, game: Game): Module {
         case 'playerHit':
           audio.playPreset(SFX.ouch);
           audio.playPreset(SFX.thunk, { volume: 0.7, pitch: -3 });
-          painter.hpPop(1);
+          // (Blitz: no health is lost, the clock pays: the bar stays still)
+          if (!w.blitz) painter.hpPop(1);
           break;
         case 'blocked':
           audio.playPreset(SFX.bubble);
@@ -870,7 +872,9 @@ export function createHud(stage: Stage, game: Game): Module {
           audio.playPreset(SFX.slam, { volume: 0.3 });
           break;
         case 'modeEnd':
-          // the clock ran out, or the last boss fell: the call, then the result card
+          // the clock ran out, or the last boss fell: the call, then the result card (a pull in
+          // progress is let go: nothing can be loosed any more)
+          cancelDrag();
           clearTransients();
           audio.play('win', { volume: 0.7 });
           callout(t(`mode.end.${e.mode}`), PALETTE.gold, 72);

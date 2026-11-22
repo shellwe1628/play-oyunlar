@@ -13,7 +13,7 @@ import { createProps } from './arena/props';
 export function createArena(stage: Stage): Module {
   const backdrop = createBackdrop(stage.scene);
   const ledges = createLedges(stage.scene);
-  const props = createProps(stage.scene);
+  const props = createProps(stage.scene, stage.camera);
   const mods = createMods(stage.scene);
   return {
     update({ w, real, time }) {

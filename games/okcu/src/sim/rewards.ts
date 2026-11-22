@@ -3,8 +3,9 @@
  * into `save.arsenal`. The app only calls these (apps/okcu-3d/src/ui/progress.ts); the economy
  * simulation (sim/economy.ts) follows the same rules. Chests are queued, never opened here.
  *
- * - run end: `runChest(reached)`, once per run; a revived run that dies further on upgrades the
- *   chest it already queued instead of adding a second (`RunBank.chest`);
+ * - run end: `runChest(reached, cleared)`, once per run (wooden unless the run cleared
+ *   RUN_CHEST_MIN_STAGES stages); a revived run that dies further on upgrades the chest it already
+ *   queued instead of adding a second (`RunBank.chest`);
  * - the first knockout of chapter c's boss: a boss chest and the weapon with `unlockBoss === c`
  *   (level 1, if not owned yet); the sky boss (chapter index 5) brings the celestial look; each
  *   newly unlocked weapon (and the look) is owed a full-screen reveal (`arsenal.reveals`), and the
@@ -56,13 +57,15 @@ export function grantFirstBossRewards(save: SaveData, before: readonly number[])
 }
 
 /**
- * The run-end chest: queues `runChest(reached)` the first time this run ends and marks where it
- * waits (`arsenal.runChest`). A revived run ends again: a better chest then replaces exactly that
- * chest if it is still unopened (another chest of the same kind elsewhere in the line is never
- * touched); once it was opened, nothing. Returns the kind queued or upgraded to, null when nothing changed.
+ * The run-end chest: queues `runChest(reached, cleared)` the first time this run ends and marks
+ * where it waits (`arsenal.runChest`). `cleared` is the stages the run cleared (world.ts
+ * `stagesCleared`): with fewer than RUN_CHEST_MIN_STAGES the chest is wooden whatever wave was
+ * reached. A revived run ends again: a better chest then replaces exactly that chest if it is
+ * still unopened (another chest of the same kind elsewhere in the line is never touched); once it
+ * was opened, nothing. Returns the kind queued or upgraded to, null when nothing changed.
  */
-export function grantRunChest(save: SaveData, bank: RunBank, reached: number): ChestKind | null {
-  const kind = runChest(reached);
+export function grantRunChest(save: SaveData, bank: RunBank, reached: number, cleared = Infinity): ChestKind | null {
+  const kind = runChest(reached, cleared);
   const a = save.arsenal;
   const q = a.chests;
   if (bank.chest === null) {

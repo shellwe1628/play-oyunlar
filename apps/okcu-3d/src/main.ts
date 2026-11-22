@@ -44,7 +44,7 @@ import { CAREFUL, planShot } from '@sim/aimbot';
 import { BOW_MAX } from '@sim/bow';
 import { bowEquivalent, levelForBow, WEAPON_IDS } from '@sim/weapons';
 import { metaOf3d, newBank, NO_META, UPGRADES } from '@sim/meta';
-import { MODES, type Mode } from '@sim/modes';
+import { allowedMode, MODES, type Mode } from '@sim/modes';
 import { dailyChallenge } from '@sim/progress';
 import type { Difficulty } from '@sim/waves';
 import {
@@ -244,8 +244,9 @@ const game: Game = {
     world.player.draw = 0;
   },
   startRun(opts: RunOptions = {}) {
-    // a mode is its own kind of run: never the daily
-    play = opts.mode ?? null;
+    // a mode is its own kind of run: never the daily; one still locked on this save is refused
+    // (a run of chapters starts instead)
+    play = allowedMode(save.data, opts.mode, testRun);
     mode = { daily: play ? false : (opts.daily ?? false), quick: opts.quick ?? false };
     if (opts.chapter !== undefined) chapterPick = opts.chapter;
     paused = false;

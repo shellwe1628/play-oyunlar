@@ -293,8 +293,9 @@ export function createStage(root: HTMLElement): Stage {
           }
           break;
         case 'waveStart': {
-          // a boss's entrance: ease in on it as it lands, hold, then glide back
-          const boss = e.boss ? frame.w.enemies.find((x) => x.type === 'boss') : undefined;
+          // a boss's entrance: ease in on it as it lands, hold, then glide back (only a boss that
+          // really drops in: a rush's first boss already stands when the first arrow flies)
+          const boss = e.boss ? frame.w.enemies.find((x) => x.type === 'boss' && x.brain === 'spawn') : undefined;
           if (boss) {
             const L = frame.w.ledges[boss.ledge];
             introT = 1.35;

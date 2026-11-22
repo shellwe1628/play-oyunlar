@@ -1,17 +1,17 @@
 import { createRng } from '@oyun/core/pure';
 import { appendFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { CAREFUL, playRun, solveShot } from '../../src/sim/aimbot';
+import { CAREFUL, planShot, playRun, solveShot, STARTER } from '../../src/sim/aimbot';
 import { freshArsenal, freshModeSave, repairArsenal, repairModeSave } from '../../src/sim/arsenal';
 import { CHAPTERS, fieldSpan, levelOf, RECOMMENDED_LEVEL, RECOMMENDED_POWER, stageOf, STAGES } from '../../src/sim/chapters';
 import { freshSave, newBank, NO_META, type MetaLevels, type SaveData } from '../../src/sim/meta';
-import { bankMode, beatsBest, BLITZ, BLITZ_LEDGES, BLITZ_SPAN, blitzEvery, blitzHp, blitzLevel, finishMode, MODE_CHESTS_PER_DAY, MODE_THEME, modeChestsLeft, modeResult, modeUnlocked, rushLevel, rushWave, RUSH_BOSSES } from '../../src/sim/modes';
+import { bankMode, beatsBest, BLITZ, BLITZ_LEDGES, BLITZ_SPAN, blitzEvery, blitzHeadKo, blitzHp, blitzLevel, finishMode, MODE_CHESTS_PER_DAY, MODE_THEME, modeChestsLeft, modeResult, modeUnlocked, rushLevel, rushWave, RUSH_BOSSES } from '../../src/sim/modes';
 import { progressScore } from '../../src/sim/progress';
 import { repairSave } from '../../src/save';
 import { ENEMY_DAMAGE, HARD_HEAD_MUL } from '../../src/sim/combat';
 import { TUNING } from '../../src/sim/tuning';
 import { bossHp, HARD_COIN_MUL } from '../../src/sim/waves';
-import { weaponDamage } from '../../src/sim/weapons';
+import { WEAPON_IDS, type WeaponId } from '../../src/sim/weapons';
 import { advance, arcClear, arrowSpeed, BOSS_KINDS, BOSS_RAGE_AFTER, bossHurtMul, createWorld, pickCard, playerOrigin, reachedWave, revive, rushJump, shoot, summarize, takeEvents, targetPoint, underPower, type GameEvent, type World } from '../../src/sim/world';
 
 /**
@@ -192,24 +192,38 @@ describe('blitz', { timeout: 300_000 }, () => {
       for (const e of w.enemies) {
         expect(e.type).toBe('archer');
         expect(e.helmet).toBe(false);
-        expect(e.maxHp).toBe(blitzHp(wl));
+        expect(e.maxHp).toBe(blitzHp('bow', w.stats.dmgMul));
       }
     }
-    // health follows the weapon's power: at every level a head hit drops an archer and a body hit
-    // does not; body hits needed: three with a new weapon, never more with a better one
-    let bodyHits = 3;
+    // no bullet sponges: the health is the same at every level and only says how many body hits
+    // an archer takes: three with a new bow, two from level 4, one from level 10, never more
+    const bodyHits = (weapon: WeaponId, wl: number): number => {
+      const w = createWorld({ seed: 1, meta: { ...NO_META, weapon, wlevel: wl }, difficulty: 'hard', mode: 'blitz' });
+      expect(w.enemies[0]!.maxHp).toBe(blitzHp(weapon, w.stats.dmgMul));
+      return Math.ceil(w.enemies[0]!.maxHp / (ENEMY_DAMAGE.body * w.stats.dmgMul));
+    };
+    let last = 3;
     for (let wl = 1; wl <= 20; wl++) {
-      const dmg = hard('blitz', wl).stats.dmgMul;
-      expect(blitzHp(wl)).toBe(Math.round(BLITZ.hp * weaponDamage(wl)));
-      expect(blitzHp(wl), `level ${wl}`).toBeLessThanOrEqual(ENEMY_DAMAGE.head * HARD_HEAD_MUL * dmg);
-      expect(blitzHp(wl), `level ${wl}`).toBeGreaterThan(ENEMY_DAMAGE.body * dmg);
-      const need = Math.ceil(blitzHp(wl) / (ENEMY_DAMAGE.body * dmg));
-      expect(need, `level ${wl}`).toBeLessThanOrEqual(bodyHits);
-      bodyHits = need;
+      expect(blitzHp('bow', hard('blitz', wl).stats.dmgMul)).toBe(BLITZ.hp);
+      const need = bodyHits('bow', wl);
+      expect(need, `level ${wl}`).toBeLessThanOrEqual(last);
+      last = need;
     }
-    expect(Math.ceil(blitzHp(1) / (ENEMY_DAMAGE.body * hard('blitz', 1).stats.dmgMul))).toBe(3);
-    expect(bodyHits).toBe(2);
-    // aim and timing follow it too, and a stronger weapon brings the archers sooner
+    expect([1, 3, 4, 9, 10, 20].map((wl) => bodyHits('bow', wl))).toEqual([3, 3, 2, 2, 1, 1]);
+    // every weapon needs the bow's count at its level; the sling (its head hit is worth a chest
+    // hit) always BLITZ.slingHits, head or body
+    expect(BLITZ.slingHits).toBe(2);
+    for (const weapon of WEAPON_IDS) {
+      expect(blitzHeadKo(weapon), weapon).toBe(weapon !== 'sling');
+      for (const wl of [1, 4, 10, 20]) {
+        expect(bodyHits(weapon, wl), `${weapon} level ${wl}`).toBe(weapon === 'sling' ? BLITZ.slingHits : bodyHits('bow', wl));
+      }
+    }
+    const sling = createWorld({ seed: 1, meta: { ...NO_META, weapon: 'sling', wlevel: 7 }, difficulty: 'hard', mode: 'blitz' });
+    const slingHead = ENEMY_DAMAGE.head * HARD_HEAD_MUL * sling.stats.headMul * sling.stats.dmgMul;
+    expect(slingHead).toBeCloseTo(ENEMY_DAMAGE.body * sling.stats.dmgMul, 6);
+    expect(Math.ceil(sling.enemies[0]!.maxHp / slingHead)).toBe(BLITZ.slingHits);
+    // aim and timing follow the weapon, and a stronger weapon brings the extra archers sooner
     expect(blitzLevel(1)).toBe(1);
     expect(blitzLevel(20)).toBeGreaterThan(blitzLevel(10));
     expect(blitzEvery(1)).toBe(BLITZ.every);
@@ -319,26 +333,94 @@ describe('blitz', { timeout: 300_000 }, () => {
   });
 
   it('keeps two to four archers on the field, a new one dropping in as one falls; no bosses, no cards', () => {
-    const w = play('blitz', 10, 2, (x) => {
-      if (x.phase !== 'play') return;
-      // at most four on the field; the next one waits its turn out of sight above its place
-      const waiting = x.enemies.filter((e) => e.alive && e.brain === 'spawn' && e.spawnT < 0);
-      const onField = x.enemies.filter((e) => e.alive && !waiting.includes(e));
-      expect(onField.length).toBeLessThanOrEqual(BLITZ.cap);
-      expect(waiting.length).toBeLessThanOrEqual(1);
-      for (const e of waiting) expect(e.body.y[0]!).toBeLessThan(1280 * (1 - BLITZ_SPAN) - 100);
-      // no wave ever ends in Blitz: the field is never "all down" once the run is going
-      if (x.blitz!.t > 0.1) expect(x.enemies.some((e) => e.alive)).toBe(true);
-      for (const e of x.enemies) expect(e.type).toBe('archer');
-      // one archer to a place
-      const places = x.enemies.filter((e) => e.alive).map((e) => e.ledge);
-      expect(new Set(places).size).toBe(places.length);
-      expect(x.enemies.length).toBeLessThan(40);
-    });
-    expect(w.phase).toBe('over');
-    expect(w.cards).toEqual([]);
-    // the field was refilled: more archers fell than ever stood at once
-    expect(w.run.kos).toBeGreaterThan(BLITZ.cap);
+    const shares: string[] = [];
+    for (const [wl, seed] of [[1, 1], [1, 2], [1, 3], [10, 1], [10, 2], [10, 3], [20, 1]] as const) {
+      let ticks = 0;
+      let fewOnField = 0;
+      let fewStanding = 0;
+      let noneStanding = 0;
+      let most = 0;
+      const w = play('blitz', wl, seed, (x) => {
+        if (x.phase !== 'play') return;
+        // the next one waits its turn out of sight above its place: it is NOT on the field
+        const waiting = x.enemies.filter((e) => e.alive && e.brain === 'spawn' && e.spawnT < 0);
+        const onField = x.enemies.filter((e) => e.alive && !waiting.includes(e));
+        const standing = onField.filter((e) => e.brain !== 'spawn');
+        expect(onField.length).toBeLessThanOrEqual(BLITZ.cap);
+        expect(waiting.length).toBeLessThanOrEqual(1);
+        for (const e of waiting) expect(e.body.y[0]!).toBeLessThan(1280 * (1 - BLITZ_SPAN) - 100);
+        for (const e of x.enemies) expect(e.type).toBe('archer');
+        // one archer to a place
+        const places = x.enemies.filter((e) => e.alive).map((e) => e.ledge);
+        expect(new Set(places).size).toBe(places.length);
+        expect(x.enemies.length).toBeLessThan(40);
+        most = Math.max(most, onField.length);
+        // (after the opening second: the first replacement has had the time to come down)
+        if (x.blitz!.t < 1) return;
+        ticks += 1;
+        if (onField.length < BLITZ.field) fewOnField += 1;
+        if (standing.length < BLITZ.field) fewStanding += 1;
+        if (standing.length === 0) noneStanding += 1;
+      });
+      expect(w.phase).toBe('over');
+      expect(w.cards).toEqual([]);
+      // the field was refilled: more archers fell than ever stood at once
+      expect(w.run.kos).toBeGreaterThan(BLITZ.cap);
+      expect(most).toBeLessThanOrEqual(BLITZ.cap);
+      shares.push(`L${wl}#${seed} ${((fewStanding / ticks) * 100).toFixed(1)}%`);
+      // never fewer than two on the field for more than a blink: as one falls, the next is on its way down
+      expect(fewOnField / ticks, `level ${wl} seed ${seed}: fewer than two on the field`).toBeLessThan(0.01);
+      // fewer than two STANDING (landed) only for the 0.55 s a replacement takes to drop in: the
+      // share grows with the knockouts, so with the weapon's level
+      // (with a head hit a knockout the careful player drops one every second and a half: about
+      // a third of the minute one stands while its replacement is in the air)
+      expect(fewStanding / ticks, `level ${wl} seed ${seed}: fewer than two standing`).toBeLessThan(wl === 1 ? 0.35 : 0.45);
+      // and next to never an empty field
+      expect(noneStanding / ticks, `level ${wl} seed ${seed}: nobody standing`).toBeLessThan(0.05);
+    }
+    note(`blitz share of play time with fewer than two standing (careful): ${shares.join(', ')}`);
+  });
+
+  it('the next archer drops at once when fewer than two are on the field, else after its turn', () => {
+    const w = hard('blitz', 1, 9);
+    shoot(w, -1.4, 0.2);
+    run(w, 0.5);
+    const hidden = () => w.enemies.filter((e) => e.alive && e.brain === 'spawn' && e.spawnT < 0);
+    const onField = () => w.enemies.filter((e) => e.alive && !(e.brain === 'spawn' && e.spawnT < 0));
+    expect(onField().length).toBe(BLITZ.field);
+    expect(hidden().length).toBe(1);
+    // with two on the field the third is in no hurry
+    run(w, 2);
+    expect(onField().length).toBe(BLITZ.field);
+    // one falls: its replacement is on its way down within a tick or two, and lands in under a second
+    const victim = onField()[0]!;
+    victim.hp = 0.01;
+    w.blitz!.left = BLITZ.time;
+    for (let tries = 0; tries < 20 && victim.alive; tries++) {
+      const p = targetPoint(victim, 'chest');
+      const s = solveShot(w, p.x, p.y, 1.04, 1);
+      w.reload = 0;
+      shoot(w, s.angle, s.power);
+      for (let t = 0; t < 0.6 && victim.alive; t += 1 / 60) {
+        advance(w, 1 / 60);
+        takeEvents(w);
+      }
+    }
+    expect(victim.alive).toBe(false);
+    advance(w, 2 / 60);
+    takeEvents(w);
+    expect(onField().length).toBe(BLITZ.field);
+    expect(onField().filter((e) => e.brain === 'spawn').length).toBe(1);
+    // it is no tougher than the first ones: knockouts do not harden the archers
+    const fresh = onField().find((e) => e.brain === 'spawn')!;
+    expect(fresh.maxHp).toBe(victim.maxHp);
+    run(w, 0.7);
+    expect(onField().filter((e) => e.brain !== 'spawn').length).toBe(BLITZ.field);
+    // and a third joins after `blitzEvery` seconds without anyone falling
+    w.blitz!.left = BLITZ.time;
+    for (const e of w.enemies) e.hp = e.maxHp = 1e9;
+    run(w, blitzEvery(1) + 1.5);
+    expect(onField().length).toBe(BLITZ.field + 1);
   });
 
   it('score = knockouts, a head knockout counts double', () => {
@@ -379,7 +461,72 @@ describe('blitz', { timeout: 300_000 }, () => {
     expect(modeResult(w)).toEqual({ mode: 'blitz', score: others + 2 * heads, time: 0, over: false });
   });
 
-  it('knockout bands: a careful level-1 player gets 8 to 14, a careful level-10 player clearly more', () => {
+  it('a head hit is always a knockout, at every level and with every weapon but the sling', () => {
+    for (const weapon of WEAPON_IDS) {
+      for (const wl of [1, 10, 20]) {
+        const w = createWorld({ seed: 3, meta: { ...NO_META, weapon, wlevel: wl }, difficulty: 'hard', mode: 'blitz' });
+        shoot(w, -1.4, 0.2);
+        run(w, 0.8);
+        const events: GameEvent[] = [];
+        // the careful player's own shots with this weapon (it aims at heads), for 40 s of play
+        const rng = createRng(77 + wl);
+        for (let n = 0; n < 60; n++) {
+          w.blitz!.left = BLITZ.time;
+          const s = planShot(w, rng, CAREFUL);
+          w.reload = 0;
+          if (s) shoot(w, s.angle, s.power);
+          run(w, 0.7, events);
+        }
+        const hit = new Set<number>();
+        let heads = 0;
+        let firstHeads = 0;
+        let score = 0;
+        for (const ev of events) {
+          if (ev.t === 'ko') score += ev.cause === 'head' ? 2 : 1;
+          if (ev.t !== 'hit') continue;
+          const first = !hit.has(ev.id);
+          hit.add(ev.id);
+          if (ev.part !== 'head') continue;
+          heads += 1;
+          // every head hit is a knockout, whatever health the archer had left
+          if (weapon !== 'sling') expect(ev.ko, `${weapon} level ${wl}: a head hit`).toBe(true);
+          else if (first) {
+            // the sling: the first hit on an archer, head or not, never is (it takes BLITZ.slingHits)
+            firstHeads += 1;
+            expect(ev.ko, `sling level ${wl}: a first hit on the head`).toBe(false);
+          }
+        }
+        expect(heads, `${weapon} level ${wl}: head hits`).toBeGreaterThanOrEqual(3);
+        if (weapon === 'sling') expect(firstHeads, `sling level ${wl}: first hits on the head`).toBeGreaterThanOrEqual(1);
+        expect(w.blitz!.score).toBe(score);
+        // it is the rule, not the health: an archer with any amount of health still falls to a head hit
+        const tank: GameEvent[] = [];
+        let tanks = 0;
+        const ids = new Set<number>();
+        for (let n = 0; n < 60 && tanks < 2; n++) {
+          w.blitz!.left = BLITZ.time;
+          for (const e of w.enemies) {
+            if (!e.alive) continue;
+            e.hp = e.maxHp = 1e6;
+            ids.add(e.id);
+          }
+          const s = planShot(w, rng, CAREFUL);
+          w.reload = 0;
+          if (s) shoot(w, s.angle, s.power);
+          const before = tank.length;
+          run(w, 0.7, tank);
+          for (const ev of tank.slice(before)) {
+            if (ev.t !== 'hit' || ev.part !== 'head' || !ids.has(ev.id)) continue;
+            tanks += 1;
+            expect(ev.ko, `${weapon} level ${wl}: a head hit on an archer with a million health`).toBe(weapon !== 'sling');
+          }
+        }
+        expect(tanks, `${weapon} level ${wl}: head hits on the tough archers`).toBeGreaterThanOrEqual(1);
+      }
+    }
+  });
+
+  it('knockout bands, as they come out with a head hit a knockout (bow, seeds 1 to 8)', () => {
     const SEEDS = [1, 2, 3, 4, 5, 6, 7, 8];
     const at = (wl: number) => SEEDS.map((seed) => play('blitz', wl, seed));
     const kos = (ws: World[]) => ws.map((w) => w.run.kos);
@@ -391,17 +538,44 @@ describe('blitz', { timeout: 300_000 }, () => {
       note(`blitz ${name}: kos ${JSON.stringify(kos(ws))} score ${JSON.stringify(ws.map((w) => w.blitz!.score))} hits taken ${JSON.stringify(ws.map((w) => w.blitz!.hits))} coins ${JSON.stringify(ws.map((w) => w.run.coins))} shots ${JSON.stringify(ws.map((w) => w.run.shots))}`);
     }
     for (const w of [...l1, ...l10, ...l20]) expect(w.phase).toBe('over');
-    // level 1: every seed inside the band
-    for (const k of kos(l1)) {
-      expect(k, `level 1: ${kos(l1).join(',')}`).toBeGreaterThanOrEqual(8);
-      expect(k, `level 1: ${kos(l1).join(',')}`).toBeLessThanOrEqual(14);
+    // the careful player: every seed inside the band measured for its level
+    const BANDS = { 1: [27, 37], 10: [31, 46], 20: [34, 47] } as const;
+    for (const [wl, ws] of [[1, l1], [10, l10], [20, l20]] as const) {
+      for (const k of kos(ws)) {
+        expect(k, `level ${wl}: ${kos(ws).join(',')}`).toBeGreaterThanOrEqual(BANDS[wl][0]);
+        expect(k, `level ${wl}: ${kos(ws).join(',')}`).toBeLessThanOrEqual(BANDS[wl][1]);
+      }
     }
-    // level 10: clearly more, on average and seed by seed against level 1's best
-    expect(mean(kos(l10)), `level 10: ${kos(l10).join(',')} vs level 1: ${kos(l1).join(',')}`).toBeGreaterThanOrEqual(mean(kos(l1)) * 1.4);
-    expect(Math.min(...kos(l10)), `level 10: ${kos(l10).join(',')}`).toBeGreaterThan(mean(kos(l1)));
-    // and it stays a fight at the top level: the weapon does not run away from the archers
+    // level 10 clearly above level 1 (a body hit is a knockout by then), level 20 above level 10
+    expect(mean(kos(l10)), `level 10: ${kos(l10).join(',')} vs level 1: ${kos(l1).join(',')}`).toBeGreaterThanOrEqual(mean(kos(l1)) * 1.2);
+    expect(mean(kos(l20)), `level 20: ${kos(l20).join(',')}`).toBeGreaterThan(mean(kos(l10)));
     expect(mean(kos(l20)), `level 20: ${kos(l20).join(',')}`).toBeLessThanOrEqual(mean(kos(l10)) * 1.5);
-    expect(mean(kos(l20)), `level 20: ${kos(l20).join(',')}`).toBeGreaterThanOrEqual(mean(kos(l10)) * 0.75);
+  });
+
+  it('a typical new player: at least about seven knockouts, and clearly more with a better weapon', () => {
+    const SEEDS = [1, 2, 3, 4, 5, 6, 7, 8];
+    const at = (wl: number) =>
+      SEEDS.map((seed) => {
+        let world: World | null = null;
+        playRun(seed, createRng(5000 + seed), STARTER, { difficulty: 'hard', meta: meta(wl), mode: 'blitz', maxTime: 900, each: (w) => (world = w) });
+        return (world as World | null)!.run.kos;
+      });
+    const mean = (xs: number[]) => xs.reduce((a, b) => a + b, 0) / xs.length;
+    const l1 = at(1);
+    const l10 = at(10);
+    const l20 = at(20);
+    note(`blitz STARTER kos: L1 ${JSON.stringify(l1)} L10 ${JSON.stringify(l10)} L20 ${JSON.stringify(l20)}`);
+    // every seed inside the band measured for its level
+    const BANDS = { 1: [6, 14], 10: [9, 18], 20: [12, 22] } as const;
+    for (const [wl, ks] of [[1, l1], [10, l10], [20, l20]] as const) {
+      for (const k of ks) {
+        expect(k, `level ${wl}: ${ks.join(',')}`).toBeGreaterThanOrEqual(BANDS[wl][0]);
+        expect(k, `level ${wl}: ${ks.join(',')}`).toBeLessThanOrEqual(BANDS[wl][1]);
+      }
+    }
+    expect(mean(l1), `level 1: ${l1.join(',')}`).toBeGreaterThanOrEqual(7);
+    expect(mean(l10), `level 10: ${l10.join(',')}`).toBeGreaterThanOrEqual(mean(l1) * 1.25);
+    expect(mean(l20), `level 20: ${l20.join(',')}`).toBeGreaterThanOrEqual(mean(l10) * 1.2);
   });
 });
 
@@ -765,7 +939,9 @@ describe('rewards and guards: a mode run cannot be farmed', { timeout: 300_000 }
   });
 
   it('coins: each knockout by the run\'s own rule and nothing else (no loot, chains, clears or objectives)', () => {
-    // blitz: every coin is a knockout's (3 + level / 2, +2 for a head, × the hard share)
+    // blitz: every coin is a knockout's: BLITZ.coinShare of the run's knockout coin (3 + level / 2,
+    // +2 for a head, × the hard share), because its knockouts come fast
+    expect(BLITZ.coinShare).toBeLessThan(1);
     for (const wl of [1, 10, 20]) {
       const events: GameEvent[] = [];
       const w = play('blitz', wl, 6, undefined, events);
@@ -774,14 +950,24 @@ describe('rewards and guards: a mode run cannot be farmed', { timeout: 300_000 }
       let sum = 0;
       for (const e of ko) {
         if (e.t !== 'ko') continue;
-        expect(e.coins).toBe(Math.round((3 + Math.floor(blitzLevel(wl) / 2) + (e.cause === 'head' ? 2 : 0)) * HARD_COIN_MUL));
+        expect(e.coins).toBe(Math.round((3 + Math.floor(blitzLevel(wl) / 2) + (e.cause === 'head' ? 2 : 0)) * HARD_COIN_MUL * BLITZ.coinShare));
         sum += e.coins;
       }
       expect(w.run.coins).toBe(sum);
       for (const e of events) if (e.t === 'chain' || e.t === 'loot') expect(e.coins).toBe(0);
-      // a minute of Blitz pays less than a minute of a chapter run at any level (measured with the
-      // same player, 2026-11-22: 186 … 455 coins a minute of run time at levels 1 … 20)
-      expect(w.run.coins).toBeLessThanOrEqual(160);
+    }
+    // a minute of Blitz pays less than a minute of a chapter run at any level (measured with the
+    // same player, 2026-11-22: 186 … 455 coins a minute of run time at levels 1 … 20), with every
+    // weapon and on every seed of the bands (the boomerang knocks out the most by far)
+    for (const weapon of WEAPON_IDS) {
+      for (const wl of [1, 10, 20]) {
+        for (const seed of [1, 2, 3, 4, 5, 6, 7, 8]) {
+          let world: World | null = null;
+          playRun(seed, createRng(5000 + seed), CAREFUL, { difficulty: 'hard', meta: { ...NO_META, weapon, wlevel: wl }, mode: 'blitz', maxTime: 900, each: (x) => (world = x) });
+          const coins = (world as World | null)!.run.coins;
+          expect(coins, `${weapon} level ${wl} seed ${seed}`).toBeLessThanOrEqual(160);
+        }
+      }
     }
     // boss rush: the knockouts (the bosses and the summoner's imps); no loot, nothing for the clears
     const events: GameEvent[] = [];

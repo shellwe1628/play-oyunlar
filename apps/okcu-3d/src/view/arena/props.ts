@@ -36,15 +36,32 @@ function ropeGeometry(): THREE.BufferGeometry {
   return ropeGeo;
 }
 
+/**
+ * The live camera's position (`createProps` sets it): the eye moves with the camera angle (Side,
+ * Angled, Low), with the zoom and the kick, so what is drawn in front of the gameplay plane is
+ * placed from where the eye is NOW (as arrows.ts `front` does), not from the Side eye's rest
+ * place. Before a camera is known: the Side eye at rest.
+ */
+let eye: THREE.Vector3 | null = null;
 /** scene x / y of a logical point drawn at depth z so that it still projects onto its place in the gameplay plane */
-const frontK = (z: number): number => (REST_DIST - z) / REST_DIST;
-const frontY = (y: number, k: number): number => EYE_LIFT + (sy(y) - EYE_LIFT) * k;
+const frontK = (z: number): number => {
+  const ez = eye ? eye.z : REST_DIST;
+  return (ez - z) / ez;
+};
+const frontX = (x: number, k: number): number => {
+  const ex = eye ? eye.x : 0;
+  return ex + (sx(x) - ex) * k;
+};
+const frontY = (y: number, k: number): number => {
+  const ey = eye ? eye.y : EYE_LIFT;
+  return ey + (sy(y) - ey) * k;
+};
 
 function placeRope(mesh: THREE.Mesh, x0: number, y0: number, z0: number, x1: number, y1: number, z1: number, exact = false): void {
   const k0 = exact ? frontK(z0) : 1;
   const k1 = exact ? frontK(z1) : 1;
-  A.set(sx(x0) * k0, frontY(y0, k0), z0);
-  B.set(sx(x1) * k1, frontY(y1, k1), z1).sub(A);
+  A.set(frontX(x0, k0), frontY(y0, k0), z0);
+  B.set(frontX(x1, k1), frontY(y1, k1), z1).sub(A);
   const len = B.length();
   mesh.position.copy(A);
   mesh.scale.set(1, Math.max(0.0001, len), 1);
@@ -317,7 +334,8 @@ export interface PropsView {
   update(w: World, th: Theme, themeIndex: number, real: number, time: number): void;
 }
 
-export function createProps(scene: THREE.Scene): PropsView {
+export function createProps(scene: THREE.Scene, camera: THREE.Camera): PropsView {
+  eye = camera.position;
   const swings: SwingView[] = [];
   const rails: RailView[] = [];
   const props: PropView[] = [];
@@ -519,7 +537,7 @@ export function createProps(scene: THREE.Scene): PropsView {
           const r = m(p.w);
           const fk = frontK(ROCK_Z);
           v.group.scale.setScalar(r * k * fk);
-          v.group.position.set(sx(p.x) * fk, frontY(p.y, fk), ROCK_Z);
+          v.group.position.set(frontX(p.x, fk), frontY(p.y, fk), ROCK_Z);
           if (p.hanging) {
             v.cutT = -1;
             v.cutY = p.y;

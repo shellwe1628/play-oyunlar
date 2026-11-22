@@ -161,6 +161,41 @@ export function drawCardIcon(g: G, id: CardId, x: number, y: number): void {
       heart(g, x, y - 4, 1.2, PALETTE.pink);
       g.fillStyle(PALETTE.white, 1).fillTriangle(x - 14, y - 6, x - 6, y - 6, x - 10, y + 8).fillTriangle(x + 6, y - 6, x + 14, y - 6, x + 10, y + 8);
       break;
+    case 'frost': {
+      // an icy arrow under a snowflake: six spokes, each with a pair of barbs
+      arrow(g, x - 4, y + 22, -0.5, 78, PALETTE.frost);
+      const cx = x + 10;
+      const cy = y - 18;
+      for (const [w, c] of [[9, INK], [4, PALETTE.frost]] as const) {
+        g.lineStyle(w, c, 1);
+        for (let i = 0; i < 6; i++) {
+          const a = (i / 6) * Math.PI * 2 + Math.PI / 6;
+          const ex = cx + Math.cos(a) * 28;
+          const ey = cy + Math.sin(a) * 28;
+          g.lineBetween(cx, cy, ex, ey);
+          for (const s of [-1, 1]) g.lineBetween(cx + Math.cos(a) * 17, cy + Math.sin(a) * 17, cx + Math.cos(a + s * 0.5) * 26, cy + Math.sin(a + s * 0.5) * 26);
+        }
+      }
+      g.fillStyle(INK, 1).fillCircle(cx, cy, 8);
+      g.fillStyle(PALETTE.white, 1).fillCircle(cx, cy, 5);
+      break;
+    }
+    case 'blast': {
+      // an arrow flying into its own burst: a ring thrown out and sparks around it
+      const cx = x + 14;
+      const cy = y - 12;
+      g.lineStyle(13, INK, 1).strokeCircle(cx, cy, 26);
+      g.lineStyle(7, PALETTE.powerHigh, 1).strokeCircle(cx, cy, 26);
+      for (let i = 0; i < 8; i++) {
+        const a = (i / 8) * Math.PI * 2 + 0.2;
+        g.lineStyle(9, INK, 1).lineBetween(cx + Math.cos(a) * 32, cy + Math.sin(a) * 32, cx + Math.cos(a) * 44, cy + Math.sin(a) * 44);
+        g.lineStyle(4, PALETTE.fireCore, 1).lineBetween(cx + Math.cos(a) * 33, cy + Math.sin(a) * 33, cx + Math.cos(a) * 43, cy + Math.sin(a) * 43);
+      }
+      arrow(g, x - 12, y + 10, -0.7, 72);
+      g.fillStyle(INK, 1).fillCircle(cx, cy, 11);
+      g.fillStyle(PALETTE.fireCore, 1).fillCircle(cx, cy, 7);
+      break;
+    }
   }
 }
 

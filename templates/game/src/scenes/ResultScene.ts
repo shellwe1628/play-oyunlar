@@ -1,4 +1,4 @@
-import { button, ResultScene as ResultShell, toast, type Button, type ResultData } from '@oyun/core';
+import { button, ResultScene as ResultShell, toast, type Button, type ResultData, STORE_BUILD } from '@oyun/core';
 import { gameSave } from '../save';
 import { applyRoundResult } from '../sim/progress';
 import { drawBackdrop } from './Background';
@@ -75,10 +75,14 @@ export class ResultScene extends ResultShell {
   }
 
   protected override testState() {
+
+    if (STORE_BUILD) throw new Error('unreachable'); // store builds: no test hook
     return { ...super.testState(), doubled: this.doubled, canDouble: this.doubleButton !== null };
   }
 
   protected override testActions() {
+
+    if (STORE_BUILD) throw new Error('unreachable'); // store builds: no test hook
     return {
       ...super.testActions(),
       double: () => this.doubleButton?.fire(),

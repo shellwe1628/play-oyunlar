@@ -1,4 +1,4 @@
-import { MenuScene as MenuShell } from '@oyun/core';
+import { MenuScene as MenuShell, STORE_BUILD } from '@oyun/core';
 import { gameSave } from '../save';
 import { drawBackdrop } from './Background';
 import { SCENES } from './keys';
@@ -27,6 +27,8 @@ export class MenuScene extends MenuShell {
   }
 
   protected override testState() {
+
+    if (STORE_BUILD) throw new Error('unreachable'); // store builds: no test hook
     return { best: gameSave(this.oyun).data.best };
   }
 }

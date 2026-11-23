@@ -1,31 +1,38 @@
 #!/usr/bin/env node
 // Writes the privacy-policy site for GitHub Pages: docs/gizlilik/ (index + one page per app in
-// store/apps.json, Turkish and English on each page). Pages serves the repository's docs/ folder
-// (Settings → Pages → Deploy from a branch → main, /docs); docs/.nojekyll turns Jekyll off.
+// store/apps.json, Turkish and English on each page) and the support page docs/destek/ (the App
+// Store "Support URL"). Pages serves the repository's docs/ folder (Settings → Pages → Deploy from
+// a branch → main, /docs); docs/.nojekyll turns Jekyll off.
 //   node tools/gizlilik.mjs
-// The text states what the current builds do, checked against the code (2026-11-17): no
-// accounts, no analytics sent anywhere, no ad SDK, progress and sound setting kept in the
-// WebView's local storage on the device, Android backup and device transfer excluded
-// (tools/aab.mjs), only the INTERNET permission (+ AndroidX's internal one), no network requests
-// of its own. 2026-11-20: optional online ranking through Google Play Games Services (Play builds
-// with a playGames block), only after the neutral age question says 13+ (packages/core/src/online).
-// 2026-11-20: the iPhone build (tools/ipa.mjs) is covered too: same bundle id as the package name,
-// Game Center (tools/ipa/GameCenterPlugin.swift) instead of Play Games behind the same 13+ question,
-// no permissions, no tracking; saves may be part of the user's own iCloud/computer device backup.
-// If ads or analytics are added, change TEXT below, re-run, and update the Play Data safety form
-// and the App Store Connect App Privacy answers.
+// The text states what the current builds do, checked against the code. History:
+// 2026-11-17: no accounts, progress and sound setting kept in the WebView's local storage on the
+//   device, Android backup and device transfer excluded (tools/aab.mjs), no requests of its own.
+// 2026-11-20: optional online ranking through Google Play Games Services (packages/core/src/online)
+//   and the iPhone build (tools/ipa.mjs) with Game Center (tools/ipa/GameCenterPlugin.swift).
+// 2026-11-24: AdMob rewarded ads (tools/admob.mjs: child-directed for every player, no AD_ID, no
+//   IDFA, the SDK's app set ID), the merged manifest's real permission list (tools/aab.mjs
+//   verify), the age question on Android only (online.ts asksAge: Play Games is not started before
+//   a 13+ answer, tools/aab/playgames.mjs removes its launch-time init provider), Game Center
+//   without an age question, the developer's name, the support page.
+// When a build changes what it collects or which services it talks to, change TEXT below, re-run,
+// and update the Play Data safety form and the App Store Connect App Privacy answers.
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { ROOT } from './template.mjs';
 
-const EFFECTIVE = { tr: '20 Kasım 2026', en: '20 November 2026' };
-/** Developer contact e-mail shown on every page (App Store support URL needs a way to reach the
- *  developer). Empty: the pages point to the store pages' support sections instead. */
+const EFFECTIVE = { tr: '24 Kasım 2026', en: '24 November 2026' };
+/** Developer contact e-mail shown on every page (the App Store support URL needs a way to reach the developer). */
 const CONTACT = 'emirhancin28@gmail.com';
+/** Who makes the games (App Store 1.5 / Play developer information). */
+const DEVELOPER = 'Emirhan Cin';
 const cfg = JSON.parse(readFileSync(join(ROOT, 'store', 'apps.json'), 'utf8'));
 const OUT = join(ROOT, 'docs', 'gizlilik');
+const SUPPORT = join(ROOT, 'docs', 'destek');
 
 const esc = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+const names = (lang) => cfg.apps.map((a) => esc(a.title[lang === 'tr' ? 'tr-TR' : 'en-US']));
+const listOf = (items, and) => `${items.slice(0, -1).join(', ')} ${and} ${items.at(-1)}`;
+const mail = `<a href="mailto:${CONTACT}">${CONTACT}</a>`;
 
 /** Section texts; `n` = the game's name in that language, `id` = its package name / bundle id. HTML allowed. */
 const TEXT = {
@@ -33,22 +40,23 @@ const TEXT = {
     lang: 'tr',
     heading: (n) => `${n}: gizlilik politikası`,
     effective: `Yürürlük tarihi: ${EFFECTIVE.tr}`,
-    adsSummary: ' Ödüllü düğmeler yalnızca siz dokunduğunuzda, herkes için çocuklara yönelik ayarlarla (kişiselleştirme ve izleme olmadan) bir Google AdMob reklamı gösterir.',
-    summary: 'Kısaca: oyunun kendisi kişisel veri toplamaz. İsteğe bağlı online sıralama yalnızca 13 yaş ve üstü oyuncular içindir; Android\'de Google Play Games, iPhone\'da Apple\'ın Game Center hizmeti üzerinden çalışır. O zaman en iyi skorlarınız Google Play Games profilinizle Google\'a ya da Game Center hesabınızla Apple\'a gönderilir.',
+    adsSummary: ' Ödüllü düğmeler yalnızca siz dokunduğunuzda, herkes için çocuklara yönelik ve kişiselleştirilmemiş ayarlarla bir Google AdMob reklamı gösterir; reklam kimliği kullanılmaz.',
+    summary:
+      'Kısaca: oyunun kendisi hesap açtırmaz ve kişisel veri toplamaz; ilerlemeniz yalnızca cihazınızda kalır. İsteğe bağlı online sıralama Android\'de Google Play Games üzerinden, yalnızca yaş sorusuna 13 yaş ve üstü cevabından sonra; iPhone\'da Apple\'ın Game Center hizmeti üzerinden çalışır. O zaman en iyi skorlarınız Google\'a ya da Apple\'a gönderilir.',
     sections: (n, id, ads) => [
-      ['Kapsam', `Bu politika <b>${n}</b> oyununun Google Play'deki Android uygulaması ve App Store'daki iPhone uygulaması için geçerlidir (ikisinin de kimliği <code>${id}</code>). "Geliştirici", uygulamanın Google Play ya da App Store sayfasında adı yazan geliştiricidir.`],
-      ['Toplanan bilgiler', 'Oyunun kendi hesabı ya da kaydı yoktur. Uygulama adınızı, e-posta adresinizi, konumunuzu, kişilerinizi, fotoğraflarınızı, cihaz kimliğinizi ya da reklam kimliğinizi (Android reklam kimliği, iOS reklam tanımlayıcısı) istemez ve okumaz. İstisnalar aşağıdaki isteğe bağlı online sıralama' + (ads ? ' ve ödüllü reklamlardır.' : 'dır.')],
+      ['Kapsam ve geliştirici', `Bu politika <b>${n}</b> oyununun Google Play'deki Android uygulaması ve App Store'daki iPhone uygulaması için geçerlidir (ikisinin de kimliği <code>${id}</code>). Geliştirici: <b>${DEVELOPER}</b> (${listOf(names('tr'), 've')} oyunlarının geliştiricisi). İletişim: ${mail}.`],
+      ['Toplanan bilgiler', 'Oyunun kendi hesabı ya da kaydı yoktur. Oyun adınızı, e-posta adresinizi, konumunuzu, kişilerinizi, fotoğraflarınızı ya da reklam kimliğinizi (Android reklam kimliği, iOS reklam tanımlayıcısı) istemez ve okumaz. İstisnalar aşağıdaki isteğe bağlı online sıralama' + (ads ? ' ve ödüllü reklamlardır.' : 'dır.')],
       [
-        'Online sıralama: yaş sorusu',
-        'Rütbeler ekranındaki küre düğmesi isteğe bağlı online sıralamayı açar. İlk açılışta, internete bir şey gitmeden önce doğum yılınız bir kez sorulur. Doğum yılı saklanmaz; cihazda yalnızca cevabın kategorisi (13 yaş ve üstü ya da değil) tutulur. <b>13 yaşından küçükler için</b> online sıralama o kurulumda kalıcı olarak kapanır: Google Play Games ya da Game Center hiç başlatılmaz, giriş yapılmaz ve hiçbir skor gönderilmez. Online sıralamayı hiç açmazsanız da hiçbir şey gönderilmez.',
+        'Online sıralama: Android\'de yaş sorusu',
+        'Rütbeler ekranındaki küre düğmesi isteğe bağlı online sıralamayı açar. Android\'de ilk açılışta, internete bir şey gitmeden önce doğum yılınız bir kez sorulur. Doğum yılı saklanmaz; cihazda yalnızca cevabın kategorisi (13 yaş ve üstü ya da değil) tutulur. Google Play Games, uygulama açılırken değil, ancak 13 yaş ve üstü cevabından sonra başlatılır. <b>13 yaşından küçükler için</b> online sıralama o kurulumda kalıcı olarak kapanır ve ekranda "Online sıralama 13 yaş ve üstü oyuncular içindir." yazar: Google Play Games hiç başlatılmaz, giriş yapılmaz ve hiçbir skor gönderilmez. Online sıralamayı hiç açmazsanız da hiçbir şey gönderilmez.',
       ],
       [
         'Online sıralama: Android (Google Play Games)',
-        `13 yaş ve üstü oyuncular için Android uygulaması Google Play Games Hizmetleri'ni başlatır; Google, Play Games profilinizle sizi otomatik olarak oturum açtırabilir ya da giriş ister. Giriş yapıldığında oyun, ${n} sıralama tablolarına en iyi skorlarınızı (rütbe ya da koleksiyon puanı, en iyi dalga, yükseklik gibi oyun sayıları) gönderir. Google bunları Play Games oyuncu kimliğiniz ve oyuncu adınızla birlikte saklar ve profil görünürlüğü ayarlarınıza göre diğer oyunculara sıralama tablolarında gösterir. Oyun Google'dan yalnızca oyuncu adınızı ve kendi sıra ve skorunuzu alır. Geliştirici, Play Console'da tablo kayıtlarını görebilir. Bu işlem Google'ın gizlilik politikasına tabidir; Play Games profilinizi ve etkinliğinizi Google Play Games uygulamasından ve Google Hesabınızdan yönetebilir ya da silebilirsiniz. Skorlar reklam için kullanılmaz.`,
+        `13 yaş ve üstü cevabından sonra Android uygulaması Google Play Games Hizmetleri'ni başlatır; Google, Play Games profilinizle sizi otomatik olarak oturum açtırabilir ya da giriş ister. Giriş yapıldığında oyun, ${n} sıralama tablolarına en iyi skorlarınızı (rütbe ya da koleksiyon puanı, en iyi dalga, yükseklik gibi oyun sayıları) gönderir. Google bunları Play Games oyuncu kimliğiniz ve oyuncu adınızla birlikte saklar ve profil görünürlüğü ayarlarınıza göre diğer oyunculara sıralama tablolarında gösterir. Oyun Google'dan yalnızca oyuncu adınızı ve kendi sıra ve skorunuzu alır. Geliştirici, Play Console'da tablo kayıtlarını görebilir. Bu işlem Google'ın gizlilik politikasına tabidir; Play Games profilinizi ve etkinliğinizi Google Play Games uygulamasından ve Google Hesabınızdan yönetebilir ya da silebilirsiniz. Skorlar reklam için kullanılmaz.`,
       ],
       [
         'Online sıralama: iPhone (Game Center)',
-        `13 yaş ve üstü oyuncular için iPhone uygulaması Apple'ın Game Center hizmetini başlatır; cihazda Game Center'a giriş yaptıysanız Apple sizi otomatik tanır, yapmadıysanız Apple'ın kendi giriş ekranı açılır. Giriş yapıldığında oyun, ${n} sıralama tablolarına en iyi skorlarınızı (yukarıdaki oyun sayıları) gönderir. Apple bunları Game Center hesabınız ve takma adınızla birlikte saklar ve Game Center ayarlarınıza göre diğer oyunculara sıralama tablolarında gösterir. Oyun Apple'dan yalnızca takma adınızı ve kendi sıra ve skorunuzu alır. Bu işlem Apple'ın gizlilik politikasına tabidir; Game Center'ı iPhone'un Ayarlar &rarr; Game Center bölümünden yönetebilir ya da kapatabilirsiniz. Skorlar reklam için kullanılmaz.`,
+        `iPhone uygulamasında online sıralama Apple'ın Game Center hizmetini kullanır ve ayrı bir yaş sorusu yoktur: Game Center Apple'ın kendi hizmetidir ve çocuklarınki dahil bütün Game Center hesaplarını Apple'ın kurallarına göre yönetir (örneğin ebeveynler Ekran Süresi ile Game Center'ı kısıtlayabilir). Oyun Game Center'ı yalnızca online sıralama panelinde Giriş yap'a dokunduğunuzda başlatır (bir kez giriş yaptıktan sonra sonraki açılışlarda da); cihazda Game Center'a giriş yaptıysanız Apple sizi tanır, yapmadıysanız Apple'ın kendi giriş ekranı açılır. Giriş yapıldığında oyun, ${n} sıralama tablolarına en iyi skorlarınızı (yukarıdaki oyun sayıları) gönderir. Apple bunları Game Center hesabınız ve takma adınızla birlikte saklar ve Game Center ayarlarınıza göre diğer oyunculara sıralama tablolarında gösterir. Oyun Apple'dan yalnızca takma adınızı ve kendi sıra ve skorunuzu alır. Bu işlem Apple'ın gizlilik politikasına tabidir; Game Center'ı iPhone'un Ayarlar &rarr; Game Center bölümünden yönetebilir ya da kapatabilirsiniz. Skorlar reklam için kullanılmaz.`,
       ],
       [
         'Cihazınızda saklananlar',
@@ -56,30 +64,35 @@ const TEXT = {
       ],
       [
         'İnternet ve izinler',
-        'Oyunun bütün dosyaları uygulamanın içindedir ve oyun çevrimdışı çalışır; oyunun kendisi internete istek göndermez. Yalnızca 13 yaş ve üstü oyuncularda Google Play Games kütüphanesi Google\'ın, Game Center Apple\'ın sunucularıyla konuşur (yukarıya bakın). Android uygulaması yalnızca INTERNET iznini bildirir: bu izin, oyunu çalıştıran WebView kabuğunun (Capacitor) standart parçasıdır ve sizden onay istenmez; bunun dışında yalnızca Android kütüphanelerinin eklediği, sadece uygulamanın kendisinin kullanabildiği bir iç izin vardır. ' + (ads ? 'Reklamlı oyunlarda Google’ın reklam kütüphanesi ayrıca ağ durumunu görme (ACCESS_NETWORK_STATE) gibi onay istemeyen birkaç teknik izin ekler; reklam kimliği izni (AD_ID) kaldırılmıştır. ' : '') + 'iPhone uygulaması hiçbir izin istemez. Uygulama kamera, mikrofon, konum, fotoğraflar, depolama gibi hiçbir izin istemez ve sizi başka uygulama ya da sitelerde izlemez.',
+        'Oyunun bütün dosyaları uygulamanın içindedir ve oyun çevrimdışı çalışır; oyunun kendisi internete istek göndermez. İnternete yalnızca Google Play Games ya da Game Center (online sıralamayı kullanırsanız)' +
+          (ads ? ' ve Google AdMob (ödüllü bir reklam açtığınızda)' : '') +
+          ' bağlanır. ' +
+          (ads
+            ? 'Android uygulamasının bildirdiği izinlerin tamamı şunlardır: INTERNET ve ACCESS_NETWORK_STATE (internete bağlanmak ve bağlantı olup olmadığını görmek), WAKE_LOCK ve FOREGROUND_SERVICE (Google\'ın reklam kütüphanesinin kullandığı WorkManager bileşeninin eklediği teknik izinler), <code>com.android.vending.CHECK_LICENSE</code> (Google Play\'in uygulamanın Play\'den kurulduğunu denetlemesi) ve yalnızca uygulamanın kendisinin kullanabildiği iç izin <code>DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION</code>. Bunların hiçbiri sizden onay istemez; oyunun kendine ait bir arka plan hizmeti ya da bildirimi yoktur. Reklam kimliği izni (AD_ID) ve Privacy Sandbox reklam izinleri kaldırılmıştır. '
+            : 'Android uygulaması INTERNET iznini (ve online sıralama için ağ durumunu görme iznini) bildirir; bunun dışında yalnızca uygulamanın kendisinin kullanabildiği bir iç izin vardır. Bunların hiçbiri sizden onay istemez. ') +
+          'iPhone uygulaması hiçbir izin istemez. Uygulama kamera, mikrofon, konum, fotoğraflar, kişiler, depolama gibi hiçbir izin istemez ve sizi başka uygulama ya da sitelerde izlemez.',
       ],
       ads
         ? [
             'Reklamlar (Google AdMob)',
-            'Oyundaki ödüllü düğmeler (köşesinde <b>▶ REKLAM</b> yazar) yalnızca siz dokunduğunuzda Google AdMob’dan bir reklam gösterir; reklamı sonuna kadar izlerseniz ödülü alırsınız, kapatırsanız almazsınız. Oyunun başka hiçbir yerinde reklam yoktur. Uygulama, <b>bütün oyuncular için</b> reklam isteklerini çocuklara yönelik olarak işaretler (çocuklara yönelik işlem etiketi, rıza yaşının altında etiketi, en fazla "G" içerik düzeyi). Bu yüzden kişiselleştirilmiş reklam ya da yeniden hedefleme yapılmaz; uygulama Android reklam kimliğini (AD_ID izni kaldırılmıştır) ve iOS reklam tanımlayıcısını (IDFA) kullanmaz, izleme izni istemez ve sizi başka uygulama ya da sitelerde izlemez. Reklamı göstermek için Google; cihaz bilgisi (model, işletim sistemi sürümü, dil), IP adresi, uygulama bilgisi ve reklamla etkileşim (gösterim, dokunma) gibi bilgileri reklamı sunmak, ölçmek, sahtekârlığı önlemek ve hataları ayıklamak için işler. Bu işlem Google’ın gizlilik politikasına ve çocuklara yönelik reklam isteklerine ilişkin kurallarına tabidir. Geliştirici AdMob’da yalnızca toplu reklam istatistiklerini görür. Uygulamada analitik yazılımı yoktur.',
+            'Oyundaki ödüllü düğmeler (köşesinde <b>▶ REKLAM</b> yazar) yalnızca siz dokunduğunuzda Google AdMob’dan bir reklam gösterir; reklamı sonuna kadar izlerseniz ödülü alırsınız, kapatırsanız almazsınız. Oyunun başka hiçbir yerinde reklam yoktur. Uygulama, <b>bütün oyuncular için</b> reklam isteklerini çocuklara yönelik olarak işaretler (çocuklara yönelik işlem etiketi, rıza yaşının altında etiketi, en fazla "G" içerik düzeyi). Bu yüzden reklamlar herkes için kişiselleştirilmemiştir ve yeniden hedefleme yapılmaz. Uygulama Android reklam kimliğini (AD_ID izni kaldırılmıştır) ve iOS reklam tanımlayıcısını (IDFA) kullanmaz, izleme izni istemez ve sizi başka uygulama ya da sitelerde izlemez. Android\'de Google\'ın reklam kütüphanesi, yalnızca aynı geliştiricinin uygulamalarıyla sınırlı bir tanımlayıcı olan <b>uygulama seti kimliğini</b> (app set ID) analiz ve sahtekârlığı önleme için kullanır. Reklamı göstermek için Google ayrıca cihaz bilgisi (model, işletim sistemi sürümü, dil), IP adresi (yaklaşık konum çıkarılabilir), uygulama bilgisi ve reklamla etkileşim (gösterim, dokunma) ile tanılama bilgilerini reklamı sunmak, ölçmek, sahtekârlığı önlemek ve hataları ayıklamak için işler; bu bilgiler aktarım sırasında şifrelenir. Bu işlem Google’ın gizlilik politikasına ve çocuklara yönelik reklam isteklerine ilişkin kurallarına tabidir. Geliştirici AdMob’da yalnızca toplu reklam istatistiklerini görür. Uygulamada ayrı bir analitik yazılımı yoktur.',
           ]
         : ['Analitik ve reklam', 'Uygulamada analitik, reklam ya da izleme yazılımı (SDK) yoktur. Oyun içindeki "ödül" düğmeleri bu sürümde reklam göstermeden ödülü hemen verir.'],
-      ['Paylaşım', 'Hiçbir bilgi satılmaz. Online sıralamayı kullanan 13 yaş ve üstü oyuncuların skorları Android\'de Google Play Games\'e, iPhone\'da Game Center\'a gönderilir ve sıralama tablolarında diğer oyunculara görünür' + (ads ? '; ödüllü bir reklam açtığınızda yukarıdaki reklam bilgileri Google AdMob’a gider' : '') + '; bunun dışında hiçbir bilgi kimseyle paylaşılmaz.'],
+      ['Paylaşım', 'Hiçbir bilgi satılmaz. Online sıralamayı kullanan oyuncuların skorları Android\'de Google Play Games\'e, iPhone\'da Game Center\'a gönderilir ve sıralama tablolarında diğer oyunculara görünür' + (ads ? '; ödüllü bir reklam açtığınızda yukarıdaki reklam bilgileri Google AdMob’a gider' : '') + '; bunun dışında hiçbir bilgi kimseyle paylaşılmaz.'],
       [
         'Google Play ve App Store',
         "Uygulamayı Google Play'den ya da App Store'dan indirip kullanırken Google ya da Apple, kendi gizlilik politikasına göre bazı bilgileri işleyebilir (örneğin indirme kaydı; cihazınızda bu paylaşım açıksa çökme raporları). Bu işlem uygulamanın değil mağazanın sorumluluğundadır; geliştirici bunları Google Play Console'da ya da App Store Connect'te yalnızca toplu istatistik olarak görür.",
       ],
-      ['Çocuklar', (ads ? 'Reklamlar herkes için çocuklara yönelik ayarlarla istenir (yukarıya bakın); bunun dışında uygulama' : 'Uygulama') + ' çocuklardan hiçbir bilgi toplamaz ya da göndermez. Yaş sorusu 13 yaşından küçük bir oyuncu gösterirse online sıralama kapanır; Google Play Games ya da Game Center hiç başlatılmaz. Oyunun geri kalanı aynen çalışır.'],
+      [
+        'Çocuklar',
+        (ads ? 'Reklamlar herkes için çocuklara yönelik ve kişiselleştirilmemiş ayarlarla istenir (yukarıya bakın); bunun dışında uygulama' : 'Uygulama') +
+          ' çocuklardan hiçbir bilgi toplamaz ya da göndermez. Android\'de yaş sorusu 13 yaşından küçük bir oyuncu gösterirse online sıralama kapanır ve Google Play Games hiç başlatılmaz. iPhone\'da Game Center, çocuk hesaplarını Apple\'ın kurallarına göre yönetir. Oyunun geri kalanı her durumda aynen çalışır.',
+      ],
       [
         'Değişiklikler',
-        "Reklam ya da analitik eklenirse bu sayfa, o sürüm yayımlanmadan önce güncellenir: hangi sağlayıcının, hangi bilgileri (örneğin reklam kimliği, cihaz bilgisi, IP adresi), hangi amaçla işlediği, kiminle paylaşıldığı ve nasıl vazgeçebileceğiniz yazılır; Google Play'deki Veri güvenliği ve App Store'daki Uygulama Gizliliği bölümleri de buna göre değişir. Geçerli metin her zaman bu adrestedir; tarih en üsttedir.",
+        'Bu politika, uygulamaların yeni bir sürümü farklı bilgiler işlediğinde ya da farklı bir hizmet kullandığında, o sürüm yayımlanmadan önce güncellenir; Google Play\'deki Veri güvenliği ve App Store\'daki Uygulama Gizliliği bölümleri de buna göre değişir. Geçerli metin her zaman bu adrestedir; yürürlük tarihi en üsttedir.',
       ],
-      [
-        'İletişim',
-        CONTACT
-          ? `Sorularınız için: <a href="mailto:${CONTACT}">${CONTACT}</a>.`
-          : 'Sorularınız için uygulamanın Google Play sayfasındaki <b>Uygulama desteği</b> bölümünde ya da App Store sayfasındaki geliştirici bilgisinde yazan iletişim yolunu kullanın.',
-      ],
+      ['İletişim', `Geliştirici ${DEVELOPER}. Sorularınız ve gizlilikle ilgili talepleriniz için: ${mail}. Destek sayfası: <a href="../../destek/">oyunlar.carsihani.me/destek</a>.`],
     ],
     other: 'English',
     back: 'Tüm oyunlar',
@@ -88,22 +101,23 @@ const TEXT = {
     lang: 'en',
     heading: (n) => `${n}: privacy policy`,
     effective: `Effective date: ${EFFECTIVE.en}`,
-    adsSummary: ' The rewarded buttons show a Google AdMob ad only when you tap them, with child-directed settings for everyone (no personalisation, no tracking).',
-    summary: 'In short: the game itself collects no personal data. The optional online ranking is only for players aged 13 and over and runs through Google Play Games on Android and Apple\'s Game Center on iPhone; then your best scores go to Google with your Google Play Games profile, or to Apple with your Game Center account.',
+    adsSummary: ' The rewarded buttons show a Google AdMob ad only when you tap them, with child-directed, non-personalised settings for everyone; no advertising ID is used.',
+    summary:
+      'In short: the game itself needs no account and collects no personal data; your progress stays on your device. The optional online ranking runs through Google Play Games on Android, only after a 13-or-over answer to the age question, and through Apple\'s Game Center on iPhone; then your best scores go to Google or to Apple.',
     sections: (n, id, ads) => [
-      ['Scope', `This policy applies to <b>${n}</b>: the Android app on Google Play and the iPhone app on the App Store (both with the id <code>${id}</code>). "The developer" is the developer named on the app's Google Play or App Store page.`],
-      ['Information collected', 'The game has no accounts or sign-up of its own. The app does not ask for or read your name, e-mail address, location, contacts, photos, device identifiers or advertising ID (the Android advertising ID or the iOS Identifier for Advertisers). The exceptions are the optional online ranking' + (ads ? ' and the rewarded ads below.' : ' below.')],
+      ['Scope and developer', `This policy applies to <b>${n}</b>: the Android app on Google Play and the iPhone app on the App Store (both with the id <code>${id}</code>). Developer: <b>${DEVELOPER}</b> (developer of ${listOf(names('en'), 'and')}). Contact: ${mail}.`],
+      ['Information collected', 'The game has no accounts or sign-up of its own. The game does not ask for or read your name, e-mail address, location, contacts, photos or advertising ID (the Android advertising ID or the iOS Identifier for Advertisers). The exceptions are the optional online ranking' + (ads ? ' and the rewarded ads below.' : ' below.')],
       [
-        'Online ranking: the age question',
-        'The globe button on the Ranks screen opens the optional online ranking. The first time, before anything goes online, it asks once for your year of birth. The year is not stored; only the answer\'s category (13 or over, or not) is kept on the device. <b>For players under 13</b> online ranking is switched off for good on that install: Google Play Games or Game Center is never started, there is no sign-in and no score is sent. If you never open online ranking, nothing is sent either.',
+        'Online ranking: the age question on Android',
+        'The globe button on the Ranks screen opens the optional online ranking. On Android, the first time, before anything goes online, it asks once for your year of birth. The year is not stored; only the answer\'s category (13 or over, or not) is kept on the device. Google Play Games is not started when the app opens, only after a 13-or-over answer. <b>For players under 13</b> online ranking is switched off for good on that install and the panel says "Online ranking is for players aged 13 and over.": Google Play Games is never started, there is no sign-in and no score is sent. If you never open online ranking, nothing is sent either.',
       ],
       [
         'Online ranking: Android (Google Play Games)',
-        `For players aged 13 and over the Android app starts Google Play Games Services; Google may sign you in automatically with your Play Games profile or ask you to sign in. Once signed in, the game sends your best scores (game numbers such as the rank or collection score, best wave or height) to the ${n} leaderboards. Google stores them with your Play Games player ID and gamer name and shows them to other players on the leaderboards according to your profile visibility settings. The game receives from Google only your gamer name and your own rank and score. The developer can see leaderboard entries in Play Console. This processing is governed by Google's privacy policy; you can manage or delete your Play Games profile and activity in the Google Play Games app and your Google Account. Scores are not used for advertising.`,
+        `After a 13-or-over answer the Android app starts Google Play Games Services; Google may sign you in automatically with your Play Games profile or ask you to sign in. Once signed in, the game sends your best scores (game numbers such as the rank or collection score, best wave or height) to the ${n} leaderboards. Google stores them with your Play Games player ID and gamer name and shows them to other players on the leaderboards according to your profile visibility settings. The game receives from Google only your gamer name and your own rank and score. The developer can see leaderboard entries in Play Console. This processing is governed by Google's privacy policy; you can manage or delete your Play Games profile and activity in the Google Play Games app and your Google Account. Scores are not used for advertising.`,
       ],
       [
         'Online ranking: iPhone (Game Center)',
-        `For players aged 13 and over the iPhone app starts Apple's Game Center; if you are already signed in to Game Center on the device, Apple recognises you automatically, otherwise Apple's own sign-in screen opens. Once signed in, the game sends your best scores (the game numbers above) to the ${n} leaderboards. Apple stores them with your Game Center account and nickname and shows them to other players on the leaderboards according to your Game Center settings. The game receives from Apple only your nickname and your own rank and score. This processing is governed by Apple's privacy policy; you can manage or turn off Game Center in the iPhone's Settings &rarr; Game Center. Scores are not used for advertising.`,
+        `On iPhone, online ranking uses Apple's Game Center and there is no separate age question: Game Center is Apple's own service and handles every Game Center account, children's included, under Apple's rules (for example, parents can restrict Game Center with Screen Time). The game starts Game Center only when you tap Sign in in the online ranking panel (and, once you have signed in, at later launches); if you are already signed in to Game Center on the device, Apple recognises you, otherwise Apple's own sign-in screen opens. Once signed in, the game sends your best scores (the game numbers above) to the ${n} leaderboards. Apple stores them with your Game Center account and nickname and shows them to other players on the leaderboards according to your Game Center settings. The game receives from Apple only your nickname and your own rank and score. This processing is governed by Apple's privacy policy; you can manage or turn off Game Center in the iPhone's Settings &rarr; Game Center. Scores are not used for advertising.`,
       ],
       [
         'What is stored on your device',
@@ -111,33 +125,86 @@ const TEXT = {
       ],
       [
         'Internet and permissions',
-        'All of the game\'s files are inside the app and the game works offline; the game itself makes no requests to the internet. Only for players aged 13 and over does the Google Play Games library talk to Google\'s servers, or Game Center to Apple\'s (see above). The Android app declares only the INTERNET permission, a standard part of the WebView shell (Capacitor) that runs the game, which Android grants without asking you; besides that there is only an internal permission added by Android libraries that no app other than this one can use. ' + (ads ? 'In games with ads, Google’s ad library adds a few technical permissions that need no approval, such as viewing the network state (ACCESS_NETWORK_STATE); the advertising ID permission (AD_ID) is removed. ' : '') + 'The iPhone app asks for no permission. The app asks for no permission such as camera, microphone, location, photos or storage, and does not track you across other apps or websites.',
+        'All of the game\'s files are inside the app and the game works offline; the game itself makes no requests to the internet. Only Google Play Games or Game Center (if you use online ranking)' +
+          (ads ? ' and Google AdMob (when you open a rewarded ad)' : '') +
+          ' go online. ' +
+          (ads
+            ? 'The Android app declares exactly these permissions: INTERNET and ACCESS_NETWORK_STATE (to go online and to see whether there is a connection), WAKE_LOCK and FOREGROUND_SERVICE (technical permissions added by the WorkManager component that Google\'s ad library uses), <code>com.android.vending.CHECK_LICENSE</code> (Google Play\'s check that the app was installed from Play) and the internal permission <code>DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION</code>, which no app other than this one can use. None of them needs your approval; the game runs no background service or notification of its own. The advertising ID permission (AD_ID) and the Privacy Sandbox ad permissions are removed. '
+            : 'The Android app declares the INTERNET permission (and, for online ranking, the one to see the network state); besides that there is only an internal permission that no app other than this one can use. None of them needs your approval. ') +
+          'The iPhone app asks for no permission. The app asks for no permission such as camera, microphone, location, photos, contacts or storage, and does not track you across other apps or websites.',
       ],
       ads
         ? [
             'Ads (Google AdMob)',
-            'The game’s rewarded buttons (marked <b>▶ AD</b> in the corner) show an ad from Google AdMob only when you tap them; watch it to the end and you get the reward, close it early and you do not. There are no ads anywhere else in the game. The app marks its ad requests as child-directed <b>for every player</b> (tag for child-directed treatment, tag for users under the age of consent, maximum content rating "G"). So there are no personalised ads and no remarketing; the app does not use the Android advertising ID (the AD_ID permission is removed) or the iOS Identifier for Advertisers (IDFA), does not ask for tracking permission and does not track you across other apps or websites. To show an ad, Google processes information such as device information (model, operating system version, language), IP address, app information and ad interactions (impressions, taps) to serve and measure ads, prevent fraud and debug. This processing is governed by Google’s privacy policy and its rules for child-directed ad requests. The developer sees only aggregated ad statistics in AdMob. The app contains no analytics software.',
+            'The game’s rewarded buttons (marked <b>▶ AD</b> in the corner) show an ad from Google AdMob only when you tap them; watch it to the end and you get the reward, close it early and you do not. There are no ads anywhere else in the game. The app marks its ad requests as child-directed <b>for every player</b> (tag for child-directed treatment, tag for users under the age of consent, maximum content rating "G"). So ads are non-personalised for everyone and there is no remarketing. The app does not use the Android advertising ID (the AD_ID permission is removed) or the iOS Identifier for Advertisers (IDFA), does not ask for tracking permission and does not track you across other apps or websites. On Android, Google’s ad library uses the <b>app set ID</b>, an identifier limited to apps from the same developer, for analytics and fraud prevention. To show an ad, Google also processes device information (model, operating system version, language), IP address (from which an approximate location can be derived), app information, ad interactions (impressions, taps) and diagnostics to serve and measure ads, prevent fraud and debug; this information is encrypted in transit. This processing is governed by Google’s privacy policy and its rules for child-directed ad requests. The developer sees only aggregated ad statistics in AdMob. The app contains no separate analytics software.',
           ]
         : ['Analytics and ads', 'The app contains no analytics, advertising or tracking software (SDK). In this version the in-game "reward" buttons give their reward straight away without showing an ad.'],
-      ['Sharing', 'No information is sold. The scores of players aged 13 and over who use the online ranking go to Google Play Games on Android or Game Center on iPhone and are visible to other players on the leaderboards' + (ads ? '; when you open a rewarded ad, the ad information above goes to Google AdMob' : '') + '; apart from that no information is shared with anyone.'],
+      ['Sharing', 'No information is sold. The scores of players who use online ranking go to Google Play Games on Android or Game Center on iPhone and are visible to other players on the leaderboards' + (ads ? '; when you open a rewarded ad, the ad information above goes to Google AdMob' : '') + '; apart from that no information is shared with anyone.'],
       [
         'Google Play and the App Store',
         "When you download and use the app through Google Play or the App Store, Google or Apple may process some information under its own privacy policy (for example the download record and, if this sharing is switched on on your device, crash reports). That processing is the store's, not the app's; the developer only sees it as aggregated statistics in Google Play Console or App Store Connect.",
       ],
-      ['Children', (ads ? 'Ads are requested with child-directed settings for everyone (see above); apart from that the app' : 'The app') + ' collects and sends no information from children. If the age question shows a player under 13, online ranking is switched off; Google Play Games or Game Center is never started. The rest of the game works as before.'],
+      [
+        'Children',
+        (ads ? 'Ads are requested with child-directed, non-personalised settings for everyone (see above); apart from that the app' : 'The app') +
+          ' collects and sends no information from children. On Android, if the age question shows a player under 13, online ranking is switched off and Google Play Games is never started. On iPhone, Game Center handles children\'s accounts under Apple\'s rules. The rest of the game works the same in every case.',
+      ],
       [
         'Changes',
-        "If ads or analytics are added, this page will be updated before that version is released: it will name the provider, the information it processes (for example advertising ID, device information, IP address), why, with whom it is shared and how to opt out, and the Data safety section on Google Play and the App Privacy section on the App Store will change accordingly. The current text is always at this address; its date is at the top.",
+        "When a new version of the apps processes different information or uses a different service, this policy is updated before that version is released, and the Data safety section on Google Play and the App Privacy section on the App Store change accordingly. The current text is always at this address; its effective date is at the top.",
       ],
-      [
-        'Contact',
-        CONTACT
-          ? `For questions: <a href="mailto:${CONTACT}">${CONTACT}</a>.`
-          : 'For questions, use the contact shown in the <b>App support</b> section of the app\'s Google Play page or in the developer information on its App Store page.',
-      ],
+      ['Contact', `The developer is ${DEVELOPER}. For questions and privacy requests: ${mail}. Support page: <a href="../../destek/">oyunlar.carsihani.me/destek</a>.`],
     ],
     other: 'Türkçe',
     back: 'All games',
+  },
+};
+
+/** The support page (docs/destek/): who makes the games, what they are, how to reach the developer. */
+const SUPPORT_TEXT = {
+  tr: {
+    heading: 'Destek',
+    who: `${listOf(names('tr'), 've')} oyunlarını <b>${DEVELOPER}</b> geliştiriyor.`,
+    games: 'Oyunlar',
+    blurb: {
+      fosil: '13 katman kaz; bulduğun her fosil gerçek şansını gösterir.',
+      kivilcim: 'Bas sağa, bırak sola: kıvılcımı neon bölümlerde yukarı taşı.',
+      okcu: 'Sallanan okçularını yönet, rakipleri adalarından düşür, patronları yen.',
+    },
+    contact: 'İletişim',
+    contactText: `Sorular, öneriler ve sorun bildirimleri için e-posta: ${mail}.`,
+    report: 'Sorun bildirmek',
+    reportStart: 'Bir sorunu bildirirken e-postanıza şunları yazarsanız sorunu bulmak çok kolaylaşır:',
+    reportItems: [
+      'hangi oyun olduğu,',
+      'cihazınız (marka ve model) ve işletim sistemi sürümü,',
+      'uygulama sürümü (mağazadaki uygulama sayfasında yazar),',
+      'ne olduğu: ne yapıyordunuz, ne bekliyordunuz, ne oldu; varsa bir ekran görüntüsü.',
+    ],
+    privacy: 'Gizlilik politikaları',
+    progress: 'Oyunların hesabı yoktur; ilerlemeniz yalnızca cihazınızda saklanır. Bu yüzden kaybolan bir ilerlemeyi geliştirici geri getiremez.',
+  },
+  en: {
+    heading: 'Support',
+    who: `${listOf(names('en'), 'and')} are made by <b>${DEVELOPER}</b>.`,
+    games: 'The games',
+    blurb: {
+      fosil: 'Dig through 13 layers; every fossil you find shows its true odds.',
+      kivilcim: 'Hold right, let go left: steer a spark up through neon levels.',
+      okcu: 'Lead wobbly archers, knock rivals off their islands, beat the bosses.',
+    },
+    contact: 'Contact',
+    contactText: `For questions, suggestions and problem reports, e-mail: ${mail}.`,
+    report: 'Reporting a problem',
+    reportStart: 'A problem is much easier to find when your e-mail says:',
+    reportItems: [
+      'which game it is,',
+      'your device (make and model) and its operating system version,',
+      'the app version (shown on the app\'s page in the store),',
+      'what happened: what you were doing, what you expected, what happened instead; a screenshot if you have one.',
+    ],
+    privacy: 'Privacy policies',
+    progress: 'The games have no accounts; your progress is stored only on your device, so the developer cannot restore lost progress.',
   },
 };
 
@@ -212,15 +279,45 @@ function indexPage() {
 <ul class="games">
 ${items}
 </ul>
-<p class="summary" lang="tr">Kısaca: oyunların kendisi hesap açtırmaz ve kişisel veri toplamaz; ilerleme yalnızca cihazda saklanır. 13 yaş ve üstü oyuncuların isteğe bağlı online sıralaması en iyi skorları Android'de Google Play Games'e, iPhone'da Game Center'a gönderir. Ödüllü düğmeler, siz dokunduğunuzda, çocuklara yönelik ve kişiselleştirilmemiş ayarlarla bir Google AdMob reklamı gösterir; AdMob reklamı göstermek için cihaz ve kullanım verisi işler (her oyunun sayfasına bakın).</p>
-<p class="summary" lang="en">In short: the games themselves need no account and collect no personal data; progress stays on the device. The optional online ranking for players aged 13 and over sends best scores to Google Play Games on Android or Game Center on iPhone. Rewarded buttons show a Google AdMob ad when you tap them, with child-directed, non-personalised settings; AdMob processes device and usage data to serve it (see each game's page).</p>${
-    CONTACT
-      ? `\n<h2>İletişim / Contact</h2>\n<p>Destek ve sorularınız için / For support and questions: <a href="mailto:${CONTACT}">${CONTACT}</a></p>`
-      : ''
-  }`;
+<p class="summary" lang="tr">Kısaca: oyunların kendisi hesap açtırmaz ve kişisel veri toplamaz; ilerleme yalnızca cihazda saklanır. İsteğe bağlı online sıralama en iyi skorları Android'de Google Play Games'e (yalnızca yaş sorusuna 13 yaş ve üstü cevabından sonra), iPhone'da Game Center'a gönderir. Ödüllü düğmeler, siz dokunduğunuzda, herkes için çocuklara yönelik ve kişiselleştirilmemiş ayarlarla bir Google AdMob reklamı gösterir; reklam kimliği kullanılmaz, AdMob reklamı göstermek için cihaz ve kullanım verisi işler (her oyunun sayfasına bakın).</p>
+<p class="summary" lang="en">In short: the games themselves need no account and collect no personal data; progress stays on the device. The optional online ranking sends best scores to Google Play Games on Android (only after a 13-or-over answer to the age question) or to Game Center on iPhone. Rewarded buttons show a Google AdMob ad when you tap them, with child-directed, non-personalised settings for everyone; no advertising ID is used, and AdMob processes device and usage data to serve it (see each game's page).</p>
+<h2>Geliştirici ve iletişim / Developer and contact</h2>
+<p>${DEVELOPER}. Destek ve sorularınız için / For support and questions: ${mail} · <a href="../destek/">Destek / Support</a></p>`;
   return page('Gizlilik politikaları / Privacy policies', 'tr', body).replace('STYLE', 'stil.css');
 }
 
+function supportPage() {
+  const parts = ['tr', 'en'].map((l) => {
+    const S = SUPPORT_TEXT[l];
+    const lang = l === 'tr' ? 'tr-TR' : 'en-US';
+    const games = cfg.apps.map((a) => `<li><b>${esc(a.title[lang])}</b><small>${S.blurb[a.slug] ?? ''}</small></li>`).join('\n');
+    const policies = cfg.apps.map((a) => `<li><a href="../gizlilik/${a.slug}/${l === 'en' ? '#en' : ''}">${esc(a.title[lang])}</a></li>`).join('\n');
+    return `<section class="lang" id="${l}" lang="${l}">
+<nav><a href="#${l === 'tr' ? 'en' : 'tr'}">${l === 'tr' ? 'English' : 'Türkçe'}</a></nav>
+<h1>${S.heading}</h1>
+<p>${S.who}</p>
+<h2>${S.games}</h2>
+<ul class="games">
+${games}
+</ul>
+<h2>${S.contact}</h2>
+<p class="summary">${S.contactText}</p>
+<h2>${S.report}</h2>
+<p>${S.reportStart}</p>
+<ul>
+${S.reportItems.map((i) => `<li>${i}</li>`).join('\n')}
+</ul>
+<p>${S.progress}</p>
+<h2>${S.privacy}</h2>
+<ul>
+${policies}
+</ul>
+</section>`;
+  });
+  return page('Destek / Support', 'tr', parts.join('\n')).replace('STYLE', '../gizlilik/stil.css');
+}
+
+for (const app of cfg.apps) if (!SUPPORT_TEXT.tr.blurb[app.slug] || !SUPPORT_TEXT.en.blurb[app.slug]) throw new Error(`tools/gizlilik.mjs: no support blurb for ${app.slug}`);
 mkdirSync(OUT, { recursive: true });
 writeFileSync(join(OUT, 'stil.css'), CSS);
 writeFileSync(join(OUT, 'index.html'), indexPage());
@@ -228,6 +325,9 @@ for (const app of cfg.apps) {
   mkdirSync(join(OUT, app.slug), { recursive: true });
   writeFileSync(join(OUT, app.slug, 'index.html'), gamePage(app));
 }
+mkdirSync(SUPPORT, { recursive: true });
+writeFileSync(join(SUPPORT, 'index.html'), supportPage());
 writeFileSync(join(ROOT, 'docs', '.nojekyll'), '');
-console.log(`wrote docs/gizlilik/ (index + ${cfg.apps.map((a) => a.slug).join(', ')}) and docs/.nojekyll`);
+console.log(`wrote docs/gizlilik/ (index + ${cfg.apps.map((a) => a.slug).join(', ')}), docs/destek/ and docs/.nojekyll`);
 for (const app of cfg.apps) console.log(`  ${cfg.privacyPolicyBase}${app.slug}/`);
+console.log(`  ${cfg.privacyPolicyBase.replace(/gizlilik\/$/, 'destek/')}`);

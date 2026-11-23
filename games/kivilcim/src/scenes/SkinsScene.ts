@@ -3,7 +3,7 @@
  * selected item plays live on a zigzagging spark; buy, equip, or try a trail for one run.
  * Test actions: buy (select + buy/equip), select, try, tab, back.
  */
-import { button, OyunScene, toast, touchHitSize, type Button } from '@oyun/core';
+import { button, OyunScene, toast, touchHitSize, type Button, STORE_BUILD } from '@oyun/core';
 import Phaser from 'phaser';
 import { Backdrop } from '../render/Backdrop';
 import { ensureCanvasArt } from '../render/canvasArt';
@@ -396,6 +396,8 @@ export class SkinsScene extends OyunScene {
   }
 
   protected override testState() {
+
+    if (STORE_BUILD) throw new Error('unreachable'); // store builds: no test hook
     const d = gameSave(this.oyun).data;
     return {
       wallet: d.gems,
@@ -411,6 +413,8 @@ export class SkinsScene extends OyunScene {
   }
 
   protected override testActions() {
+
+    if (STORE_BUILD) throw new Error('unreachable'); // store builds: no test hook
     return {
       buy: (p: unknown) => {
         const o = p as { kind: SkinKind; i: number };

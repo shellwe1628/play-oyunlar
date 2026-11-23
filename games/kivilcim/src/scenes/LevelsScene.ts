@@ -3,7 +3,7 @@
  * with stars and best %, the boss card crowned, star gates on worlds. Test actions: pick, world,
  * back.
  */
-import { OyunScene, toast, touchHitSize } from '@oyun/core';
+import { OyunScene, toast, touchHitSize, STORE_BUILD } from '@oyun/core';
 import Phaser from 'phaser';
 import { Backdrop } from '../render/Backdrop';
 import { ensureCanvasArt } from '../render/canvasArt';
@@ -270,11 +270,15 @@ export class LevelsScene extends OyunScene {
   }
 
   protected override testState() {
+
+    if (STORE_BUILD) throw new Error('unreachable'); // store builds: no test hook
     const save = gameSave(this.oyun).data;
     return { unlocked: save.unlocked, cards: this.cards.length, lockedTaps: this.lockedTaps, world: this.world, stars: totalStars(save) };
   }
 
   protected override testActions() {
+
+    if (STORE_BUILD) throw new Error('unreachable'); // store builds: no test hook
     return {
       pick: (p: unknown) => this.pick(Number(p)),
       world: (p: unknown) => this.showWorld(Math.min(WORLD_COUNT, Math.max(1, Number(p)))),

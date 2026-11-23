@@ -4,14 +4,14 @@
  *   death → freeze 80 ms → shatter → press (from 260 ms) → playing again (same frame)
  *   finish → slow-motion burst → press → next level
  * The sim (src/sim) runs at a fixed 120 Hz; this scene feeds it the hold state, draws the
- * interpolated result and fires the juice. Test actions: hold, autopilot, start, tap, pause,
- * home, continue, double, levels, skins, endless, daily, dive.
+ * interpolated result and fires the juice. Test actions (web builds only, never in a store build):
+ * hold, autopilot, start, tap, pause, home, continue, double, levels, skins, endless, daily, dive.
  *
  * View twists (src/sim/twist.ts): the world layer sits in a `view` container that carries the
  * pose of the moment (flip, fold, lean, zoom); everything drawn at the spark goes through
  * toScreen(). The HUD and the cards never move. Presentation only: the sim is not told.
  */
-import { button, followsRealTime, iconButton, MAX_FRAME_MS, muteButton, OyunScene, realTimeDelta, toast, type Button, type IconButton } from '@oyun/core';
+import { button, followsRealTime, iconButton, MAX_FRAME_MS, muteButton, OyunScene, realTimeDelta, STORE_BUILD, toast, type Button, type IconButton } from '@oyun/core';
 import type { Rng } from '@oyun/core/pure';
 import Phaser from 'phaser';
 import { Music } from '../audio/Music';
@@ -40,11 +40,11 @@ import { MECHANICS, type Mechanic } from '../sim/patterns';
 import { endlessUnlocked, levelOpen, levelToPlay, recordDaily, recordDive, recordEndless, recordLevelRun, recordStats, shouldShowInterstitial } from '../sim/progress';
 import { RunSim } from '../sim/run';
 import { COLOR_SHIFT_STYLES, TIERS, TRAILS } from '../sim/skins';
-import { K_REF, prepare, solve } from '../sim/solver';
 import { sdf, segmentAt, TWIST_KINDS, wallXAt, type GateKind, type Track, type TwistKind } from '../sim/track';
 import { lookahead, mirrored, NORMAL_POSE, poseAt, poseMatrix, project, SPARK_Y, twistCues, viewRange, type Mat, type Pose, type Pt, type TwistCue } from '../sim/twist';
 import { ENDLESS_THEMES, GATE_COLORS, PALETTE, PALETTES, type Palette } from '../textures';
 import { bigText, fitText, IconTile, MenuCard, NeonButton, type MenuHit } from '../ui';
+import { Autopilot } from './autopilot';
 import { SCENES, UNLOCKED_KEY } from './keys';
 import { TRIAL_KEY } from './SkinsScene';
 
@@ -155,15 +155,13 @@ export class GameScene extends OyunScene {
   private finishId = 0;
   private advancing = false;
   private leaving = false;
-  private autopilot = false;
-  private plan: Uint8Array | null = null;
+  /** the test hook's autopilot; null in store builds (and its module is not in their bundle) */
+  private pilot: Autopilot | null = null;
   private dailyDate = '';
   private endlessSeed = 1;
   private endlessSegments = 160;
   /** First-run cues ("let go!", "hold!"): 0 none yet, 1 let-go shown, 2 hold shown (done). */
   private tutorialStep = -1;
-  private planEnd = 0;
-  private lastAutoSwitch = 0;
   /** Presentation on (?fx=0 turns the new animated layers off; the sim never depends on it). */
   private fx = true;
   /** Running hash of the sim state, tick by tick (test: presentation cannot change the sim). */
@@ -407,8 +405,9 @@ export class GameScene extends OyunScene {
     // exactly across a rotated triangle, and pixels of walls and bars drop out under a lean.
     const renderer = this.game.renderer;
     if (renderer instanceof Phaser.Renderer.WebGL.WebGLRenderer && renderer.renderNodes.maxParallelTextureUnits !== 1) renderer.renderNodes.setMaxParallelTextureUnits(1);
-    this.fx = new URLSearchParams(location.search).get('fx') !== '0';
-    this.twistOn = this.fx && new URLSearchParams(location.search).get('twist') !== '0';
+    // web builds: ?fx=0 / ?twist=0 for comparisons; a store build always plays with both on
+    this.fx = STORE_BUILD || new URLSearchParams(location.search).get('fx') !== '0';
+    this.twistOn = STORE_BUILD || (this.fx && new URLSearchParams(location.search).get('twist') !== '0');
     Object.assign(this.pose, NORMAL_POSE);
     this.poseKey = 0;
     this.twistEvents = [];
@@ -422,8 +421,7 @@ export class GameScene extends OyunScene {
     this.mode = data.mode ?? 'level';
     this.level = data.level ?? levelToPlay(save);
     this.phase = data.phase ?? 'title';
-    this.autopilot = false;
-    this.plan = null;
+    this.pilot = STORE_BUILD ? null : new Autopilot();
     this.held = false;
     this.titleTiles = [];
     this.titleCards = [];
@@ -433,10 +431,10 @@ export class GameScene extends OyunScene {
     this.leaving = false;
     this.edges.reset(false);
     this.lastFrameAt = performance.now();
-    this.frameCapMs = followsRealTime({ webdriver: navigator.webdriver, test: this.oyun.test.enabled }) ? MAX_FRAME_MS : PLAYER_FRAME_CAP_MS;
+    this.frameCapMs = !STORE_BUILD && followsRealTime({ webdriver: navigator.webdriver, test: this.oyun.test.enabled }) ? MAX_FRAME_MS : PLAYER_FRAME_CAP_MS;
     this.tutorialStep = save.tutorial ? -1 : 0;
     // Test mode only: tests read the loop (to emulate Phaser's unfocused clamp, sleep a frame).
-    if (this.oyun.test.enabled) Object.assign(window, { __kivilcimGame: this.game });
+    if (!STORE_BUILD && this.oyun.test.enabled) Object.assign(window, { __kivilcimGame: this.game });
 
     const { width, height } = this.layout;
     this.pal = PALETTES[0]!;
@@ -1065,9 +1063,7 @@ export class GameScene extends OyunScene {
       this.pal = PALETTES[this.themes()[0]!]!;
       this.endlessThemeIdx = 0;
     }
-    this.plan = null;
-    this.planEnd = 0;
-    this.lastAutoSwitch = 0;
+    this.pilot?.newTrack();
     this.backdrop.setPalette(this.pal);
     this.worldFx.setTheme(this.mode === 'level' ? levelInfo(this.level).theme : this.themes()[0]!, this.pal);
     this.edgeFx.color = this.pal.edge;
@@ -1267,11 +1263,7 @@ export class GameScene extends OyunScene {
 
   private resetRun(): void {
     this.sim = new RunSim(this.track);
-    if (this.mode !== 'level') {
-      this.plan = null;
-      this.planEnd = 0;
-    }
-    this.lastAutoSwitch = 0;
+    this.pilot?.newRun(this.mode);
     this.acc = 0;
     this.prevX = this.rx = this.sim.x;
     this.prevY = this.ry = this.lastRy = 0;
@@ -2681,11 +2673,8 @@ export class GameScene extends OyunScene {
   private tickOnce(tickTime: number): void {
     const sim = this.sim;
     let held: boolean;
-    if (this.autopilot) {
-      this.ensureAutoPlan();
-      held = this.plan ? this.plan[sim.tick] === 1 : false;
-      if (sim.tick > 0 && this.plan && this.plan[sim.tick] !== this.plan[sim.tick - 1]) this.lastAutoSwitch = sim.tick;
-    } else held = this.edges.next(tickTime);
+    if (!STORE_BUILD && this.pilot?.on) held = this.pilot.held(sim, this.track, this.mode);
+    else held = this.edges.next(tickTime);
     if (held) this.heldTicks++;
     const li = this.tickLogAt++ % 32;
     this.tickTimes[li] = tickTime;
@@ -2734,41 +2723,11 @@ export class GameScene extends OyunScene {
   }
 
   /**
-   * Autopilot input. Levels: one plan for the whole level (with its gems). Endless and daily:
-   * plan 6 s ahead from where the spark is, and re-plan every 3 s.
-   */
-  private ensureAutoPlan(): void {
-    const sim = this.sim;
-    if (this.mode === 'level') {
-      if (!this.plan) {
-        const p = prepare(this.track);
-        const plan = solve(p, { minClear: 6, minHoldTicks: K_REF, gems: true }) ?? solve(p, { minClear: 0, minHoldTicks: K_REF });
-        this.plan = plan ? plan.held : null;
-      }
-      return;
-    }
-    if (this.plan && sim.tick < this.planEnd - 360) return;
-    const from = sim.tick;
-    const held: 0 | 1 = (sim.dir === 1) !== sim.flipped ? 1 : 0;
-    const p = prepare(this.track, { fromTick: from, toTick: from + 720 });
-    const since = from === 0 ? K_REF : Math.max(1, from - this.lastAutoSwitch);
-    const opts = { minHoldTicks: K_REF, from: { tick: from, x: sim.x, held, since } };
-    const plan = solve(p, { ...opts, minClear: 4 }) ?? solve(p, { ...opts, minClear: 0 });
-    if (plan) {
-      this.plan = plan.held;
-      this.planEnd = p.tl.n;
-    } else {
-      this.plan = null;
-      this.planEnd = from + 1;
-    }
-  }
-
-  /**
    * First run ever: an unmissable "let go!" as the first wall approaches, then "hold!" for the
    * other side. Shown once each, then never again.
    */
   private updateCues(): void {
-    if (this.tutorialStep < 0 || this.tutorialStep > 1 || this.autopilot) return;
+    if (this.tutorialStep < 0 || this.tutorialStep > 1 || (!STORE_BUILD && this.pilot?.on)) return;
     const sim = this.sim;
     const tr = this.track;
     const i = segmentAt(tr.wy, sim.y);
@@ -2885,6 +2844,8 @@ export class GameScene extends OyunScene {
   // ───────────────────────────────────────────────────────────── test hook
 
   protected override testState() {
+
+    if (STORE_BUILD) throw new Error('unreachable'); // store builds: no test hook
     const sim = this.sim;
     const save = gameSave(this.oyun).data;
     const now = performance.now();
@@ -2932,7 +2893,7 @@ export class GameScene extends OyunScene {
       retryLatencyMs: Math.round(this.retryLatency),
       nextGateIn: sim.gateIndex < this.track.gates.length ? Math.round(this.track.gates[sim.gateIndex]!.y - sim.y) : -1,
       nextGate: sim.gateIndex < this.track.gates.length ? this.track.gates[sim.gateIndex]!.kind : '',
-      autopilot: this.autopilot,
+      autopilot: this.pilot?.on ?? false,
       canContinue: this.continueBtn.visible && this.phase === 'dead',
       deadCardY: this.phase === 'dead' ? this.deadBody.y : -1,
       frameJs: this.frameJs.summary(),
@@ -2969,6 +2930,8 @@ export class GameScene extends OyunScene {
   }
 
   protected override testActions() {
+
+    if (STORE_BUILD) throw new Error('unreachable'); // store builds: no test hook
     return {
       hold: (p: unknown) => (p === true ? this.input2.press('test') : this.input2.release('test')),
       tap: () => {
@@ -2976,10 +2939,12 @@ export class GameScene extends OyunScene {
         this.input2.release('test');
       },
       autopilot: (p: unknown) => {
-        this.autopilot = p === true;
-        if (this.autopilot) {
-          if (this.mode === 'level') this.ensureAutoPlan();
-          else this.plan = null;
+        const pilot = this.pilot;
+        if (!pilot) return;
+        pilot.on = p === true;
+        if (pilot.on) {
+          if (this.mode === 'level') pilot.ensure(this.sim, this.track, this.mode);
+          else pilot.drop();
           if (this.phase === 'title' || this.phase === 'ready' || this.phase === 'resume') {
             this.held = false;
             if (this.phase === 'resume') this.continueAfterPause(performance.now());

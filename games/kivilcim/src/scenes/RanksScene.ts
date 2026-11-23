@@ -4,7 +4,7 @@
  * (best per level with attempts and date, endless height, daily history) and the feats.
  * Test actions: tab, world, back.
  */
-import { OyunScene, touchHitSize } from '@oyun/core';
+import { OyunScene, touchHitSize, STORE_BUILD } from '@oyun/core';
 import Phaser from 'phaser';
 import { Backdrop } from '../render/Backdrop';
 import { ensureBadges } from '../render/badges';
@@ -293,12 +293,16 @@ export class RanksScene extends OyunScene {
   }
 
   protected override testState() {
+
+    if (STORE_BUILD) throw new Error('unreachable'); // store builds: no test hook
     const d = gameSave(this.oyun).data;
     const score = progressScore(d);
     return { tab: this.tab, score, rank: rankOf(score), parts: { ...scoreParts(d) }, recWorld: this.recWorld };
   }
 
   protected override testActions() {
+
+    if (STORE_BUILD) throw new Error('unreachable'); // store builds: no test hook
     return {
       tab: (p: unknown) => this.show(p === 'records' ? 'records' : p === 'feats' ? 'feats' : 'ladder'),
       world: (p: unknown) => {

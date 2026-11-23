@@ -21,6 +21,9 @@ import com.google.android.gms.tasks.Task;
  * Nothing here runs on its own. PlayGamesSdk.initialize (which is what makes Play Games try the
  * automatic sign-in) is called only from init(), and the game calls init() only after the
  * player's age answer says 13 or older. Children are never initialised, signed in or scored.
+ * The library's own PlayGamesInitProvider (which would run the same initialisation at app launch)
+ * is removed from the merged manifest by tools/aab/playgames.mjs, and tools/aab.mjs fails the
+ * build if it is back.
  *
  * Board ids: the game uses logical ids ("best", "endless"); string resource pgs_board_<id>
  * (res/values/pgs.xml, written from store/apps.json) holds the Console's leaderboard id.

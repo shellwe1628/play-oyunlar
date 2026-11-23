@@ -24,6 +24,7 @@ import { createHash } from 'node:crypto';
 import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { isAbsolute, join, relative, resolve } from 'node:path';
 import { findIconSource, writeIcon } from './aab/icon.mjs';
+import { checkMergedPlayGames, patchPlayGamesManifest } from './aab/playgames.mjs';
 import { checkThemeDump, fullScreenStyles } from './aab/theme.mjs';
 import { ADMOB_PLUGIN, admobIds, admobPluginVersion, admobViteEnv, checkBundleAdIds, usesPlatformAdapter } from './admob.mjs';
 import { checkStoreMarkers, STORE_VITE_ENV } from './store-check.mjs';
@@ -419,20 +420,21 @@ function patchPlayGames(app, pgs, main, android) {
       '',
     ].join('\n'),
   );
-  edit(join(main, 'AndroidManifest.xml'), (xml) =>
-    replaceOnce(
-      xml,
-      /<\/application>/,
-      '    <meta-data android:name="com.google.android.gms.games.APP_ID" android:value="@string/pgs_app_id" />\n    </application>',
-      'AndroidManifest </application>',
-    ),
-  );
+  // APP_ID meta-data, and the library's PlayGamesInitProvider removed: it would start Play Games at
+  // app launch, before the age question (tools/aab/playgames.mjs)
+  edit(join(main, 'AndroidManifest.xml'), (xml) => {
+    try {
+      return patchPlayGamesManifest(xml);
+    } catch (e) {
+      return fail(e.message);
+    }
+  });
   edit(join(android, 'app', 'build.gradle'), (g) =>
     replaceOnce(g, /\ndependencies \{\n/, `\ndependencies {\n    implementation "com.google.android.gms:play-services-games-v2:${PLAY_GAMES_V2}"\n`, 'app/build.gradle dependencies'),
   );
   const dir = join(main, 'java', ...app.applicationId.split('.'));
   writeFileSync(join(dir, 'PlayGamesPlugin.java'), readFileSync(join(ROOT, 'tools', 'aab', 'PlayGamesPlugin.java'), 'utf8').replace('__PACKAGE__', app.applicationId));
-  console.log(`play games: project ${pgs.appId}, boards ${pgs.boards.map(([id]) => id).join(', ')}, play-services-games-v2 ${PLAY_GAMES_V2}`);
+  console.log(`play games: project ${pgs.appId}, boards ${pgs.boards.map(([id]) => id).join(', ')}, play-services-games-v2 ${PLAY_GAMES_V2}, PlayGamesInitProvider removed (starts only after an adult age answer)`);
 }
 
 /**
@@ -557,8 +559,7 @@ function verify(app, work, info, sdk) {
   if (ads && adAppId !== app.ads.appId) problems.push(`AdMob APPLICATION_ID meta-data is ${adAppId ?? 'missing'}, want ${app.ads.appId} (store/apps.json)`);
   if (!ads && adMeta) problems.push('AdMob APPLICATION_ID meta-data in an app without ads');
   facts.admob = ads ? { appId: adAppId, rewarded: app.ads.rewarded, test: app.ads.test } : false;
-  const pgsMeta = /android:name="com\.google\.android\.gms\.games\.APP_ID"/.test(xml);
-  if (pgs !== pgsMeta) problems.push(pgs ? 'Play Games APP_ID meta-data missing' : 'Play Games APP_ID meta-data present without a playGames block');
+  problems.push(...checkMergedPlayGames(xml, pgs));
   facts.playGames = pgs;
 
   const entries = run('jar', ['tf', aab], { capture: true }).split(/\r?\n/).filter(Boolean);

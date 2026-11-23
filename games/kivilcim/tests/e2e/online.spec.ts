@@ -1,4 +1,4 @@
-import { act, collectErrors, expect, openGame, shot, test, waitForScene } from '@oyun/core/e2e';
+import { act, collectErrors, expect, openGame, shot, state, test, waitForScene } from '@oyun/core/e2e';
 import type { Page } from '@playwright/test';
 import { fileURLToPath } from 'node:url';
 
@@ -113,4 +113,26 @@ test('online: without the native plugin the panel explains where it lives', asyn
   await expect(page.getByTestId('online-panel')).toHaveAttribute('data-state', 'unavailable');
   // App Store 5.1.1: the privacy policy is one tap away inside the game
   await expect(page.getByTestId('online-privacy')).toHaveAttribute('href', 'https://oyunlar.carsihani.me/gizlilik/kivilcim/');
+});
+
+test('the title screen links the privacy policy; a tap on it opens the page and starts no run', async ({ page, context }) => {
+  const errors = collectErrors(page);
+  await context.route('https://oyunlar.carsihani.me/**', (r) => r.fulfill({ status: 200, contentType: 'text/html', body: '<p>policy</p>' }));
+  await openGame(page, { seed: 1, lang: 'tr' });
+  await waitForScene(page, 'game');
+  await page.waitForTimeout(1200); // the entrance settles
+  await shot(page, gameDir, 'title-privacy');
+  const d = (await state(page)).data as { phase: string; privacy: { x: number; y: number } | null };
+  expect(d.phase).toBe('title');
+  expect(d.privacy).not.toBeNull();
+  const r = await page.evaluate(() => {
+    const b = document.querySelector('canvas')!.getBoundingClientRect();
+    return { x: b.x, y: b.y, w: b.width, h: b.height };
+  });
+  const popup = context.waitForEvent('page');
+  await page.touchscreen.tap(r.x + (d.privacy!.x / 720) * r.w, r.y + (d.privacy!.y / 1280) * r.h);
+  expect((await popup).url()).toBe('https://oyunlar.carsihani.me/gizlilik/kivilcim/');
+  await page.waitForTimeout(300);
+  expect(((await state(page)).data as { phase: string }).phase).toBe('title');
+  expect(errors).toEqual([]);
 });

@@ -9,6 +9,9 @@ import { createOnline, openOnlinePanel, type Online } from '@oyun/core/online';
 import { gameSave } from './save';
 import { progressScore } from './sim/meta';
 
+/** The privacy policy (tools/gizlilik.mjs), linked from the title screen and the online panel. */
+export const PRIVACY_URL = 'https://oyunlar.carsihani.me/gizlilik/kivilcim/';
+
 let online: Online | null = null;
 
 export function gameOnline(ctx: OyunContext): Online {
@@ -29,5 +32,5 @@ export function gameOnline(ctx: OyunContext): Online {
 }
 
 export function openOnline(ctx: OyunContext): void {
-  openOnlinePanel(gameOnline(ctx), { lang: ctx.lang, theme: ctx.theme, privacyUrl: 'https://oyunlar.carsihani.me/gizlilik/kivilcim/' });
+  openOnlinePanel(gameOnline(ctx), { lang: ctx.lang, theme: ctx.theme, privacyUrl: PRIVACY_URL });
 }

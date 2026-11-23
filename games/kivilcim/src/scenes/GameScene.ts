@@ -11,7 +11,7 @@
  * pose of the moment (flip, fold, lean, zoom); everything drawn at the spark goes through
  * toScreen(). The HUD and the cards never move. Presentation only: the sim is not told.
  */
-import { button, followsRealTime, iconButton, MAX_FRAME_MS, muteButton, OyunScene, realTimeDelta, STORE_BUILD, toast, type Button, type IconButton } from '@oyun/core';
+import { button, followsRealTime, iconButton, linkLabel, MAX_FRAME_MS, muteButton, OyunScene, realTimeDelta, STORE_BUILD, toast, type Button, type IconButton } from '@oyun/core';
 import type { Rng } from '@oyun/core/pure';
 import Phaser from 'phaser';
 import { Music } from '../audio/Music';
@@ -29,7 +29,7 @@ import { MechView } from '../render/MechView';
 import { TWIST_COLORS, TWIST_OUT_COLOR, TwistView } from '../render/TwistView';
 import { awardChips, countUp, isCalm, wipeIn, wipeTo } from '../render/menuFx';
 import { hue, Trail, TRAIL_LEN } from '../render/Trail';
-import { gameOnline } from '../online';
+import { gameOnline, PRIVACY_URL } from '../online';
 import { gameSave } from '../save';
 import { BEAT_PX, DT, MINI_R, SHAFT_W, SPARK_R, START_X } from '../sim/constants';
 import { EdgeQueue } from '../sim/input';
@@ -369,6 +369,8 @@ export class GameScene extends OyunScene {
   private titleLevel!: Phaser.GameObjects.Text;
   private titleBest!: Phaser.GameObjects.Text;
   private muteBtn!: IconButton;
+  /** title only: the privacy policy, top centre between the rank chip and the sound button */
+  private privacyLink!: Phaser.GameObjects.Container;
 
   private input2!: HoldInput;
   private music!: Music;
@@ -660,7 +662,8 @@ export class GameScene extends OyunScene {
 
   /**
    * The title is a launch bay built over the live shaft:
-   *   a neon sign bolted across the shaft (logo, tagline) · your rank chip, top left
+   *   a neon sign bolted across the shaft (logo, tagline) · your rank chip, top left · a small
+   *   Privacy link between the chip and the sound button (opens the policy in the system browser)
    *   the level plate and a big PLAY capsule with a fuse spark running round it
    *   the ignition ring around the waiting spark (a press anywhere outside the menu starts the run)
    *   a glass control deck at the bottom: Levels, Shop, and Endless, Dive, Daily, each with a
@@ -818,6 +821,9 @@ export class GameScene extends OyunScene {
     c.add([ringA, ringB, sign, this.titlePlate, play, deck, this.rankChip]);
     this.muteBtn = muteButton(this, L.right - 70, L.top + 70);
     this.muteBtn.setDepth(201);
+    // the free strip between the rank chip (ends at left + 304) and the sound button (right - 114)
+    const linkX = Math.round((L.left + 24 + 280 + L.right - 114) / 2);
+    this.privacyLink = linkLabel(this, linkX, L.top + 70, this.t('core.privacy'), PRIVACY_URL, { size: 26, color: 0xd8c8ff }).setDepth(201);
     this.homeTile = new IconTile(this, L.left + 70, L.top + 70, 'ic-back', null, () => this.goHome(), { radius: 46, color: PALETTE.ui });
     this.homeTile.setDepth(201);
   }
@@ -1380,6 +1386,7 @@ export class GameScene extends OyunScene {
     } else if (from === 'title' && this.titleUi.visible) this.exitTitle();
     else this.titleUi.setVisible(false);
     this.muteBtn.setVisible(p === 'title' || p === 'ready' || p === 'dead' || p === 'finished');
+    this.privacyLink.setVisible(p === 'title');
     this.homeTile.setVisible(p === 'ready' || p === 'dead' || p === 'finished');
     this.readyUi.setVisible(p === 'ready');
     this.resumeUi.setVisible(p === 'resume');
@@ -1600,6 +1607,9 @@ export class GameScene extends OyunScene {
       for (const t of this.titleTiles) if (t.hits(x, y)) return true;
       // the control deck is all menu: a press on its glass never starts a run
       if (y >= this.deckTop && this.deck.y < 40) return true;
+      // the Privacy link opens the policy; a press on it never starts a run
+      const pl = this.privacyLink;
+      if (pl.visible && Math.abs(x - pl.x) < pl.width / 2 && Math.abs(y - pl.y) < pl.height / 2) return true;
     }
     if (this.homeTile.hits(x, y)) return true;
     if (this.muteBtn.visible && Math.abs(x - this.muteBtn.x) < 60 && Math.abs(y - this.muteBtn.y) < 60) return true;
@@ -2888,6 +2898,7 @@ export class GameScene extends OyunScene {
       edge: sim.edge,
       nearMisses: sim.nearMisses,
       deathCause: sim.deathCause ?? '',
+      privacy: this.privacyLink.visible ? { x: Math.round(this.privacyLink.x), y: Math.round(this.privacyLink.y) } : null,
       retryReady: this.phase === 'dead' && now - this.deathAt >= RETRY_LOCK_MS,
       msSinceDeath: this.phase === 'dead' ? Math.round(now - this.deathAt) : -1,
       retryLatencyMs: Math.round(this.retryLatency),

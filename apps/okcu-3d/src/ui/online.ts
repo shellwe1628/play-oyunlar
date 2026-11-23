@@ -7,6 +7,9 @@ import { createOnline, openOnlinePanel, type Online } from '@oyun/core/online';
 import { DEFAULT_THEME, type SaveStore, type StorageAdapter } from '@oyun/core/pure';
 import type { SaveData } from '@sim/meta';
 
+/** The privacy policy (tools/gizlilik.mjs), linked from the Home tab and the online panel. */
+export const PRIVACY_URL = 'https://oyunlar.carsihani.me/gizlilik/okcu/';
+
 let online: Online | null = null;
 
 /** Once at boot (main.ts): Play Games starts only for an adult answer already on file. */
@@ -29,5 +32,5 @@ export function syncOnline(): void {
 export function openOnline(): void {
   if (!online) return;
   const lang = document.documentElement.lang === 'en' ? 'en' : 'tr';
-  openOnlinePanel(online, { lang, theme: DEFAULT_THEME, privacyUrl: 'https://oyunlar.carsihani.me/gizlilik/okcu/' });
+  openOnlinePanel(online, { lang, theme: DEFAULT_THEME, privacyUrl: PRIVACY_URL });
 }

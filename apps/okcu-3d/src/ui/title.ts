@@ -4,7 +4,8 @@
  *
  * Two states:
  * - menu:  the hanging wooden sign with the wobbly noodle letters, the chapter card (or the daily
- *          card) with the recommended power, and one big PLAY button sitting on the tab bar.
+ *          card) with the recommended power, a small Privacy link under it (the policy page in
+ *          the system browser) and one big PLAY button sitting on the tab bar.
  * - ready: PLAY swept the menu away (the shell hides too); only the "pull back & let go" hint,
  *          the menu button and the sound button are left, so the whole field is free for the
  *          first shot.
@@ -22,8 +23,10 @@ import { powerOf } from '@sim/arsenal';
 import { CHAPTERS, RECOMMENDED_POWER } from '@sim/chapters';
 import { dailyChallenge, liveStreak } from '@sim/progress';
 import type { World } from '@sim/world';
+import { externalLink } from '@oyun/core/pure';
 import { calmMotion, EASE, el, fitText, iconCanvas, Label, pressable, roundButton, TAB_BAR_H, textWidth } from './dom';
 import { css, Gfx, rgba } from './gfx';
+import { PRIVACY_URL } from './online';
 import { todayKey } from './save';
 import type { Ui } from './screens';
 
@@ -88,6 +91,7 @@ const STYLE = `
 .ok-m-play::after{content:'';position:absolute;top:-20px;bottom:-20px;width:90px;left:-140px;background:linear-gradient(90deg,rgba(255,255,255,0),rgba(255,255,255,.7),rgba(255,255,255,0));transform:skewX(-18deg);animation:okm-shine 3.4s ease-in-out 1.2s infinite;pointer-events:none}
 @keyframes okm-shine{0%,62%{left:-140px}88%,100%{left:560px}}
 .ok-m-daily{position:absolute;border-radius:40px;border:4px solid ${css(PALETTE.gold)}}
+.ok-m-priv{position:absolute;left:-130px;top:-42px;width:260px;height:84px;display:flex;align-items:center;justify-content:center;pointer-events:auto;touch-action:none;font-size:26px;color:${css(PALETTE.cream)};text-decoration:underline;text-underline-offset:5px;text-shadow:0 2px 0 ${css(INK)},0 0 6px ${css(INK)};white-space:nowrap}
 `;
 
 let styled = false;
@@ -363,6 +367,16 @@ export function createTitle(ui: Ui, parent: HTMLElement, hooks: TitleHooks): Tit
         if (f.width > 600) f.setScale(600 / f.width);
       }
     }
+
+    // ---- the privacy policy (App Store 5.1.1, Play user data policy): a plain link the native
+    // app hands to the system browser (@oyun/core link.ts); a press on it never draws the bow
+    const prP = part(menuG, CX, cardY + 162, 'translateY(-20px)', 240);
+    const priv = externalLink(el('a', 'ok-m-priv', prP), PRIVACY_URL);
+    priv.textContent = t('core.privacy');
+    priv.dataset.testid = 'title-privacy';
+    priv.dataset.ui = '1';
+    for (const type of ['pointerdown', 'pointerup'] as const) priv.addEventListener(type, (ev) => ev.stopPropagation());
+    priv.addEventListener('pointerdown', () => ui.unlock());
 
     // ---- PLAY: the one big action, sitting on the tab bar
     const playY = bot - TAB_BAR_H - 104;

@@ -1,4 +1,4 @@
-import { button, cssColor, iconButton, label, ResultScene as ResultShell, toast, type Button, type ResultData } from '@oyun/core';
+import { button, cssColor, iconButton, label, ResultScene as ResultShell, toast, type Button, type ResultData, STORE_BUILD } from '@oyun/core';
 import Phaser from 'phaser';
 import { gameSave } from '../save';
 import { PALETTE } from '../textures';
@@ -272,6 +272,8 @@ export class ResultScene extends ResultShell {
   }
 
   protected override testState() {
+
+    if (STORE_BUILD) throw new Error('unreachable'); // store builds: no test hook
     const save = gameSave(this.oyun).data;
     return {
       ...super.testState(),
@@ -292,6 +294,8 @@ export class ResultScene extends ResultShell {
   }
 
   protected override testActions() {
+
+    if (STORE_BUILD) throw new Error('unreachable'); // store builds: no test hook
     return {
       ...super.testActions(),
       revive: () => this.reviveBtn?.fire(),

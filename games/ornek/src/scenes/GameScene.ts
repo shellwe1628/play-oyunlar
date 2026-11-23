@@ -1,4 +1,4 @@
-import { createRng, iconButton, label, OyunScene, progressBar, splitStep, type IconButton, type ProgressBar } from '@oyun/core';
+import { createRng, iconButton, label, OyunScene, progressBar, splitStep, type IconButton, type ProgressBar, STORE_BUILD } from '@oyun/core';
 import Phaser from 'phaser';
 import { gameSave } from '../save';
 import { applyRoundResult } from '../sim/progress';
@@ -130,6 +130,8 @@ export class GameScene extends OyunScene {
   }
 
   protected override testState() {
+
+    if (STORE_BUILD) throw new Error('unreachable'); // store builds: no test hook
     const t = this.round.target;
     return {
       score: this.round.score,
@@ -141,6 +143,8 @@ export class GameScene extends OyunScene {
   }
 
   protected override testActions() {
+
+    if (STORE_BUILD) throw new Error('unreachable'); // store builds: no test hook
     return {
       tapTarget: () => this.onTap(this.round.target.x, this.round.target.y),
       tapAt: (p: unknown) => {

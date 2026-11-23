@@ -1,4 +1,4 @@
-import { button, cssColor, label, OyunScene, panel, progressBar, type Button, type ProgressBar } from '@oyun/core';
+import { button, cssColor, label, OyunScene, panel, progressBar, type Button, type ProgressBar, STORE_BUILD } from '@oyun/core';
 import Phaser from 'phaser';
 import { backgroundAware, session } from '../session';
 import { SFX } from '../sfx';
@@ -468,6 +468,8 @@ export class MuseumScene extends OyunScene {
   }
 
   protected override testState() {
+
+    if (STORE_BUILD) throw new Error('unreachable'); // store builds: no test hook
     const fs = layerFossils(this.tab);
     return {
       tab: this.tab,
@@ -483,6 +485,8 @@ export class MuseumScene extends OyunScene {
   }
 
   protected override testActions() {
+
+    if (STORE_BUILD) throw new Error('unreachable'); // store builds: no test hook
     return {
       tab: (p: unknown) => this.selectTab(typeof p === 'number' ? p : 0),
       open: (p: unknown) => this.openDetail(at(layerFossils(this.tab), typeof p === 'number' ? p : 0)),

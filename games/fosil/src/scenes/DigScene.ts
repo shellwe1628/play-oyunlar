@@ -1,4 +1,4 @@
-import { button, cssColor, iconButton, label, OyunScene, panel, progressBar, toast, type Button, type IconButton, type ProgressBar } from '@oyun/core';
+import { button, cssColor, iconButton, label, OyunScene, panel, progressBar, toast, type Button, type IconButton, type ProgressBar, STORE_BUILD } from '@oyun/core';
 import type { PauseReason } from '@oyun/core/pure';
 import Phaser from 'phaser';
 import { gameOnline } from '../online';
@@ -26,8 +26,8 @@ import { Reveal } from './Reveal';
 import { big, counted, fitText, fossilName, hitZone, luckLine, mult, oddsText, outlined } from './ui';
 
 const BLOCK_W = 460;
-/** `?fx=0` switches the presentation layer off (for on/off comparisons); gameplay is identical. */
-const FX_ON = typeof location === 'undefined' || new URLSearchParams(location.search).get('fx') !== '0';
+/** `?fx=0` switches the presentation layer off (for on/off comparisons; web builds only, never a store build); gameplay is identical. */
+const FX_ON = STORE_BUILD || typeof location === 'undefined' || new URLSearchParams(location.search).get('fx') !== '0';
 const HEADER = 266;
 /** Seconds without a touch before a rank-up ceremony may cover the screen. */
 const QUIET_BEFORE_CEREMONY = 1;
@@ -2271,6 +2271,8 @@ export class DigScene extends OyunScene {
   }
 
   protected override testState() {
+
+    if (STORE_BUILD) throw new Error('unreachable'); // store builds: no test hook
     const s = this.sim;
     const perLayer = LAYERS.map((_, l) => s.setProgress(l).found);
     const last = s.lastFind ? FOSSIL_BY_ID.get(s.lastFind.id)! : null;
@@ -2374,6 +2376,8 @@ export class DigScene extends OyunScene {
   }
 
   protected override testActions() {
+
+    if (STORE_BUILD) throw new Error('unreachable'); // store builds: no test hook
     return {
       tap: (p: unknown) => {
         const n = typeof p === 'number' ? p : 1;

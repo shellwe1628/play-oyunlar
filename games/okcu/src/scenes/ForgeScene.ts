@@ -1,4 +1,4 @@
-import { button, cssColor, label, OyunScene, type Button } from '@oyun/core';
+import { button, cssColor, label, OyunScene, type Button, STORE_BUILD } from '@oyun/core';
 import type Phaser from 'phaser';
 import { gameSave } from '../save';
 import { attemptForge, BOW_MAX, bowCost, bowDamage, bowTier, forgeChance, GLOW_BANDS, glowBand, HEAT_STEP, nextGlowBand, type ForgeResult } from '../sim/bow';
@@ -333,6 +333,8 @@ export class ForgeScene extends OyunScene {
   }
 
   protected override testState() {
+
+    if (STORE_BUILD) throw new Error('unreachable'); // store builds: no test hook
     const save = gameSave(this.oyun).data;
     const cost = bowCost(save.bow.level);
     return {
@@ -348,6 +350,8 @@ export class ForgeScene extends OyunScene {
   }
 
   protected override testActions() {
+
+    if (STORE_BUILD) throw new Error('unreachable'); // store builds: no test hook
     return {
       forge: () => this.forgeBtn.fire(),
       back: () => this.backBtn.fire(),

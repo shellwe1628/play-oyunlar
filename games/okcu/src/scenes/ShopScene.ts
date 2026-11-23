@@ -1,4 +1,4 @@
-import { button, cssColor, label, OyunScene, touchHitSize, type Button } from '@oyun/core';
+import { button, cssColor, label, OyunScene, touchHitSize, type Button, STORE_BUILD } from '@oyun/core';
 import Phaser from 'phaser';
 import { THEMES } from '../anim/themes';
 import { gameSave } from '../save';
@@ -266,11 +266,15 @@ export class ShopScene extends OyunScene {
   }
 
   protected override testState() {
+
+    if (STORE_BUILD) throw new Error('unreachable'); // store builds: no test hook
     const save = gameSave(this.oyun).data;
     return { coins: save.coins, upgrades: { ...save.upgrades }, cosmetic: save.cosmetic, from: this.from, tab: this.tab, preview: COSMETICS[this.preview]?.id ?? '' };
   }
 
   protected override testActions() {
+
+    if (STORE_BUILD) throw new Error('unreachable'); // store builds: no test hook
     return {
       buy: (p: unknown) => this.buyBtns.get(p as UpgradeId)?.fire(),
       forge: () => this.forgeBtn.fire(),

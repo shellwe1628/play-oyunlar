@@ -1,4 +1,4 @@
-import { button, cssColor, label, OyunScene, type Button } from '@oyun/core';
+import { button, cssColor, label, OyunScene, type Button, STORE_BUILD } from '@oyun/core';
 import type Phaser from 'phaser';
 import { THEMES } from '../anim/themes';
 import { gameSave } from '../save';
@@ -200,12 +200,16 @@ export class RanksScene extends OyunScene {
   }
 
   protected override testState() {
+
+    if (STORE_BUILD) throw new Error('unreachable'); // store builds: no test hook
     const save = gameSave(this.oyun).data;
     const s = progressScore(save);
     return { tab: this.tab, score: s.total, rank: RANKS[rankOf(s.total)]!.id, from: this.from, feats: save.feats.length };
   }
 
   protected override testActions() {
+
+    if (STORE_BUILD) throw new Error('unreachable'); // store builds: no test hook
     return {
       tab: (p: unknown) => this.setTab((String(p) as Tab) || 'ladder'),
       back: () => this.goTo(SCENES.game, {}),

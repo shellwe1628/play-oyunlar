@@ -1,4 +1,4 @@
-import { button, cssColor, hashSeed, iconButton, label, muteButton, OyunScene, toast, type Button, type IconButton } from '@oyun/core';
+import { button, cssColor, hashSeed, iconButton, label, muteButton, OyunScene, toast, type Button, type IconButton, STORE_BUILD } from '@oyun/core';
 import Phaser from 'phaser';
 import { gameSave } from '../save';
 import { planShot, solveShot, CAREFUL, type Profile } from '../sim/aimbot';
@@ -2037,6 +2037,8 @@ export class GameScene extends OyunScene {
   // ------------------------------------------------------------------ test hook
 
   protected override testState() {
+
+    if (STORE_BUILD) throw new Error('unreachable'); // store builds: no test hook
     const w = this.w;
     const r = (v: number) => Math.round(v * 10) / 10;
     const first = aliveEnemies(w).find((e) => e.brain !== 'spawn');
@@ -2105,6 +2107,8 @@ export class GameScene extends OyunScene {
   }
 
   protected override testActions() {
+
+    if (STORE_BUILD) throw new Error('unreachable'); // store builds: no test hook
     return {
       shoot: (p: unknown) => {
         const { angle, power } = p as { angle: number; power: number };

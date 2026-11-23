@@ -1,4 +1,4 @@
-import { type Button, button, label, MenuScene as MenuShell, muteButton, progressBar } from '@oyun/core';
+import { type Button, button, label, MenuScene as MenuShell, muteButton, progressBar, STORE_BUILD } from '@oyun/core';
 import type { PauseReason } from '@oyun/core/pure';
 import Phaser from 'phaser';
 import { badgeKey } from '../art/badges';
@@ -613,6 +613,8 @@ export class MenuScene extends MenuShell {
   }
 
   protected override testActions(): Record<string, (payload: unknown) => void> {
+
+    if (STORE_BUILD) throw new Error('unreachable'); // store builds: no test hook
     return {
       ...super.testActions(),
       museum: () => this.museumButton.fire(),
@@ -622,6 +624,8 @@ export class MenuScene extends MenuShell {
   }
 
   protected override testState() {
+
+    if (STORE_BUILD) throw new Error('unreachable'); // store builds: no test hook
     const sim = session(this.oyun).sim;
     const pos = (b: Button | undefined): { x: number; y: number } => ({ x: Math.round(b?.x ?? 0), y: Math.round(b?.y ?? 0) });
     return {

@@ -1,4 +1,4 @@
-import { button, label, OyunScene, progressBar, toast, type Button } from '@oyun/core';
+import { button, label, OyunScene, progressBar, toast, type Button, STORE_BUILD } from '@oyun/core';
 import type { PauseReason } from '@oyun/core/pure';
 import Phaser from 'phaser';
 import { shade } from '../art/fossils';
@@ -522,6 +522,8 @@ export class MapScene extends OyunScene {
   // ------------------------------------------------------------------ test hook
 
   protected override testState() {
+
+    if (STORE_BUILD) throw new Error('unreachable'); // store builds: no test hook
     const s = this.sim;
     return {
       from: this.from,
@@ -549,6 +551,8 @@ export class MapScene extends OyunScene {
   }
 
   protected override testActions() {
+
+    if (STORE_BUILD) throw new Error('unreachable'); // store builds: no test hook
     return {
       scroll: (p: unknown) => this.scrollBy(typeof p === 'number' ? p : 300),
       scrollTo: (p: unknown) => this.scrollTo(typeof p === 'number' ? p : this.sim.layer, false),

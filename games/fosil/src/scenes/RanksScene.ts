@@ -1,4 +1,4 @@
-import { button, cssColor, iconButton, label, OyunScene, panel, progressBar, toast, type Button, type IconButton } from '@oyun/core';
+import { button, cssColor, iconButton, label, OyunScene, panel, progressBar, toast, type Button, type IconButton, STORE_BUILD } from '@oyun/core';
 import type { PauseReason } from '@oyun/core/pure';
 import Phaser from 'phaser';
 import { badgeKey } from '../art/badges';
@@ -464,6 +464,8 @@ export class RanksScene extends OyunScene {
   }
 
   protected override testState() {
+
+    if (STORE_BUILD) throw new Error('unreachable'); // store builds: no test hook
     const s = this.sim;
     return {
       tab: this.tab,
@@ -486,6 +488,8 @@ export class RanksScene extends OyunScene {
   }
 
   protected override testActions() {
+
+    if (STORE_BUILD) throw new Error('unreachable'); // store builds: no test hook
     return {
       tab: (p: unknown) => this.selectTab(TABS.includes(p as Tab) ? (p as Tab) : 'ladder'),
       expedition: () => this.expButton.fire(),

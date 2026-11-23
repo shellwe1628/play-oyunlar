@@ -36,7 +36,7 @@ sırasıyla anlatır. Google Play kılavuzunun (`play-yayin.md`) iOS karşılı�
 | Game Center tabloları | `com.playoyunlar.fossilodds.score` | `com.playoyunlar.sparkrise.rank`, `com.playoyunlar.sparkrise.endless` | `com.playoyunlar.noodlearchers.wave` |
 | Beklenen yaş sınırı | 4+ | 4+ | 9+ ya da 13+ (Apple hesaplar) |
 | Gizlilik URL'si | https://oyunlar.carsihani.me/gizlilik/fosil/ | …/gizlilik/kivilcim/ | …/gizlilik/okcu/ |
-| Destek URL'si | https://oyunlar.carsihani.me/gizlilik/ | aynı | aynı |
+| Destek URL'si | https://oyunlar.carsihani.me/destek/ | aynı | aynı |
 
 Ayarların tek kaynağı `store/apps.json` (`ios` bloğu). Metinler değişirse önce
 `node store/tools/appstore-validate.mjs <slug>` çalıştır; hepsi PASS olmadan yükleme yapma.

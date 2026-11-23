@@ -8,8 +8,10 @@ import UIKit
 /// JS side: packages/core/src/online/online.ts.
 ///
 /// Nothing here runs on its own. GKLocalPlayer's authenticateHandler (which is what starts Game
-/// Center's sign-in) is set only from init(), and the game calls init() only after the player's
-/// age answer says 13 or older. Children are never authenticated or scored.
+/// Center's sign-in) is set only from init(), and the game calls init() only when the player
+/// taps Sign in in the online panel (or at launch once they have signed in on this install). There
+/// is no age question of our own on iOS: Game Center applies Apple's rules to every account,
+/// children's included (packages/core/src/online/online.ts, asksAge).
 ///
 /// Board ids: the game uses logical ids ("score", "wave"); Info.plist's GCBoards dictionary
 /// (written from store/apps.json) holds the App Store Connect leaderboard id for each.

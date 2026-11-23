@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { adultFromBirthYear, createOnline, onlineService, playGamesBridge, type PlayGamesBridge } from '../src/online/online';
+import { adultFromBirthYear, asksAge, createOnline, onlineService, playGamesBridge, type PlayGamesBridge } from '../src/online/online';
+import { ONLINE_STRINGS } from '../src/online/panel';
 import { memoryStorage } from '../src/storage';
 
 const TODAY = new Date(2026, 10, 20);
@@ -129,6 +130,58 @@ describe('createOnline', () => {
     await o.start();
     expect(await o.signIn()).toBe(false);
     expect(o.state()).toBe('signed-out');
+  });
+});
+
+describe('the age question is Play Games only', () => {
+  it('asksAge: Play Games yes, Game Center no', () => {
+    expect(asksAge('play')).toBe(true);
+    expect(asksAge('gamecenter')).toBe(false);
+  });
+
+  it('defaults to Play Games (and its age question) outside a native app', async () => {
+    const f = fakeBridge();
+    const o = createOnline({ bridge: f.bridge, storage: memoryStorage(), boards, scores: () => ({}) });
+    expect(o.service).toBe('play');
+    await o.start();
+    expect(o.state()).toBe('ask-age');
+  });
+
+  it('Game Center: no age question, straight to sign-in, nothing started at a first launch', async () => {
+    const f = fakeBridge({ autoSignIn: true });
+    const storage = memoryStorage();
+    const o = createOnline({ service: 'gamecenter', bridge: f.bridge, storage, boards, scores: () => ({ best: 9 }) });
+    await o.start();
+    expect(o.state()).toBe('signed-out');
+    expect(f.calls).not.toContain('init'); // no Apple sheet at launch
+    expect(await o.signIn()).toBe(true);
+    expect(o.state()).toBe('signed-in');
+    expect(f.submitted).toEqual([{ board: 'best', score: 9 }]);
+    expect(storage.getItem('oyun.online.age')).toBeNull();
+    // later launches sign in silently, as Game Center expects
+    const next = createOnline({ service: 'gamecenter', bridge: f.bridge, storage, boards, scores: () => ({ best: 9 }) });
+    await next.start();
+    expect(next.state()).toBe('signed-in');
+  });
+
+  it('Game Center ignores the age answer entirely (an old stored one included)', async () => {
+    const f = fakeBridge();
+    const storage = memoryStorage({ 'oyun.online.age': 'child' });
+    const o = createOnline({ service: 'gamecenter', bridge: f.bridge, storage, boards, scores: () => ({}), now: () => TODAY });
+    await o.start();
+    expect(o.state()).toBe('signed-out');
+    expect(await o.answerAge(2020)).toBe('adult');
+    expect(storage.getItem('oyun.online.age')).toBe('child'); // untouched, unused
+    expect(await o.signIn()).toBe(true);
+  });
+
+  it('Play Games after an under-13 answer: the panel says why, in both languages, and offers no retry', () => {
+    expect(ONLINE_STRINGS.en.blocked).toBe('Online ranking is for players aged 13 and over.');
+    expect(ONLINE_STRINGS.tr.blocked).toBe('Online sıralama 13 yaş ve üstü oyuncular içindir.');
+    // the question itself never hints at the threshold
+    for (const lang of ['en', 'tr'] as const) {
+      for (const k of ['ageQuestion', 'agePick', 'ageWhy', 'next'] as const) expect(ONLINE_STRINGS[lang][k]).not.toMatch(/13/);
+    }
   });
 });
 

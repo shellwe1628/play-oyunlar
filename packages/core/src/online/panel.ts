@@ -2,9 +2,10 @@
  * The online leaderboard panel, one look for every game: a DOM overlay above the canvas (Phaser
  * or three.js alike), so all three games share it. Content follows Online.state():
  *   unavailable  explains that online ranking lives in the mobile app
- *   ask-age      the neutral age question (birth year from a full list, nothing hints at a
- *                threshold, no "are you over 13?")
- *   blocked      online ranking is off on this device (no reason given, no way to retry)
+ *   ask-age      Play Games only (asksAge): the neutral age question (birth year from a full
+ *                list, nothing hints at a threshold before the answer, no "are you over 13?")
+ *   blocked      after an under-13 answer: says plainly that online ranking is for players aged
+ *                13 and over; no way to answer again (Families: no invitation to re-answer)
  *   signed-out   one button: sign in (Google Play Games on Android, Game Center on iOS)
  *   signed-in    the player's name and one row per board: local best, public score and rank,
  *                and a button that opens Google's own leaderboard screen
@@ -12,7 +13,8 @@
  */
 import { defineStrings, type Lang } from '../i18n';
 import { cssColor, DEFAULT_THEME, type Theme } from '../ui/theme';
-import { onlineService, type BoardEntry, type Online } from './online';
+import { externalLink } from '../link';
+import type { BoardEntry, Online } from './online';
 
 export const ONLINE_STRINGS = defineStrings({
   en: {
@@ -23,7 +25,8 @@ export const ONLINE_STRINGS = defineStrings({
     agePick: 'Choose a year',
     ageWhy: 'We ask once, before anything goes online. Only the answer’s category is kept on this device.',
     next: 'Continue',
-    blocked: 'Online ranking is not available on this device. Your progress and records keep working as before.',
+    blocked: 'Online ranking is for players aged 13 and over.',
+    blockedRest: 'The rest of the game, your progress and your records work as before.',
     signInText: 'Sign in with Google Play Games to put your best scores on the worldwide boards.',
     signInTextGc: 'Sign in to Game Center to put your best scores on the worldwide boards.',
     signIn: 'Sign in',
@@ -45,7 +48,8 @@ export const ONLINE_STRINGS = defineStrings({
     agePick: 'Yıl seç',
     ageWhy: 'Bir şey internete gitmeden önce bir kez soruyoruz. Bu cihazda yalnızca cevabın kategorisi saklanır.',
     next: 'Devam',
-    blocked: 'Online sıralama bu cihazda kullanılamıyor. İlerlemen ve rekorların eskisi gibi çalışır.',
+    blocked: 'Online sıralama 13 yaş ve üstü oyuncular içindir.',
+    blockedRest: 'Oyunun geri kalanı, ilerlemen ve rekorların eskisi gibi çalışır.',
     signInText: 'En iyi skorlarını dünya sıralamasına koymak için Google Play Games ile giriş yap.',
     signInTextGc: 'En iyi skorlarını dünya sıralamasına koymak için Game Center’a giriş yap.',
     signIn: 'Giriş yap',
@@ -158,14 +162,9 @@ export function openOnlinePanel(online: Online, opts: PanelOptions): OnlinePanel
   card.append(head, body);
   if (opts.privacyUrl) {
     // a plain link: in the native apps Capacitor hands an outside address to the system browser;
-    // in a browser tab it opens a new tab so the game keeps running
-    const a = el('a', 'priv', s('privacy'));
-    a.href = opts.privacyUrl;
+    // in a browser tab it opens a new tab so the game keeps running (../link.ts)
+    const a = externalLink(el('a', 'priv', s('privacy')), opts.privacyUrl);
     a.dataset.testid = 'online-privacy';
-    if (!(globalThis as { Capacitor?: { isNativePlatform?: () => boolean } }).Capacitor?.isNativePlatform?.()) {
-      a.target = '_blank';
-      a.rel = 'noopener';
-    }
     card.append(a);
   }
   root.append(card);
@@ -230,7 +229,7 @@ export function openOnlinePanel(online: Online, opts: PanelOptions): OnlinePanel
 
   function signedOut(): void {
     body.replaceChildren();
-    const p = el('p', 'lead', s(onlineService() === 'gamecenter' ? 'signInTextGc' : 'signInText'));
+    const p = el('p', 'lead', s(online.service === 'gamecenter' ? 'signInTextGc' : 'signInText'));
     const b = el('button', 'btn', busy ? s('signingIn') : s('signIn'));
     b.dataset.testid = 'online-signin';
     b.disabled = busy;
@@ -281,7 +280,7 @@ export function openOnlinePanel(online: Online, opts: PanelOptions): OnlinePanel
     if (state === 'unavailable') body.replaceChildren(el('p', 'lead', s('unavailable')));
     else if (state === 'ask-age') {
       if (!busy) askAge();
-    } else if (state === 'blocked') body.replaceChildren(el('p', 'lead', s('blocked')));
+    } else if (state === 'blocked') body.replaceChildren(el('p', 'lead', s('blocked')), el('p', undefined, s('blockedRest')));
     else if (state === 'signed-out') signedOut();
     else {
       body.replaceChildren(el('p', undefined, s('loading')));

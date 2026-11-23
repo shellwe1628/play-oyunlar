@@ -5,28 +5,29 @@ import { fileURLToPath } from 'node:url';
 /**
  * Online ranking (@oyun/core/online) in the real game, with a fake Play Games plugin standing in
  * for tools/aab/PlayGamesPlugin.java: nothing reaches Play Games before the age question, a child
- * answer blocks it for good, an adult answer signs in and sends the bests.
+ * answer blocks it for good (and the panel says why), an adult answer signs in and sends the
+ * bests. On iOS (fake GameCenter plugin) there is no age question: straight to sign-in.
  */
 const gameDir = fileURLToPath(new URL('../..', import.meta.url)).replace(/[\\/]$/, '');
 
-async function fakePlayGames(page: Page): Promise<void> {
-  await page.addInitScript(() => {
+async function fakePlayGames(page: Page, platform: 'android' | 'ios' = 'android'): Promise<void> {
+  await page.addInitScript((platform) => {
     const calls: string[] = [];
     (window as unknown as { __pgs: string[] }).__pgs = calls;
+    const plugin = {
+      available: () => Promise.resolve({ value: true }),
+      init: () => (calls.push('init'), Promise.resolve({ signedIn: false })),
+      signIn: () => (calls.push('signIn'), Promise.resolve({ signedIn: true, name: 'Test Player' })),
+      submitScore: (o: { board: string; score: number }) => (calls.push(`submit:${o.board}:${o.score}`), Promise.resolve({})),
+      showBoard: (o: { board: string }) => (calls.push(`show:${o.board}`), Promise.resolve({})),
+      loadMine: (o: { board: string }) => Promise.resolve(o.board === 'rank' ? { score: 120, rank: 42 } : {}),
+    };
     (window as unknown as { Capacitor: unknown }).Capacitor = {
       isNativePlatform: () => true,
-      Plugins: {
-        PlayGames: {
-          available: () => Promise.resolve({ value: true }),
-          init: () => (calls.push('init'), Promise.resolve({ signedIn: false })),
-          signIn: () => (calls.push('signIn'), Promise.resolve({ signedIn: true, name: 'Test Player' })),
-          submitScore: (o: { board: string; score: number }) => (calls.push(`submit:${o.board}:${o.score}`), Promise.resolve({})),
-          showBoard: (o: { board: string }) => (calls.push(`show:${o.board}`), Promise.resolve({})),
-          loadMine: (o: { board: string }) => Promise.resolve(o.board === 'rank' ? { score: 120, rank: 42 } : {}),
-        },
-      },
+      getPlatform: () => platform,
+      Plugins: platform === 'ios' ? { GameCenter: plugin } : { PlayGames: plugin },
     };
-  });
+  }, platform);
 }
 const calls = (page: Page): Promise<string[]> => page.evaluate(() => (window as unknown as { __pgs: string[] }).__pgs);
 
@@ -79,12 +80,30 @@ test('online: a child answer blocks Play Games for good', async ({ page }) => {
   await page.getByTestId('online-year').selectOption(String(year));
   await page.getByTestId('online-age-next').click();
   await expect(page.getByTestId('online-panel')).toHaveAttribute('data-state', 'blocked');
+  await expect(page.getByTestId('online-panel')).toContainText('Online ranking is for players aged 13 and over.');
+  await expect(page.getByTestId('online-panel').locator('button:not([data-testid="online-close"])')).toHaveCount(0);
   await shot(page, gameDir, 'online-blocked');
   await page.getByTestId('online-close').click();
   // reopening keeps it blocked, and Play Games was never initialised
   await act(page, 'online');
   await expect(page.getByTestId('online-panel')).toHaveAttribute('data-state', 'blocked');
   expect(await calls(page)).toEqual([]);
+  expect(errors).toEqual([]);
+});
+
+test('online on iOS: no age question, Game Center sign-in straight away', async ({ page }) => {
+  const errors = collectErrors(page);
+  await fakePlayGames(page, 'ios');
+  await openGame(page, { seed: 1, lang: 'en' });
+  await openRanksPanel(page);
+  const panel = page.getByTestId('online-panel');
+  await expect(panel).toHaveAttribute('data-state', 'signed-out');
+  await expect(page.getByTestId('online-year')).toHaveCount(0);
+  await expect(panel).toContainText('Game Center');
+  expect(await calls(page)).toEqual([]); // nothing started before the tap
+  await page.getByTestId('online-signin').click();
+  await expect(panel).toHaveAttribute('data-state', 'signed-in');
+  expect(await calls(page)).toContain('init');
   expect(errors).toEqual([]);
 });
 

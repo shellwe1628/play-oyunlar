@@ -1,12 +1,19 @@
 /**
- * Online leaderboards through Google Play Games Services v2, behind a neutral age question.
+ * Online leaderboards: Google Play Games Services v2 on Android (behind a neutral age question),
+ * Apple's Game Center on iOS (no age question). The one place that decides this is asksAge().
  *
- * Why the age question: the games' Play audience is "all ages" (Families policy). Google does not
- * list Play Games Services as approved for child users, so a child must never be signed in or
- * have a score sent. Nothing touches Play Games until the player answers the question: before
- * that the native SDK is not even initialised (no automatic sign-in at launch). The answer is
- * stored as a category only ('adult' / 'child'), never the birth year, and cannot be changed in
- * the game (clearing the app's data asks again).
+ * Why the age question on Android: the games' Play audience is "all ages" (Families policy).
+ * Google does not list Play Games Services as approved for child users, so a child must never be
+ * signed in or have a score sent. Nothing touches Play Games until the player answers the
+ * question: before that the native SDK is not even initialised (tools/aab.mjs also removes the
+ * library's launch-time init provider). The answer is stored as a category only ('adult' /
+ * 'child'), never the birth year, and cannot be changed in the game (clearing the app's data asks
+ * again). After a 'child' answer the panel says plainly that online ranking is for players 13+.
+ *
+ * Why none on iOS: Game Center is Apple's own service and applies Apple's rules to every account,
+ * children's included; the apps are not in the Kids category. Our own question there read as a
+ * hidden gate to App Review. Game Center starts only when the player asks for it in the panel
+ * (and at later launches once they have signed in on this install).
  *
  * The native side is tools/aab/PlayGamesPlugin.java (Capacitor plugin "PlayGames"), present only
  * in Play builds whose store/apps.json entry has a `playGames` block, and on iOS
@@ -60,11 +67,19 @@ export interface BoardEntry {
 
 export interface Online {
   readonly boards: readonly BoardDef[];
+  /** the service behind the bridge; decides whether there is an age question (asksAge) */
+  readonly service: OnlineService;
   state(): OnlineState;
   playerName(): string | undefined;
-  /** Call once at boot: initialises Play Games only for an adult answer already on file. */
+  /**
+   * Call once at boot. Play Games: initialises only for an adult answer already on file. Game
+   * Center: only once the player has signed in before (a first launch shows no Apple sheet).
+   */
   start(): Promise<void>;
-  /** Store the age answer from a birth year; returns the category. Adults are initialised. */
+  /**
+   * Store the age answer from a birth year; returns the category. Adults are initialised. Only
+   * for a service that asksAge(); elsewhere it stores nothing and returns 'adult'.
+   */
   answerAge(birthYear: number): Promise<AgeAnswer>;
   signIn(): Promise<boolean>;
   /** Send every board whose local best is above what this device already sent. Never throws. */
@@ -78,6 +93,8 @@ export interface Online {
 export interface OnlineOptions {
   /** `null` = no Play Games here. Defaults to window.Capacitor.Plugins.PlayGames. */
   bridge?: PlayGamesBridge | null;
+  /** Defaults to the native app's service (onlineService()); 'play' outside one. */
+  service?: OnlineService;
   storage: StorageAdapter;
   boards: readonly BoardDef[];
   /** the game's current bests per board id (higher is better) */
@@ -88,6 +105,8 @@ export interface OnlineOptions {
 
 const AGE_KEY = 'oyun.online.age';
 const SENT_PREFIX = 'oyun.online.sent.';
+/** Game Center: '1' once the player signed in on this install (start() then signs in silently). */
+const JOINED_KEY = 'oyun.online.joined';
 
 /**
  * Youngest birth year that is certainly 13 or older today, whatever the birthday: someone born in
@@ -99,6 +118,14 @@ export function adultFromBirthYear(birthYear: number, today: Date): boolean {
 
 /** Which leaderboard service this build talks to: Google Play Games (Android) or Game Center (iOS). */
 export type OnlineService = 'play' | 'gamecenter';
+
+/**
+ * Whether our own age question comes before the service: yes for Google Play Games (Families
+ * policy), no for Game Center (Apple's service, handles child accounts itself). See the top.
+ */
+export function asksAge(service: OnlineService): boolean {
+  return service === 'play';
+}
 
 type CapacitorGlobal = {
   isNativePlatform?: () => boolean;
@@ -128,6 +155,8 @@ export function playGamesBridge(): PlayGamesBridge | null {
 export function createOnline(opts: OnlineOptions): Online {
   const bridge = opts.bridge === undefined ? playGamesBridge() : opts.bridge;
   const now = opts.now ?? (() => new Date());
+  const service = opts.service ?? onlineService() ?? 'play';
+  const ageGate = asksAge(service);
   const listeners = new Set<() => void>();
   let wired: boolean | null = bridge ? null : false;
   let initialised = false;
@@ -147,9 +176,12 @@ export function createOnline(opts: OnlineOptions): Online {
     const v = opts.storage.getItem(AGE_KEY);
     return v === 'adult' || v === 'child' ? v : null;
   };
+  /** may the service be started at all: after an adult answer where we ask, always elsewhere */
+  const allowed = (): boolean => !ageGate || age() === 'adult';
   const apply = (r: SignInResult | undefined): void => {
     signedIn = Boolean(r?.signedIn);
     name = signedIn ? r?.name : undefined;
+    if (signedIn && !ageGate) opts.storage.setItem(JOINED_KEY, '1');
   };
   const isWired = async (): Promise<boolean> => {
     if (wired !== null) return wired;
@@ -161,7 +193,7 @@ export function createOnline(opts: OnlineOptions): Online {
     return wired;
   };
   const init = async (): Promise<void> => {
-    if (initialised || !(await isWired()) || age() !== 'adult') return;
+    if (initialised || !(await isWired()) || !allowed()) return;
     initialised = true;
     try {
       apply(await bridge!.init());
@@ -174,8 +206,10 @@ export function createOnline(opts: OnlineOptions): Online {
 
   const online: Online = {
     boards: opts.boards,
+    service,
     state() {
       if (!bridge || wired === false) return 'unavailable';
+      if (!ageGate) return signedIn ? 'signed-in' : 'signed-out';
       const a = age();
       if (a === null) return 'ask-age';
       if (a === 'child') return 'blocked';
@@ -187,9 +221,11 @@ export function createOnline(opts: OnlineOptions): Online {
         emit();
         return;
       }
-      await init();
+      if (ageGate || opts.storage.getItem(JOINED_KEY) === '1') await init();
+      else emit();
     },
     async answerAge(birthYear) {
+      if (!ageGate) return 'adult';
       const answer: AgeAnswer = adultFromBirthYear(birthYear, now()) ? 'adult' : 'child';
       // first answer wins: the question is not asked again on this install
       if (age() === null) opts.storage.setItem(AGE_KEY, answer);
@@ -199,7 +235,7 @@ export function createOnline(opts: OnlineOptions): Online {
       return stored;
     },
     async signIn() {
-      if (age() !== 'adult' || !(await isWired())) return false;
+      if (!allowed() || !(await isWired())) return false;
       if (!initialised) await init();
       if (signedIn) return true;
       try {
@@ -212,7 +248,7 @@ export function createOnline(opts: OnlineOptions): Online {
       return signedIn;
     },
     async sync() {
-      if (!signedIn || age() !== 'adult') return;
+      if (!signedIn || !allowed()) return;
       let scores: Readonly<Record<string, number>>;
       try {
         scores = opts.scores();

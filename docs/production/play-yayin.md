@@ -198,29 +198,29 @@ duraklatma davranışını uygular: Kıvılcım duraklatma menüsünü açar ve 
 basışında devam eder; Okçular paraları ve en iyi dalgayı hemen kaydeder; Fosil kaydeder. İlk
 basış (yalnız uyarı) oyunu durdurmaz. Bu davranış telefonda denenmedi.
 
-**Reklam düğmeleri (önemli):** Bu dahili test paketleri, telefona elle kurduğunuz test APK'sı
-gibi **web platform bağdaştırıcısıyla** derlenir (`store/apps.json` → `"platform": "web"`):
-ödüllü düğmeler (Fosil "2× şans", "Tozu ikiye katla (reklam)"; Okçular "+1 kart", "canlan",
-"çift para", tahta sandığı gümüşe çevirme, Mağaza'da "+altın"; Kıvılcım "devam et", "Elmas ×2") reklam göstermeden **ödülü hemen verir**. Neden:
-Capacitor bağdaştırıcısında bu düğmeler "reklam yok" cevabı alır ve kodu okuyunca görülen şu:
-üç oyunda da düğme basınca hiçbir şey olmaz, hiçbir mesaj çıkmaz, sonra yeniden etkinleşir
-(Fosil, Okçular kart düğmesi, Okçular sonuç ekranı, Kıvılcım). Test edenler bunu "bozuk düğme"
-diye bildirir ve ödüllü akışlar hiç denenemez. Web bağdaştırıcısı bu akışları test ettirir.
-Uygulamada reklam SDK'sı yoktur; gizlilik politikası ve formlardaki "reklam yok" cevabı bu
-paket için doğrudur.
+**Reklamlar (güncel durum):** Üç uygulama da `store/apps.json`'da `"platform": "capacitor"` ile,
+yani AdMob'lu Capacitor bağdaştırıcısıyla derlenir (`tools/admob.mjs`, `tools/aab.mjs`). Reklam
+yalnızca **ödüllü** türdedir: oyuncu "▶ REKLAM" etiketli bir düğmeye (Fosil "2× şans", "Tozu ikiye
+katla"; Okçular "+1 kart", "canlan", "çift para", tahta sandığı gümüşe çevirme, Mağaza'da
+"+altın"; Kıvılcım "devam et", "Elmas ×2") kendisi dokunduğunda gösterilir; reklamı sonuna kadar
+izlerse ödülü alır. Geçiş (interstitial) ya da banner reklam yoktur. Reklam istekleri **bütün
+oyuncular için çocuklara yönelik** işaretlenir (çocuklara yönelik işlem etiketi, rıza yaşının
+altında etiketi, en fazla "G" içerik): kişiselleştirilmiş reklam ve yeniden hedefleme yoktur.
+Manifestten `AD_ID` ve Privacy Sandbox reklam izinleri kaldırılır; `tools/aab.mjs` derlemeyi bunlar
+geri gelirse durdurur.
 
-**Üretime (production) çıkmadan önce değişmesi gerekenler** (iş akışı, `web` bağdaştırıcılı bir
-oyunu `production` kanalına göndermeyi reddeder):
+**Online sıralama (Google Play Games):** Yalnızca oyun içindeki yaş sorusuna 13 yaş ve üstü
+cevabından sonra başlar. Play Games kütüphanesinin uygulama açılırken kendini başlatan
+`PlayGamesInitProvider`'ı manifestten kaldırılır (`tools/aab/playgames.mjs`); birleşik manifestte
+görünürse derleme durur. 13 yaş altı cevabından sonra panel "Online sıralama 13 yaş ve üstü
+oyuncular içindir." der ve soru o kurulumda bir daha sorulmaz.
 
-1. Karar: reklam olacak mı? Olacaksa `packages/core/src/platform/capacitor.ts` gerçek bir reklam
-   sağlayıcısına bağlanır (çekirdek işi, `yayin-listesi.md` bölüm 5) ve `store/apps.json`'da
-   `platform` → `capacitor`. Olmayacaksa ödüllü düğmeler ya kaldırılır ya da "reklam yok" durumunda
-   gizlenir/açıklama gösterir (oyun kodu değişikliği); Fosil'in "(reklam)" etiketi de düzeltilir.
-2. Reklam eklenirse: gizlilik politikası (`node tools/gizlilik.mjs` içindeki metin), Veri
-   güvenliği formu, reklam beyanı, gerekirse içerik derecelendirmesi ve hedef kitle yeniden
-   doldurulur.
-3. Gerçek telefonda tam bir oturum (bu paketler hiçbir cihazda çalıştırılmadı).
-4. Hesabınıza uygulanıyorsa kapalı test şartı (D bölümü).
+**Üretime (production) çıkmadan önce:**
+
+1. Gerçek telefonda tam bir oturum (ödüllü bir reklam, online sıralama, geri tuşu).
+2. B bölümündeki beyanların (reklamlar, veri güvenliği, hedef kitle) bu sayfayla ve gizlilik
+   politikasıyla (`node tools/gizlilik.mjs`) aynı şeyi söylediğini kontrol edin.
+3. Kapalı test şartı (D bölümü).
 
 ### A6. GitHub Pages'i açın (gizlilik politikası)
 
@@ -234,7 +234,8 @@ oyunu `production` kanalına göndermeyi reddeder):
 Not: Pages bütün `docs/` klasörünü yayımlar (depo zaten herkese açık olduğu için yeni bir şey
 açılmaz). `docs/.nojekyll` dosyası GitHub'ın Jekyll işlemesini kapatır, dosyalar olduğu gibi
 sunulur. Metni değiştirmek için `tools/gizlilik.mjs`'i düzenleyip `node tools/gizlilik.mjs`
-çalıştırın; sayfaya e-posta adresi yazılmaz, iletişim için Play sayfasındaki adrese yönlendirir.
+çalıştırın. Sayfalarda geliştiricinin adı (Emirhan Cin) ve iletişim e-postası yazar; aynı betik destek
+sayfasını da yazar: https://oyunlar.carsihani.me/destek/ (App Store'daki destek URL'si).
 
 ---
 
@@ -243,8 +244,8 @@ sunulur. Metni değiştirmek için `tools/gizlilik.mjs`'i düzenleyip `node tool
 Bunlar Google'ın API'si ya da bu iş akışıyla yapılamaz. Console'da her uygulamanın
 **Gösterge tablosu** (Dashboard) "Uygulamanızı kurun" listesinde görünür; **İlke → Uygulama
 içeriği** (Policy → App content) altında toplanır. Aşağıdaki cevaplar oyunların **bugünkü** haline
-(web bağdaştırıcılı dahili test paketi) göre; bir şey değişirse (reklam, analitik, hesap, satın
-alma) cevaplar da değişir. Sorular Console'da farklı sözcüklerle ya da farklı sırayla
+(AdMob ödüllü reklamlı, Play Games online sıralamalı Capacitor paketi) göre; bir şey değişirse
+(yeni bir reklam türü, analitik, hesap, satın alma) cevaplar da değişir. Sorular Console'da farklı sözcüklerle ya da farklı sırayla
 çıkabilir: ekrandakini okuyun, anlamı aşağıdakiyle uyuşmuyorsa cevaplamadan önce sorun.
 
 ### B1. Gizlilik politikası
@@ -255,8 +256,8 @@ Adres: yukarıdaki oyuna özel adres (ör. `https://oyunlar.carsihani.me/gizlili
 **Tüm işlevler özel erişim gerektirmeden kullanılabilir.** (Giriş, hesap, kod yok.)
 
 ### B3. Reklamlar (Ads)
-**Hayır, uygulamam reklam içermiyor.** (Reklam SDK'sı yok; ödüllü düğmeler reklam göstermiyor.)
-Reklam eklendiği gün bu cevap değişmelidir.
+**Evet, uygulamam reklam içeriyor.** (Google AdMob; yalnızca oyuncunun kendisinin açtığı ödüllü
+reklamlar; herkes için çocuklara yönelik istekler.)
 
 ### B4. İçerik derecelendirmesi (Content rating, IARC anketi)
 E-posta: Console hesabınızın adresi. Kategori: **Oyun** (Game). Cevaplar:
@@ -274,21 +275,37 @@ E-posta: Console hesabınızın adresi. Kategori: **Oyun** (Game). Cevaplar:
 Sonuç yaş derecelerini IARC hesaplar; buradan tahmin edilmez.
 
 ### B5. Hedef kitle ve içerik (Target audience and content)
-Bu bir karar ve sizin sorumluluğunuzda. **Öneri: 13 yaş ve üstü gruplar** (13–15, 16–17, 18+),
-"Uygulama çocukların ilgisini çekebilir mi?" sorusunda dürüst cevap. 13 yaş altı seçilirse
-Google'ın Aileler politikası devreye girer (ek şartlar; ileride reklam eklenirse yalnız onaylı
-reklam SDK'ları). Oyunlar veri toplamadığı için bu bugün bir engel değil, ama ileriki reklam
-kararını kısıtlar. Console'da her seçimin getirdiği şartlar yazar, onları okuyun.
+Console'da nasıl ayarlandıysa öyle kalır; bu sayfa onu değiştirmez. Uygulamalar 13 yaş altı yaş
+gruplarını da kapsayacak biçimde kuruldu, dolayısıyla Google'ın **Aileler politikası** geçerlidir
+ve kod buna göre yazıldı: reklamlar herkes için çocuklara yönelik ve kişiselleştirilmemiş, reklam
+kimliği kullanılmıyor, Play Games yaş sorusunda 13 yaş ve üstü cevabından önce başlatılmıyor.
+Console'da hedef kitleyi değiştirirseniz bu sayfayı, gizlilik politikasını ve Veri güvenliği
+cevaplarını birlikte gözden geçirin.
 
 ### B6. Veri güvenliği (Data safety)
-- "Uygulamanız gerekli kullanıcı veri türlerinden herhangi birini topluyor ya da paylaşıyor mu?"
-  → **Hayır.** Gerekçe (kodla doğrulandı): hesap yok, analitik hiçbir yere gönderilmiyor, reklam
-  SDK'sı yok, oyun internete istek göndermiyor; kayıt ve ses ayarı yalnız telefonda (Google'ın
-  tanımında yalnız cihazda işlenen veri "toplanan" sayılmaz; Console'daki açıklamayı okuyun),
-  yedekleme/aktarım kapalı.
-- "Hayır" deyince şifreleme ve hesap silme soruları genelde çıkmaz; çıkarsa: hesap yok.
-- Reklam kimliği (Advertising ID) sorusu çıkarsa: **Hayır, kullanmıyor** (manifestte `AD_ID`
-  izni yok).
+"Uygulamanız gerekli kullanıcı veri türlerinden herhangi birini topluyor ya da paylaşıyor mu?" →
+**Evet.** Toplanan/paylaşılan veriler (hepsi Google kütüphanelerinden; oyunun kendi kodu veri
+göndermez):
+
+| Veri türü | Kimden | Toplanıyor / paylaşılıyor | Amaç | İsteğe bağlı mı |
+|---|---|---|---|---|
+| Konum → **Yaklaşık konum** (IP adresinden) | Google AdMob | Toplanıyor, paylaşılıyor | Reklam, sahtekârlığı önleme | Hayır (reklam izlenince) |
+| Uygulama etkinliği → **Uygulama etkileşimleri** (reklam gösterimi, dokunma) | Google AdMob | Toplanıyor, paylaşılıyor | Reklam, analiz, sahtekârlığı önleme | Hayır (reklam izlenince) |
+| Uygulama bilgisi ve performansı → **Teşhis** (diagnostics) | Google AdMob | Toplanıyor, paylaşılıyor | Analiz, sahtekârlığı önleme | Hayır (reklam izlenince) |
+| **Cihaz veya diğer kimlikler** (uygulama seti kimliği; reklam kimliği değil) | Google AdMob | Toplanıyor, paylaşılıyor | Analiz, sahtekârlığı önleme | Hayır (reklam izlenince) |
+| Kişisel bilgiler → **Kullanıcı kimlikleri** (Play Games oyuncu kimliği ve adı) | Google Play Games | Toplanıyor | Uygulama işlevi (sıralama tabloları) | **Evet** (online sıralama isteğe bağlı) |
+| Uygulama etkinliği → **Diğer işlemler** (sıralama tablosuna giden skorlar) | Google Play Games | Toplanıyor | Uygulama işlevi | **Evet** |
+
+- Veriler aktarım sırasında **şifrelenir**: Evet.
+- Hesap: uygulamada **hesap yoktur** (hesap oluşturma da yok). Play Games profili ve etkinliği
+  Google Hesabından yönetilir/silinir; diğer talepler için gizlilik politikasındaki e-posta.
+- Reklam kimliği (Advertising ID) sorusu: **Hayır, kullanmıyor** (`AD_ID` izni manifestten
+  kaldırılır, `tools/aab.mjs` denetler).
+- Kayıt ve ses ayarı yalnızca telefonda işlenir (yedekleme/aktarım kapalı); Google'ın tanımında
+  yalnız cihazda işlenen veri "toplanan" sayılmaz.
+- Console'daki soru metni ve kategori adları farklı olabilir; Google'ın AdMob ve Play Games için
+  yayımladığı Veri güvenliği açıklamalarıyla karşılaştırın, anlamı uyuşmuyorsa cevaplamadan önce
+  sorun.
 
 ### B7. Diğer beyanlar
 | Beyan | Cevap |
@@ -301,7 +318,8 @@ kararını kısıtlar. Console'da her seçimin getirdiği şartlar yazar, onlar�
 | Hesap silme | Uygulamada hesap oluşturulamıyor |
 
 Listede burada olmayan bir beyan görürseniz: oyunlarda hesap, satın alma, konum, kamera,
-mikrofon, ağ isteği, reklam, analitik yok; buna göre cevaplayın, emin değilseniz sorun.
+mikrofon, ayrı bir analitik yazılımı yok; reklam (AdMob ödüllü, çocuklara yönelik) ve isteğe
+bağlı Play Games sıralaması var. Buna göre cevaplayın, emin değilseniz sorun.
 
 ### B8. Kategori ve etiketler (Mağaza ayarları → Store settings)
 - Uygulama türü: **Oyun**. Kategori önerisi: Fosil Şansı → **Casual** (boşta kazı/koleksiyon),
@@ -395,13 +413,13 @@ Yükleme adımı başarısız olursa iş akışı özet sayfasına da bu listeyi
 
 ## D. Üretime çıkış şartı (kapalı test)
 
-Google, **yeni kişisel geliştirici hesaplarının** üretime çıkmadan önce belirli sayıda test
-edenle belirli bir süre **kapalı test** yapmasını şart koşuyor. Sayılar ve hangi hesaplara
-uygulandığı değişebildiği için burada yazılmadı: Console'da uygulamanın **Gösterge tablosu →
-Üretime erişim** (ya da "Üretime başvur") bölümünde hesabınıza ne uygulandığı ve kalan gün/test
-eden sayısı yazar. Kapalı test için iş akışında `track = alpha` seçilebilir (Console'daki
-"Kapalı test – Alpha" kanalı); test edenleri o kanalın **Test edenler** sekmesine ekleyin.
-Dahili test bu şartı karşılamaz.
+Google, **yeni kişisel geliştirici hesaplarının** üretime çıkmadan önce **en az 12 test edenle en
+az 14 gün kesintisiz kapalı test** yapmasını şart koşuyor (test edenler 14 gün boyunca katılmış
+kalmalı). Console'da uygulamanın **Gösterge tablosu → Üretime erişim** (ya da "Üretime başvur")
+bölümünde kalan gün ve test eden sayısı yazar; Google sayıları değiştirirse oradaki geçerlidir.
+Kapalı test için iş akışında `track = alpha` seçilebilir (Console'daki "Kapalı test – Alpha"
+kanalı); test edenleri o kanalın **Test edenler** sekmesine ekleyin. Dahili test bu şartı
+karşılamaz.
 
 ## E. Dahili teste test eden eklemek
 
@@ -433,7 +451,8 @@ test anahtarıyla imzalamayı reddeder.
 | versionCode = 2026-01-01'den beri dakika | Yerel ve CI derlemeleri karışsa da hep büyür; sayaç saklamak gerekmez. |
 | fastlane `supply` (hem AAB hem mağaza kaydı) | Mağaza metni/görselleri için standart düzen (`metadata/android/<dil>/`) ve sürüm notlarını destekler; tek araç. RubyGems'ten sabit sürüm, üçüncü taraf GitHub Action'ı yok. |
 | Varsayılan `draft` | Yeni uygulamalar kurulum bitene kadar yalnız taslağı kabul eder; ayrıca yayından önce Console'da son bir bakış. |
-| Web bağdaştırıcısı (dahili test) | A5, "Reklam düğmeleri". |
+| Capacitor bağdaştırıcısı + AdMob ödüllü reklamlar, herkes için çocuklara yönelik | A5, "Reklamlar"; Aileler politikası (B5). |
+| Play Games yalnızca yaş sorusunda 13+ cevabından sonra, açılışta başlatan sağlayıcı yok | A5, "Online sıralama"; `tools/aab/playgames.mjs`. |
 | Geri tuşu: iki basış → arka plana | A5, "Geri tuşu". |
 | Yedekleme ve cihaz aktarımı kapalı | Kayıtlar yalnız telefonda: gizlilik politikası ve Veri güvenliği cevabı basit ve doğru. Bedeli: telefon değişince ilerleme taşınmaz. Açılırsa politika ve form güncellenir. |
 | Gizlilik sayfaları `docs/gizlilik/`, Pages "main /docs" | Ek iş akışı ya da izin gerektirmeyen en basit Pages kurulumu. |

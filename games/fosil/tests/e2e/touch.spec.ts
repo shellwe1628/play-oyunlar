@@ -137,3 +137,21 @@ test('plays with real touch: dig, glint, upgrade, museum', async ({ page }) => {
 
   expect(errors).toEqual([]);
 });
+
+test('the main menu links the privacy policy (a tap opens it outside the game)', async ({ page, context }) => {
+  const errors = collectErrors(page);
+  await context.route('https://oyunlar.carsihani.me/**', (r) => r.fulfill({ status: 200, contentType: 'text/html', body: '<p>policy</p>' }));
+  await openGame(page, { seed: 1, lang: 'tr' });
+  await waitForScene(page, 'menu');
+  await page.waitForTimeout(1200); // the entrance settles
+  await shot(page, gameDir, 'menu-privacy');
+  const menu = (await state(page)).data as unknown as { ui: { privacy: Pt; museum: Pt; ranks: Pt } };
+  // under the drawers, clear of them by more than half a touch target
+  expect(menu.ui.privacy.y - menu.ui.museum.y).toBeGreaterThan(196 / 2 + 44);
+  const popup = context.waitForEvent('page');
+  await touch(page, menu.ui.privacy);
+  expect((await popup).url()).toBe('https://oyunlar.carsihani.me/gizlilik/fosil/');
+  await expect(page.locator('canvas')).toBeVisible(); // the game stays where it was
+  expect((await state(page)).scene).toBe('menu');
+  expect(errors).toEqual([]);
+});

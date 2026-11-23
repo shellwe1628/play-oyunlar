@@ -17,6 +17,8 @@ export const CORE_STRINGS = defineStrings({
     /** tag on rewarded-ad buttons */
     'core.ad': 'AD',
     'core.noAd': 'No ad available right now, try again later',
+    /** the privacy policy link on the main menu (openExternal) */
+    'core.privacy': 'Privacy',
   },
   tr: {
     'core.play': 'Oyna',
@@ -32,6 +34,7 @@ export const CORE_STRINGS = defineStrings({
     'core.soundOff': 'Ses kapalı',
     'core.ad': 'REKLAM',
     'core.noAd': 'Şu an reklam yok, sonra tekrar dene',
+    'core.privacy': 'Gizlilik',
   },
 });
 export type CoreStringKey = keyof typeof CORE_STRINGS.en;

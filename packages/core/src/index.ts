@@ -19,6 +19,7 @@ export {
   iconButton,
   muteButton,
   label,
+  linkLabel,
   panel,
   progressBar,
   toast,

@@ -1,4 +1,4 @@
-import { type Button, button, label, MenuScene as MenuShell, muteButton, progressBar, STORE_BUILD } from '@oyun/core';
+import { type Button, button, label, linkLabel, MenuScene as MenuShell, muteButton, progressBar, STORE_BUILD } from '@oyun/core';
 import type { PauseReason } from '@oyun/core/pure';
 import Phaser from 'phaser';
 import { badgeKey } from '../art/badges';
@@ -7,6 +7,7 @@ import { Helper } from '../fx/Helper';
 import { countTo, fillBar, Motes } from '../fx/Motion';
 import { Particles } from '../fx/Particles';
 import { initSeen } from '../fx/seen';
+import { PRIVACY_URL } from '../online';
 import { backgroundAware, session } from '../session';
 import { at, FOSSIL_BY_ID, FOSSILS, LAYERS, RANKS, TIERS, type Fossil } from '../sim/data';
 import { fossilKey, PALETTE } from '../textures';
@@ -43,7 +44,8 @@ interface Cloud {
  * assistant digging, a survey flag), and below it every stratum of the game in section, deeper
  * ones still dark until you open them. In the middle an excavation pit, strung with a survey
  * grid, holds your rarest find under a work light with a brass museum plaque; then one big
- * golden Play slab and two specimen drawers: Museum and Ranks.
+ * golden Play slab and two specimen drawers: Museum and Ranks; under them a small Privacy link
+ * (the policy page in the system browser, App Store 5.1.1 / Play user data policy).
  * Test actions: play, museum, ranks.
  */
 export class MenuScene extends MenuShell {
@@ -58,6 +60,7 @@ export class MenuScene extends MenuShell {
   private ranksX = 0;
   private motes: Motes[] = [];
   private mapAt = { x: 0, y: 0 };
+  private privacyAt = { x: 0, y: 0 };
 
   constructor() {
     super(SCENES.menu);
@@ -78,7 +81,9 @@ export class MenuScene extends MenuShell {
     // vertical plan, from the safe bottom up (the sky simply grows on tall screens)
     const surfaceY = L.top + 372;
     const cardH = 196;
-    const cardsY = L.bottom - 30 - cardH / 2;
+    // the Privacy link's strip (a full touch height) under the drawers
+    const linkY = L.bottom - 46;
+    const cardsY = L.bottom - 104 - cardH / 2;
     const playH = 150;
     const playY = cardsY - cardH / 2 - 34 - playH / 2;
     const plaqueH = 100;
@@ -117,6 +122,8 @@ export class MenuScene extends MenuShell {
     this.fillRanks(this.ranksButton, cardW, sim.rank, sim.score.total);
 
     muteButton(this, L.right - 76, L.top + 76).setDepth(50);
+    linkLabel(this, L.cx, linkY, this.t('core.privacy'), PRIVACY_URL, { size: 26, color: PALETTE.sand }).setDepth(50);
+    this.privacyAt = { x: Math.round(L.cx), y: Math.round(linkY) };
     this.drawMapButton(L.left + 68, L.top + 62);
   }
 
@@ -633,7 +640,7 @@ export class MenuScene extends MenuShell {
       score: sim.score.total,
       rank: sim.rank,
       // where the buttons sit once the entrance settles (logical px), for real-touch tests
-      ui: { play: pos(this.playButton), museum: { x: this.museumX, y: Math.round(this.museumButton?.y ?? 0) }, ranks: { x: this.ranksX, y: Math.round(this.ranksButton?.y ?? 0) }, map: { ...this.mapAt } },
+      ui: { play: pos(this.playButton), museum: { x: this.museumX, y: Math.round(this.museumButton?.y ?? 0) }, ranks: { x: this.ranksX, y: Math.round(this.ranksButton?.y ?? 0) }, map: { ...this.mapAt }, privacy: { ...this.privacyAt } },
     };
   }
 }

@@ -8,6 +8,9 @@ import type { OyunContext } from '@oyun/core';
 import { createOnline, openOnlinePanel, type Online } from '@oyun/core/online';
 import { session } from './session';
 
+/** The privacy policy (tools/gizlilik.mjs), linked from the main menu and the online panel. */
+export const PRIVACY_URL = 'https://oyunlar.carsihani.me/gizlilik/fosil/';
+
 let online: Online | null = null;
 
 export function gameOnline(ctx: OyunContext): Online {
@@ -22,5 +25,5 @@ export function gameOnline(ctx: OyunContext): Online {
 }
 
 export function openOnline(ctx: OyunContext): void {
-  openOnlinePanel(gameOnline(ctx), { lang: ctx.lang, theme: ctx.theme, privacyUrl: 'https://oyunlar.carsihani.me/gizlilik/fosil/' });
+  openOnlinePanel(gameOnline(ctx), { lang: ctx.lang, theme: ctx.theme, privacyUrl: PRIVACY_URL });
 }

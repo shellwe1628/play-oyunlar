@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
 import type { SfxName } from '../audio/presets';
 import { getContext } from '../context';
+import { openExternal } from '../link';
 import type { HapticKind } from '../platform';
 import { MIN_TOUCH, toastY, touchHitSize, type ToastPosition } from './layout';
 import { cssColor, type Theme } from './theme';
@@ -28,6 +29,32 @@ export function label(scene: Phaser.Scene, x: number, y: number, text: string, o
       ...(opts.wrap ? { wordWrap: { width: opts.wrap, useAdvancedWrap: true } } : {}),
     })
     .setOrigin(0.5);
+}
+
+/**
+ * A small underlined text link to an outside page (the game's privacy policy on the main menu):
+ * opens it with openExternal (system browser in the native apps, a new tab on the web). Fires on
+ * release over the link, so a drag that starts on it does not leave the game. The hit area is
+ * never smaller than MIN_TOUCH; place it with that much free room around (x, y).
+ */
+export function linkLabel(scene: Phaser.Scene, x: number, y: number, text: string, url: string, opts: TextOptions = {}): Phaser.GameObjects.Container {
+  const th = theme(scene);
+  const color = opts.color ?? th.colors.textDim;
+  const t = label(scene, 0, 0, text, { size: opts.size ?? 26, color });
+  const underline = scene.add.rectangle(0, Math.round(t.height / 2) - 2, t.width, 3, color);
+  const c = scene.add.container(x, y, [t, underline]);
+  const hit = touchHitSize(t.width + 32, t.height + 16);
+  c.setSize(hit.width, hit.height).setInteractive({ useHandCursor: true });
+  let pressed = false;
+  c.on(Phaser.Input.Events.GAMEOBJECT_POINTER_DOWN, () => (pressed = true));
+  c.on(Phaser.Input.Events.GAMEOBJECT_POINTER_OUT, () => (pressed = false));
+  c.on(Phaser.Input.Events.GAMEOBJECT_POINTER_UP, () => {
+    if (!pressed) return;
+    pressed = false;
+    getContext(scene.game).audio.play('tap');
+    openExternal(url);
+  });
+  return c;
 }
 
 export interface ButtonOptions {

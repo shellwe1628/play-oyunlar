@@ -9,6 +9,7 @@ import '@fontsource/nunito/latin-800.css';
 import '@fontsource/nunito/latin-ext-800.css';
 import { DEFAULT_THEME } from '@oyun/core/pure';
 import { PALETTE } from '@okcu/textures';
+import { DEV_CALM, DEV_FX_OFF } from '../dev';
 import { css, Gfx, rgba } from './gfx';
 
 export const W = 720;
@@ -532,10 +533,9 @@ export function mix(a: number, b: number, k: number): number {
 }
 
 /**
- * Reduced motion for the menus: the system's prefers-reduced-motion, ?calm=1 (the stage's switch)
- * or ?fx=0. Loops (pulses, glows, wobbles) stay still and tab switches cut instead of sliding.
+ * Reduced motion for the menus: the system's prefers-reduced-motion (web builds: also ?calm=1, the
+ * stage's switch, or ?fx=0). Loops (pulses, glows, wobbles) stay still and tab switches cut instead of sliding.
  */
 export function calmMotion(): boolean {
-  const q = new URLSearchParams(location.search);
-  return (typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches) || q.get('calm') === '1' || q.get('fx') === '0';
+  return (typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches) || DEV_CALM || DEV_FX_OFF;
 }

@@ -2,44 +2,19 @@
  * Entry: owns the world, the clock and the drag → shot mapping (same numbers as the 2D game's
  * GameScene), builds the view modules and feeds them one Frame per animation frame.
  *
- * URL switches (for development and the screenshot tool):
- *   ?seed=N      fixed run seed            ?bow=N    old bow +0 … 25 (meta.bow, weapon level from it)
- *   ?wave=N      jump to wave N            ?chapter=N start chapter 0 … 6 (6 = endless)
- *   ?auto=1      the aim bot plays         ?off=a,b  skip modules (stage is never skipped):
- *                                                     arena, archers, arrows, fx, bowglow, ui
- *   ?speed=K     game speed multiplier         ?armor=N  health upgrade level 0 … 12 (meta.hp; shown as armour)
- *   ?calm=1      reduced motion (also on with the system's prefers-reduced-motion): softer shake and zoom
- *   ?difficulty=classic  the 2D game's difficulty (the 3D build plays 'hard')
- *   ?weapon=ID   force a weapon (bow, crossbow, spear, boomerang, sling, firework) at its saved level
- *   ?celestial=1 force the celestial weapon look on (0: off), whatever the save says
- *   ?mode=blitz|bossrush  open a mode (sim/modes.ts) straight away, as a test run (the save is left alone);
- *                with ?mode=bossrush, ?boss=N (1 … 6) starts the rush at that boss
- *   ?angle=side|angled|low  the camera angle for this page load (read by view/stage.ts; without it
- *                the angle last chosen with the HUD's camera button, else side)
+ * URL switches (for development and the screenshot tool, never in a store build): dev.ts.
  *
  * Without switches every run is set up from the save (ui/save.ts) the way the 2D game does it:
  * `metaOf3d(save)` (shop upgrades + the selected weapon at its level), the chapter select, the daily run. ?bow, ?armor,
- * ?chapter and ?wave override the save for testing, and such a test run never writes to it.
- * ?bow=N (debug only) sets the bow-derived weapon level (levelForBow(N)) on whatever weapon the
- * arsenal has selected, not only the bow.
+ * ?chapter and ?wave override the save for testing (web builds only), and such a test run never writes to it.
+ * ?bow=N sets the bow-derived weapon level (levelForBow(N)) on whatever weapon the arsenal has
+ * selected, not only the bow.
  *
  * The platform (rewarded ads, haptics) is chosen like core's createGame does it for the Phaser
  * games: VITE_OYUN_PLATFORM at build time (the Play / App Store builds pass "capacitor": AdMob
- * rewarded ads), else the native shell, ?platform=, else web (?test=1 always web).
+ * rewarded ads), else the native shell, else (web builds only) ?platform=, else web (?test=1 always web).
  */
-import {
-  capacitorBridge,
-  createCapacitorPlatform,
-  createCrazyGamesPlatform,
-  createRng,
-  createWebPlatform,
-  detectPlatform,
-  hashSeed,
-  pickLanguage,
-  webStorage,
-  type Platform,
-  type PlatformName,
-} from '@oyun/core/pure';
+import { capacitorBridge, createPlatform, createRng, detectPlatform, hashSeed, pageAddress, pickLanguage, STORE_BUILD, webStorage } from '@oyun/core/pure';
 import { CAREFUL, planShot } from '@sim/aimbot';
 import { BOW_MAX } from '@sim/bow';
 import { bowEquivalent, levelForBow, WEAPON_IDS } from '@sim/weapons';
@@ -67,6 +42,23 @@ import {
 import { DRAG_DEAD, DRAG_FULL } from '@okcu/scenes/keys';
 import { loadAssets } from './assets';
 import type { AimState, ArchersView, Frame, FxView, Game, Module, RunOptions } from './contract';
+import {
+  DEV_ARMOR,
+  DEV_AUTO,
+  DEV_BOSS,
+  DEV_BOW,
+  DEV_CELESTIAL,
+  DEV_CHAPTER,
+  DEV_CLASSIC,
+  DEV_LANG,
+  DEV_MODE,
+  DEV_OFF,
+  DEV_SEED,
+  DEV_SPEED,
+  DEV_TEST_RUN,
+  DEV_WAVE,
+  DEV_WEAPON,
+} from './dev';
 import { createHud } from './ui/hud';
 import { startOnline, syncOnline } from './ui/online';
 import { openSave, todayKey } from './ui/save';
@@ -77,38 +69,21 @@ import { createBowGlow } from './view/bowglow';
 import { createFx } from './view/fx';
 import { createStage } from './view/stage';
 
-const params = new URLSearchParams(location.search);
 // One language for every module (the HUD's i18n and the fx module, which reads <html lang>): the
-// device's, or ?lang=tr|en. index.html ships lang="tr" only as the pre-boot default.
-document.documentElement.lang = pickLanguage(navigator.languages, params.get('lang'));
-const num = (key: string, fallback: number): number => {
-  const v = Number(params.get(key));
-  return params.has(key) && Number.isFinite(v) ? v : fallback;
-};
-const off = new Set((params.get('off') ?? '').split(',').filter(Boolean));
-const speed = num('speed', 1);
-let auto = params.get('auto') === '1';
+// device's (web builds: or ?lang=tr|en). index.html ships lang="tr" only as the pre-boot default.
+document.documentElement.lang = pickLanguage(navigator.languages, DEV_LANG);
+/** the aim bot plays (web builds only: ?auto=1, or the dev hook's bot()) */
+let auto = DEV_AUTO;
 
 const root = document.getElementById('stage')!;
 const stage = createStage(root);
 
 const save = openSave(webStorage());
 
-/** core's createGame/makePlatform, without Phaser */
-function makePlatform(name: PlatformName): Platform {
-  switch (name) {
-    case 'crazygames':
-      return createCrazyGamesPlatform();
-    case 'capacitor':
-      return createCapacitorPlatform();
-    default:
-      return createWebPlatform();
-  }
-}
-const platform = makePlatform(
+/** core's createGame platform choice, without Phaser */
+const platform = createPlatform(
   detectPlatform({
-    search: location.search,
-    hostname: location.hostname,
+    ...pageAddress(),
     forced: import.meta.env.VITE_OYUN_PLATFORM as string | undefined,
     capacitorNative: capacitorBridge()?.isNativePlatform?.() ?? false,
   }),
@@ -121,19 +96,18 @@ platform.onLifecycle(() => {
   held = platform.paused;
 });
 let adShowing = false;
-const forcedWeapon = WEAPON_IDS.find((id) => id === params.get('weapon')) ?? null;
-const testRun = ['bow', 'armor', 'chapter', 'wave', 'weapon', 'mode'].some((k) => params.has(k));
-/** the 3D build plays the harder setting; ?difficulty=classic for comparison */
-const difficulty: Difficulty = params.get('difficulty') === 'classic' ? 'classic' : 'hard';
+const forcedWeapon = WEAPON_IDS.find((id) => id === DEV_WEAPON) ?? null;
+/** the 3D build plays the harder setting; ?difficulty=classic for comparison (web builds only) */
+const difficulty: Difficulty = DEV_CLASSIC ? 'classic' : 'hard';
 // Online board (Play Games, adults only): real play only, never test runs or the classic setting.
-if (!testRun && difficulty === 'hard') startOnline(webStorage(), save);
+if (!DEV_TEST_RUN && difficulty === 'hard') startOnline(webStorage(), save);
 const randomSeed = (): number => Math.floor(Math.random() * 2 ** 31);
 
 /** the run being played: daily or not, the quick title; and the chapter select's choice (the 2D `session.chapter`) */
 let mode: { daily: boolean; quick: boolean } = { daily: false, quick: false };
 let chapterPick = 0;
 /** the mode being played (the Events tab's Blitz or Boss Rush; ?mode= opens one), null for a run of chapters */
-let play: Mode | null = MODES.find((id) => id === params.get('mode')) ?? null;
+let play: Mode | null = MODES.find((id) => id === DEV_MODE) ?? null;
 
 /** GameScene.create: the daily run is the same for everyone, so upgrades and the bow do not apply. */
 function newWorld(seed: number): World {
@@ -146,22 +120,22 @@ function newWorld(seed: number): World {
     meta.wlevel = d.arsenal.weapons[forcedWeapon].level;
     meta.bow = bowEquivalent(meta.wlevel); // the glow follows the weapon in hand
   }
-  if (params.has('bow')) {
-    meta.bow = Math.max(0, Math.min(BOW_MAX, Math.round(num('bow', 0))));
+  if (DEV_BOW !== null) {
+    meta.bow = Math.max(0, Math.min(BOW_MAX, Math.round(DEV_BOW)));
     meta.wlevel = levelForBow(meta.bow); // hard reads the weapon level, not the old bow
   }
-  if (params.has('armor')) meta.hp = Math.max(0, Math.min(UPGRADES.hp.max, Math.round(num('armor', 0))));
+  if (DEV_ARMOR !== null) meta.hp = Math.max(0, Math.min(UPGRADES.hp.max, Math.round(DEV_ARMOR)));
   chapterPick = Math.max(0, Math.min(d.chapter, chapterPick));
-  const startChapter = params.has('chapter') ? Math.round(num('chapter', 0)) : daily ? 0 : chapterPick;
+  const startChapter = DEV_CHAPTER !== null ? Math.round(DEV_CHAPTER) : daily ? 0 : chapterPick;
   const w = createWorld({ seed: daily ? hashSeed(`okcu-daily-${key}`) : seed, meta, startChapter, mod: daily ? dailyChallenge(key).mod : null, difficulty, mode: play });
-  if (play === 'bossrush' && params.has('boss')) rushJump(w, Math.round(num('boss', 1)) - 1);
-  else if (params.has('wave') && !play) jumpToWave(w, Math.round(num('wave', 1)));
+  if (play === 'bossrush' && DEV_BOSS !== null) rushJump(w, Math.round(DEV_BOSS) - 1);
+  else if (DEV_WAVE !== null && !play) jumpToWave(w, Math.round(DEV_WAVE));
   // what this run has written to the save (banked by the UI as the run goes)
-  w.bank = testRun ? null : newBank(d);
+  w.bank = DEV_TEST_RUN ? null : newBank(d);
   return w;
 }
 
-let world = newWorld(Math.round(num('seed', randomSeed())));
+let world = newWorld(Math.round(DEV_SEED ?? randomSeed()));
 let aim: AimState | null = null;
 let buffered: { angle: number; power: number } | null = null;
 let paused = false;
@@ -198,7 +172,7 @@ const game: Game = {
     return save;
   },
   get celestial() {
-    return params.has('celestial') ? params.get('celestial') === '1' : save.data.arsenal.celestial;
+    return DEV_CELESTIAL ?? save.data.arsenal.celestial;
   },
   get daily() {
     return mode.daily;
@@ -212,7 +186,6 @@ const game: Game = {
   get mode() {
     return play;
   },
-  testRun,
   platform,
   get adShowing() {
     return adShowing;
@@ -246,7 +219,7 @@ const game: Game = {
   startRun(opts: RunOptions = {}) {
     // a mode is its own kind of run: never the daily; one still locked on this save is refused
     // (a run of chapters starts instead)
-    play = allowedMode(save.data, opts.mode, testRun);
+    play = allowedMode(save.data, opts.mode, DEV_TEST_RUN);
     mode = { daily: play ? false : (opts.daily ?? false), quick: opts.quick ?? false };
     if (opts.chapter !== undefined) chapterPick = opts.chapter;
     paused = false;
@@ -318,7 +291,7 @@ document.addEventListener('visibilitychange', () => {
 
 const failures = new Map<string, string>();
 function guard<T>(name: string, make: () => T, fallback: T): T {
-  if (off.has(name)) return fallback;
+  if (DEV_OFF.has(name)) return fallback;
   try {
     return make();
   } catch (err) {
@@ -354,32 +327,35 @@ async function start(): Promise<void> {
   let last = performance.now();
   let frames = 0;
 
-  const hook = {
-    ready: true,
-    get w() {
-      return world;
-    },
-    game,
-    stage,
-    failures,
-    get frames() {
-      return frames;
-    },
-    /** fire a shot directly (sim angle, power 0 … 1) */
-    shoot: (angle: number, power: number) => release(angle, power),
-    /** step the game without waiting for real time (seconds of game time) */
-    skip(seconds: number) {
-      for (let t = 0; t < seconds; t += 1 / 60) {
-        advance(world, 1 / 60);
-        takeEvents(world);
-      }
-    },
-    /** turn the aim bot on or off (as ?auto=1), for tools that first tap their way somewhere (a mode) */
-    bot(on: boolean) {
-      auto = on;
-    },
-  };
-  (window as unknown as { __okcu3d: typeof hook }).__okcu3d = hook;
+  // the dev hook for the e2e and screenshot tools (web builds only, never in a store build)
+  if (!STORE_BUILD) {
+    const hook = {
+      ready: true,
+      get w() {
+        return world;
+      },
+      game,
+      stage,
+      failures,
+      get frames() {
+        return frames;
+      },
+      /** fire a shot directly (sim angle, power 0 … 1) */
+      shoot: (angle: number, power: number) => release(angle, power),
+      /** step the game without waiting for real time (seconds of game time) */
+      skip(seconds: number) {
+        for (let t = 0; t < seconds; t += 1 / 60) {
+          advance(world, 1 / 60);
+          takeEvents(world);
+        }
+      },
+      /** turn the aim bot on or off (as ?auto=1), for tools that first tap their way somewhere (a mode) */
+      bot(on: boolean) {
+        auto = on;
+      },
+    };
+    (window as unknown as { __okcu3d: typeof hook }).__okcu3d = hook;
+  }
 
   function tick(now: number): void {
     const real = Math.min(0.2, (now - last) / 1000);
@@ -398,7 +374,7 @@ async function start(): Promise<void> {
       requestAnimationFrame(tick);
       return;
     }
-    const dt = real * fx.timeScale() * speed;
+    const dt = real * fx.timeScale() * DEV_SPEED;
 
     if (aim) {
       aim.shot = dragShot(aim);
@@ -410,7 +386,7 @@ async function start(): Promise<void> {
       buffered = null;
       release(b.angle, b.power);
     }
-    if (auto) {
+    if (!STORE_BUILD && auto) {
       botWait -= dt;
       if (world.phase === 'cards') {
         if (botWait <= 0) {

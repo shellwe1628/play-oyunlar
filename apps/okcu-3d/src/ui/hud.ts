@@ -5,9 +5,8 @@
  * syncHud, renderAim, handleEvents, onWaveStart, showBanner, callout, flyCoins) onto DOM + a 2D
  * canvas; texts, colours, sounds and icons are the game's own, imported from games/okcu.
  *
- *   ?lang=en   English (Turkish is the default)
- *   ?markers=0 hide the world markers this module draws (enemy health pills, "!" telegraph,
- *              reload ring) in case the 3D modules draw their own
+ * URL switches (web builds only, see ../dev.ts): ?lang=, ?markers=0 (hide the world markers this
+ * module draws: enemy health pills, "!" telegraph, reload ring), ?safe=top,bottom.
  */
 import { CORE_STRINGS, createAudio, createI18n, pickLanguage, webStorage } from '@oyun/core/pure';
 import { DRAG_DEAD } from '@okcu/scenes/keys';
@@ -23,6 +22,7 @@ import { boughtToday, peekOffers } from '@sim/shop';
 import { WEAPON_IDS, WEAPON_MAX } from '@sim/weapons';
 import type { GameEvent, World } from '@sim/world';
 import type { Frame, Game, Module, Stage } from '../contract';
+import { DEV_LANG, DEV_MARKERS, DEV_SAFE, DEV_TEST_RUN } from '../dev';
 import { nextAngle } from '../view/angles';
 import { createChestScreen } from './chest';
 import { calmMotion, EASE, el, injectStyle, Label, rerenderLabels, roundButton, setLabelRes, Timers } from './dom';
@@ -41,15 +41,14 @@ const CX = 360;
 
 export function createHud(stage: Stage, game: Game): Module {
   injectStyle();
-  const params = new URLSearchParams(location.search);
-  const i18n = createI18n(APP_STRINGS, pickLanguage(navigator.languages, params.get('lang')), { base: CORE_STRINGS, onMissing: (key) => console.warn(`[okcu-3d] missing string ${key}`) });
+  const i18n = createI18n(APP_STRINGS, pickLanguage(navigator.languages, DEV_LANG), { base: CORE_STRINGS, onMissing: (key) => console.warn(`[okcu-3d] missing string ${key}`) });
   const t: T = (key, p) => i18n.t(key as Parameters<typeof i18n.t>[0], p);
   const storage = webStorage();
   const audio = createAudio({ storage, key: 'oyun:okcu-3d:audio' });
   const unlock = (): void => audio.unlock();
   // core's createGame: the platform's pause (an ad on screen, the app hidden) silences the game
   game.platform.onLifecycle((e) => (e.type === 'pause' ? audio.suspend() : audio.resume()));
-  const showMarkers = params.get('markers') !== '0';
+  const showMarkers = DEV_MARKERS;
 
   // ---- layers, bottom to top: shapes canvas, the logical DOM layer
   const painter = createPainter(stage);
@@ -75,10 +74,10 @@ export function createHud(stage: Stage, game: Game): Module {
     game.platform.track('reward_claimed', { placement });
     return true;
   }
-  // the safe areas (notch, home bar), read through CSS; ?safe=top,bottom fakes them in a browser
+  // the safe areas (notch, home bar), read through CSS; (web builds) ?safe=top,bottom fakes them in a browser
   const safeProbe = el('div', '', document.body);
   safeProbe.style.cssText = 'position:fixed;left:0;top:0;width:0;height:0;visibility:hidden;pointer-events:none;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)';
-  const fakeSafe = (params.get('safe') ?? '').split(',').map(Number);
+  const fakeSafe = DEV_SAFE;
   /** the logical frame's rows really on screen, inside the safe areas (title layout) */
   function view(): { top: number; bottom: number } {
     const cs = getComputedStyle(safeProbe);
@@ -364,7 +363,7 @@ export function createHud(stage: Stage, game: Game): Module {
   };
   /** the migration's welcome gold chest, presented once when the menu first comes up */
   function welcome(): void {
-    if (!game.save.data.arsenal.welcome || chests.shown || game.testRun || !shell.shown) return;
+    if (!game.save.data.arsenal.welcome || chests.shown || DEV_TEST_RUN || !shell.shown) return;
     chests.play({
       take: (d) => {
         d.arsenal.welcome = false;
@@ -381,7 +380,7 @@ export function createHud(stage: Stage, game: Game): Module {
   }
   /** weapons a boss unlocked (and the celestial look) not revealed yet: shown full-screen when the menu comes up */
   function owedReveals(): void {
-    if (game.save.data.arsenal.reveals.length === 0 || chests.shown || game.testRun || !shell.shown) return;
+    if (game.save.data.arsenal.reveals.length === 0 || chests.shown || DEV_TEST_RUN || !shell.shown) return;
     chests.reveals(() => syncBadges());
   }
 
@@ -419,7 +418,7 @@ export function createHud(stage: Stage, game: Game): Module {
     },
     // ResultScene.double: the run's coins once more (never in a test run, which leaves the save alone)
     double: (amount) => {
-      if (amount <= 0 || game.testRun || !game.w.bank) return 0;
+      if (amount <= 0 || DEV_TEST_RUN || !game.w.bank) return 0;
       game.save.update((d) => {
         d.coins += amount;
       });
@@ -1122,7 +1121,7 @@ export function createHud(stage: Stage, game: Game): Module {
           if (called) clearTransients();
           // the rewarded offers: revive once per run; double the coins not doubled yet (a real run
           // only, and never a mode run: it pays for its knockouts and nothing more)
-          const ads = { revive: game.canRevive, double: game.testRun || !w.bank || w.mode ? 0 : Math.max(0, run.coins - doubledCoins) };
+          const ads = { revive: game.canRevive, double: DEV_TEST_RUN || !w.bank || w.mode ? 0 : Math.max(0, run.coins - doubledCoins) };
           result.show(run, ads);
           // ResultScene: a higher rank than the one last celebrated plays the ceremony
           const rank = rankOf(progressScore(game.save.data).total);

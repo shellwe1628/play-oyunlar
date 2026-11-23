@@ -38,6 +38,7 @@
 import * as THREE from 'three';
 import { PLAYER_LEDGE } from '@sim/tuning';
 import type { Frame, Stage } from '../contract';
+import { DEV_ANGLE, DEV_CALM } from '../dev';
 import { FRAME_H, FRAME_W, LOGICAL_H, LOGICAL_W, PX_PER_M } from '../coords';
 import { ANGLE_GLIDE, ANGLES, backdropShear, CINE_ENTRANCE, CINE_KNOCKOUT, cineEye, lensShift, mixEye, parseAngle, type CameraAngle, type Eye, type Lens } from './angles';
 
@@ -65,9 +66,8 @@ const BACKDROP_NAME = 'okcu-backdrop';
 /** where the chosen camera angle is kept (a presentation setting, not part of the game save) */
 const ANGLE_KEY = 'oyun:okcu-3d:angle';
 
-/** reduced motion: the system setting, or ?calm=1 */
-export const CALM =
-  (typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches) || new URLSearchParams(location.search).get('calm') === '1';
+/** reduced motion: the system setting (web builds: or ?calm=1) */
+export const CALM = (typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches) || DEV_CALM;
 
 /** trauma fades this much a second (the 2D game's 1.6 kept a barrage shaking non-stop) */
 const SHAKE_DECAY = 2.4;
@@ -116,8 +116,8 @@ export function createStage(root: HTMLElement): Stage {
   camera.matrixAutoUpdate = true;
   const dist0 = REST_DIST;
 
-  // ---- the camera angle: ?angle= for a test, else the remembered choice, else Side
-  const urlAngle = parseAngle(new URLSearchParams(location.search).get('angle'));
+  // ---- the camera angle: (web builds) ?angle= for a test, else the remembered choice, else Side
+  const urlAngle = parseAngle(DEV_ANGLE);
   let stored: CameraAngle | null = null;
   try {
     stored = parseAngle(localStorage.getItem(ANGLE_KEY));

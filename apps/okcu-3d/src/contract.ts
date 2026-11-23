@@ -124,9 +124,7 @@ export interface Game {
   readonly quick: boolean;
   /** the mode the current world plays (sim/modes.ts), null for a run of chapters */
   readonly mode: Mode | null;
-  /** this run does not touch the save (URL test switches ?wave ?bow ?armor ?chapter) */
-  readonly testRun: boolean;
-  /** the distribution platform (main.ts detects it like core's createGame: VITE_OYUN_PLATFORM, native shell, ?platform=) */
+  /** the distribution platform (main.ts detects it like core's createGame: VITE_OYUN_PLATFORM, native shell, (web builds) ?platform=) */
   readonly platform: Platform;
   /** a rewarded ad is on screen (the world is frozen, audio suspended) */
   readonly adShowing: boolean;

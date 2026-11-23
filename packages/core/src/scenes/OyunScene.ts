@@ -3,6 +3,7 @@ import { getContext, type OyunContext } from '../context';
 import type { Params } from '../i18n';
 import { Juice } from '../juice/juice';
 import type { LifecycleEvent, PauseReason } from '../platform';
+import { STORE_BUILD } from '../store';
 import type { JsonObject } from '../testhook';
 import type { Insets } from '../ui/layout';
 
@@ -124,10 +125,13 @@ export abstract class OyunScene extends Phaser.Scene {
 
   private afterCreate(): void {
     const ctx = this.oyun;
-    const unregister = ctx.test.hook.register(this.scene.key, {
-      state: () => this.testState(),
-      actions: this.testActions(),
-    });
+    // (store builds: no test hook at all)
+    const unregister = STORE_BUILD
+      ? () => {}
+      : ctx.test.hook.register(this.scene.key, {
+          state: () => this.testState(),
+          actions: this.testActions(),
+        });
     const offLifecycle = ctx.platform.onLifecycle((e: LifecycleEvent) => {
       if (!this.scene.isActive() && !this.scene.isPaused()) return;
       if (e.type === 'pause') this.onPlatformPause(e.reason);
@@ -138,7 +142,7 @@ export abstract class OyunScene extends Phaser.Scene {
       offLifecycle();
     });
     this.cameras.main.fadeIn(140, 0, 0, 0);
-    if (this.scene.key !== PAUSE_SCENE) ctx.test.hook.setReady();
+    if (!STORE_BUILD && this.scene.key !== PAUSE_SCENE) ctx.test.hook.setReady();
     // A platform pause that happened before this scene existed (e.g. started hidden).
     if (ctx.platform.paused && this.autoPause) this.openPauseMenu();
   }

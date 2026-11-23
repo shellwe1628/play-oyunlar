@@ -1,4 +1,5 @@
 import type Phaser from 'phaser';
+import { STORE_BUILD } from '../store';
 import type { JsonObject, JsonValue } from '../testhook';
 import { stackRows } from '../ui/layout';
 import { button, label, panel, type Button } from '../ui/widgets';
@@ -184,11 +185,15 @@ export abstract class ResultScene extends OyunScene {
   }
 
   protected override testState(): JsonObject {
+
+    if (STORE_BUILD) throw new Error('unreachable'); // store builds: no test hook
     const rects: Record<string, JsonValue> = this.resultRects();
     return { score: this.result.score, best: this.result.best, newBest: this.result.newBest, rects };
   }
 
   protected override testActions(): Record<string, (payload: unknown) => void> {
+
+    if (STORE_BUILD) throw new Error('unreachable'); // store builds: no test hook
     return { replay: () => this.replayButton.fire(), menu: () => this.menuButton.fire() };
   }
 }

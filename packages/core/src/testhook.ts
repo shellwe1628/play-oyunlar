@@ -1,7 +1,11 @@
 /**
  * Test hook: lets smoke tests drive a game through state instead of pixel clicks.
  * Installed as `window.__OYUN__` ONLY when the URL has `?test=1`. Pure, no Phaser.
+ * Not in store builds (STORE_BUILD): there the URL is never read and the hook is inert, so the
+ * whole thing is dropped from the App Store / Google Play bundles.
  */
+import { STORE_BUILD } from './store';
+
 export type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue };
 export type JsonObject = { [key: string]: JsonValue };
 
@@ -68,13 +72,27 @@ export interface TestParams {
 }
 
 export function parseTestParams(search: string): TestParams {
+  if (STORE_BUILD) return { enabled: false, seed: null };
   const params = new URLSearchParams(search);
   const raw = params.get('seed');
   const n = raw === null || raw.trim() === '' ? NaN : Number(raw);
   return { enabled: params.get('test') === '1', seed: Number.isInteger(n) ? n : null };
 }
 
+/** Store builds: a hook that keeps nothing and exposes nothing. */
+function inertHook(): TestHook {
+  const api: OyunTestApi = {
+    ready: false,
+    state: () => ({ ready: false, scene: null, scenes: [], meta: {}, data: {} }),
+    act() {},
+    actions: () => [],
+    pixel: () => Promise.reject(new Error('unavailable')),
+  };
+  return { api, register: () => () => {}, setMeta() {}, setReady() {}, setPixelReader() {} };
+}
+
 export function createTestHook(): TestHook {
+  if (STORE_BUILD) return inertHook();
   const stack: { key: string; provider: TestProvider }[] = [];
   let ready = false;
   let meta: () => JsonObject = () => ({});
@@ -141,7 +159,7 @@ export function createTestHook(): TestHook {
 
 /** Puts `hook.api` on `target.__OYUN__` when enabled. */
 export function installTestHook(target: object, hook: TestHook, enabled: boolean): void {
-  if (!enabled) return;
+  if (STORE_BUILD || !enabled) return;
   Object.defineProperty(target, '__OYUN__', { value: hook.api, configurable: true, enumerable: false, writable: false });
 }
 

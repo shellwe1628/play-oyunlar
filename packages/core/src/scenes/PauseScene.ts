@@ -1,4 +1,5 @@
 import { button, label, muteButton, panel, type Button } from '../ui/widgets';
+import { STORE_BUILD } from '../store';
 import { OyunScene, PAUSE_SCENE } from './OyunScene';
 
 /** Core pause menu, launched over a paused scene by `openPauseMenu()`. Actions: resume, quit. */
@@ -29,10 +30,14 @@ export class PauseScene extends OyunScene {
   }
 
   protected override testActions(): Record<string, (payload: unknown) => void> {
+
+    if (STORE_BUILD) throw new Error('unreachable'); // store builds: no test hook
     return { resume: () => this.resumeButton.fire(), quit: () => this.quitButton.fire() };
   }
 
   protected override testState() {
+
+    if (STORE_BUILD) throw new Error('unreachable'); // store builds: no test hook
     return { from: this.from };
   }
 

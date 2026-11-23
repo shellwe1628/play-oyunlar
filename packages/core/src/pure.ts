@@ -1,6 +1,7 @@
 /**
  * Phaser-free part of @oyun/core. Safe to import from `src/sim/` and from node unit tests.
  */
+export * from './store';
 export * from './rng';
 export * from './storage';
 export * from './save';

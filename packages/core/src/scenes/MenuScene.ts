@@ -1,4 +1,5 @@
 import { button, label, muteButton, type Button } from '../ui/widgets';
+import { STORE_BUILD } from '../store';
 import { OyunScene } from './OyunScene';
 
 /**
@@ -54,6 +55,8 @@ export abstract class MenuScene extends OyunScene {
   }
 
   protected override testActions(): Record<string, (payload: unknown) => void> {
+
+    if (STORE_BUILD) throw new Error('unreachable'); // store builds: no test hook
     return { play: () => this.playButton.fire() };
   }
 }

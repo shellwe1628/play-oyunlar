@@ -4,17 +4,9 @@ import Phaser from 'phaser';
 import { createAudio } from './audio/synth';
 import { setContext, type OyunContext, type ResolvedGameInfo } from './context';
 import { createI18n, pickLanguage, type StringTable } from './i18n';
-import {
-  capacitorBridge,
-  createCapacitorPlatform,
-  createCrazyGamesPlatform,
-  createWebPlatform,
-  detectPlatform,
-  type Platform,
-  type PlatformName,
-  type WebPlatform,
-} from './platform';
+import { capacitorBridge, createPlatform, detectPlatform, pageAddress, type Platform, type PlatformName, type WebPlatform } from './platform';
 import { createRng } from './rng';
+import { STORE_BUILD } from './store';
 import { BootScene } from './scenes/BootScene';
 import { PauseScene } from './scenes/PauseScene';
 import { webStorage, type StorageAdapter } from './storage';
@@ -55,17 +47,6 @@ export interface OyunGame {
   ctx: OyunContext;
 }
 
-function makePlatform(name: PlatformName): Platform {
-  switch (name) {
-    case 'crazygames':
-      return createCrazyGamesPlatform();
-    case 'capacitor':
-      return createCapacitorPlatform();
-    default:
-      return createWebPlatform();
-  }
-}
-
 /** Read env(safe-area-inset-*) through a hidden probe element (CSS px). */
 function readCssInsets(): Insets {
   const probe = document.createElement('div');
@@ -99,8 +80,8 @@ async function loadFonts(family: string): Promise<void> {
  * BootScene → `start`. Resolves once Phaser is constructed.
  */
 export async function createGame(config: OyunGameConfig): Promise<OyunGame> {
-  const search = location.search;
-  const params = new URLSearchParams(search);
+  // Store builds (STORE_BUILD) never read the page address: no test mode, no URL switches.
+  const search = STORE_BUILD ? '' : location.search;
   const test = parseTestParams(search);
   const storage = config.storage ?? webStorage();
   const theme = resolveTheme(config.theme);
@@ -118,25 +99,26 @@ export async function createGame(config: OyunGameConfig): Promise<OyunGame> {
   const platform =
     typeof config.platform === 'object'
       ? config.platform
-      : makePlatform(
+      : createPlatform(
           config.platform ??
             detectPlatform({
-              search,
-              hostname: location.hostname,
+              ...pageAddress(),
               forced: import.meta.env.VITE_OYUN_PLATFORM as string | undefined,
               capacitorNative: capacitorBridge()?.isNativePlatform?.() ?? false,
             }),
         );
   await platform.init().catch(() => undefined);
 
-  const lang = pickLanguage(navigator.languages, params.get('lang'));
+  // the device's language (web builds: ?lang=tr|en overrides it)
+  const lang = pickLanguage(navigator.languages, STORE_BUILD ? null : new URLSearchParams(search).get('lang'));
   document.documentElement.lang = lang;
   const i18n = createI18n(config.strings, lang, {
     base: CORE_STRINGS,
     onMissing: (key) => console.error(`[oyun] missing string "${key}"`),
   });
   const audio = createAudio({ storage, key: `oyun:${config.id}:audio` });
-  const seed = test.enabled ? (test.seed ?? 1) : test.seed ?? (Math.floor(Math.random() * 2 ** 32) >>> 0);
+  const randomSeed = (): number => Math.floor(Math.random() * 2 ** 32) >>> 0;
+  const seed = STORE_BUILD ? randomSeed() : test.enabled ? (test.seed ?? 1) : (test.seed ?? randomSeed());
   const hook = createTestHook();
   const reducedMotion = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
 
@@ -158,11 +140,11 @@ export async function createGame(config: OyunGameConfig): Promise<OyunGame> {
     scene: [new BootScene(config.textures ?? []), ...config.scenes, PauseScene],
   });
 
-  // Under automation (or ?test=1) game time follows the wall clock: Phaser's smoothDelta clamps
+  // Under automation (or ?test=1) game time follows the wall clock (never in a store build): Phaser's smoothDelta clamps
   // each frame to 16.7 ms while the window is unfocused (always, headless) and for 120 frames
   // after start/focus/visible, so a 12 fps headless run played at 1/5 speed. Real players keep
   // Phaser's smoothing. Scenes still never get more than MAX_FRAME_MS (200) in one frame.
-  const realTime = followsRealTime({ webdriver: navigator.webdriver, test: test.enabled });
+  const realTime = !STORE_BUILD && followsRealTime({ webdriver: navigator.webdriver, test: test.enabled });
   if (realTime) game.loop.smoothDelta = (delta: number): number => realTimeDelta(delta);
 
   let insets: Insets = { top: 0, right: 0, bottom: 0, left: 0 };
@@ -205,7 +187,7 @@ export async function createGame(config: OyunGameConfig): Promise<OyunGame> {
   window.addEventListener('keydown', unlock);
   platform.onLifecycle((e) => (e.type === 'pause' ? audio.suspend() : audio.resume()));
 
-  hook.setMeta(() => {
+  if (!STORE_BUILD) hook.setMeta(() => {
     const meta: Record<string, JsonValue> = {
       seed,
       lang,
@@ -220,7 +202,7 @@ export async function createGame(config: OyunGameConfig): Promise<OyunGame> {
     }
     return meta;
   });
-  if (test.enabled) {
+  if (!STORE_BUILD && test.enabled) {
     // Reads what the renderer really drew at logical (x, y) on the next frame.
     hook.setPixelReader(
       (x, y) =>
@@ -232,6 +214,6 @@ export async function createGame(config: OyunGameConfig): Promise<OyunGame> {
         }),
     );
   }
-  installTestHook(window, hook, test.enabled);
+  if (!STORE_BUILD) installTestHook(window, hook, test.enabled);
   return { game, ctx };
 }

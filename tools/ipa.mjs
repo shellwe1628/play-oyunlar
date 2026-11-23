@@ -29,6 +29,7 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { join, relative, resolve } from 'node:path';
 import { ADMOB_PLUGIN, admobIds, admobPluginVersion, admobViteEnv, checkBundleAdIds, SKADNETWORK_IDS, usesPlatformAdapter } from './admob.mjs';
+import { checkStoreMarkers, STORE_VITE_ENV } from './store-check.mjs';
 import { ROOT } from './template.mjs';
 
 const BIN = join(ROOT, 'node_modules', '.bin');
@@ -216,10 +217,13 @@ function buildWeb(app, work) {
   step(`web bundle from ${app.source}`);
   run(join(BIN, 'vite'), ['build', '--base', './', '--outDir', join(work, 'www'), '--emptyOutDir'], {
     cwd: join(ROOT, app.source),
-    env: { VITE_OYUN_PLATFORM: app.platform, ...admobViteEnv(app.ads) },
+    // VITE_OYUN_STORE=1: no test hook, no URL switches, no web-portal adapter (tools/store-check.mjs)
+    env: { VITE_OYUN_PLATFORM: app.platform, ...admobViteEnv(app.ads), ...STORE_VITE_ENV },
   });
   const www = join(work, 'www');
-  const problems = checkBundleAdIds(filesUnder(www).filter((f) => f.endsWith('.js')).map((f) => readFileSync(f, 'utf8')), app.ads);
+  const js = filesUnder(www).filter((f) => f.endsWith('.js'));
+  const problems = checkBundleAdIds(js.map((f) => readFileSync(f, 'utf8')), app.ads);
+  problems.push(...checkStoreMarkers(js.map((f) => ({ name: relative(www, f), text: readFileSync(f, 'utf8') }))));
   for (const f of filesUnder(www)) {
     if (!/\.(js|css|html)$/.test(f)) continue;
     for (const m of readFileSync(f, 'utf8').matchAll(/https?:\/\/[A-Za-z0-9._~:/?#@!$&'*+,;=%-]+/g)) {
@@ -233,7 +237,7 @@ function buildWeb(app, work) {
     for (const word of ['Google Play', 'Play Store', 'App Store']) if (text.includes(word)) problems.push(`${relative(www, f)}: mentions "${word}"`);
   }
   if (problems.length) fail(`web bundle check:\n  ${problems.join('\n  ')}`);
-  console.log(`ok: relative paths, no external URLs${app.ads ? `, AdMob rewarded ${app.ads.rewarded}${app.ads.test ? ' (TEST ads)' : ''}` : ', no ad ids'}`);
+  console.log(`ok: relative paths, no external URLs, no test hook or URL switches${app.ads ? `, AdMob rewarded ${app.ads.rewarded}${app.ads.test ? ' (TEST ads)' : ''}` : ', no ad ids'}`);
 }
 
 // ---------------------------------------------------------------- native

@@ -26,6 +26,7 @@ import { isAbsolute, join, relative, resolve } from 'node:path';
 import { findIconSource, writeIcon } from './aab/icon.mjs';
 import { checkThemeDump, fullScreenStyles } from './aab/theme.mjs';
 import { ADMOB_PLUGIN, admobIds, admobPluginVersion, admobViteEnv, checkBundleAdIds, usesPlatformAdapter } from './admob.mjs';
+import { checkStoreMarkers, STORE_VITE_ENV } from './store-check.mjs';
 import { ROOT } from './template.mjs';
 
 const BIN = join(ROOT, 'node_modules', '.bin');
@@ -186,7 +187,8 @@ function buildWeb(app, work) {
   step(`web bundle from ${app.source}${app.adapter ? ` (VITE_OYUN_PLATFORM=${app.platform})` : ''}`);
   run(bin('vite'), ['build', '--base', './', '--outDir', join(work, 'www'), '--emptyOutDir'], {
     cwd: join(ROOT, app.source),
-    env: { VITE_OYUN_PLATFORM: app.platform, ...admobViteEnv(app.ads) },
+    // VITE_OYUN_STORE=1: no test hook, no URL switches, no web-portal adapter (tools/store-check.mjs)
+    env: { VITE_OYUN_PLATFORM: app.platform, ...admobViteEnv(app.ads), ...STORE_VITE_ENV },
   });
 }
 
@@ -228,9 +230,10 @@ function checkWeb(app, www) {
   const forced = new RegExp(`forced:\\s*["'\`]${app.platform}["'\`]`);
   if (app.adapter && !js.some((f) => forced.test(readFileSync(f, 'utf8')))) problems.push(`platform choice "${app.platform}" not found in the bundle`);
   problems.push(...checkBundleAdIds(js.map((f) => readFileSync(f, 'utf8')), app.ads));
+  problems.push(...checkStoreMarkers(js.map((f) => ({ name: relative(www, f), text: readFileSync(f, 'utf8') }))));
   if (problems.length) fail(`web bundle check:\n  ${problems.join('\n  ')}`);
   const kb = Math.round(files.reduce((s, f) => s + statSync(f).size, 0) / 1024);
-  console.log(`ok: ${files.length} files, ${kb} KB; relative paths, no external URLs, ${app.adapter ? `${app.platform} adapter` : 'no platform adapter (no ads)'}${app.ads ? `, AdMob rewarded ${app.ads.rewarded}${app.ads.test ? ' (TEST ads)' : ''}` : ', no ad ids'}`);
+  console.log(`ok: ${files.length} files, ${kb} KB; relative paths, no external URLs, no test hook or URL switches, ${app.adapter ? `${app.platform} adapter` : 'no platform adapter (no ads)'}${app.ads ? `, AdMob rewarded ${app.ads.rewarded}${app.ads.test ? ' (TEST ads)' : ''}` : ', no ad ids'}`);
 }
 
 // ---------------------------------------------------------------- native

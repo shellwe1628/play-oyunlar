@@ -214,7 +214,7 @@ reddedilme sebebidir**. Üç oyun için ortak cevaplar:
 | Unrestricted Web Access | No | uygulama web tarayıcısı açmaz |
 | User-Generated Content, Messaging and Chat | No | oyunlarda sohbet ya da paylaşım yok; Game Center takma adları Apple'ın kendi ekranında görünür |
 | Advertising (reklam içerir mi) | No | bu sürümde reklam yok (reklamlar gelince değişecek, son bölüm) |
-| Parental Controls / Age Assurance | No | oyunun yaş sorusu yalnızca beyan; kimlik ya da yaş doğrulaması değil, sadece online sıralamayı kapatır |
+| Parental Controls / Age Assurance | No | iPhone sürümünde yaş sorusu yok; Game Center çocuk hesaplarını Apple'ın kurallarıyla yönetir |
 | Made for Kids | **No** | Kids kategorisi seçilmeyecek, aşağıya bak |
 
 **Noodle Archers:** **Cartoon or Fantasy Violence → Frequent/Intense** öner. Şiddet hafif
@@ -265,8 +265,7 @@ App Store Connect → uygulama → **App Privacy** → Get Started:
 - Online sıralama **Apple'ın kendi hizmeti Game Center**'dır (GameKit). Skor ve takma ad
   Apple'a gider, Apple saklar ve gösterir; geliştiricinin sunucusuna ya da üçüncü bir tarafa
   hiçbir şey gelmez. Apple'ın kendi topladığı veri, geliştiricinin "topladığı" veri sayılmaz.
-- Doğum yılı sorusu: yıl hiçbir yere gitmez ve saklanmaz; cihazda yalnızca "13+ / değil"
-  kategorisi kalır.
+- iPhone sürümünde yaş sorusu yok (yalnızca Android'de, Play Games için).
 - Gizlilik bildirimi (`PrivacyInfo.xcprivacy`): izleme yok, toplanan veri türü yok, gerekçeli
   API yok; App Privacy cevabıyla tutarlı.
 - **Dikkat:** Play'de Veri güvenliği formu "Kullanıcı kimlikleri + Diğer işlemler" diyor, çünkü
@@ -325,7 +324,7 @@ Fossil Odds için:
 Thank you for reviewing Fossil Odds.
 
 - The whole game is bundled in the app and plays offline. There are no accounts, no logins and no in-app purchases. Progress is saved on the device only.
-- Optional online ranking uses Game Center: main menu > Ranks tab > globe button (top right). Before anything goes online the game asks once for the player's year of birth (a neutral list). Under 13: online ranking is switched off on that install and Game Center is never started. 13 or over: Game Center starts and shows Apple's own sign-in if the device is not signed in. Scores go only to Game Center. The rest of the game needs no sign-in. To see the age question again, delete and reinstall the app.
+- Optional online ranking uses Game Center: main menu > Ranks tab > globe button (top right). There is no age question on iPhone: tapping Sign in starts Game Center, which shows Apple's own sign-in if the device is not signed in. Game Center is not started before that tap. Scores go only to Game Center. The rest of the game needs no sign-in. The privacy policy is linked on the main menu (Privacy) and in the online panel.
 - Buttons marked as rewards (for example "Double dust (ad)" after time away, and the luck boost) give their reward straight away in this version: no ads are shown and there is no ad SDK in the app.
 - The odds printed on fossils (for example "1 in 1,000,000") only show how rare a find is. Nothing is wagered or can be lost, every block always gives a fossil, and nothing can be bought with real money, so there is no simulated gambling.
 ```
@@ -337,7 +336,7 @@ Thank you for reviewing Sparkrise.
 
 - The whole game is bundled in the app and plays offline. There are no accounts, no logins and no in-app purchases. Progress is saved on the device only. Gems are earned in play and only unlock cosmetic trails.
 - Controls: hold anywhere to fly right, let go to fly left. A tap after a crash restarts the level.
-- Optional online ranking uses Game Center: Ranks screen > globe button (top right). Before anything goes online the game asks once for the player's year of birth (a neutral list). Under 13: online ranking is switched off on that install and Game Center is never started. 13 or over: Game Center starts and shows Apple's own sign-in if the device is not signed in. Scores go only to Game Center. The rest of the game needs no sign-in. To see the age question again, delete and reinstall the app.
+- Optional online ranking uses Game Center: Ranks screen > globe button (top right). There is no age question on iPhone: tapping Sign in starts Game Center, which shows Apple's own sign-in if the device is not signed in. Game Center is not started before that tap. Scores go only to Game Center. The rest of the game needs no sign-in. The privacy policy is linked on the main menu (Privacy) and in the online panel.
 - Buttons marked as rewards give their reward straight away in this version: no ads are shown and there is no ad SDK in the app.
 ```
 
@@ -348,7 +347,7 @@ Thank you for reviewing Noodle Archers.
 
 - The whole game (3D, rendered with WebGL) is bundled in the app and plays offline. There are no accounts, no logins and no in-app purchases. Progress is saved on the device only. Coins are earned in play.
 - Controls: drag anywhere to aim, release to shoot.
-- Optional online ranking uses Game Center: Title screen > Ranks > globe button (top right). Before anything goes online the game asks once for the player's year of birth (a neutral list). Under 13: online ranking is switched off on that install and Game Center is never started. 13 or over: Game Center starts and shows Apple's own sign-in if the device is not signed in. Scores go only to Game Center. The rest of the game needs no sign-in. To see the age question again, delete and reinstall the app.
+- Optional online ranking uses Game Center: Title screen > Ranks > globe button (top right). There is no age question on iPhone: tapping Sign in starts Game Center, which shows Apple's own sign-in if the device is not signed in. Game Center is not started before that tap. Scores go only to Game Center. The rest of the game needs no sign-in. The privacy policy is linked on the main menu (Privacy) and in the online panel.
 - Optional buttons marked "▶ AD" (one more card on the card pick; revive and double coins on the result screen; turning the wooden chest of the 4-hour timer into a silver one; extra coins in the Shop, at most 3 a day) play a Google AdMob rewarded ad only when tapped. There are no real-money purchases. Every ad request is child-directed (TFCD, TFUA, max rating G, non-personalised); no App Tracking Transparency prompt and no IDFA. There are no other ads.
 - Violence is cartoon style: wobbly ragdoll archers are knocked off floating islands, with no blood.
 ```
@@ -371,7 +370,8 @@ Thank you for reviewing Noodle Archers.
    - [ ] Uygulamayı kapat-aç: ilerleme duruyor. Arka plana at-geri gel: ses ve oyun düzgün.
    - [ ] Sessiz anahtarı ve ses ayarı.
    - [ ] Ödül düğmeleri ödülü hemen veriyor, reklam yok.
-   - [ ] Online: yaş sorusunda 13'ten küçük bir yıl → online kapanıyor, Game Center açılmıyor.
+   - [ ] Online: yaş sorusu çıkmıyor; Giriş yap'a dokunmadan Game Center açılmıyor, dokununca Apple'ın girişi geliyor.
+   - [ ] Ana menüde Gizlilik bağlantısı politikayı Safari'de açıyor.
          Uygulamayı silip yeniden kur → 13+ yıl → Game Center girişi → skor gönderiliyor → küre
          panelinde sıra görünüyor → Apple'ın tablo ekranı açılıyor.
    - [ ] Game Center'a giriş yapılmamış bir cihazda (ya da girişi iptal ederek) oyun kilitlenmiyor,
@@ -390,7 +390,7 @@ Thank you for reviewing Noodle Archers.
 | **2.3.10** Başka platformdan söz | Metinde ya da uygulamada "Android", "Google Play", "Play Games" | App Store metinlerinde yok (doğrulayıcı "Android", "Google", "Play Store", "Google Play", "Play Games" arar). Oyun içinde online panel iOS'ta Game Center metnini gösterir (`signInTextGc`). Gizlilik sayfası iki platformu da anlatır: bu bir politika belgesi, sorun değil. |
 | **4.2** Minimum işlevsellik (web sarmalayıcı) | Bir web sitesini uygulama gibi paketlemek | Bizimki bir site değil: oyunun bütün dosyaları uygulamanın içinde, internetsiz çalışır (`tools/ipa.mjs` paketi tarar, dış URL varsa derlemeyi durdurur); uzaktan kod indirilmez (2.5.2). Game Center yerel GameKit köprüsüyle (`GameCenterPlugin.swift`) Apple'ın kendi tablo ekranını açar. Tam ekran, dikey, durum çubuğu gizli; her oyunda onlarca bölüm/katman, rütbeler, rekorlar. **Titreşim (haptics):** oyun kodu titreşim çağırır ama iOS projesine `@capacitor/haptics` eklenmedi, yani şu an titreşim **yok**; eklenirse "yerel his" güçlenir (isteğe bağlı, oyun/araç işi). |
 | **4.3** Spam / benzer uygulamalar | Aynı geliştiriciden aynı şablonla çok sayıda benzer uygulama | Üç oyun farklı tür (kazı-koleksiyon, tek dokunuş refleks, 3D okçuluk), farklı simge, görsel ve metin. Aynı oyunun kopya sürümlerini (ör. "Lite", farklı tema) ayrı uygulama olarak gönderme. Ortak motor sorun değil. |
-| **5.1.1** Gizlilik | Uygulama içinde gizlilik bağlantısı yok; gereksiz veri istemek; yaş sorusunun amacı belirsiz | Politika URL'si hazır ve iPhone'u kapsıyor. **Uygulama içi bağlantı eksik (bölüm 0).** Doğum yılı saklanmaz, yalnızca 13+ kategorisi; amacı panelde ve politikada açık. Hesap olmadığı için hesap silme (5.1.1(v)) gerekmez. |
+| **5.1.1** Gizlilik | Uygulama içinde gizlilik bağlantısı yok; gereksiz veri istemek; yaş sorusunun amacı belirsiz | Politika URL'si hazır ve iPhone'u kapsıyor. **Uygulama içi bağlantı: ana menüde ve online panelinde.** iPhone'da yaş sorusu yok (Game Center Apple'ın hizmeti). Hesap olmadığı için hesap silme (5.1.1(v)) gerekmez. |
 | **5.1.2** Veri kullanımı/izleme | İzleme izni olmadan reklam kimliği | Reklam kimliği okunmaz, ATT yok (reklamlar gelince değişir). |
 | **3.1.1** Uygulama içi satın alma | Dijital içeriği Apple dışı ödemeyle satmak | Satın alma **yok**. Elmas/toz/altın yalnızca oynayarak kazanılır, gerçek parayla alınamaz. Metinlerde "shop"/"buy" yalnızca oyun içi parayla. |
 | **1.5** Geliştirici bilgisi | Destek URL'sinde iletişim yok | **Bölüm 0, madde 1**: `CONTACT` doldurulmalı. |

@@ -5,10 +5,12 @@
 // by playing: layers opened by dig power, relics from fragments, ranks from the real score.
 import { loadMods, newCareer, playFast } from './career.mjs';
 
-// every one-time tip the dig screen has (none of them over a screenshot)
-const TIPS = ['odds', 'dust', 'power', 'combo', 'assistant', 'fuse', 'glint', 'luck', 'locked', 'fever', 'pity', 'chain', 'relic', 'cavein', 'boss', 'golden', 'vein', 'unstable', 'twin', 'rank', 'daily', 'expedition', 'pressure', 'meteor', 'echo', ...Array.from({ length: 13 }, (_, i) => `deeper-${i}`)];
+// every one-time tip the dig screen has (none of them over a screenshot); a new save starts with
+// news-depth marked (the "three new layers" note is only for saves from before the depth round)
+const TIPS = ['odds', 'dust', 'power', 'combo', 'assistant', 'fuse', 'glint', 'luck', 'locked', 'fever', 'pity', 'chain', 'relic', 'cavein', 'boss', 'golden', 'vein', 'unstable', 'twin', 'rank', 'daily', 'expedition', 'pressure', 'meteor', 'echo', 'weak', 'sharp', 'rush', 'news-depth', ...Array.from({ length: 13 }, (_, i) => `deeper-${i}`)];
 const SAVE_KEY = 'oyun:fosil:save';
-const SAVE_VERSION = 2;
+/** the save schema version of games/fosil/src/save.ts (v3: thirteen layers); an older one would be migrated on load */
+const SAVE_VERSION = 3;
 /** The career ran over the days before the capture (record dates), the last dig today. */
 const DAY = 86_400_000;
 
@@ -145,6 +147,34 @@ export default {
       },
     },
     {
+      id: 'rush',
+      save: 'amber',
+      caption: { 'en-US': 'Dig Rush: 45 seconds of light blocks', 'tr-TR': 'Kazı Hücumu: 45 saniye hafif bloklar' },
+      async run(g) {
+        await toDig(g, 5);
+        // the stopwatch button opens the start card; its Start button starts the rush
+        await g.act('rush');
+        await g.run(800, 100);
+        if ((await g.data()).overlay !== 'rushAsk') throw new Error('rush: no start card');
+        await g.act('rushStart');
+        await g.run(1200, 100);
+        // dig at a finger's pace; a rare find's ceremony is tapped through like a player does
+        for (let i = 0; i < 70; i++) {
+          const d = await g.data();
+          if (!d.rush.active) throw new Error('rush ended early');
+          if (d.ceremony || d.overlay) await g.run(3000, 200);
+          const o = await g.data();
+          if (o.ceremony || o.overlay) await g.act('tap', 1);
+          await g.act('tap', 1);
+          await g.run(200, 100);
+        }
+        // a breath after the last tap, so the find labels have floated off and the clock still runs
+        await g.run(1600, 100);
+        const d = await g.data();
+        if (!d.rush.active || d.ceremony || d.overlay) throw new Error('rush: not a clean frame');
+      },
+    },
+    {
       id: 'boss',
       save: 'seasFirst',
       caption: { 'en-US': 'Thirteen layers, each with a twist, and a boss block', 'tr-TR': 'Her biri ayrı sürprizli on üç katman ve patron blok' },
@@ -184,17 +214,14 @@ export default {
       },
     },
     {
-      id: 'vein',
-      save: 'coal',
-      caption: { 'en-US': 'Hold, then let go to smash hard veins', 'tr-TR': 'Sert damarları basılı tutup parçala' },
+      id: 'map',
+      save: 'magma',
+      caption: { 'en-US': 'Chart every layer on the depth map', 'tr-TR': 'Derinlik haritasında her katmanı gör' },
       async run(g) {
-        await toDig(g, 4);
-        await tapUntil(g, (d) => d.block === 'vein' && !d.ceremony && !d.overlay, 3000);
-        await g.run(300, 60);
-        const b = (await g.data()).ui.block;
-        await g.page.mouse.move(b.x + 40, b.y + 30);
-        await g.page.mouse.down();
-        await g.run(900, 60);
+        await toDig(g, 8);
+        await g.act('map');
+        await g.scene('map');
+        await g.run(2000, 100);
       },
     },
     {
@@ -235,19 +262,6 @@ export default {
         await g.act('ranks');
         await g.scene('ranks');
         await g.run(1200, 120);
-      },
-    },
-    {
-      id: 'expedition',
-      save: 'seas',
-      caption: { 'en-US': 'Set off on expeditions: dig deeper, keep your museum', 'tr-TR': 'Sefere çık: daha derine kaz, müzen seninle kalsın' },
-      async run(g) {
-        await toDig(g);
-        await g.act('ranks');
-        await g.scene('ranks');
-        await g.run(800, 120);
-        await g.act('expedition');
-        await g.run(1000, 100);
       },
     },
   ],

@@ -1,0 +1,31 @@
+Thank you for reviewing Sparkrise.
+
+ACCOUNT, SERVER, CONTENT
+- No account, no login and no sign-in is needed to play. There is no server of ours and no remote configuration: the whole game is bundled in the app and works offline. Progress is saved on the device only.
+- Every player gets the same features. Nothing is unlocked, switched on or changed remotely; levels, worlds and modes open only through play on the device.
+- No real-money purchases. Gems are earned in play and only unlock cosmetic trails and spark shapes.
+- This build removes the developer test code (test hooks and URL switches) that earlier builds still contained.
+
+CONTROLS
+- Hold anywhere to fly up and right, let go to fly up and left. A tap after a crash restarts the level.
+
+HOW TO REACH EVERY MODE AND SCREEN
+- The app opens on the title screen with the current level ready; a touch starts it. The deck under it holds Levels, Shop, Endless, Dive and Daily. At the top: the rank chip (its badge and rank name; it opens Ranks), the Privacy link and the sound button.
+- Levels: 50 levels in 5 worlds of 10; level 10, 20, 30, 40 and 50 are boss finales. A world opens when the last level of the world before it is finished and the star total is reached: world 2 at 15 stars, world 3 at 36, world 4 at 60, world 5 (Vortex) at 80 stars after level 40. Each level gives up to 3 stars (finish, all 3 gems in one run, finish without a near miss).
+- World 5 (levels 41-50) turns the camera view (upside down, sideways, leaning, swaying, zooming). Each turn is announced on screen before it starts; the controls stay the same.
+- Endless and Dive open once level 3 is finished (before that their cards show a lock and say so). Dive is the endless shaft seen upside down.
+- Shop: trails and spark shapes for gems, with a live preview and a free one-run try. Five trails can only be earned (by rank, a 7-day daily streak, 5 clean levels, finishing world 4, finishing world 5).
+- Ranks: the ladder, records and feats, and the online button.
+
+DATE BASED CONTENT
+- Daily shaft: a new shaft each calendar day (local midnight on the device), open from the start; playing on consecutive days builds a streak with a gem reward.
+
+ADS
+- Rewarded ads (Google AdMob) are shown only when the player taps a button marked with the "AD" label: "Continue" on the crash card and "Double gems" on the finish card. Both are optional; the game never requires them. There are no other ads.
+- Every ad request is child-directed and non-personalised. There is no tracking, the IDFA is not read and there is no App Tracking Transparency prompt.
+
+ONLINE RANKING (OPTIONAL)
+- Game Center only: title screen > rank chip (Ranks) > the globe button (top right). There is no age question on iPhone. Game Center is not started before the player taps Sign in there; Apple's own sign-in appears if the device is not signed in. Scores go only to Game Center. Nothing else in the game needs a sign-in.
+
+PRIVACY
+- The privacy policy is linked from the title screen (Privacy, top centre) and from the online panel.

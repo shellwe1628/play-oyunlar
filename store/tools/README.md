@@ -49,10 +49,11 @@ ilerletilir, her çekim aynı kareye düşer. Betikler açtıkları sunucu ve ta
   kullandığı betikli oyuncuyla üretir (ör. Fosil Şansı'nda pacing testinin "fast" oyuncusu); kayıt
   sayfa açılmadan `localStorage`'a yazılır. Ekranda görünen her durum oyunda oynayarak varılan bir
   durumdur. Uzun ilerlemeler (bölümler, demirci, seferler, rütbeler) `store/<slug>/career.mjs`
-  içinde oynanır: Sallanan Okçular'da `aimbot.ts` CAREFUL oyuncusu koşuları oynar, ilerlemeyi
-  oyunun kendi `bank*`/`unlockFeats` işlevleriyle yazar ve yayı `attemptForge` ile döver; Fosil
-  Şansı'nda pacing testinin "fast" oyuncusu on katmanı kazar; Kıvılcım'da insan modeli 40 bölümü
-  sırayla dener, `settle()` başarımları ve kazanılan izleri verir. Belgelenmiş çekim yardımları
+  içinde oynanır: Sallanan Okçular'da `aimbot.ts` CAREFUL oyuncusu 3D yapının kurallarıyla boş
+  bir kayıttan koşuları oynar, ilerlemeyi 3D uygulamanın yazdığı gibi (`bank*`, patron ödülleri,
+  `unlockFeats`, koşu sandığı) yazar, sandıkları oyunun kendi zarlarıyla açar ve altınla parçaları
+  yaya harcar; Fosil Şansı'nda pacing testinin "fast" oyuncusu katmanları kazar; Kıvılcım'da insan
+  modeli 50 bölümü sırayla dener, `settle()` başarımları ve kazanılan izleri verir. Belgelenmiş çekim yardımları
   (ör. Sallanan Okçular'ın `god`'u) yalnızca bir çekime giden yolda oyuncuyu ayakta tutmak için
   kullanılır.
 - **Dil.** Her çekim `&lang=en` veya `&lang=tr` ile ayrı açılır; tr-TR görüntülerinde oyun Türkçe.

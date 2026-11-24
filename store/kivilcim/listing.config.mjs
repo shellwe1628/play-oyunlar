@@ -11,7 +11,7 @@
 // tick before the planned change, so the in-page run is the Node run tick for tick (checked:
 // the shot fails if the spark's x drifts from the planned line).
 //
-// The save is earned by the game's rules too (./career.mjs): the human model attempts all 40
+// The save is earned by the game's rules too (./career.mjs): the human model attempts all 50
 // levels in order (worlds open on their star requirement), every attempt is recorded, a
 // finishing run of the gem line takes gems and stars, achievements and earned trails are settled
 // like the game does, and trails are bought with buySkin as the wallet allows. Shots equip
@@ -96,7 +96,9 @@ const TRAIL = (M, id) => M.K.TRAILS.findIndex((t) => t.id === id);
 const SHAPE = (M, id) => M.K.SHAPES.findIndex((t) => t.id === id);
 
 /** Levels whose lines the shots fly (kept from the career's finishing runs). */
-const SHOT_LEVELS = [16, 21, 26, 30, 34];
+const SHOT_LEVELS = [21, 26, 30, 34, 45];
+/** Where the vortex shot is taken on level 45's line: dive + lean settled, spinners in view, no banner. */
+const VORTEX_AT = 0.62;
 /** The tick at a fraction of a level's planned line. */
 const at = (key, f) => Math.round(LINES.get(key).held.length * f);
 
@@ -135,7 +137,7 @@ export default {
     // record dates: the career ran over the last weeks (a few runs a day)
     const t0 = Date.now() - 20 * 86_400_000;
     const date = (i) => new Date(t0 + Math.floor(i / 12) * 86_400_000).toISOString().slice(0, 10);
-    const { d, lines, log } = career(M, { upTo: 40, buy, keepLines: SHOT_LEVELS, date });
+    const { d, lines, log } = career(M, { upTo: 50, buy, keepLines: SHOT_LEVELS, date });
     for (const [k, v] of lines) LINES.set(k, v);
     if (wishlist.length) log.push(`not bought: ${wishlist.map((w) => w.join(' ')).join(', ')}`);
     // one endless run by the human model (its milestone gems count; gems taken there do not)
@@ -158,6 +160,7 @@ export default {
       rainbow: skin('orb', 'rainbow'),
       voidwalker: skin('star', 'voidwalker'),
       champion: skin('diamond', 'champion'),
+      maelstrom: skin('orb', 'maelstrom'),
     };
   },
   storageFor: (save) => ({ [SAVE_KEY]: save }),
@@ -179,7 +182,7 @@ export default {
       // Level 34 (Void Gate): the mirror twin flies the other side; the prism trail at flow ×2+.
       id: 'trail',
       save: 'prism',
-      caption: { 'en-US': `Collect 22 trails, ${keep('up to mythic')}`, 'tr-TR': '22 iz topla, mitik olanlara kadar' },
+      caption: { 'en-US': `Collect 23 trails, ${keep('up to mythic')}`, 'tr-TR': '23 iz topla, mitik olanlara kadar' },
       async run(g) {
         await startMode(g, 'level', 34);
         await fly(g, 'L34', at('L34', 0.66));
@@ -212,20 +215,20 @@ export default {
       },
     },
     {
-      // Level 16 (Prism Works): spinners turning across the shaft.
-      id: 'spin',
-      save: 'voidwalker',
-      caption: { 'en-US': 'Spinners, lasers, wind, portals and more', 'tr-TR': 'Pervaneler, lazerler, rüzgâr, portallar ve fazlası' },
+      // Level 45 (world 5, Vortex): the view dived upside down and leaning, spinners ahead.
+      id: 'vortex',
+      save: 'maelstrom',
+      caption: { 'en-US': `World 5 flips ${keep('and tilts the view')}`, 'tr-TR': '5. dünyada görüntü ters döner, eğilir' },
       async run(g) {
-        await startMode(g, 'level', 16);
-        await fly(g, 'L16', at('L16', 0.6));
+        await startMode(g, 'level', 45);
+        await fly(g, 'L45', at('L45', VORTEX_AT));
       },
     },
     {
       // The trail shop: the prism trail playing in the live preview.
       id: 'shop',
       save: 'supernova',
-      caption: { 'en-US': 'Watch every trail live before you buy', 'tr-TR': 'Her izi almadan önce canlı izle' },
+      caption: { 'en-US': 'Watch every trail live before you unlock it', 'tr-TR': 'Her izi açmadan önce canlı izle' },
       async run(g) {
         await g.run(600, 100);
         await g.act('skins');
@@ -238,19 +241,19 @@ export default {
     {
       id: 'levels',
       save: 'aurora',
-      caption: { 'en-US': '40 levels in four worlds, three stars each', 'tr-TR': 'Dört dünyada 40 bölüm, her birinde üç yıldız' },
+      caption: { 'en-US': '50 levels in five worlds, three stars each', 'tr-TR': 'Beş dünyada 50 bölüm, her birinde üç yıldız' },
       async run(g) {
         await g.run(600, 100);
         await g.act('levels');
         await g.scene('levels');
-        await g.act('world', 3);
+        await g.act('world', 5);
         await g.run(1200, 100);
       },
     },
     {
       id: 'ranks',
       save: 'aurora',
-      caption: { 'en-US': 'Climb 12 ranks and earn 20 feats', 'tr-TR': '12 rütbeyi tırman, 20 başarımı topla' },
+      caption: { 'en-US': 'Climb 12 ranks and earn 23 feats', 'tr-TR': '12 rütbeyi tırman, 23 başarımı topla' },
       async run(g) {
         await g.run(600, 100);
         await g.act('ranks');

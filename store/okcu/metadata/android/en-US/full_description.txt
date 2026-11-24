@@ -1,7 +1,7 @@
-Pull back, let go and knock wobbly archers off their floating islands, now in 3D.
+Pull back, let go and knock wobbly archers off their floating islands, in 3D.
 Fight through six worlds and six bosses, unlock six weapons and level them up with shards from chests.
 
-Noodle Archers is a bright, bouncy archery game in side-view 3D with ragdoll physics. Your first arrow is in the air within seconds: drag anywhere to aim, watch the dotted arc, release to shoot.
+Noodle Archers is a bright, bouncy archery game in 3D with ragdoll physics. Your first arrow is in the air within seconds: drag anywhere to aim, watch the dotted arc, release to shoot.
 
 HOW IT PLAYS
 • Drag back to set angle and power, then let go. No buttons to learn.
@@ -9,6 +9,7 @@ HOW IT PLAYS
 • Where you hit matters: the head knocks an archer out, a leg hit can topple them off the ledge.
 • Rival archers shoot back, and they aim well. Shoot the apples that drift by to heal.
 • Every archer is a 3D character on a ragdoll: a hit shoves them, a knockout sends them flying.
+• Three camera angles, Side, Angled and Low: the camera button in play switches between them.
 
 SIX CHAPTERS
 • Sunny Meadow, Frozen Peaks, Sunset Dunes, Lantern Night, Ember Caldera and Sky Citadel, seven stages each, then endless waves.
@@ -17,6 +18,10 @@ SIX CHAPTERS
 • Sliding ledges, ledges hanging on ropes you can cut, rocks to drop, explosive barrels and wind you have to aim into.
 • New rivals: healers, archers behind cover walls, arrow-catchers and lantern knights.
 
+TWO MODES IN SUNSET CANYON
+• Blitz: 60 seconds against endless archers, headshots count double and every hit you take costs 3 seconds. Opens after your first run.
+• Boss Rush: all six bosses back to back. How far can you go? Opens once you beat the chapter 1 boss.
+
 SIX WEAPONS
 • Bow, crossbow, spear, boomerang, sling and firework tube, each with its own flight: flat crossbow bolts, spears that pierce, a boomerang that hits on the way back, pebbles that bounce and fireworks that burst over a crowd.
 • Beat a chapter's boss to unlock its weapon, or collect the sling from chest shards.
@@ -24,13 +29,13 @@ SIX WEAPONS
 
 CHESTS
 • A wooden chest to open every 4 hours; watch an optional ad to make it silver.
-• Chests from runs, bosses and the daily challenge, and chests you can buy with coins.
+• Chests from runs, bosses and the daily challenge, and chests you can get for coins in the Shop.
 • Every chest shows its odds on screen, exactly as they are rolled.
 
 BIG MOMENTS
 • Headshot chains, multi-kills, knockout streaks and critical hits, each with its own callout.
 • Fill the focus meter and tap the eye for a powered-up shot.
-• Pick one of three trick cards after every stage: 18 tricks, from split shot and fire arrows to seeker arrows and chain sparks, and six combos that unlock when two tricks meet.
+• Pick one of three trick cards after every stage: 20 tricks, from split shot and fire arrows to seeker arrows and chain sparks, and six combos that unlock when two tricks meet.
 
 YOUR PROGRESS
 • Climb a personal ladder of 14 ranks, from Recruit to Eternal Archer.
@@ -41,5 +46,6 @@ YOUR PROGRESS
 
 GOOD TO KNOW
 • Plays offline. No account needed.
-• No real-money purchases: everything is earned with coins. Ads are optional and only give a reward when you choose to watch one.
+• No real-money purchases: everything is earned with coins in play. Rewarded ads are optional, only on buttons marked AD and only when you choose to watch one.
+• Optional online ranking with Google Play Games, for players aged 13 and over.
 • Available in English and Turkish.

@@ -5,9 +5,9 @@
 > IDFA ve ATT yok; Android'de AD_ID izni kaldırıldı. Bu yüzden aşağıdaki "Reklamlar eklenince (AdMob)"
 > bölümü **üç oyun için de geçerlidir**: App Privacy "Data Not Collected" değil (yaklaşık konum, cihaz
 > kimliği, ürün etkileşimi, tanılama: reklam/analiz/sahtekârlık önleme; izleme yok), yaş derecelendirmesinde
-> "Advertising: Yes". Aşağıda "reklam yok" diyen eski satırlar bu nota göre okunmalı. İnceleme notuna şunu
-> ekleyin: "Rewarded buttons marked ▶ AD show a Google AdMob rewarded ad only when tapped; requests are
-> child-directed (no personalised ads, no tracking)." Gizlilik politikası ve sürüm notları güncel.
+> "Advertising: Yes". Aşağıda "reklam yok" diyen eski satırlar bu nota göre okunmalı. İnceleme notları
+> (`store/<slug>/appstore/review_notes.txt`, bölüm 10) reklamları, çocuklara yönelik ve kişiselleştirilmemiş
+> istekleri ve izleme olmadığını oyun oyun yazar. Gizlilik politikası ve sürüm notları güncel.
 
 
 Bu belge üç oyunu (Fossil Odds / Fosil Şansı, Sparkrise / Kıvılcım, Noodle Archers / Sallanan
@@ -77,7 +77,8 @@ kapsamı dışında, ama göndermeden önce kapanmalı:
      sorgu sayfasından ücretsiz alınır, 1-2 hafta sürebilir), şirket web sitesi ve şirketi
      bağlama yetkisi olan kişi. Satıcı adı şirket unvanı olur.
    - Play'deki hesap kişisel ("SHELLWE" görünen ad). Apple'da görünen ad seçilemez; bireyselde
-     yasal ad çıkar. `copyright.txt` "2026 SHELLWE" kalabilir (telif satırı serbest metindir).
+     yasal ad çıkar. `copyright.txt` bu yüzden "2026 Emirhan Cin" (telif satırı serbest metindir; satıcı
+     adıyla aynı kişi).
 3. **Ücret:** yıllık üyelik (developer.apple.com'da güncel tutar; Türkiye'de TL ile
    faturalanabilir). Kartla Apple'ın kendi sayfasında sen ödersin.
 4. **Sözleşmeler:** Üyelik onaylanınca App Store Connect → **Business** (İş) bölümünde **Free
@@ -298,10 +299,18 @@ Metinler `store/<slug>/appstore/metadata/<en-US|tr>/`; dosya → alan eşlemesi:
 | `release_notes.txt` | What's New | 4000 |
 | `support_url.txt` | Support URL | |
 | `privacy_url.txt` | Privacy Policy URL (App Privacy) | |
-| `../copyright.txt` | Copyright | |
+| `../copyright.txt` | Copyright ("2026 Emirhan Cin") | |
+| `../../review_notes.txt` | App Review Information → Notes | 4000 |
 | `../primary_category.txt`, `../primary_first_sub_category.txt`, `../secondary_category.txt` | Category | |
 
+- **Açıklamalar ve görseller yapıdaki oyunla birebir aynı olmalı (2.3).** Sayılar (katman, bölüm,
+  dünya, iz, başarım, silah) koddan sayılır; metinde "satın al / buy" yalnızca oyun içi parayla
+  anılır ("unlock / aç" ya da para birimi adıyla). Her açıklamanın sonunda "GOOD TO KNOW / BİLMEKTE
+  FAYDA VAR" bölümü: isteğe bağlı ödüllü reklamlar (yalnızca oyuncu seçerse) ve Game Center ile
+  isteğe bağlı online sıralama (iPhone'da yaş sorusu yok, App Store metinlerinde yaş sınırı yazılmaz).
 - **İlk sürümde "What's New" alanı yoktur**; `release_notes.txt` 1.0.1'den itibaren kullanılır.
+  İçeriği ilk yayın için tarafsızdır: "First release." / "İlk sürüm." ve tek cümlelik özet (test
+  sürümleriyle karşılaştırma ya da "büyük güncelleme" yok).
   fastlane `deliver` ile yüklerken ilk sürümde `release_notes` atlanmalı (yoksa API "bu alan
   düzenlenemez" hatası verebilir).
 - **Ekran görüntüleri:** `store/<slug>/appstore/screenshots/<en-US|tr>/1.png…8.png`, 1320×2868
@@ -313,48 +322,34 @@ Metinler `store/<slug>/appstore/metadata/<en-US|tr>/`; dosya → alan eşlemesi:
   - **Sign-in required: kapalı** (oyunda hesap yok; Game Center inceleyicinin kendi Apple
     hesabıyla çalışır, demo hesap gerekmez).
   - İletişim: ad, soyad, telefon (+90…), e-posta: inceleyici sorun olursa buraya yazar.
-  - **Notes** (aşağıdaki metni oyuna göre kopyala).
+  - **Notes**: `store/<slug>/appstore/review_notes.txt` dosyasının tamamını yapıştır (bölüm aşağıda).
 - **Version Release:** "Manually release this version" seç; onaydan sonra sen yayımlarsın.
 
-### İnceleme notu (Notes kutusuna yapıştır)
+### İnceleme notu (Notes kutusu)
 
-Fossil Odds için:
+Her oyunun notu kendi dosyasında, düz İngilizce, 4000 karakterin altında:
+`store/fosil/appstore/review_notes.txt`, `store/kivilcim/appstore/review_notes.txt`,
+`store/okcu/appstore/review_notes.txt`. Hepsi aynı başlıkları oyuna göre doldurur:
 
-```
-Thank you for reviewing Fossil Odds.
+- Hesap, sunucu ve uzaktan yapılandırma yok; her şey uygulamanın içinde, internetsiz çalışır; her
+  oyuncu aynı özellikleri alır, hiçbir şey uzaktan açılmaz ya da değişmez; gerçek parayla satın
+  alma yok; bu derlemede önceki derlemelerdeki geliştirici test kodu (test kancaları, URL anahtarları)
+  yok.
+- Her mod ve ekrana nasıl gidilir, ilerlemeyle açılanlar dahil (Fossil Odds: derinlik haritası kazı
+  ekranındaki Map düğmesi, Kazı Hücumu Toprak Üstü'nde 4 tür bulununca, sonra 3 saatte bir, sefer
+  Zaman Yarığı açılınca; Sparkrise: Sonsuz ve Dalış 3. bölümden sonra, 5. dünya 40. bölüm ve 80
+  yıldızla; Noodle Archers: Blitz ilk turdan sonra, Boss Rush 1. bölüm patronu yenilince, kamera
+  düğmesi oyun içinde sol üstte) ve tarihe bağlı içerik (günlük kazı/kuyu/meydan okuma, ücretsiz
+  sandık sayacı, mağazanın günlük yenilenmesi; yerel gece yarısı).
+- Ödüllü reklamlar (AdMob) yalnızca "AD" etiketli bir düğmeye dokununca; istekler çocuklara yönelik,
+  kişiselleştirilmemiş; izleme ve IDFA yok.
+- Online sıralama: Game Center, Ranks ekranındaki küre düğmesi; iPhone'da yaş sorusu yok
+  (`packages/core/src/online/online.ts` `asksAge` yalnızca Play için true). Notlarda "doğum yılı gir"
+  gibi bir yönerge olmaz.
+- Gizlilik politikası ana menüden bağlantılı.
 
-- The whole game is bundled in the app and plays offline. There are no accounts, no logins and no in-app purchases. Progress is saved on the device only.
-- Optional online ranking uses Game Center: main menu > Ranks tab > globe button (top right). There is no age question on iPhone: tapping Sign in starts Game Center, which shows Apple's own sign-in if the device is not signed in. Game Center is not started before that tap. Scores go only to Game Center. The rest of the game needs no sign-in. The privacy policy is linked on the main menu (Privacy) and in the online panel.
-- Buttons marked as rewards (for example "Double dust (ad)" after time away, and the luck boost) give their reward straight away in this version: no ads are shown and there is no ad SDK in the app.
-- The odds printed on fossils (for example "1 in 1,000,000") only show how rare a find is. Nothing is wagered or can be lost, every block always gives a fossil, and nothing can be bought with real money, so there is no simulated gambling.
-```
-
-Sparkrise için:
-
-```
-Thank you for reviewing Sparkrise.
-
-- The whole game is bundled in the app and plays offline. There are no accounts, no logins and no in-app purchases. Progress is saved on the device only. Gems are earned in play and only unlock cosmetic trails.
-- Controls: hold anywhere to fly right, let go to fly left. A tap after a crash restarts the level.
-- Optional online ranking uses Game Center: Ranks screen > globe button (top right). There is no age question on iPhone: tapping Sign in starts Game Center, which shows Apple's own sign-in if the device is not signed in. Game Center is not started before that tap. Scores go only to Game Center. The rest of the game needs no sign-in. The privacy policy is linked on the main menu (Privacy) and in the online panel.
-- Buttons marked as rewards give their reward straight away in this version: no ads are shown and there is no ad SDK in the app.
-```
-
-Noodle Archers için:
-
-```
-Thank you for reviewing Noodle Archers.
-
-- The whole game (3D, rendered with WebGL) is bundled in the app and plays offline. There are no accounts, no logins and no in-app purchases. Progress is saved on the device only. Coins are earned in play.
-- Controls: drag anywhere to aim, release to shoot.
-- Optional online ranking uses Game Center: Title screen > Ranks > globe button (top right). There is no age question on iPhone: tapping Sign in starts Game Center, which shows Apple's own sign-in if the device is not signed in. Game Center is not started before that tap. Scores go only to Game Center. The rest of the game needs no sign-in. The privacy policy is linked on the main menu (Privacy) and in the online panel.
-- Optional buttons marked "▶ AD" (one more card on the card pick; revive and double coins on the result screen; turning the wooden chest of the 4-hour timer into a silver one; extra coins in the Shop, at most 3 a day) play a Google AdMob rewarded ad only when tapped. There are no real-money purchases. Every ad request is child-directed (TFCD, TFUA, max rating G, non-personalised); no App Tracking Transparency prompt and no IDFA. There are no other ads.
-- Violence is cartoon style: wobbly ragdoll archers are knocked off floating islands, with no blood.
-```
-
-> Göndermeden önce notlardaki yolu (main menu > Ranks tab > globe) gerçek derlemede bir kez
-> izleyerek doğrula; menü değişmişse notu düzelt. Fossil'deki "(ad)" etiketi kaldırıldıysa o
-> örneği nottan sil.
+> Göndermeden önce notlardaki yolları (düğme adları, sekmeler) gerçek derlemede bir kez izleyerek
+> doğrula; menü değişmişse dosyayı düzelt ve yeniden yapıştır.
 
 ## 11. TestFlight: incelemeden önce kendi iPhone'unda dene
 

@@ -341,6 +341,15 @@ en az 2 telefon ekran görüntüsü). Bunları iş akışı gönderebilir (C1'de
 Console'a elle girebilirsiniz. tr-TR dilini Console'da **Çeviri ekle → Türkçe** ile eklemeniz
 gerekebilir; iş akışı (fastlane) eksik dili kendisi eklemeye çalışır, bu denenmedi.
 
+Metinler yapıdaki oyunla birebir aynı olmalı (Google'ın meta veri politikası): her sayı (katman,
+bölüm, dünya, iz, başarım, silah) koddan sayılır, ekran görüntüleri güncel yapıdan
+`node store/tools/all.mjs <slug>` ile üretilir. Oyun içi parayla açılan şeyler için "satın al /
+buy" denmez ("aç / unlock" ya da para biriminin adı). Fossil Odds ve Sparkrise açıklamalarının
+sonunda "GOOD TO KNOW / BİLMEKTE FAYDA VAR": ödüllü reklamlar isteğe bağlı ve yalnızca oyuncu
+seçerse; Google Play Games ile isteğe bağlı online sıralama 13 yaş ve üstü için. Play metinlerinde
+Game Center ya da iPhone geçmez (App Store metinleri `store/<slug>/appstore/metadata/` altında
+ayrıdır).
+
 ### B11. Fiyat ve ülkeler
 Ücretsiz; dahili test için ülke seçimi gerekmez. Kapalı/açık test ve üretim için ülkeleri
 **Test ve sürüm → ... → Ülkeler/bölgeler** altında seçin.
@@ -369,7 +378,9 @@ GitHub → depo → **Actions** → solda **Play'e yükle** → **Run workflow**
    `<slug>-aab-<sürüm kodu>`. Depo herkese açık olduğu için GitHub'a giriş yapmış herkes bu
    dosyayı indirebilir: içinde gizli bir şey yok (oyunun kendisi), ama yayımlanmamış bir sürüm.
 6. Sürüm notları hazırlanır (her dil için; `store/<slug>/metadata/android/<dil>/changelogs/`
-   içinden, yoksa `store/apps.json` → `releaseNotes`).
+   içinden, yoksa `store/apps.json` → `releaseNotes`). İlk herkese açık sürüm için ikisi de
+   tarafsız: "First release." / "İlk sürüm." ve tek cümlelik özet; "büyük güncelleme" ya da test
+   sürümleriyle karşılaştırma yok.
 7. fastlane (2.241.2) ile Play'e yükleme. Özet sayfasında sürüm kodu, boyut, kullanılan yükleme
    sertifikasının SHA-256'sı (Console → Uygulama bütünlüğü'ndekiyle aynı olmalı).
 8. Anahtar dosyaları silinir (her durumda).
@@ -387,7 +398,7 @@ hatayla durursa:
 2. Doğru uygulamayı açtığınızdan emin olun (dosya adı ↔ tablo, A1).
 3. Console → **Test ve sürüm → Test → Dahili test → Yeni sürüm oluştur**.
 4. Play App Signing sorulursa Google'ın oluşturduğu anahtarı kabul edin (A3).
-5. **Yükle** → AAB'yi seçin. Sürüm notlarını girin (ör. "Dahili test sürümü").
+5. **Yükle** → AAB'yi seçin. Sürüm notlarını girin (`changelogs/default.txt`: "First release." / "İlk sürüm." ile başlar).
 6. **Kaydet → İncele → Dahili teste yayınla**.
 
 Bundan sonraki sürümler iş akışıyla yüklenir.

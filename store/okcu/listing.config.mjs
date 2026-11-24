@@ -6,31 +6,33 @@
 // test hook `window.__okcu3d` (w, game, stage, shoot, skip).
 //
 // How a state is reached, honestly:
-// - Saves: ./career.mjs plays a career headless with the game's own rules on the 3D build's
-//   difficulty ('hard'): the CAREFUL scripted player from src/sim/aimbot.ts plays every run,
-//   progress is banked with the game's own bank*/unlockFeats functions and the bow is forged at
-//   the real anvil (attemptForge). The save goes into localStorage under the 3D app's key with
-//   the 2D game's schema (apps/okcu-3d/src/ui/save.ts); the app moves the forged bow to its
-//   weapon levels on load (sim/arsenal.ts migrateArsenal), the bosses beaten unlock their weapons.
-// - Runs: a chapter is chosen like the chapter select does (Game.startRun({ chapter }), with a
-//   fixed seed so the capture repeats), then played by ./capture-bot.mjs: the same CAREFUL
-//   player, shooting through the app's release path (__okcu3d.shoot), picking cards through
-//   Game.pickCard, time stepped with the app's skip(). If the player loses a run on the way, the
-//   next seed is tried; nothing keeps the player alive and no world field is written.
-// - The aiming shots are real touch drags (Chrome DevTools touch events) on the 3D stage.
+// - Saves: ./career.mjs plays a career on the 3D build from a fresh save with the game's own rules
+//   ('hard' curve, the selected weapon at its level): the CAREFUL scripted player from
+//   src/sim/aimbot.ts plays every run, each run is banked as apps/okcu-3d/src/ui/progress.ts banks
+//   it (records, boss rewards and weapons, achievements, the run-end chest), chests are opened
+//   with the game's own rolls and coins and shards go to the bow (sim/economy.ts policy). The save
+//   goes into localStorage under the 3D app's key. No save is migrated from the retired forge, so
+//   no shot shows the one-off "welcome gift" that only migrated saves get.
+// - Runs: a chapter is chosen like the chapter select does (Game.startRun({ chapter })), a mode
+//   like the Events tab does (Game.startRun({ mode })), with a fixed seed so the capture repeats,
+//   then played by ./capture-bot.mjs: the same CAREFUL player, shooting through the app's release
+//   path (__okcu3d.shoot), picking cards through Game.pickCard, time stepped with the app's skip().
+//   If the player loses a run on the way, the next seed is tried; nothing keeps the player alive
+//   and no world field is written.
+// - The aiming shots are real touch drags (Chrome DevTools touch events) on the 3D stage; the
+//   camera angle is turned with the play HUD's own camera button.
 // - Menus are opened by tapping their tabs (Weapons); a weapon is picked there like a player does
-//   (its card, then Select). The staged saves predate the arsenal, so the app migrates them and
-//   presents the welcome gold chest; shots tap through it (skip, Collect), the chest shot films it.
+//   (its card, then Select); the free chest is opened from the Home tab's chest button.
 import { stageCareer } from './career.mjs';
 
 const SAVE_KEY = 'oyun:okcu-3d:save';
-const SAVE_VERSION = 3;
+/** the save schema version of games/okcu/src/save.ts (v4: the arsenal); an older one would be migrated on load */
+const SAVE_VERSION = 4;
 const DRAG_DEAD = 30;
 const DRAG_FULL = 300;
-/** how long the chest shot lets the welcome chest play (ms of the fake clock): the lid off, shards flying */
+/** how long the chest shot lets the free chest play (ms of the fake clock): the lid off, the loot flying */
 const CHEST_AT = 3800;
-/** seconds of flight before the spear / the firework is caught in the air */
-const SPEAR_T = 0.6;
+/** seconds of flight before the firework is caught in the air */
 const ROCKET_T = 0.1;
 
 /** Button labels in the game's two languages (games/okcu/src/strings.ts). */
@@ -142,20 +144,6 @@ async function press(g, sel) {
 
 const shown = (g, sel) => g.page.evaluate((sel) => [...document.querySelectorAll(sel)].some((x) => x.getClientRects().length > 0), sel);
 
-/**
- * The staged saves come from before the arsenal (save v3), so the app moves them over on load and,
- * the first time the menu comes up, opens the welcome gold chest (apps/okcu-3d/src/ui/hud.ts
- * welcome). A player taps through it: a tap skips to the summary, then "Collect".
- */
-async function collectWelcome(g) {
-  await g.until(() => !!document.querySelector('[data-testid=chest-screen]'), { step: 100, frame: 100, max: 5000, what: 'welcome chest' });
-  await press(g, '[data-testid=chest-screen] > .ok-c-scrim');
-  await g.run(300, 100);
-  await press(g, '[data-testid=chest-collect]');
-  await g.run(900, 100);
-  if (await shown(g, '[data-testid=chest-screen]')) throw new Error('welcome chest still open');
-}
-
 /** Pick `id` on the Weapons tab like a player: its card, then "Select". */
 async function selectWeapon(g, lang, id) {
   await g.tap(L.weapons[lang]);
@@ -166,6 +154,9 @@ async function selectWeapon(g, lang, id) {
   await g.run(600, 100);
   const sel = await g.eval((H) => H.game.save.data.arsenal.selected);
   if (sel !== id) throw new Error(`selected ${sel}, not ${id}`);
+  // back to Home, where a drag on the stage plays (the Weapons pane would take the touches)
+  await press(g, '[data-testid=tab-home]');
+  await g.run(1200, 100);
 }
 
 /**
@@ -186,6 +177,45 @@ async function shotInFlight(g, { t = 0.35, where = 'head', kind } = {}) {
   }
   const k = await g.eval((H) => H.w.arrows.find((p) => p.active && p.owner === 'player' && p.state === 0)?.kind);
   if (kind && k !== kind) throw new Error(`a ${k} in the air, not a ${kind}`);
+}
+
+/**
+ * Start a mode run (Blitz, Boss Rush) as the Events tab's card does: Game.startRun({ mode }), with a
+ * fixed seed so the capture repeats. The save must have the mode open (sim/modes.ts modeUnlocked).
+ */
+async function startMode(g, mode, seed) {
+  await g.run(1000, 100);
+  const ok = await g.eval((H, a) => {
+    if (!H.game.save.data.runs) return 'no run on this save';
+    H.game.startRun({ mode: a.mode, seed: a.seed });
+    window.__storeBot.reseed(a.seed);
+    return H.w.mode === a.mode ? 'ok' : `mode ${H.w.mode}`;
+  }, { mode, seed });
+  if (ok !== 'ok') throw new Error(`startMode ${mode}: ${ok}`);
+  await g.run(400, 100);
+}
+
+/**
+ * Turn the camera with the play HUD's camera button (real taps) until it shows `angle`. The button
+ * is part of the play HUD: the run must have left its title phase (the first arrow starts it).
+ */
+async function cameraTo(g, angle) {
+  await playMode(g, (w) => w.phase === 'play');
+  await g.run(600, 100);
+  for (let i = 0; i < 3; i++) {
+    if ((await g.eval((H) => H.stage.angle)) === angle) break;
+    await press(g, '[data-testid=camera]');
+    await g.run(300, 33);
+  }
+  if ((await g.eval((H) => H.stage.angle)) !== angle) throw new Error(`camera did not reach ${angle}`);
+  // the glide, and the angle's name beside the button fades out
+  await g.run(1800, 100);
+}
+
+/** Let the careful player play the mode run until `stop(w)` holds. */
+async function playMode(g, stop) {
+  const r = await g.eval((H, a) => window.__storeBot.play(a.stop, { pick: true }), { stop: stop.toString() });
+  if (!r.done) throw new Error(`playMode: ${r.fail ?? 'stopped at cards'}`);
 }
 
 export default {
@@ -215,16 +245,15 @@ export default {
   icon: { emblem: 'bow', bg: ['#4fc3ff', '#1d6fd1'], glow: '#fff2a8', mono: true },
 
   async stage(load) {
-    const { save, at } = await stageCareer(load, { bowTarget: 20, snapshots: [10, 12, 16], difficulty: 'hard' });
+    const { save, at, log } = await stageCareer(load, { bowTarget: 10, snapshots: [4, 7] });
+    console.log(`[stage okcu] ${log.length} runs · ${log.at(-1)}`);
     const wrap = (data) => ({ v: SAVE_VERSION, data });
     return {
-      // after the first runs: bow +10, every chapter reached
-      early: wrap(at[10]),
-      // bow +12: its welcome gold chest (the move to the arsenal) gives sling shards
-      chest: wrap(at[12]),
-      // later: bow +16
-      mid: wrap(at[16]),
-      // the end of the career: bow +20, armour (health upgrades) maxed
+      // early in the career: bow 4, chapters 1-3 reached
+      early: wrap(at[4]),
+      // bow 7: every chapter reached
+      mid: wrap(at[7]),
+      // the end of the career: bow 10, every boss beaten (all six weapons), armour bought
       full: wrap(save),
     };
   },
@@ -236,7 +265,6 @@ export default {
       save: 'early',
       caption: { 'en-US': 'Pull back, let go, knock them off their islands', 'tr-TR': 'Geri çek, bırak, rakipleri adalarından düşür' },
       async run(g) {
-        await collectWelcome(g);
         await playTo(g, 0, (w) => w.wave >= 3 && w.phase === 'play' && w.enemies.filter((e) => e.alive).length >= 2, { seed: 3 });
         await calm(g);
         const aim = await g.eval(() => window.__storeBot.aimAt('head'));
@@ -249,21 +277,37 @@ export default {
       save: 'mid',
       caption: { 'en-US': 'Land a headshot and watch them fly', 'tr-TR': 'Kafadan vur, rakipler uçup gitsin' },
       async run(g) {
-        await collectWelcome(g);
         await playTo(g, 1, (w) => w.wave >= 10 && w.phase === 'play' && w.enemies.filter((e) => e.alive && e.brain !== 'spawn').length >= 2, { seed: 7 });
         await calm(g);
         await shootAndLand(g, 'head', { after: 8, type: 'archer' });
       },
     },
     {
+      id: 'blitz',
+      // Blitz in Sunset Canyon (the Events tab's card); the camera button turned to Angled
+      save: 'full',
+      caption: { 'en-US': 'Blitz: 60 seconds, endless archers', 'tr-TR': 'Yıldırım: 60 saniye, bitmeyen okçular' },
+      async run(g) {
+        await g.animRate(0.08);
+        await startMode(g, 'blitz', 21);
+        await cameraTo(g, 'angled');
+        await playMode(g, (w) => w.phase === 'play' && w.time > 8 && w.enemies.filter((e) => e.alive && e.brain !== 'spawn').length >= 2);
+        // archers keep dropping in during Blitz, so wait only for the bow to be ready again
+        await g.run(300, 66);
+        await g.until((H) => H.w.phase === 'play' && H.w.reload === 0 && !H.w.arrows.some((a) => a.active && a.owner === 'player'), { step: 66, frame: 66, max: 8000, what: 'bow ready' });
+        const aim = await g.eval(() => window.__storeBot.aimAt('head'));
+        await holdAim(g, { angle: aim.angle - 0.04, power: aim.power * 0.95 });
+        await g.run(200, 33);
+      },
+    },
+    {
       id: 'home',
-      // the tabbed main menu over the live 3D scene, after the welcome chest is collected
+      // the tabbed main menu over the live 3D scene
       save: 'full',
       caption: { 'en-US': 'Shop, weapons, ranks and events, one tap away', 'tr-TR': 'Mağaza, silahlar, rütbeler, etkinlik tek dokunuşta' },
       async run(g) {
         await g.animRate(0.08);
-        await collectWelcome(g);
-        await g.run(1500, 100);
+        await g.run(2500, 100);
       },
     },
     {
@@ -273,7 +317,7 @@ export default {
       async run(g, { lang }) {
         // the menus' DOM animations run on real time: slow them to the fake clock's pace
         await g.animRate(0.08);
-        await collectWelcome(g);
+        await g.run(1000, 100);
         await g.tap(L.weapons[lang]);
         // the pane slides in and its cards pop: let them settle
         await g.run(2600, 100);
@@ -281,27 +325,35 @@ export default {
     },
     {
       id: 'chest',
-      // the save after the career's run that brought the bow to +12: its welcome gold chest
-      // (rolled by sim/chests.ts chestRng from the save) gives sling shards; caught while they fly
-      save: 'chest',
+      // the free wooden chest of the 4-hour timer (every player's first one is ready at once):
+      // the Home tab's chest button, then "Open"; caught while the loot flies, odds at the top
+      save: 'full',
       caption: { 'en-US': 'Open chests for coins and weapon shards', 'tr-TR': 'Sandık aç, altın ve silah parçaları kazan' },
       async run(g) {
         await g.animRate(0.08);
-        await g.until((H) => !!document.querySelector('[data-testid=chest-screen]'), { step: 100, frame: 100, max: 5000, what: 'welcome chest' });
+        await g.run(1500, 100);
+        await press(g, '[data-testid=shell-chest]');
+        await g.run(800, 100);
+        await press(g, '[data-testid=free-chest-open]');
+        await g.until(() => !!document.querySelector('[data-testid=chest-screen]'), { step: 100, frame: 100, max: 5000, what: 'chest screen' });
         await g.run(CHEST_AT, 100);
       },
     },
     {
-      id: 'spear',
-      // the end of the career: the spear picked on the Weapons tab, a run in Lantern Night
+      id: 'bossrush',
+      // Boss Rush in Sunset Canyon, the camera turned to Low; drawing on the first boss's weak spot
       save: 'full',
-      caption: { 'en-US': 'Throw spears that pierce right through', 'tr-TR': 'Mızrağı fırlat, rakibi delip geçsin' },
-      async run(g, { lang }) {
+      caption: { 'en-US': 'Boss Rush: all six bosses, back to back', 'tr-TR': 'Boss Akını: altı patron art arda' },
+      async run(g) {
         await g.animRate(0.08);
-        await collectWelcome(g);
-        await selectWeapon(g, lang, 'spear');
-        await playTo(g, 3, (w) => w.wave >= 23 && w.phase === 'play' && w.enemies.filter((e) => e.alive).length >= 2, { seed: 5 });
-        await shotInFlight(g, { t: SPEAR_T, kind: 'spear' });
+        await startMode(g, 'bossrush', 31);
+        await cameraTo(g, 'low');
+        await playMode(g, (w) => w.phase === 'play' && w.enemies.some((e) => e.type === 'boss' && e.alive && e.brain !== 'spawn'));
+        await calm(g, 900);
+        const aim = await g.eval(() => window.__storeBot.aimAt('head'));
+        if (aim.type !== 'boss') throw new Error(`aiming at a ${aim.type}, not the boss`);
+        await holdAim(g, aim);
+        await g.run(300, 33);
       },
     },
     {
@@ -311,26 +363,10 @@ export default {
       caption: { 'en-US': 'Fire a firework across the lava', 'tr-TR': 'Lavın üstünden fişek ateşle' },
       async run(g, { lang }) {
         await g.animRate(0.08);
-        await collectWelcome(g);
+        await g.run(1000, 100);
         await selectWeapon(g, lang, 'firework');
         await playTo(g, 4, (w) => w.wave >= 29 && w.phase === 'play' && w.enemies.filter((e) => e.alive).length >= 2, { seed: 11 });
         await shotInFlight(g, { t: ROCKET_T, kind: 'rocket' });
-      },
-    },
-    {
-      id: 'boss',
-      // early in the career (bow +10), a fresh run from the chapter select up to the Desert boss
-      save: 'early',
-      caption: { 'en-US': 'Bosses with a weak spot and a second phase', 'tr-TR': 'Zayıf noktası ve ikinci evresi olan patronlar' },
-      async run(g) {
-        await collectWelcome(g);
-        await playTo(g, 2, (w) => w.wave >= 21 && w.phase === 'play' && w.enemies.some((e) => e.type === 'boss' && e.alive && e.brain !== 'spawn'), { seed: 9 });
-        await calm(g, 900);
-        // the boss is plated everywhere; its bare head is the weak spot (ragdoll.ts BOSS_PARTS): draw on it
-        const aim = await g.eval(() => window.__storeBot.aimAt('head'));
-        if (aim.type !== 'boss') throw new Error(`aiming at a ${aim.type}, not the boss`);
-        await holdAim(g, aim);
-        await g.run(300, 33);
       },
     },
   ],

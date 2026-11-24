@@ -1,25 +1,38 @@
-// Staging for the Noodle Archers listing: a player's career played headless through the game's
-// own rules. Every run is a real run of the sim (src/sim/world.ts) shot by the game's own scripted
-// player (src/sim/aimbot.ts, the CAREFUL profile the balance tests use), and between runs the save
-// is written by the same functions the game scene calls (meta.ts bankStart / bankProgress,
-// progress.ts bankRecords / unlockFeats) and the bow is forged at the real anvil (bow.ts
-// attemptForge, seeded rolls, printed chances). Nothing in the save is typed in by hand.
+// Staging for the Noodle Archers listing: a player's career on the 3D build (apps/okcu-3d), played
+// headless through the game's own rules from a fresh save. Every run is a real run of the sim
+// (src/sim/world.ts, the 'hard' curve the 3D build plays) shot by the game's own scripted player
+// (src/sim/aimbot.ts, the CAREFUL profile the balance tests use), with the selected weapon at its
+// level (meta.ts metaOf3d). The run is banked the way the 3D app banks it (apps/okcu-3d/src/ui/
+// progress.ts): bankStart with the first arrow, bankProgress / bankRecords / the first boss
+// knockouts' rewards (rewards.ts grantFirstBossRewards: boss chest, the chapter's weapon) /
+// unlockFeats at every wave clear and at the end, then the run-end chest (grantRunChest).
+// Between runs the player does what the menus offer: claims the free chest when its 4 h timer is
+// up (the wooden one, no ad), opens every chest in line (chests.ts openQueuedChest, the game's own
+// seeded rolls) and spends coins and shards on the selected weapon the way the economy test's
+// player does (sim/economy.ts policy: upgrade, then the day's shard offers, then a chest from the
+// shop), plus a health upgrade now and then (the armour); a weapon a boss gives is taken to level 2
+// (its first step costs a few coins) and looked at on the Weapons tab. Weapon reveals are taken
+// (seen). Nothing
+// in the save is typed in by hand, and nothing comes from the retired 2D forge.
 
-/** Shoot one run like aimbot.playRun does, but keep the world so it can be banked like the scene. */
-function playBanked(mods, save, seed, date, difficulty = 'classic') {
-  const { world, aimbot, meta, progress, core } = mods;
+/** Shoot one run like aimbot.playRun does, but keep the world so it can be banked like the app. */
+function playBanked(mods, save, seed, date, startChapter) {
+  const { world, aimbot, meta, progress, rewards, chapters, core } = mods;
   const rng = core.createRng(seed * 31 + 7);
   const p = aimbot.CAREFUL;
-  const w = world.createWorld({ seed, meta: meta.metaOf(save), startChapter: 0, difficulty });
+  const w = world.createWorld({ seed, meta: meta.metaOf3d(save), startChapter, difficulty: 'hard' });
   const bank = meta.newBank(save);
   w.bank = bank;
   let wait = 0;
   const step = 1 / 30;
   let lastWave = 0;
-  const bankNow = () => {
+  const bankNow = (reached) => {
+    if (!bank.started) return;
     const sum = world.summarize(w, false);
-    meta.bankProgress(save, bank, world.reachedWave(w), w.run.coins);
+    meta.bankProgress(save, bank, reached, w.run.coins);
+    const before = [...save.bosses];
     progress.bankRecords(save, bank, sum, date);
+    rewards.grantFirstBossRewards(save, before);
     progress.unlockFeats(save, sum, bank);
   };
   while (w.time < 2400 && w.phase !== 'over') {
@@ -47,67 +60,106 @@ function playBanked(mods, save, seed, date, difficulty = 'classic') {
     }
     world.advance(w, step);
     world.takeEvents(w);
-    // the scene banks at every wave clear
+    // the app banks at every wave clear
     if (w.phase === 'clear' && w.wave !== lastWave) {
       lastWave = w.wave;
-      bankNow();
+      bankNow(world.reachedWave(w));
     }
   }
-  bankNow();
-  return { reached: world.reachedWave(w), coins: w.run.coins };
+  bankNow(w.wave);
+  if (bank.started && (w.run.shots > 0 || w.wave > chapters.chapterStart(startChapter))) rewards.grantRunChest(save, bank, w.wave, world.stagesCleared(w));
+  return { reached: world.reachedWave(w), coins: w.run.coins, time: w.time };
+}
+
+/** Open every chest in line (the menu's chest pile), the game's own rolls. */
+function openAll(mods, save) {
+  while (mods.chests.openQueuedChest(save));
+}
+
+/** The economy test's spending policy for the selected weapon (sim/economy.ts spend). */
+function spend(mods, save, dayKey) {
+  const { arsenal, shop, chests } = mods;
+  const id = save.arsenal.selected;
+  const w = save.arsenal.weapons[id];
+  const mean = (r) => (r[0] + r[1]) / 2;
+  const chest = mean(chests.CHEST_ODDS.silver.shards) / shop.CHEST_PRICE.silver > mean(chests.CHEST_ODDS.gold.shards) / shop.CHEST_PRICE.gold ? 'silver' : 'gold';
+  for (;;) {
+    if (arsenal.upgradeWeapon(save, id)) continue;
+    const cost = arsenal.upgradeCost(w.level);
+    if (cost === null || w.shards >= cost.shards) return;
+    const bought = shop.boughtToday(save, dayKey);
+    const offers = shop
+      .dailyOffers(dayKey, save)
+      .map((o, i) => ({ ...o, i }))
+      .filter((o) => o.weapon === id && !bought.includes(o.i) && o.coins <= save.coins)
+      .sort((a, b) => b.shards - a.shards);
+    if (offers.length > 0 && shop.buyOffer(save, dayKey, offers[0].i)) continue;
+    if (save.coins >= shop.CHEST_PRICE[chest] + cost.coins && shop.buyChest(save, chest)) {
+      openAll(mods, save);
+      continue;
+    }
+    return;
+  }
 }
 
 /**
- * Play runs until the bow reaches `bowTarget` (forging after every run while the coins last, a
- * health level when the bow is out of reach, as aimbot.career does). Returns the save after the
- * run on which each bow level in `snapshots` was first reached, and (`forgeAt[level]`) the save
- * just before the forge attempt that first reached each level. `difficulty` is the enemy curve the
- * runs are played on (the 3D build, apps/okcu-3d, plays 'hard').
+ * Play runs from a fresh save until the bow reaches `bowTarget` and the last chapter has been
+ * reached (or `maxRuns`). Each run starts at the furthest chapter reached (the chapter select's
+ * choice). Returns the final save and, in `at[level]`, the save after the run on which the bow
+ * first reached each level in `snapshots`.
  */
-export async function stageCareer(load, { bowTarget = 20, snapshots = [], maxRuns = 160, difficulty = 'classic' } = {}) {
+export async function stageCareer(load, { bowTarget = 10, snapshots = [], maxRuns = 300 } = {}) {
   const mods = {
     world: await load('/src/sim/world.ts'),
     aimbot: await load('/src/sim/aimbot.ts'),
     meta: await load('/src/sim/meta.ts'),
     progress: await load('/src/sim/progress.ts'),
-    bow: await load('/src/sim/bow.ts'),
+    rewards: await load('/src/sim/rewards.ts'),
+    chapters: await load('/src/sim/chapters.ts'),
+    chests: await load('/src/sim/chests.ts'),
+    arsenal: await load('/src/sim/arsenal.ts'),
+    shop: await load('/src/sim/shop.ts'),
     core: await load('@oyun/core/pure'),
   };
-  const save = mods.meta.freshSave();
+  const { meta, chests, arsenal, progress, chapters } = mods;
+  const save = meta.freshSave();
   const out = {};
-  const forgeAt = {};
   const log = [];
-  // a career that ran over the weeks before the capture date
-  const day = (i) => {
-    const d = new Date(Date.UTC(2026, 9, 1 + Math.floor(i / 3)));
-    return d.toISOString().slice(0, 10);
-  };
-  for (let i = 0; i < maxRuns && save.bow.level < bowTarget; i++) {
-    const r = playBanked(mods, save, 5000 + i, day(i), difficulty);
-    for (;;) {
-      const cost = mods.bow.bowCost(save.bow.level);
-      if (cost === null || save.coins < cost || save.bow.level >= bowTarget) break;
-      const before = structuredClone(save);
-      const res = mods.bow.attemptForge(save.bow, save);
-      if (res.ok && res.success) mods.progress.unlockFeats(save, null);
-      // the save just before the attempt that reached this level (a forge moment worth showing)
-      if (res.ok && res.success && !forgeAt[res.level]) forgeAt[res.level] = before;
-    }
-    const hpCost = mods.meta.upgradeCost('hp', save.upgrades.hp);
-    if (hpCost !== null && save.coins >= hpCost && (mods.bow.bowCost(save.bow.level) ?? Infinity) > save.coins * 2) mods.meta.buyUpgrade(save, 'hp');
-    for (const id of ['coins', 'reroll', 'starter']) {
-      const c = mods.meta.upgradeCost(id, save.upgrades[id]);
-      if (c !== null && save.coins >= c * 6) mods.meta.buyUpgrade(save, id);
-    }
-    log.push(`run ${i + 1}: wave ${r.reached}, +${r.coins} coins, bow +${save.bow.level}, coins ${save.coins}`);
-    for (const lv of snapshots) if (!out[lv] && save.bow.level >= lv) out[lv] = structuredClone(save);
+  // the career ran over the weeks before the capture: four runs a day, from 1 October 2026
+  const T0 = Date.UTC(2026, 9, 1, 17);
+  const dayOf = (i) => Math.floor(i / 4);
+  const dateOf = (i) => new Date(T0 + dayOf(i) * 86_400_000).toISOString().slice(0, 10);
+  let now = T0;
+  const bow = () => save.arsenal.weapons.bow.level;
+  for (let i = 0; i < maxRuns && !(bow() >= bowTarget && save.chapter >= chapters.CHAPTERS - 1); i++) {
+    const date = dateOf(i);
+    // a new day: the clock moves on to that evening
+    now = Math.max(now, T0 + dayOf(i) * 86_400_000);
+    const free = chests.claimFreeChest(save, now, false);
+    if (free) save.arsenal.chests.push(free);
+    openAll(mods, save);
+    spend(mods, save, date);
+    const start = Math.min(save.chapter, chapters.CHAPTERS - 1);
+    const r = playBanked(mods, save, 5000 + i, date, start);
+    now += r.time * 1000 + 60_000;
+    openAll(mods, save);
+    spend(mods, save, date);
+    // a health level (armour) when the coins are well beyond it
+    const hpCost = meta.upgradeCost('hp', save.upgrades.hp);
+    if (hpCost !== null && save.coins >= 2 * hpCost) meta.buyUpgrade(save, 'hp');
+    // a weapon a boss just gave: its first step up costs a few coins (arsenal.ts upgradeCost), and
+    // the player looks at it on the Weapons tab
+    for (const id of Object.keys(save.arsenal.weapons)) if (id !== 'bow' && save.arsenal.weapons[id].level < 2) arsenal.upgradeWeapon(save, id);
+    while (arsenal.takeReveal(save));
+    arsenal.markWeaponsSeen(save);
+    log.push(`run ${i + 1}: ch${start + 1} wave ${r.reached}, bow ${bow()}, ch ${save.chapter}, coins ${save.coins}`);
+    for (const lv of snapshots) if (!out[lv] && bow() >= lv) out[lv] = structuredClone(save);
   }
   // the rank ceremony has been seen on the result screens of those runs
   const settle = (s) => {
-    s.rank = mods.progress.rankOf(mods.progress.progressScore(s).total);
+    s.rank = progress.rankOf(progress.progressScore(s).total);
     return s;
   };
   for (const k of Object.keys(out)) settle(out[k]);
-  for (const k of Object.keys(forgeAt)) settle(forgeAt[k]);
-  return { save: settle(save), at: out, forgeAt, log, mods };
+  return { save: settle(save), at: out, log, mods };
 }

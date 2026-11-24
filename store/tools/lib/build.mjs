@@ -32,8 +32,9 @@ function hiResPlugin(K, gw, gh) {
     transform(code, id) {
       const file = id.split('?')[0];
       if (file.endsWith('/packages/core/src/game.ts')) {
+        // a Windows checkout may have CRLF line endings (git autocrlf): match on LF
         return replaceOnce(
-          code,
+          code.replace(/\r\n/g, '\n'),
           "parent: config.parent ?? 'game',\n    width: size.width,\n    height: size.height,",
           `parent: config.parent ?? 'game',\n    width: size.width * ${K},\n    height: size.height * ${K},`,
           'core Phaser.Game size',

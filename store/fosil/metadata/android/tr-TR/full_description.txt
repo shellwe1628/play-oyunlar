@@ -8,30 +8,38 @@ NASIL OYNANIR
 • Kırılan her blok o katmandan bir fosil çeker; sahip olduğun her fosil kazı gücüne eklenir.
 • Ritmi bozmadan dokun, kombo dokunuşlarının şansını ×2'ye kadar çıkarsın. Ateş göstergesini doldur: sekiz saniye boyunca çift hasar, çift toz.
 • Blokları peş peşe hızla kır, zincir bonusu kazan. Parıltıyı yakala, 10× şansla bir çekiliş yap.
+• Zayıf noktalar: blokta bir hedef belirir. Ona vur, dört kat hasar ver; art arda vurdukça keskin göz ×6'ya kadar çıkar.
 • Yardımcın yanında kazar; seviyesi arttıkça donanımı da güzelleşir.
 • Bulgu ne kadar nadirse gösteri o kadar büyük: sıradanlar fırlar, nadirler kartla döner, en nadirleri zamanı durdurur.
 
+KAZI HÜCUMU
+• Bulunduğun katmanda 45 saniye hafif bloklar. Her kırılış, ekranda yazan dokunuş şansıyla çekilen gerçek bir bulgudur.
+• Toprak Üstü'nde dört tür fosil bulunca açılır, sonra üç saatte bir gelir. Başlangıç kartı hücum sırasında neyin beklediğini açıkça yazar.
+
 HER BİRİ AYRI SÜRPRİZLİ ON ÜÇ KATMAN
 • Toprak Üstü, Buzul Çağı, Kretase, Derin Deniz, Kömür Bataklığı, Kehribar Ormanı, Tuz Mağaraları, Kristal Jeot, Magma Bacaları, İlk Denizler, Abis Çukuru, Yıldız Krateri ve Zaman Yarığı; her birinin kendi manzarası, kayası ve 12 fosili var.
-• Basılı tutup bırakarak parçaladığın sert damarlar, zamanında kırarsan bonus çekiliş veren dengesiz bloklar, iki fosilli ikiz bloklar, kalıntı parçaları, tozla dolu göçükler üç kat şansla çeken patron blok, çukurda basınç göstergesi, kraterde göktaşı çekirdekleri ve yarıkta eski katmanların yankıları.
+• Basılı tutup bırakarak parçaladığın sert damarlar, zamanında kırarsan bonus çekiliş veren dengesiz bloklar, iki fosilli ikiz bloklar, kalıntı parçaları, tozla dolu göçükler, üç kat şansla çeken patron blok, çukurda basınç göstergesi, kraterde göktaşı çekirdekleri ve yarıkta eski katmanların yankıları.
 • Oyun ilerledikçe her katmanda altın bloklar çıkar: iki fosil ve beş kat toz.
+• Derinlik haritası bütün kazıyı kesit olarak gösterir: açtığın her katman, oradaki en nadir bulgu ve set ilerlemesiyle, kilitli katmanların da istediği kazı gücüyle. Açık bir katmana dokun, oraya in.
 
 ADİL ŞANS
 • Patron çekilişleri dahil her olasılık açıkça yazar.
 • Şans serisi: 100'de 1 ya da daha nadir bir şey çıkmadan art arda 150 bulgudan sonra, sıradaki bulgu kesinlikle öyle biri olur ve tam yazılı oranlarla seçilir. Kural oyunda gösterilir.
-• Şansla ilgili hiçbir şey satın alınamaz.
+• Gerçek parayla satın alma yok. İsteğe bağlı bir reklam kısa bir şans desteği verir (60 saniye 2× şans); hiçbir zaman zorunlu değildir.
 
 TOPLA VE BÜYÜ
 • Yaygın'dan Eşsiz'e yedi nadirlik seviyesinde 156 fosil.
 • Üç kopya birleşip bronz, gümüş, sonra altın olur; her derece daha çok kazı gücü verir. Bir katmanın setini tamamla, kalıcı bonus kazan.
 • Müzende gez: her katman için raflar, en nadir bulgunun üstünde bir spot ışığı ve henüz bulamadığın her siluetin altında yazılı şansı.
-• Kazmanı (tahtadan kristale beş görünüm), uğur taşını, yardımcını ve gece vardiyanı geliştir.
+• Kazdığın tozla kazmanı (tahtadan kristale beş görünüm), uğur taşını, yardımcını ve gece vardiyanı geliştir.
 
 KENDİ İLERLEMEN
-• Seferler: İlk Denizler'e ulaşınca daha derin bir tabakada Toprak Üstü'nden yeniden başla. Müzen, set bonusların, kalıntıların, rekorların ve hedeflerin seninle kalır; kazı gücün ve tozun kalıcı olarak artar.
-• Çakıl Toplayıcı'dan Katmanların Efsanesi'ne 15 rütbeyi tırman. Merdiven yalnızca senin ilerlemeni sayar.
+• Seferler: en derin katman Zaman Yarığı'nı açınca daha derin bir tabakada Toprak Üstü'nden yeniden başla. Müzen, set bonusların, kalıntıların, rekorların ve hedeflerin seninle kalır; kazı gücün ve tozun kalıcı olarak artar.
+• Çakıl Toplayıcı'dan Çağların Bekçisi'ne 15 rütbeyi tırman. Merdiven yalnızca senin ilerlemeni sayar.
 • En nadir bulgularının ve en hızlı setlerinin rekor tablosu, toz kazandıran 38 hedef ve serisi olan günlük kazı.
 
 BİLMEKTE FAYDA VAR
 • İnternetsiz oynanır. Hesap gerekmez. Sen yokken yardımcın bir süre kazmaya devam eder.
+• İsteğe bağlı ödüllü reklamlar, yalnızca sen seçersen: REKLAM etiketli düğmeler (şans desteği ve uzaktayken biriken tozu ikiye katlama).
+• 13 yaş ve üstü oyuncular için Google Play Games ile isteğe bağlı online sıralama.
 • Türkçe ve İngilizce.

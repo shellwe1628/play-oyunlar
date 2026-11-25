@@ -1,0 +1,193 @@
+/** Synthesized sound effects (data only; core's synth plays them). */
+import type { SfxPreset } from '@oyun/core/pure';
+
+export const SFX = {
+  /** one tick of the string creaking while drawing (pitch rises with power) */
+  creak: [
+    { wave: 'sawtooth', freq: 140, freqEnd: 120, duration: 0.05, gain: 0.05 },
+    { wave: 'noise', freq: 900, duration: 0.03, gain: 0.05 },
+  ],
+  /** release: string snap */
+  snap: [
+    { wave: 'square', freq: 520, freqEnd: 140, duration: 0.07, gain: 0.16 },
+    { wave: 'noise', freq: 5200, duration: 0.05, gain: 0.22 },
+    { wave: 'sine', freq: 90, freqEnd: 60, duration: 0.09, gain: 0.25 },
+  ],
+  /** arrow whistle in flight */
+  whistle: [
+    { wave: 'sine', freq: 1900, freqEnd: 1100, duration: 0.42, gain: 0.045, attack: 0.04 },
+    { wave: 'noise', freq: 2600, duration: 0.3, gain: 0.04, attack: 0.05 },
+  ],
+  /** meaty thunk into a body */
+  thunk: [
+    { wave: 'sine', freq: 210, freqEnd: 55, duration: 0.16, gain: 0.55 },
+    { wave: 'noise', freq: 1400, duration: 0.07, gain: 0.32 },
+    { wave: 'square', freq: 120, freqEnd: 70, duration: 0.06, gain: 0.08 },
+  ],
+  /** arrow into wood/earth */
+  thock: [
+    { wave: 'triangle', freq: 380, freqEnd: 170, duration: 0.08, gain: 0.28 },
+    { wave: 'noise', freq: 2200, duration: 0.05, gain: 0.16 },
+  ],
+  /** arrow on metal shield */
+  clang: [
+    { wave: 'square', freq: 1240, freqEnd: 900, duration: 0.18, gain: 0.08 },
+    { wave: 'triangle', freq: 1870, freqEnd: 1500, duration: 0.25, gain: 0.08 },
+    { wave: 'noise', freq: 6000, duration: 0.05, gain: 0.15 },
+  ],
+  /** headshot ping */
+  ping: [
+    { wave: 'sine', freq: 1568, duration: 0.5, gain: 0.22 },
+    { wave: 'sine', freq: 2349, delay: 0.03, duration: 0.45, gain: 0.14 },
+    { wave: 'triangle', freq: 3136, delay: 0.06, duration: 0.3, gain: 0.06 },
+  ],
+  /** knockout: a squeaky boing */
+  boing: [
+    { wave: 'triangle', freq: 300, freqEnd: 760, duration: 0.12, gain: 0.2 },
+    { wave: 'triangle', freq: 760, freqEnd: 240, delay: 0.12, duration: 0.22, gain: 0.16 },
+  ],
+  /** poof into feathers */
+  poof: [
+    { wave: 'noise', freq: 3200, duration: 0.25, gain: 0.25, attack: 0.01 },
+    { wave: 'sine', freq: 500, freqEnd: 1100, duration: 0.1, gain: 0.15 },
+  ],
+  /** player gets hit */
+  ouch: [
+    { wave: 'square', freq: 330, freqEnd: 160, duration: 0.14, gain: 0.12 },
+    { wave: 'sine', freq: 160, freqEnd: 50, duration: 0.2, gain: 0.5 },
+    { wave: 'noise', freq: 1000, duration: 0.1, gain: 0.25 },
+  ],
+  /** coin lands on the counter */
+  tick: [{ wave: 'square', freq: 1760, freqEnd: 2100, duration: 0.05, gain: 0.07 }],
+  /** card slams down */
+  slam: [
+    { wave: 'sine', freq: 130, freqEnd: 45, duration: 0.22, gain: 0.5 },
+    { wave: 'noise', freq: 900, duration: 0.12, gain: 0.3 },
+  ],
+  /** card picked */
+  pick: [
+    { wave: 'triangle', freq: 660, duration: 0.08, gain: 0.2 },
+    { wave: 'triangle', freq: 990, delay: 0.06, duration: 0.08, gain: 0.2 },
+    { wave: 'triangle', freq: 1320, delay: 0.12, duration: 0.2, gain: 0.22 },
+  ],
+  /** bomb explodes */
+  boom: [
+    { wave: 'noise', freq: 700, duration: 0.5, gain: 0.45 },
+    { wave: 'sine', freq: 110, freqEnd: 30, duration: 0.45, gain: 0.55 },
+  ],
+  /** apple crunch + heal chime */
+  crunch: [
+    { wave: 'noise', freq: 4000, duration: 0.09, gain: 0.25 },
+    { wave: 'sine', freq: 880, freqEnd: 1320, delay: 0.05, duration: 0.18, gain: 0.18 },
+  ],
+  /** enemy starts drawing: a short creak */
+  enemyDraw: [{ wave: 'sawtooth', freq: 110, freqEnd: 150, duration: 0.16, gain: 0.035 }],
+  /** enemy release */
+  enemySnap: [
+    { wave: 'square', freq: 420, freqEnd: 120, duration: 0.06, gain: 0.08 },
+    { wave: 'noise', freq: 4200, duration: 0.04, gain: 0.1 },
+  ],
+  /** a bomb's fuse is lit */
+  fuse: [{ wave: 'noise', freq: 6000, duration: 0.25, gain: 0.07 }],
+  /** shield bubble blocks */
+  bubble: [
+    { wave: 'sine', freq: 600, freqEnd: 1400, duration: 0.14, gain: 0.2 },
+    { wave: 'sine', freq: 1400, freqEnd: 900, delay: 0.1, duration: 0.12, gain: 0.12 },
+  ],
+  /** a too-short drag: soft click, nothing fired */
+  cancel: [{ wave: 'triangle', freq: 300, freqEnd: 250, duration: 0.05, gain: 0.08 }],
+  /** wave start drum */
+  drum: [
+    { wave: 'sine', freq: 90, freqEnd: 50, duration: 0.2, gain: 0.45 },
+    { wave: 'sine', freq: 90, freqEnd: 50, delay: 0.16, duration: 0.22, gain: 0.5 },
+  ],
+  /** boss arrives */
+  roar: [
+    { wave: 'sawtooth', freq: 120, freqEnd: 70, duration: 0.6, gain: 0.12 },
+    { wave: 'sine', freq: 60, freqEnd: 40, duration: 0.6, gain: 0.4 },
+  ],
+  /** hammer on the anvil */
+  anvil: [
+    { wave: 'square', freq: 1500, freqEnd: 1100, duration: 0.09, gain: 0.12 },
+    { wave: 'triangle', freq: 2350, freqEnd: 2200, duration: 0.45, gain: 0.07 },
+    { wave: 'noise', freq: 7000, duration: 0.04, gain: 0.2 },
+    { wave: 'sine', freq: 180, freqEnd: 90, duration: 0.12, gain: 0.3 },
+  ],
+  /** hot metal in water: a failed attempt */
+  sizzle: [
+    { wave: 'noise', freq: 3200, duration: 0.7, gain: 0.12, attack: 0.02 },
+    { wave: 'sine', freq: 300, freqEnd: 120, duration: 0.5, gain: 0.12 },
+  ],
+  /** forge success / rank up: a rising fanfare */
+  fanfare: [
+    { wave: 'triangle', freq: 523, duration: 0.14, gain: 0.18 },
+    { wave: 'triangle', freq: 659, delay: 0.12, duration: 0.14, gain: 0.18 },
+    { wave: 'triangle', freq: 784, delay: 0.24, duration: 0.16, gain: 0.2 },
+    { wave: 'triangle', freq: 1047, delay: 0.38, duration: 0.5, gain: 0.22 },
+    { wave: 'sine', freq: 2093, delay: 0.38, duration: 0.6, gain: 0.06 },
+  ],
+  /** a build-up hum while the hammer comes down */
+  charge: [{ wave: 'sawtooth', freq: 140, freqEnd: 420, duration: 0.9, gain: 0.05, attack: 0.3 }],
+  /** critical hit crunch */
+  crit: [
+    { wave: 'square', freq: 980, freqEnd: 320, duration: 0.12, gain: 0.12 },
+    { wave: 'noise', freq: 4000, duration: 0.08, gain: 0.25 },
+    { wave: 'sine', freq: 1760, duration: 0.25, gain: 0.1 },
+  ],
+  /** chain spark */
+  zap: [
+    { wave: 'sawtooth', freq: 2400, freqEnd: 600, duration: 0.12, gain: 0.06 },
+    { wave: 'noise', freq: 8000, duration: 0.1, gain: 0.12 },
+  ],
+  /** a catcher snatches the arrow */
+  caught: [
+    { wave: 'triangle', freq: 300, freqEnd: 500, duration: 0.08, gain: 0.2 },
+    { wave: 'noise', freq: 1600, duration: 0.05, gain: 0.15 },
+  ],
+  /** a lantern ward pops / reforms */
+  ward: [
+    { wave: 'sine', freq: 1200, freqEnd: 400, duration: 0.25, gain: 0.14 },
+    { wave: 'noise', freq: 9000, duration: 0.15, gain: 0.08 },
+  ],
+  /** healing chime */
+  heal: [
+    { wave: 'sine', freq: 880, duration: 0.2, gain: 0.1 },
+    { wave: 'sine', freq: 1320, delay: 0.1, duration: 0.3, gain: 0.08 },
+  ],
+  /** an imp appears */
+  summon: [{ wave: 'sawtooth', freq: 200, freqEnd: 900, duration: 0.35, gain: 0.06 }],
+  /** multi-kill / streak stinger (pitch rises with the count) */
+  stinger: [
+    { wave: 'square', freq: 660, duration: 0.08, gain: 0.08 },
+    { wave: 'square', freq: 990, delay: 0.08, duration: 0.14, gain: 0.09 },
+    { wave: 'sine', freq: 1980, delay: 0.08, duration: 0.3, gain: 0.05 },
+  ],
+  /** focus unleashed: a whoosh with a shimmer */
+  focus: [
+    { wave: 'noise', freq: 1200, duration: 0.5, gain: 0.12, attack: 0.15 },
+    { wave: 'sine', freq: 440, freqEnd: 1760, duration: 0.6, gain: 0.1 },
+  ],
+  /** focus meter full */
+  ready: [
+    { wave: 'sine', freq: 1047, duration: 0.12, gain: 0.12 },
+    { wave: 'sine', freq: 1568, delay: 0.1, duration: 0.25, gain: 0.12 },
+  ],
+  /** loot bursts out */
+  loot: [
+    { wave: 'triangle', freq: 1320, duration: 0.07, gain: 0.12 },
+    { wave: 'triangle', freq: 1760, delay: 0.06, duration: 0.07, gain: 0.12 },
+    { wave: 'triangle', freq: 2349, delay: 0.12, duration: 0.18, gain: 0.12 },
+  ],
+  /** a rope snaps */
+  snapRope: [
+    { wave: 'noise', freq: 2500, duration: 0.06, gain: 0.25 },
+    { wave: 'triangle', freq: 700, freqEnd: 200, duration: 0.12, gain: 0.12 },
+  ],
+  /** a rock lands / shatters */
+  crumble: [
+    { wave: 'noise', freq: 600, duration: 0.3, gain: 0.3 },
+    { wave: 'sine', freq: 80, freqEnd: 40, duration: 0.3, gain: 0.4 },
+  ],
+  /** shield plate / orb deflect */
+  plink: [{ wave: 'triangle', freq: 1900, freqEnd: 1400, duration: 0.1, gain: 0.1 }],
+} as const satisfies Record<string, SfxPreset>;

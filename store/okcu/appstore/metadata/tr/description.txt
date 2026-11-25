@@ -1,0 +1,51 @@
+Geri çek, bırak ve sallanan okçuları uçan adalarından düşür, 3D olarak.
+Altı dünyayı ve altı patronu geç, altı silahı aç ve sandıklardan çıkan parçalarla güçlendir.
+
+Sallanan Okçular, 3D, ragdoll fiziğiyle zıplayan, rengârenk bir okçuluk oyunu. İlk okun saniyeler içinde havada: nişan almak için ekranın herhangi bir yerinden sürükle, noktalı yayı izle, bırakınca ok fırlasın.
+
+NASIL OYNANIR
+• Açıyı ve gücü ayarlamak için geri çek, sonra bırak. Öğrenecek düğme yok.
+• Oklar gerçekten uçar: kavis çizer, düştüğü yere saplanır, çarptığını iter.
+• Nereden vurduğun önemli: kafaya gelen ok nakavt eder, bacağa gelen okçuyu platformdan düşürebilir.
+• Rakipler de karşılık verir, hem de iyi nişan alır. Can toplamak için süzülen elmaları vur.
+• Her okçu ragdoll üstünde bir 3D karakter: ok çarpınca sendeler, nakavt olunca uçup gider.
+• Üç kamera açısı, Yandan, Çapraz ve Alttan: oyun içindeki kamera düğmesi aralarında geçiş yapar.
+
+ALTI BÖLÜM
+• Güneşli Çayır, Donuk Zirveler, Gün Batımı Kumulları, Fener Gecesi, Kor Kazanı ve Gök Kalesi; her biri yedi aşama, ardından bitmeyen dalgalar.
+• Her bölümün ortasında ganimet bırakan seçkin bir rakip, sonunda bir patron: Diken Baronu, Buz Devi, Kum Sultanı, Gece Bekçisi, Kor Kral ve Fırtına Çağıran. Canı yarıya inince hepsi taktik değiştirir.
+• Her bölümden sonra madalyalı bir bonus turu: hedef galerisi, elma yağmuru ya da çıkıntını savun.
+• Kayan platformlar, ipini kesebileceğin asılı platformlar, düşürülecek kayalar, patlayan variller ve hesaba katman gereken rüzgâr.
+• Yeni rakipler: şifacılar, siper arkasındaki okçular, ok yakalayanlar ve fener şövalyeleri.
+
+GÜN BATIMI KANYONU'NDA İKİ MOD
+• Yıldırım: bitmeyen okçulara karşı 60 saniye; kafadan vuruş çift sayılır, aldığın her isabet 3 saniye götürür. İlk turundan sonra açılır.
+• Boss Akını: altı patron art arda. Nereye kadar gidebilirsin? Bölüm 1 patronunu yenince açılır.
+
+ALTI SİLAH
+• Yay, arbalet, mızrak, bumerang, sapan ve fişek atar; her birinin uçuşu farklı: dümdüz giden arbalet cıvataları, delip geçen mızraklar, dönüşte de vuran bumerang, seken çakıllar ve kalabalığın üstünde patlayan fişekler.
+• Bir bölümün patronunu yen, o bölümün silahı açılsın; sapanı sandıklardan çıkan parçalarla topla.
+• Her silahı parça ve altınla 1'den 20'ye kadar yükselt. Her seviye hasarı artırır, bazıları yeni bir özellik ekler.
+
+SANDIKLAR
+• Her 4 saatte bir açabileceğin tahta sandık; isteğe bağlı bir reklam izlersen gümüş olur.
+• Koşulardan, patronlardan ve günlük görevden sandıklar, bir de Mağaza'da altınla açabileceğin sandıklar.
+• Her sandığın olasılıkları ekranda, çekilişte kullanıldığı gibi yazar.
+
+BÜYÜK ANLAR
+• Kafadan vuruş serileri, tek okla çoklu nakavt, hasar almadan seriler ve kritik vuruşlar; her birinin kendi coşkulu yazısı var.
+• Odak göstergesini doldur, göze dokun, güçlendirilmiş bir atış yap.
+• Her aşamadan sonra üç numara kartından birini seç: yelpaze ve ateşli oktan arayıcı oka ve kıvılcıma 20 numara, iki numara buluşunca açılan altı uyum.
+
+İLERLEMEN
+• Acemi'den Ölümsüz Okçu'ya, sana özel 14 rütbelik bir merdivende yüksel.
+• Tarihleriyle kendi rekorlarının tutulduğu bir tablo ve altın kazandıran başarımlar.
+• Her gün farklı bir kuralı ve hedefi olan günlük görev; her gün dönersen serin büyür.
+• Dört kalıcı geliştirme. Can geliştirmeleri okçunu zırhla donatır.
+• Sekmeli ana menü: Mağaza, Silahlar, Ana Sayfa, Rütbeler ve Etkinlik. Ulaştığın her bölüme Ana Sayfa'dan doğrudan başla.
+
+BİLMEKTE FAYDA VAR
+• İnternetsiz oynanır. Hesap gerekmez.
+• Gerçek parayla satın alma yok: her şey oynayarak kazanılan altınla açılır. Ödüllü reklamlar isteğe bağlıdır; yalnızca REKLAM etiketli düğmelerde ve yalnızca izlemeyi seçersen.
+• Game Center ile isteğe bağlı online sıralama.
+• Türkçe ve İngilizce.

@@ -1,0 +1,150 @@
+# Test APK'ları: build the four TEST apps (the bundle "Play Oyunlar Test" and one test app per
+# game) and publish them as assets of ONE rolling GitHub pre-release, tag `test-latest`, with the
+# manifest versions.json that the apps' in-app updater reads. Never touches Google Play: the Play
+# path is tools/aab.mjs + play-yukle.yml, which share no code, key or permission with this.
+# Owner's guide (Turkish): apps/test-paketi/README.md ("Güncellemeler").
+#
+# ---------------------------------------------------------------------------------------------
+# UNVERIFIED ON GITHUB: this workflow has never run. Checked locally (2026-11-17): the YAML
+# parses, actionlint is clean, every script it calls exists, `npm run apk -- all` built and
+# verified the four APKs twice, the update-UI browser check passed, and the publish step's shell
+# logic was dry-run against a fake `gh`. NOT checked: the runner's preinstalled Android SDK, the
+# `gh release` calls against the real repository, the public download URLs.
+# ---------------------------------------------------------------------------------------------
+#
+# Two jobs: `build` runs the gate and all the npm/Gradle code with a read-only token; only
+# `publish` (no npm install, no build) gets `contents: write`, to edit the release.
+name: Test APK'ları
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'games/**'
+      - 'packages/core/**'
+      - 'apps/test-paketi/**'
+      - 'apps/okcu-3d/**'
+      - 'tools/apk.mjs'
+      - 'tools/test-apk/**'
+      - 'tools/test-imza/**'
+      - 'tools/aab/icon.mjs'
+      - 'tools/aab/png.mjs'
+      - 'tools/template.mjs'
+      - 'store/apps.json'
+      - 'store/*/icon/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/test-apk.yml'
+
+permissions: {}
+
+# One run at a time: two runs must never interleave their uploads to the same release.
+concurrency:
+  group: test-apk-release
+  cancel-in-progress: false
+
+env:
+  TAG: test-latest
+
+jobs:
+  build:
+    name: Build and check
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+          cache: npm
+      # Capacitor 8 / AGP 8.13 need JDK 21.
+      - uses: actions/setup-java@c5195efecf7bdfc987ee8bae7a71cb8b11521c00 # v4.7.1
+        with:
+          distribution: temurin
+          java-version: 21
+      - run: npm ci
+      - name: Install Chromium for the browser checks
+        run: npx playwright install --with-deps chromium
+      - name: Gate (all games)
+        run: npm run gate
+      - name: Updater unit tests and typecheck
+        run: |
+          npm run test -w @oyun/test-paketi
+          npm run typecheck -w @oyun/test-paketi
+      - name: Android SDK (platform 36, build-tools 35)
+        run: |
+          set -euo pipefail
+          : "${ANDROID_HOME:?ANDROID_HOME is not set on this runner}"
+          SDKM="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          if [ ! -x "$SDKM" ]; then echo "::error::no sdkmanager at $SDKM"; exit 1; fi
+          yes | "$SDKM" --licenses > /dev/null || true
+          "$SDKM" --install "platforms;android-36" "build-tools;35.0.0" > /dev/null
+          ls "$ANDROID_HOME/platforms" "$ANDROID_HOME/build-tools"
+      - name: Build the five test APKs (bundle, three games, okcu3d)
+        run: npm run apk -- all
+      - name: Update banner check (Chromium, fake native bridge)
+        run: node apps/test-paketi/tests/update-check.mjs
+      - name: Check the manifest
+        run: |
+          set -euo pipefail
+          node -e '
+            const m = require("./build/test-apk/versions.json");
+            if (m.apps.length !== 5) { console.log(`::error::versions.json lists ${m.apps.length} apps, expected 5`); process.exit(1); }
+            for (const a of m.apps) console.log(`${a.applicationId} ${a.versionCode} ${a.file} ${a.size} ${a.sha256}`);
+          '
+          ls -l build/test-apk/*.apk
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: test-apks
+          path: |
+            build/test-apk/*.apk
+            build/test-apk/versions.json
+          if-no-files-found: error
+          retention-days: 7
+      - name: Upload update-check screenshots
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: update-check-screenshots
+          path: apps/test-paketi/tests/artifacts/update/*.png
+          if-no-files-found: ignore
+
+  publish:
+    name: Publish to the test-latest release
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+          sparse-checkout: tools/test-apk
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: test-apks
+          path: out
+      - name: Upload APKs, then the manifest, then remove stale APKs
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: bash tools/test-apk/publish.sh out
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "### Test APK'ları"
+            echo
+            echo "Sürüm: https://github.com/$GITHUB_REPOSITORY/releases/tag/$TAG"
+            echo "Manifest: https://github.com/$GITHUB_REPOSITORY/releases/download/$TAG/versions.json"
+            echo
+            if [ -f out/versions.json ]; then
+              node -e 'for (const a of require("./out/versions.json").apps) console.log(`- ${a.label?.tr ?? a.applicationId}: \`${a.file}\` (versionCode ${a.versionCode})`)'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"

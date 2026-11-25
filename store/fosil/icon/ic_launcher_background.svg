@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="432" height="432" viewBox="0 0 432 432"><defs>
+<radialGradient id="ibg" cx="0.5" cy="0.38" r="0.75"><stop offset="0" stop-color="#9a6334"/><stop offset="1" stop-color="#2e1a0c"/></radialGradient>
+<radialGradient id="iglow" cx="0.5" cy="0.5" r="0.5"><stop offset="0" stop-color="#ffd27a" stop-opacity="0.55"/><stop offset="0.6" stop-color="#ffd27a" stop-opacity="0.18"/><stop offset="1" stop-color="#ffd27a" stop-opacity="0"/></radialGradient>
+</defs>
+<rect width="432" height="432" fill="url(#ibg)"/>
+<circle cx="216" cy="216" r="202.5" fill="url(#iglow)"/>
+</svg>

@@ -1,0 +1,34 @@
+Thank you for reviewing Fossil Odds.
+
+ACCOUNT, SERVER, CONTENT
+- No account, no login and no sign-in is needed to play. There is no server of ours and no remote configuration: the whole game is bundled in the app and works offline. Progress is saved on the device only.
+- Every player gets the same features. Nothing is unlocked, switched on or changed remotely; everything described below opens through play on the device.
+- No real-money purchases. Dust, the in-game currency, is only dug up in play and only spent on upgrades.
+- This build removes the developer test code (test hooks and URL switches) that earlier builds still contained.
+
+HOW TO REACH EVERY SCREEN
+- The app opens on the main menu: Play, Museum, Ranks, the depth map (top left) and the Privacy link (under the Museum and Ranks buttons).
+- Play opens the dig screen. Tap the rock to dig; every broken block gives one fossil with its odds printed on it. Deeper layers open by themselves as your dig power grows (13 layers); the arrows beside the layer name travel between open layers.
+- Depth map: the round Map button left of the block on the dig screen (or the layer name, or the map button on the main menu). Tap an open layer to travel there.
+- Weak spots: a target appears on the block about 4 seconds into a new dig, then every 6 to 9 seconds; tapping it does four times the damage.
+- Dig Rush: the stopwatch button right of the block. It is offered once 4 kinds of Topsoil fossil have been found (usually within the first minute or two of tapping), opens a start card first (Start, or close), runs 45 seconds, and is then available again 3 hours (wall-clock time) after it started.
+- Upgrades and Museum: the buttons at the bottom of the dig screen. Ranks (ladder, records, goals): the Ranks button on the main menu.
+- Expedition: offered on the Ranks screen once the deepest layer (Time Rift) has been opened; this takes many hours of play.
+
+DATE AND TIME BASED CONTENT
+- Daily dig: one reward per calendar day (local midnight on the device), shown when the dig screen opens; the streak grows the reward for up to 7 days.
+- Time away: when the app is reopened after a while, a popup shows what the helper dug meanwhile.
+- Dig Rush cooldown: 3 hours after the start of the last rush (see above).
+
+ADS
+- Rewarded ads (Google AdMob) are shown only when the player taps a button marked with the "AD" label: "2x luck 60s" on the dig screen (twice the luck for 60 seconds) and "Double dust" on the time-away popup. Nothing else shows an ad, and both rewards are optional; the game never requires them.
+- Every ad request is child-directed and non-personalised. There is no tracking, the IDFA is not read and there is no App Tracking Transparency prompt.
+
+ONLINE RANKING (OPTIONAL)
+- Game Center only: main menu > Ranks > the globe button (top right). There is no age question on iPhone. Game Center is not started before the player taps Sign in there; Apple's own sign-in appears if the device is not signed in. Scores go only to Game Center. Nothing else in the game needs a sign-in.
+
+PRIVACY
+- The privacy policy is linked from the main menu (Privacy) and from the online panel.
+
+ODDS
+- The odds printed on fossils (for example "1 in 1,000,000") only show how rare a find is. Nothing is wagered or can be lost, every block always gives a fossil, and nothing can be bought with real money, so there is no simulated gambling.

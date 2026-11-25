@@ -1,0 +1,483 @@
+import { cssColor, label, type OyunScene } from '@oyun/core';
+import Phaser from 'phaser';
+import { SFX } from '../sfx';
+import { LAYERS, TIERS, at } from '../sim/data';
+import type { Find } from '../sim/dig';
+import { fossilKey, PALETTE } from '../textures';
+import { addCardLife } from '../fx/CardLife';
+import { edgeFlash } from '../fx/Motion';
+import { cardBack, fitText, fossilName, luckLine, oddsText, outlined, rarityCard } from './ui';
+
+/** Odds at which the ceremony escalates (GAME.md "Feel"). */
+export const CARD_AT = 100;
+export const GRAND_AT = 10_000;
+
+export type RevealKind = 'pop' | 'card' | 'grand';
+
+export function revealKind(odds: number): RevealKind {
+  return odds >= GRAND_AT ? 'grand' : odds >= CARD_AT ? 'card' : 'pop';
+}
+
+interface Host {
+  scene: OyunScene;
+  /** Where finds come out of (block centre). */
+  origin(): { x: number; y: number };
+  /** Where a finished reveal flies to (the last-find strip). */
+  slot(): { x: number; y: number };
+  /** Called when a reveal lands, to refresh the last-find strip etc. */
+  landed(find: Find): void;
+  /** Slow-motion factor for the sim while a grand reveal builds up (1 = normal). */
+  setSlowMo(f: number): void;
+}
+
+const MAX_POPS = 6;
+/** The layer whose echo blocks roll older tables: a find from another layer there is an echo find. */
+const ECHO_HOME = LAYERS.findIndex((l) => l.twist === 'echo');
+const isEcho = (f: Find): boolean => f.block === 'echo' && f.fossil.layer !== ECHO_HOME;
+
+type Haptic = 'light' | 'medium' | 'heavy' | 'success';
+/** A distinct haptic pattern per tier: rarer finds buzz longer and harder. */
+export const TIER_HAPTICS: readonly (readonly Haptic[])[] = [
+  [],
+  [],
+  ['medium'],
+  ['medium', 'medium'],
+  ['heavy', 'medium', 'success'],
+  ['heavy', 'heavy', 'medium', 'success'],
+  ['heavy', 'heavy', 'heavy', 'heavy', 'success'],
+];
+
+export function tierHaptics(scene: OyunScene, tier: number, gap = 110): void {
+  (TIER_HAPTICS[tier] ?? []).forEach((k, i) => scene.time.delayedCall(i * gap, () => scene.oyun.platform.haptic(k)));
+}
+const CARD_W = 320;
+const CARD_H = 400;
+/** Badge centre below the card top: under the 64 px tier band, beside the art. */
+const BADGE_Y = 112;
+
+/**
+ * Plays the reveal for every find, scaled by rarity:
+ * - common (< 1 in 100): quick pop out of the block with its odds and a tick.
+ * - 1 in 100+: the card flips over, sparkles, rising chime, medium haptic. Digging continues.
+ * - 1 in 10,000+: everything stops: slow-motion build-up, shake, colour flash, the odds number
+ *   slams in, long chime, strong haptic. Waits for a tap.
+ */
+export class Reveal {
+  private pops = 0;
+  private side = 1;
+  private cardQueue: { find: Find; from?: { x: number; y: number } }[] = [];
+  private cardBusy = false;
+  private grandQueue: { find: Find; from?: { x: number; y: number } }[] = [];
+  private grand: { overlay: Phaser.GameObjects.Rectangle; objects: Phaser.GameObjects.GameObject[]; canDismiss: boolean; find: Find } | null = null;
+  /** Kind of the last reveal started (test state). */
+  lastKind: RevealKind | null = null;
+
+  constructor(private readonly host: Host) {}
+
+  get blocking(): boolean {
+    return this.grand !== null;
+  }
+
+  get canDismiss(): boolean {
+    return this.grand?.canDismiss ?? false;
+  }
+
+  get busy(): string | null {
+    return this.grand ? 'grand' : this.cardBusy ? 'card' : null;
+  }
+
+  show(find: Find, from?: { x: number; y: number }): void {
+    const kind = revealKind(find.fossil.odds);
+    this.lastKind = kind;
+    if (kind === 'grand') {
+      this.grandQueue.push({ find, from });
+      if (!this.grand) this.nextGrand();
+    } else if (kind === 'card') {
+      if (this.cardQueue.length >= 3) {
+        this.pop(find, from);
+        return;
+      }
+      this.cardQueue.push({ find, from });
+      if (!this.cardBusy && !this.grand) this.nextCard();
+    } else this.pop(find, from);
+  }
+
+  /** Tap on the grand overlay. Returns true when it closed. */
+  dismiss(): boolean {
+    const g = this.grand;
+    if (!g || !g.canDismiss) return false;
+    const s = this.host.scene;
+    const slot = this.host.slot();
+    this.grand = null;
+    const card = g.objects.find((o) => o.getData('card') === true) as Phaser.GameObjects.Container | undefined;
+    for (const o of g.objects) {
+      if (o === card) continue;
+      // stop the endless spin / blink tweens before the objects go away (no leak per find)
+      s.tweens.killTweensOf(o);
+      if (o instanceof Phaser.GameObjects.Container) for (const c of o.list) s.tweens.killTweensOf(c);
+      s.tweens.add({ targets: o, alpha: 0, duration: 220, onComplete: () => o.destroy() });
+    }
+    s.tweens.add({ targets: g.overlay, alpha: 0, duration: 260, onComplete: () => g.overlay.destroy() });
+    if (card) {
+      s.tweens.add({
+        targets: card,
+        x: slot.x,
+        y: slot.y,
+        scale: 0.15,
+        alpha: 0.2,
+        duration: 380,
+        ease: 'Cubic.easeIn',
+        onComplete: () => {
+          card.destroy();
+          this.host.landed(g.find);
+        },
+      });
+    } else this.host.landed(g.find);
+    if (this.grandQueue.length) s.time.delayedCall(300, () => this.nextGrand());
+    else if (this.cardQueue.length) s.time.delayedCall(300, () => {
+      if (!this.cardBusy && !this.grand) this.nextCard();
+    });
+    return true;
+  }
+
+  // ------------------------------------------------------------------ common
+
+  private pop(find: Find, from?: { x: number; y: number }): void {
+    const s = this.host.scene;
+    const o = from ?? this.host.origin();
+    s.oyun.audio.playPreset(SFX.tick, { pitch: find.fossil.tier * 3 + (find.isNew ? 4 : 0), volume: find.source === 'assistant' ? 0.5 : 1 });
+    if (this.pops >= MAX_POPS) {
+      this.host.landed(find);
+      return;
+    }
+    this.pops++;
+    const slot = this.host.slot();
+    const img = s.add.image(o.x, o.y + 70, fossilKey(find.fossil.id)).setDepth(600).setScale(0.15);
+    const tierColor = at(TIERS, find.fossil.tier).color;
+    const ring = s.add.circle(o.x, o.y + 70, 58, tierColor, 0.35).setDepth(599).setScale(0.2);
+    const odds = outlined(s, o.x, o.y + 70, oddsText(s, find.fossil.odds), 34, find.fossil.tier === 0 ? 0xffffff : tierColor, 7).setDepth(601).setAlpha(0);
+    const luck = outlined(s, o.x, o.y + 110, luckLine(s, find.source, find.luck), 24, find.source === 'assistant' ? PALETTE.sand : PALETTE.luck, 5).setDepth(601).setAlpha(0);
+    // alternate sides so back-to-back finds never print their odds on top of each other
+    this.side = -this.side;
+    const dx = this.side * (70 + Math.random() * 70);
+    s.tweens.add({ targets: [img, ring], scale: 0.62, y: o.y - 120, x: o.x + dx, duration: 230, ease: 'Back.easeOut' });
+    s.tweens.add({ targets: odds, alpha: 1, y: o.y - 30, x: o.x + dx, duration: 230, ease: 'Cubic.easeOut' });
+    s.tweens.add({ targets: luck, alpha: 1, y: o.y + 2, x: o.x + dx, duration: 230, ease: 'Cubic.easeOut' });
+    if (find.isNew) {
+      const tag = outlined(s, o.x + dx, o.y - 200, s.t('reveal.new'), 34, PALETTE.ochreLight, 7).setDepth(602);
+      s.juice.pop(tag, 0.4, 260);
+      s.tweens.add({ targets: tag, alpha: 0, delay: 600, duration: 250, onComplete: () => tag.destroy() });
+      // a first find: a ring of its tier colour snaps out around it as it lands in the air
+      if (!s.oyun.reducedMotion) {
+        const halo = s.add.circle(o.x + dx, o.y - 120, 44).setStrokeStyle(6, find.fossil.tier === 0 ? PALETTE.ochreLight : tierColor, 1).setDepth(598).setAlpha(0);
+        s.tweens.add({ targets: halo, alpha: { from: 0.9, to: 0 }, scale: { from: 0.7, to: 2 }, delay: 200, duration: 380, ease: 'Cubic.easeOut', onComplete: () => halo.destroy() });
+      }
+    }
+    s.tweens.add({
+      targets: [img, ring],
+      x: slot.x,
+      y: slot.y,
+      scale: 0.25,
+      alpha: 0.4,
+      delay: find.isNew ? 520 : 330,
+      duration: 260,
+      ease: 'Cubic.easeIn',
+      onComplete: () => {
+        img.destroy();
+        ring.destroy();
+        this.pops--;
+        this.host.landed(find);
+      },
+    });
+    s.tweens.add({ targets: [odds, luck], alpha: 0, delay: find.isNew ? 520 : 330, duration: 200, onComplete: () => {
+      odds.destroy();
+      luck.destroy();
+    } });
+  }
+
+  // ------------------------------------------------------------------ 1 in 100+
+
+  private nextCard(): void {
+    const next = this.cardQueue.shift();
+    if (!next) {
+      this.cardBusy = false;
+      return;
+    }
+    this.cardBusy = true;
+    const { find } = next;
+    const s = this.host.scene;
+    const reduced = s.oyun.reducedMotion;
+    const o = next.from ?? this.host.origin();
+    const L = s.layout;
+    // centred on the block at the lowest: a glint low on the site must not drop the card (and its
+    // odds) under the HP bar and the messages below it
+    const pos = { x: L.cx, y: Math.max(L.top + 270 + CARD_H / 2 + 10, Math.min(o.y, this.host.origin().y)) };
+    const tierColor = at(TIERS, find.fossil.tier).color;
+    const big = find.fossil.odds >= 1000;
+
+    const rays = s.add.container(pos.x, pos.y).setDepth(700).setAlpha(0);
+    // short rays: they stay inside the dig site, clear of the HUD and the combo bar
+    for (let i = 0; i < 10; i++) rays.add(s.add.image(0, 0, 'ray').setOrigin(0.5, 0).setAngle(i * 36).setTint(tierColor).setAlpha(0.7).setScale(1, 0.62));
+    const back = cardBack(s, CARD_W, CARD_H, at(at(LAYERS, find.fossil.layer).bands, 1)).setDepth(710).setPosition(o.x, o.y).setScale(0.2).setAlpha(0);
+    const front = rarityCard(s, find.fossil, CARD_W, CARD_H).setDepth(710).setPosition(pos.x, pos.y).setVisible(false);
+    addCardLife(s, front, find.fossil.tier, CARD_W, CARD_H);
+
+    // the fossil rises out of the rubble, glowing, before its card turns up
+    const PRE = 320;
+    const glow = s.add.image(o.x, o.y + 90, 'glow').setTint(tierColor).setScale(0.4).setAlpha(0).setDepth(705);
+    const rising = s.add.image(o.x, o.y + 90, fossilKey(find.fossil.id)).setScale(0.45).setAlpha(0).setDepth(706);
+    s.tweens.add({ targets: [rising, glow], y: o.y - 10, alpha: 1, duration: PRE, ease: 'Cubic.easeOut' });
+    s.tweens.add({ targets: glow, scale: 2.2, duration: PRE });
+    s.tweens.add({ targets: rising, scale: 0.85, duration: PRE, ease: 'Back.easeOut' });
+    s.tweens.add({ targets: [rising, glow], alpha: 0, delay: PRE, duration: 160, onComplete: () => {
+      rising.destroy();
+      glow.destroy();
+    } });
+    s.time.delayedCall(PRE, () => s.oyun.audio.playPreset(SFX.flip));
+    s.tweens.add({ targets: back, x: pos.x, y: pos.y, scale: 1, alpha: 1, delay: PRE, duration: 260, ease: 'Back.easeOut' });
+    s.tweens.add({ targets: back, scaleX: 0, delay: PRE + 300, duration: 110, ease: 'Quad.easeIn' });
+    s.time.delayedCall(PRE + 410, () => {
+      back.destroy();
+      // the front pops in whole (never squashed mid-flip, so the odds are never half drawn)
+      front.setVisible(true).setScale(0.7);
+      // it lands with weight: an overshoot, then a small squash that settles
+      s.tweens.add({
+        targets: front,
+        scale: 1,
+        duration: 170,
+        ease: 'Back.easeOut',
+        onComplete: () => {
+          if (reduced || !front.active) return;
+          s.tweens.add({ targets: front, scaleX: 1.04, scaleY: 0.965, duration: 70, yoyo: true, ease: 'Sine.easeOut', onComplete: () => {
+            if (front.active) front.setScale(1);
+          } });
+        },
+      });
+      const cap = outlined(s, pos.x, pos.y - CARD_H / 2 - 22, luckLine(s, find.source, find.luck), 26, find.source === 'assistant' ? PALETTE.sand : PALETTE.luck, 6).setDepth(720);
+      s.tweens.add({ targets: cap, alpha: 0, delay: hold, duration: 200, onComplete: () => cap.destroy() });
+      s.tweens.add({ targets: rays, alpha: 0.55, duration: 200 });
+      s.tweens.add({ targets: rays, angle: 90, duration: 3000 });
+      s.oyun.audio.playPreset(SFX.chime, { pitch: Math.min(6, find.fossil.tier * 2 - 4) });
+      s.juice.feedback('medium', pos.x, pos.y, tierColor);
+      // prized (1 in 1,000+): a ring snaps out from the card
+      if (big) {
+        const ring = s.add.circle(pos.x, pos.y, CARD_W / 2).setStrokeStyle(10, tierColor, 1).setDepth(709);
+        s.tweens.add({ targets: ring, scale: 2.2, alpha: 0, duration: 520, ease: 'Cubic.easeOut', onComplete: () => ring.destroy() });
+      }
+      tierHaptics(s, find.fossil.tier);
+      s.juice.burst(pos.x, pos.y, { count: big ? 22 : 14, color: tierColor, texture: 'spark', distance: 260 });
+      s.juice.burst(pos.x, pos.y, { count: 8, color: 0xffffff, texture: 'spark', distance: 200 });
+      // stickers on the card's side edges, below the tier band: they never touch the tier name
+      if (find.isNew) this.badge(pos.x + CARD_W / 2, pos.y - CARD_H / 2 + BADGE_Y, s.t('reveal.new'));
+      if (find.fusions > 0) this.badge(pos.x - CARD_W / 2, pos.y - CARD_H / 2 + BADGE_Y, s.t(`grade.${find.grade}`));
+      if (find.source === 'glint') this.badge(pos.x - CARD_W / 2 + 70, pos.y + CARD_H / 2 - 14, s.t('reveal.glint'));
+      if (find.source === 'assistant') this.badge(pos.x - CARD_W / 2 + 80, pos.y + CARD_H / 2 - 14, s.t('reveal.assistantFind'));
+      if (find.pity) this.badge(pos.x + CARD_W / 2 - 70, pos.y + CARD_H / 2 - 14, s.t('reveal.pity'));
+      else if (isEcho(find)) this.badge(pos.x + CARD_W / 2 - 70, pos.y + CARD_H / 2 - 14, s.t('reveal.echo'));
+      else if (find.block === 'boss') this.badge(pos.x + CARD_W / 2 - 60, pos.y + CARD_H / 2 - 14, s.t('reveal.boss'));
+    });
+    const hold = big ? 1900 : 1450;
+    s.time.delayedCall(PRE + 410 + hold, () => {
+      const slot = this.host.slot();
+      s.tweens.add({ targets: rays, alpha: 0, duration: 200, onComplete: () => rays.destroy() });
+      s.tweens.add({
+        targets: front,
+        x: slot.x,
+        y: slot.y,
+        scale: 0.14,
+        alpha: 0.3,
+        duration: 300,
+        ease: 'Cubic.easeIn',
+        onComplete: () => {
+          front.destroy();
+          this.host.landed(find);
+          if (this.grandQueue.length && !this.grand) this.nextGrand();
+          else this.nextCard();
+        },
+      });
+    });
+  }
+
+  private badge(x: number, y: number, text: string): void {
+    const s = this.host.scene;
+    const t = outlined(s, x, y, text, 34, PALETTE.ochreLight, 7).setDepth(720).setAngle(-8);
+    s.juice.pop(t, 0.3, 300);
+    s.tweens.add({ targets: t, alpha: 0, delay: 1400, duration: 300, onComplete: () => t.destroy() });
+  }
+
+  // ------------------------------------------------------------------ 1 in 10,000+
+
+  private nextGrand(): void {
+    const next = this.grandQueue.shift();
+    if (!next) return;
+    const { find } = next;
+    const s = this.host.scene;
+    const L = s.layout;
+    const o = next.from ?? this.host.origin();
+    const tier = at(TIERS, find.fossil.tier);
+    const cam = s.cameras.main;
+    const reduced = s.oyun.reducedMotion;
+    const objects: Phaser.GameObjects.GameObject[] = [];
+
+    const overlay = s.add.rectangle(L.cx, L.height / 2, L.width + 40, L.height + 40, 0x000000, 0).setDepth(800).setInteractive();
+    overlay.on(Phaser.Input.Events.GAMEOBJECT_POINTER_DOWN, () => this.dismiss());
+    this.grand = { overlay, objects, canDismiss: false, find };
+    s.oyun.platform.haptic('medium');
+
+    // 1. Slow motion: the world slows, the screen darkens, a swell rises, debris hangs in the air.
+    this.host.setSlowMo(0.15);
+    s.oyun.audio.playPreset(SFX.longChime);
+    s.tweens.add({ targets: overlay, fillAlpha: 0.82, duration: 700, ease: 'Sine.easeOut' });
+    if (!reduced) s.tweens.add({ targets: cam, zoom: 1.12, duration: 900, ease: 'Sine.easeInOut' });
+    for (let i = 0; i < 18; i++) {
+      const chip = s.add.image(o.x, o.y, 'chip').setDepth(805).setTint(at(at(LAYERS, find.fossil.layer).bands, i % 5)).setScale(1 + Math.random() * 1.5);
+      objects.push(chip);
+      const a = Math.random() * Math.PI * 2;
+      const d = 120 + Math.random() * 220;
+      s.tweens.add({ targets: chip, x: o.x + Math.cos(a) * d, y: o.y + Math.sin(a) * d, angle: Math.random() * 360, alpha: 0, duration: 2600, ease: 'Expo.easeOut' });
+    }
+    const pos = { x: L.cx, y: L.top + 520 };
+    const rays = s.add.container(pos.x, pos.y).setDepth(810).setAlpha(0);
+    for (let i = 0; i < 14; i++) rays.add(s.add.image(0, 0, 'ray').setOrigin(0.5, 0).setAngle(i * (360 / 14)).setTint(tier.color).setScale(1.2, 0.95));
+    objects.push(rays);
+    s.tweens.add({ targets: rays, alpha: 0.9, duration: 900 });
+    s.tweens.add({ targets: rays, angle: 360, duration: 14000, repeat: -1 });
+    const back = cardBack(s, CARD_W, CARD_H, at(at(LAYERS, find.fossil.layer).bands, 1)).setDepth(820).setPosition(o.x, o.y + 40).setScale(0.3).setAlpha(0.6);
+    objects.push(back);
+    s.tweens.add({ targets: back, x: pos.x, y: pos.y, scale: 1, alpha: 1, duration: 950, ease: 'Sine.easeInOut' });
+    s.tweens.add({ targets: back, angle: { from: -3, to: 3 }, duration: 90, yoyo: true, repeat: 9, delay: 300 });
+
+    // a dark silhouette lifts out of the rubble in a halo of its tier colour, ahead of the card
+    const halo = s.add.image(o.x, o.y + 80, 'glow').setTint(tier.color).setScale(0.5).setAlpha(0).setDepth(815);
+    const shape = s.add.image(o.x, o.y + 80, fossilKey(find.fossil.id)).setTint(0x000000).setTintMode(Phaser.TintModes.FILL).setScale(0.5).setAlpha(0).setDepth(816);
+    objects.push(halo, shape);
+    s.tweens.add({ targets: [halo, shape], y: o.y - 40, alpha: 1, duration: 650, ease: 'Sine.easeOut' });
+    s.tweens.add({ targets: halo, scale: 3, duration: 900 });
+    s.tweens.add({ targets: [halo, shape], alpha: 0, delay: 700, duration: 260 });
+    const front = rarityCard(s, find.fossil, CARD_W, CARD_H).setDepth(820).setPosition(pos.x, pos.y).setVisible(false);
+    addCardLife(s, front, find.fossil.tier, CARD_W, CARD_H);
+    front.setData('card', true);
+    objects.push(front);
+    const cardOdds = front.getData('odds') as Phaser.GameObjects.Text;
+    cardOdds.setVisible(false);
+
+    // 2. Flip at full speed: flash, shake, strong haptic.
+    s.time.delayedCall(1000, () => {
+      this.host.setSlowMo(1);
+      if (!reduced) s.tweens.add({ targets: cam, zoom: 1, duration: 180, ease: 'Back.easeOut' });
+      back.destroy();
+      front.setVisible(true).setScale(0.2, 1.2);
+      s.tweens.add({ targets: front, scaleX: 1, scaleY: 1, duration: 220, ease: 'Back.easeOut' });
+      // the colour moment: light bursts out from behind the card and the screen edges glow in
+      // the tier colour. Nothing is painted over the card, so it can be read the instant it turns.
+      const burst = s.add.image(pos.x, pos.y, 'glow').setTint(tier.color).setDepth(818).setScale(2.6).setAlpha(reduced ? 0.5 : 0.85);
+      objects.push(burst);
+      s.tweens.add({ targets: burst, scale: reduced ? 4 : 5.4, alpha: 0, duration: 620, ease: 'Cubic.easeOut' });
+      edgeFlash(s, tier.color, 700, 900, 0.7);
+      s.juice.shake(0.5);
+      s.juice.hitStop(120);
+      s.oyun.platform.haptic('heavy');
+      s.juice.burst(pos.x, pos.y, { count: 32, color: tier.color, texture: 'spark', distance: 420, duration: 900 });
+      s.juice.burst(pos.x, pos.y, { count: 16, color: 0xffffff, texture: 'spark', distance: 320, duration: 800 });
+      // mythic and singular go further: shockwave rings, and for singular a second flash
+      if (find.fossil.tier >= 5) {
+        for (let k = 0; k < (find.fossil.tier >= 6 ? 4 : 2); k++) {
+          // behind the card: the rings open around it and never cross its face
+          const ring = s.add.circle(pos.x, pos.y, 80).setStrokeStyle(14 - k * 2, k % 2 ? 0xffffff : tier.color, 1).setDepth(817);
+          objects.push(ring);
+          s.tweens.add({ targets: ring, scale: 6 + k, alpha: 0, delay: k * 140, duration: 900, ease: 'Cubic.easeOut' });
+        }
+      }
+      if (find.fossil.tier >= 6 && !reduced) {
+        // singular: a second, white pulse at the edges and one more ring of light (no white screen)
+        s.time.delayedCall(260, () => {
+          if (!this.grand) return;
+          edgeFlash(s, 0xffffff, 700, 900, 0.6);
+          const ring = s.add.circle(pos.x, pos.y, 90).setStrokeStyle(6, 0xffffff, 0.9).setDepth(817);
+          objects.push(ring);
+          s.tweens.add({ targets: ring, scale: 7, alpha: 0, duration: 800, ease: 'Cubic.easeOut' });
+          s.juice.shake(0.5);
+        });
+      }
+    });
+
+    // singular: an eclipse ring and the tier name burn in behind the card
+    if (find.fossil.tier >= 6) {
+      const eclipse = s.add.container(pos.x, pos.y).setDepth(812).setAlpha(0);
+      for (let i = 0; i < 24; i++) eclipse.add(s.add.image(0, 0, 'ray').setOrigin(0.5, 0).setAngle(i * 15).setTint(i % 2 ? 0xffffff : tier.color).setScale(0.5, 1.4).setAlpha(0.8));
+      eclipse.add(s.add.circle(0, 0, 150, 0x000000, 1));
+      objects.push(eclipse);
+      s.tweens.add({ targets: eclipse, alpha: 1, delay: 900, duration: 300 });
+      s.tweens.add({ targets: eclipse, angle: -360, duration: 9000, repeat: -1 });
+    }
+    if (find.fossil.tier >= 5) {
+      s.time.delayedCall(1250, () => {
+        const banner = outlined(s, pos.x, pos.y - CARD_H / 2 - 130, s.t(`tier.${tier.id}`).toUpperCase(), 64, tier.color, 12).setDepth(861);
+        fitText(banner, L.width - 60);
+        objects.push(banner);
+        s.juice.pop(banner, 0.2, 420);
+        s.tweens.add({ targets: banner, alpha: 0.6, yoyo: true, repeat: -1, duration: 420, delay: 600 });
+      });
+    }
+
+    // 3. The odds number slams in.
+    s.time.delayedCall(1450, () => {
+      const oddsBig = label(s, pos.x, pos.y + CARD_H / 2 + 80, oddsText(s, find.fossil.odds), { size: 84, color: tier.color });
+      oddsBig.setStroke(cssColor(PALETTE.shadow), 12).setDepth(860);
+      fitText(oddsBig, L.width - 60);
+      const rest = oddsBig.scaleX;
+      oddsBig.setScale(rest * 3.2).setAlpha(0);
+      objects.push(oddsBig);
+      // chain on completion (not a timer): under a slow clock a timer can fire mid-tween and the
+      // squash would yoyo back to an oversized scale
+      s.tweens.add({
+        targets: oddsBig,
+        scale: rest,
+        alpha: 1,
+        duration: 200,
+        ease: 'Quad.easeIn',
+        onComplete: () => {
+          oddsBig.setScale(rest);
+          s.oyun.audio.playPreset(SFX.slam);
+          s.juice.shake(0.35);
+          s.oyun.platform.haptic('heavy');
+          s.juice.burst(oddsBig.x, oddsBig.y, { count: 14, color: 0xffffff, texture: 'chip', distance: 220 });
+          s.tweens.add({ targets: oddsBig, scaleY: rest * 0.85, scaleX: rest * 1.08, duration: 70, yoyo: true, onComplete: () => oddsBig.setScale(rest) });
+        },
+      });
+      const title = outlined(s, pos.x, pos.y - CARD_H / 2 - 64, fossilName(s, find.fossil), 56, 0xffffff, 10).setDepth(860);
+      fitText(title, L.width - 60);
+      objects.push(title);
+      s.juice.pop(title, 0.4, 360);
+      const luckText = outlined(s, pos.x, pos.y + CARD_H / 2 + 156, luckLine(s, find.source, find.luck), 32, PALETTE.sand, 6).setDepth(860);
+      fitText(luckText, L.width - 60);
+      objects.push(luckText);
+      if (find.isNew) {
+        const tag = outlined(s, pos.x + CARD_W / 2, pos.y - CARD_H / 2 + BADGE_Y, s.t('reveal.new'), 40, PALETTE.ochreLight, 8).setDepth(905).setAngle(-10); // above sparks
+        objects.push(tag);
+        s.juice.pop(tag, 0.3, 320);
+      }
+      const why = find.pity ? s.t('reveal.pity') : isEcho(find) ? s.t('reveal.echo') : find.block === 'boss' ? s.t('reveal.boss') : null;
+      if (why) {
+        const tag = outlined(s, pos.x - CARD_W / 2, pos.y - CARD_H / 2 + BADGE_Y, why, 34, PALETTE.ochreLight, 7).setDepth(905).setAngle(8);
+        objects.push(tag);
+        s.juice.pop(tag, 0.3, 320);
+      }
+    });
+
+    // 4. Confetti rain and the prompt; only then can a tap close it.
+    s.time.delayedCall(1800, () => {
+      tierHaptics(s, find.fossil.tier, 140);
+      for (let i = 0; i < 26 + Math.max(0, find.fossil.tier - 4) * 20; i++) {
+        // behind the card, the name and the odds (they are what the player is here to read)
+        const star = s.add.image(Math.random() * L.width, L.top - 40 - Math.random() * 300, 'spark').setDepth(817).setTint(i % 3 ? tier.color : 0xffffff).setScale(0.8 + Math.random());
+        objects.push(star);
+        s.tweens.add({ targets: star, y: L.height + 60, angle: 360 * (Math.random() < 0.5 ? 1 : -1), duration: 2200 + Math.random() * 1800, ease: 'Sine.easeIn' });
+      }
+      const tap = outlined(s, L.cx, L.bottom - 70, s.t('reveal.tap'), 38, 0xffffff, 7).setDepth(870);
+      objects.push(tap);
+      s.tweens.add({ targets: tap, alpha: 0.35, yoyo: true, repeat: -1, duration: 600 });
+      if (this.grand) this.grand.canDismiss = true;
+    });
+  }
+}

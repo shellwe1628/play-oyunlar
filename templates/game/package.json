@@ -1,0 +1,23 @@
+{
+  "name": "@oyun/game-__SLUG__",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run",
+    "e2e": "playwright test -c playwright.config.ts"
+  },
+  "dependencies": {
+    "@capacitor/core": "8.6.2",
+    "@oyun/core": "*",
+    "phaser": "4.2.1"
+  },
+  "devDependencies": {
+    "@capacitor/android": "8.6.2",
+    "@capacitor/cli": "8.6.2"
+  }
+}

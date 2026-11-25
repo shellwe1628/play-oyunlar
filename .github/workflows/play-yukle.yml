@@ -1,0 +1,234 @@
+# Play'e yükle: build a signed release App Bundle for one game (or all three) and upload it to a
+# Google Play track, optionally with the store listing texts and images.
+# Owner's guide (Turkish, step by step): docs/production/play-yayin.md
+#
+# ---------------------------------------------------------------------------------------------
+# UNVERIFIED. THIS WORKFLOW HAS NEVER RUN. It was written where Google Play cannot be reached
+# and no credentials exist. What WAS checked locally (2026-11-17): the YAML parses; every secret,
+# path and script it names exists; `npm run aab` built signed release bundles for all three games
+# with a throwaway keystore (bundletool validate passed); tools/play-metadata.mjs prepared the
+# release notes; the fastlane version below installs and knows every `supply` option used here.
+# NOT checked: anything that talks to Google (service-account login, access to the three apps,
+# the upload itself, release notes and listing upload), the GitHub runner's preinstalled Android
+# SDK / Ruby, the gate's browser stage on the runner for these games, and the decoding of the
+# keystore secret. Expect to fix details on the first run; errors that are already known are
+# explained in the job summary when the upload step fails.
+# ---------------------------------------------------------------------------------------------
+#
+# Repository secrets (Settings → Secrets and variables → Actions → New repository secret):
+#   PLAY_SERVICE_ACCOUNT_JSON      the whole JSON key file of the Play service account
+#   PLAY_UPLOAD_KEYSTORE_BASE64    the upload keystore file (.jks / .p12), base64-encoded
+#   PLAY_UPLOAD_KEYSTORE_PASSWORD  its password
+#   PLAY_UPLOAD_KEY_ALIAS          the key alias inside it (e.g. upload)
+#   PLAY_UPLOAD_KEY_PASSWORD       optional: the key's own password if it differs from the keystore's
+# The repository is PUBLIC: logs and artifacts can be seen by others. Secrets are only ever passed
+# through environment variables and files under $RUNNER_TEMP that are deleted at the end; no step
+# prints them (GitHub also masks their values in logs).
+name: Play'e yükle
+
+on:
+  workflow_dispatch:
+    inputs:
+      game:
+        description: Oyun (games/ altındaki klasör) ya da hepsi
+        type: choice
+        options: [fosil, kivilcim, okcu, all]
+        default: fosil
+      track:
+        description: "Kanal: internal = dahili test, alpha = kapalı test, beta = açık test, production = üretim"
+        type: choice
+        options: [internal, alpha, beta, production]
+        default: internal
+      status:
+        description: "Sürüm durumu: draft = Console'da taslak (yeni uygulamalarda zorunlu), completed = hemen yayına"
+        type: choice
+        options: [draft, completed]
+        default: draft
+      listing:
+        description: Mağaza kaydını da gönder (metinler ve görseller, store/<slug>/metadata/android/)
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+# One upload at a time for the whole repository: two runs must not edit the same app at once.
+concurrency:
+  group: play-yukle
+  cancel-in-progress: false
+
+jobs:
+  plan:
+    name: Plan
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      slugs: ${{ steps.plan.outputs.slugs }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Choose games and check the track
+        id: plan
+        env:
+          GAME: ${{ inputs.game }}
+          TRACK: ${{ inputs.track }}
+        run: |
+          node --input-type=module -e '
+            import { readFileSync, appendFileSync } from "node:fs";
+            const cfg = JSON.parse(readFileSync("store/apps.json", "utf8"));
+            const { GAME, TRACK, GITHUB_OUTPUT } = process.env;
+            const apps = GAME === "all" ? cfg.apps : cfg.apps.filter((a) => a.slug === GAME);
+            if (!apps.length) { console.log(`::error::store/apps.json has no app ${GAME}`); process.exit(1); }
+            const web = apps.filter((a) => a.platform === "web").map((a) => a.slug);
+            if (TRACK === "production" && web.length) {
+              console.log(`::error title=Not for production::${web.join(", ")} use the web platform adapter: rewarded buttons give rewards without any ad. Wire a real ad provider (or hide those buttons) and set platform in store/apps.json first. See docs/production/play-yayin.md.`);
+              process.exit(1);
+            }
+            for (const a of apps) console.log(`${a.slug} -> ${a.applicationId} (${a.platform} adapter), track ${TRACK}`);
+            appendFileSync(GITHUB_OUTPUT, `slugs=${JSON.stringify(apps.map((a) => a.slug))}\n`);
+          '
+
+  upload:
+    name: ${{ matrix.slug }}
+    needs: plan
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        slug: ${{ fromJSON(needs.plan.outputs.slugs) }}
+    env:
+      SLUG: ${{ matrix.slug }}
+      TRACK: ${{ inputs.track }}
+      STATUS: ${{ inputs.status }}
+      LISTING: ${{ inputs.listing }}
+      FASTLANE_VERSION: 2.241.2
+    steps:
+      - name: Check secrets (names only, values are never printed)
+        env:
+          PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+          PLAY_UPLOAD_KEYSTORE_BASE64: ${{ secrets.PLAY_UPLOAD_KEYSTORE_BASE64 }}
+          PLAY_UPLOAD_KEYSTORE_PASSWORD: ${{ secrets.PLAY_UPLOAD_KEYSTORE_PASSWORD }}
+          PLAY_UPLOAD_KEY_ALIAS: ${{ secrets.PLAY_UPLOAD_KEY_ALIAS }}
+        run: |
+          missing=""
+          for name in PLAY_SERVICE_ACCOUNT_JSON PLAY_UPLOAD_KEYSTORE_BASE64 PLAY_UPLOAD_KEYSTORE_PASSWORD PLAY_UPLOAD_KEY_ALIAS; do
+            if [ -z "${!name}" ]; then missing="$missing $name"; fi
+          done
+          if [ -n "$missing" ]; then
+            echo "::error title=Missing repository secret::Add these under Settings > Secrets and variables > Actions:$missing (see docs/production/play-yayin.md)"
+            exit 1
+          fi
+          # The service-account key must be JSON of type service_account (contents not printed).
+          node -e 'let k; try { k = JSON.parse(process.env.PLAY_SERVICE_ACCOUNT_JSON); } catch { k = null; }
+            if (!k || k.type !== "service_account" || !k.private_key || !k.client_email) {
+              console.log("::error title=Bad secret::PLAY_SERVICE_ACCOUNT_JSON is not a service-account JSON key file (paste the whole downloaded .json file)"); process.exit(1); }'
+          echo "secrets present: PLAY_SERVICE_ACCOUNT_JSON PLAY_UPLOAD_KEYSTORE_BASE64 PLAY_UPLOAD_KEYSTORE_PASSWORD PLAY_UPLOAD_KEY_ALIAS"
+
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      # Capacitor 8 / AGP 8.13 need JDK 21. ubuntu-latest ships an Android SDK (ANDROID_HOME).
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - run: npm ci
+
+      # Quality gate for this game (core + game: typecheck, lint, unit tests, build, size budget,
+      # browser smoke test), the same as ci.yml runs for every push.
+      - run: npx playwright install --with-deps chromium
+      - name: Gate
+        run: npm run gate -- "$SLUG"
+
+      - name: Decode upload keystore
+        env:
+          PLAY_UPLOAD_KEYSTORE_BASE64: ${{ secrets.PLAY_UPLOAD_KEYSTORE_BASE64 }}
+        run: |
+          umask 077
+          if ! printf '%s' "$PLAY_UPLOAD_KEYSTORE_BASE64" | tr -d ' \r\n' | base64 -d > "$RUNNER_TEMP/upload.keystore" 2>/dev/null || [ ! -s "$RUNNER_TEMP/upload.keystore" ]; then
+            echo "::error title=Bad secret::PLAY_UPLOAD_KEYSTORE_BASE64 is not valid base64 of the keystore file (see docs/production/play-yayin.md)"
+            exit 1
+          fi
+          echo "keystore decoded ($(stat -c %s "$RUNNER_TEMP/upload.keystore") bytes)"
+
+      - name: Build signed App Bundle
+        env:
+          OYUN_UPLOAD_KEYSTORE: ${{ runner.temp }}/upload.keystore
+          OYUN_UPLOAD_KEYSTORE_PASSWORD: ${{ secrets.PLAY_UPLOAD_KEYSTORE_PASSWORD }}
+          OYUN_UPLOAD_KEY_ALIAS: ${{ secrets.PLAY_UPLOAD_KEY_ALIAS }}
+          OYUN_UPLOAD_KEY_PASSWORD: ${{ secrets.PLAY_UPLOAD_KEY_PASSWORD }}
+        run: |
+          npm run aab -- "$SLUG"
+          node -e 'const r = require(`./build/${process.env.SLUG}-release.json`);
+            require("fs").appendFileSync(process.env.GITHUB_ENV, `APP_ID=${r.applicationId}\nVERSION_CODE=${r.versionCode}\n`);
+            require("fs").appendFileSync(process.env.GITHUB_STEP_SUMMARY, [
+              `### ${process.env.SLUG}: ${r.applicationId}`, "",
+              `- versionCode **${r.versionCode}**, versionName ${r.versionName}, ${r.platform} adapter`,
+              `- ${(r.bytes / 1048576).toFixed(2)} MB, sha256 \`${r.sha256}\``,
+              `- upload certificate SHA-256 \`${r.uploadCertSha256}\` (compare: Play Console > Test and release > App integrity)`,
+              `- target SDK ${r.targetSdk}, min SDK ${r.minSdk}; icon: ${r.icon}`, "", ""].join("\n"));'
+
+      - name: Keep the AAB as a workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.slug }}-aab-${{ env.VERSION_CODE }}
+          path: |
+            build/${{ matrix.slug }}-release.aab
+            build/${{ matrix.slug }}-release.json
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Prepare release notes (and listing)
+        run: node tools/play-metadata.mjs "$SLUG" "$RUNNER_TEMP/metadata" $([ "$LISTING" = "true" ] && echo --listing)
+
+      - name: Install fastlane ${{ env.FASTLANE_VERSION }}
+        run: |
+          gem install fastlane -v "$FASTLANE_VERSION" --no-document --install-dir "$RUNNER_TEMP/gems"
+          echo "GEM_HOME=$RUNNER_TEMP/gems" >> "$GITHUB_ENV"
+          echo "GEM_PATH=$RUNNER_TEMP/gems" >> "$GITHUB_ENV"
+          echo "$RUNNER_TEMP/gems/bin" >> "$GITHUB_PATH"
+
+      - name: Upload to Google Play (${{ inputs.track }}, ${{ inputs.status }})
+        id: upload
+        env:
+          PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+          LC_ALL: C.UTF-8
+          LANG: C.UTF-8
+          FASTLANE_SKIP_UPDATE_CHECK: '1'
+          FASTLANE_OPT_OUT_USAGE: '1'
+          FASTLANE_HIDE_CHANGELOG: '1'
+        run: |
+          umask 077
+          printf '%s' "$PLAY_SERVICE_ACCOUNT_JSON" > "$RUNNER_TEMP/play-key.json"
+          if [ "$LISTING" = "true" ]; then skip=false; else skip=true; fi
+          fastlane supply \
+            --package_name "$APP_ID" \
+            --aab "build/$SLUG-release.aab" \
+            --track "$TRACK" \
+            --release_status "$STATUS" \
+            --json_key "$RUNNER_TEMP/play-key.json" \
+            --metadata_path "$RUNNER_TEMP/metadata" \
+            --skip_upload_apk true \
+            --skip_upload_changelogs false \
+            --skip_upload_metadata "$skip" \
+            --skip_upload_images "$skip" \
+            --skip_upload_screenshots "$skip" \
+            --sync_image_upload true
+
+      - name: Explain a failed upload
+        if: failure() && steps.upload.outcome == 'failure'
+        run: |
+          cat >> "$GITHUB_STEP_SUMMARY" <<'EOF'
+          ### Upload failed: known causes (docs/production/play-yayin.md, "Sorun giderme")
+          - **"Package not found" / "applicationNotFound"**: a brand-new app must get its very first App Bundle by hand. Download this run's AAB artifact and upload it in Play Console (Test and release > Testing > Internal testing > Create new release). Later runs can upload by API.
+          - **"Only releases with status draft may be created on draft app"**: the app setup is not finished yet; run again with status = draft.
+          - **"The caller does not have permission" / 403**: the service account has no access to this app (Play Console > Users and permissions) or the key belongs to another Google Cloud project.
+          - **"Version code ... has already been used"**: two builds in the same minute; just run again.
+          - **"APK/App Bundle signed with the wrong key"**: PLAY_UPLOAD_KEYSTORE_* is not the upload key registered for this app (Play Console > Test and release > App integrity shows the expected SHA-256; this run's summary shows the one used).
+          EOF
+
+      - name: Remove key files
+        if: always()
+        run: rm -f "$RUNNER_TEMP/play-key.json" "$RUNNER_TEMP/upload.keystore"

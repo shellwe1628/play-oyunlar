@@ -1,0 +1,134 @@
+/**
+ * Difficulty curves (pure). Every curve takes the difficulty LEVEL of a wave (see
+ * `levelOf` in chapters.ts: 1 at the first stage, about +3 per chapter), not the raw wave.
+ *
+ * Two settings: 'classic' (the 2D game, the balance asserted in tests/unit/world.test.ts) and
+ * 'hard' (the 3D build in apps/okcu-3d): enemies shoot sooner, more often and straighter, and
+ * hit at full strength from the first wave; enemies and bosses also take more arrows.
+ */
+export type Difficulty = 'classic' | 'hard';
+import type { BossKind } from './chapters';
+import type { EnemyType } from './combat';
+import { ARCHER_SCALE } from './tuning';
+
+/** Aim error (std dev): launch angle in radians and speed as a fraction. */
+export function enemyAccuracy(level: number, d: Difficulty = 'classic'): { angle: number; speed: number } {
+  const w = Math.max(1, level) - 1;
+  if (d === 'hard') return { angle: 0.04 + 0.13 * 0.72 ** w, speed: 0.015 + 0.03 * 0.8 ** w };
+  // never a sure hit: a floor of 0.05 rad keeps late volleys dodgeable by killing first
+  return { angle: 0.05 + 0.29 * 0.72 ** w, speed: 0.02 + 0.055 * 0.8 ** w };
+}
+
+/** Seconds to draw and between shots. */
+export function enemyTiming(level: number, d: Difficulty = 'classic'): { draw: number; cool: number } {
+  const w = Math.max(1, level) - 1;
+  if (d === 'hard') return { draw: Math.max(0.7, 1.25 - 0.06 * w), cool: Math.max(0.85, 1.15 - 0.05 * w) };
+  return { draw: Math.max(0.75, 1.6 - 0.08 * w), cool: Math.max(1.0, 1.5 - 0.07 * w) };
+}
+
+/** Enemy arrows hit harder as the run goes on. */
+export function enemyDamageMul(level: number, d: Difficulty = 'classic'): number {
+  const w = Math.max(1, level) - 1;
+  if (d === 'hard') return Math.min(1, 0.85 + 0.05 * w) * hardClimb(level, 1.07, HARD_LATE_DMG_GROWTH);
+  // gentle opening (45 % at level 1, full from level 5), then a slow ramp: later chapters
+  // test the bow (enemy health) more than the player's health bar
+  return Math.min(1, 0.45 + 0.11 * w) * 1.065 ** w;
+}
+
+/** Extra delay between enemies' first draws within a wave (shrinks to nothing by level 20). */
+export function graceStep(level: number, d: Difficulty = 'classic'): number {
+  if (d === 'hard') return 0.35 + 0.6 * Math.max(0, Math.min(1, (20 - level) / 16));
+  return 0.5 + 0.9 * Math.max(0, Math.min(1, (20 - level) / 16));
+}
+
+/** Chance that a regular enemy is a helmeted veteran (no one-shot headshots). */
+export function helmetChance(level: number): number {
+  return Math.max(0, Math.min(1, (level - 13) * 0.2));
+}
+
+/** Seconds before the first enemy draws in a wave (shrinks late in a run). */
+export function waveGrace(level: number, d: Difficulty = 'classic'): number {
+  if (d === 'hard') return Math.max(0.8, 1.1 - 0.1 * (Math.max(1, level) - 1));
+  // never under a second: a new wave always gives time for the first shot
+  return Math.max(1, 1.6 - 0.12 * (Math.max(1, level) - 1));
+}
+
+export const BASE_HP: Record<EnemyType, number> = {
+  archer: 40,
+  shield: 45,
+  jumper: 40,
+  bomber: 45,
+  boss: 380,
+  healer: 32,
+  cover: 40,
+  catcher: 45,
+  ward: 40,
+  elite: 70,
+  imp: 22,
+  // a volley archer is a plain archer that hangs back; the wizard is frail and blinks away instead
+  volley: 42,
+  mage: 34,
+  // plate armour: a little more health, and arrows do a third (combat.ts ARMORED_RESIST)
+  armored: 50,
+};
+
+/** Each chapter boss's health at its own chapter (endless cycles add 35 % per lap). */
+export const BOSS_HP: Record<BossKind, number> = { shields: 170, giant: 420, summoner: 380, warden: 520, magma: 640, tempest: 760 };
+
+/** hard: enemy health growth per difficulty level (≈ ×4.5 a chapter) */
+export const HARD_HP_GROWTH = 1.2;
+/** hard: how much heavier (harder to shove, whip and knock off) enemies get per difficulty level */
+export const HARD_WEIGHT_GROWTH = 1.12;
+/** hard: coins earned in a run, as a share of classic (the forged bow is the long climb; raised from 0.6 when bosses began to ask for the recommended power and barrage chains stopped paying, to keep level 10 at 3–4 h and level 14 within 8 h) */
+export const HARD_COIN_MUL = 0.8;
+
+/**
+ * hard: from this level on (chapter 5 starts at 23.5) health, damage and weight climb more
+ * gently: ×1.1 health, ×1.035 damage and ×1.05 weight a level instead of ×1.2, ×1.07 and ×1.12.
+ * Chapter 4's numbers are unchanged; chapter 6's last stage (level 31.8) ends about 2.3× as
+ * tough as chapter 4's (a bow +25 deals 1.3× of a +20's damage in hard, the rest is the run's
+ * longer hand of cards), instead of 5× had the old growth simply continued.
+ */
+export const HARD_LATE_LEVEL = 23;
+export const HARD_LATE_HP_GROWTH = 1.1;
+export const HARD_LATE_DMG_GROWTH = 1.035;
+export const HARD_LATE_WEIGHT_GROWTH = 1.05;
+
+/** growth^(level − 1) up to HARD_LATE_LEVEL, then `late` per level beyond it. */
+export function hardClimb(level: number, growth: number, late: number): number {
+  const L = Math.max(1, level);
+  return growth ** (Math.min(L, HARD_LATE_LEVEL) - 1) * late ** Math.max(0, L - HARD_LATE_LEVEL);
+}
+
+/**
+ * How hard an enemy is to push around: arrows' whip, stance shove and knockout kick are divided
+ * by it. 'classic' is 1; 'hard' grows with the level, so a knock-off later in the run needs the
+ * run's heavy cards and a forged bow (the bow adds push in hard, see `bowPush`).
+ */
+export function enemyWeight(level: number, d: Difficulty = 'classic'): number {
+  if (d !== 'hard') return 1;
+  return hardClimb(level, HARD_WEIGHT_GROWTH, HARD_LATE_WEIGHT_GROWTH);
+}
+
+export function enemyHp(type: EnemyType, level: number, d: Difficulty = 'classic'): number {
+  // +12 % a level from level 8 to 22 (the chapters), then +8 % a level in endless
+  const L = Math.max(1, level);
+  // hard: one smooth climb that tracks the forged bow (×1 at +0 … ×2.8 at +20) and the run's cards,
+  // so a stronger bow makes earlier chapters fall in one or two arrows and later ones ask for more
+  if (d === 'hard') return Math.round(BASE_HP[type] * 1.3 * hardClimb(L, HARD_HP_GROWTH, HARD_LATE_HP_GROWTH));
+  return Math.round(BASE_HP[type] * (1 + 0.6 * (L - 1)) * 1.12 ** Math.min(14, Math.max(0, L - 8)) * 1.08 ** Math.max(0, L - 22));
+}
+
+/**
+ * hard: boss health over the classic table. The first boss gets more: its shield ring alone went
+ * down in five arrows and four seconds, the chapter's finale a formality.
+ */
+export const HARD_BOSS_HP: Record<BossKind, number> = { shields: 2.4, giant: 1.3, summoner: 1.3, warden: 1.3, magma: 1.3, tempest: 1.3 };
+
+export function bossHp(kind: BossKind, lap: number, d: Difficulty = 'classic'): number {
+  return Math.round(BOSS_HP[kind] * (d === 'hard' ? HARD_BOSS_HP[kind] : 1) * (1 + 0.35 * lap));
+}
+
+export function enemyScale(type: EnemyType): number {
+  return ARCHER_SCALE * (type === 'boss' ? 1.45 : type === 'elite' ? 1.18 : type === 'imp' ? 0.82 : 1);
+}
